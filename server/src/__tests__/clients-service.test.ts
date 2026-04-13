@@ -177,7 +177,7 @@ describeEmbeddedPostgres("clientService", () => {
     expect(projectsAfter).toHaveLength(0);
   });
 
-  it("creates and lists a client project with joined project name and metadata", async () => {
+  it("creates and lists a client project with joined project name, project status, and metadata", async () => {
     const client = await svc.create(companyId, { name: "Link Test" });
     await svc.createProject(companyId, {
       clientId: client!.id,
@@ -192,6 +192,7 @@ describeEmbeddedPostgres("clientService", () => {
     const linked = await svc.listProjects(client!.id, companyId);
     expect(linked).toHaveLength(1);
     expect(linked[0]!.projectName).toBe("Relationship Project");
+    expect(linked[0]!.status).toBe("planned");
     expect(linked[0]!.metadata).toEqual({ legacyProjectType: "consultoria" });
     expect(linked[0]!.tags).toEqual(["python", "sql"]);
   });
@@ -236,7 +237,7 @@ describeEmbeddedPostgres("clientService", () => {
       description: "Updated relationship",
     });
     expect(updated).toBeDefined();
-    expect(updated!.status).toBe("active");
+    expect(updated!.status).toBe("planned");
     expect(updated!.description).toBe("Updated relationship");
 
     await expect(

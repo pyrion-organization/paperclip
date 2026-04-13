@@ -1,4 +1,4 @@
-import type { ClientStatus, ClientProjectStatus } from "../constants.js";
+import type { ClientStatus, ProjectStatus } from "../constants.js";
 
 export interface ClientMetadata {
   cnpj?: string;
@@ -35,7 +35,7 @@ export interface ClientProject {
   clientId: string;
   projectId: string;
   projectNameOverride: string | null;
-  status: ClientProjectStatus;
+  status: ProjectStatus;
   description: string | null;
   startDate: string | null;
   endDate: string | null;

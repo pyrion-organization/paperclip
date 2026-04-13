@@ -530,6 +530,7 @@ function invalidateActivityQueries(
   if (entityType === "project") {
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
     if (entityId) queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(entityId) });
+    queryClient.invalidateQueries({ queryKey: ["clients", "projects"] });
     return;
   }
 
@@ -548,9 +549,14 @@ function invalidateActivityQueries(
     queryClient.invalidateQueries({ queryKey: queryKeys.clients.list(companyId) });
     const details = readRecord(payload.details);
     const clientId = readString(details?.clientId);
+    const projectId = readString(details?.projectId);
     if (clientId) {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(clientId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(clientId) });
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(companyId) });
+    if (projectId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) });
     }
     return;
   }

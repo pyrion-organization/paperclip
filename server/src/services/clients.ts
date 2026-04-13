@@ -31,6 +31,25 @@ function enrichClientProject<
   };
 }
 
+function listProjectsSelection() {
+  return {
+    id: clientProjects.id,
+    companyId: clientProjects.companyId,
+    clientId: clientProjects.clientId,
+    projectId: clientProjects.projectId,
+    projectNameOverride: clientProjects.projectNameOverride,
+    status: projects.status,
+    description: clientProjects.description,
+    startDate: clientProjects.startDate,
+    endDate: clientProjects.endDate,
+    tags: clientProjects.tags,
+    metadata: clientProjects.metadata,
+    createdAt: clientProjects.createdAt,
+    updatedAt: clientProjects.updatedAt,
+    projectName: projects.name,
+  };
+}
+
 export function clientService(db: Db) {
   return {
     async list(companyId: string, opts?: { limit?: number; offset?: number }) {
@@ -171,22 +190,7 @@ export function clientService(db: Db) {
         ? and(eq(clientProjects.clientId, clientId), eq(clientProjects.companyId, companyId))
         : eq(clientProjects.clientId, clientId);
       return db
-        .select({
-          id: clientProjects.id,
-          companyId: clientProjects.companyId,
-          clientId: clientProjects.clientId,
-          projectId: clientProjects.projectId,
-          projectNameOverride: clientProjects.projectNameOverride,
-          status: clientProjects.status,
-          description: clientProjects.description,
-          startDate: clientProjects.startDate,
-          endDate: clientProjects.endDate,
-          tags: clientProjects.tags,
-          metadata: clientProjects.metadata,
-          createdAt: clientProjects.createdAt,
-          updatedAt: clientProjects.updatedAt,
-          projectName: projects.name,
-        })
+        .select(listProjectsSelection())
         .from(clientProjects)
         .leftJoin(projects, eq(clientProjects.projectId, projects.id))
         .where(where)
@@ -199,22 +203,7 @@ export function clientService(db: Db) {
         ? and(eq(clientProjects.id, id), eq(clientProjects.companyId, companyId))
         : eq(clientProjects.id, id);
       return db
-        .select({
-          id: clientProjects.id,
-          companyId: clientProjects.companyId,
-          clientId: clientProjects.clientId,
-          projectId: clientProjects.projectId,
-          projectNameOverride: clientProjects.projectNameOverride,
-          status: clientProjects.status,
-          description: clientProjects.description,
-          startDate: clientProjects.startDate,
-          endDate: clientProjects.endDate,
-          tags: clientProjects.tags,
-          metadata: clientProjects.metadata,
-          createdAt: clientProjects.createdAt,
-          updatedAt: clientProjects.updatedAt,
-          projectName: projects.name,
-        })
+        .select(listProjectsSelection())
         .from(clientProjects)
         .leftJoin(projects, eq(clientProjects.projectId, projects.id))
         .where(where)
@@ -263,7 +252,7 @@ export function clientService(db: Db) {
       if (!project) throw notFound("Project not found");
       if (existingLink) throw conflict("Client is already linked to this project");
 
-      return db
+      const created = await db
         .insert(clientProjects)
         .values({
           ...data,
@@ -272,7 +261,18 @@ export function clientService(db: Db) {
           metadata: normalizeMetadata(data.metadata ?? null),
         })
         .returning()
-        .then((rows) => enrichClientProject(rows[0]));
+        .then((rows) => rows[0] ?? null);
+
+      if (!created) return null;
+      return await db
+        .select(listProjectsSelection())
+        .from(clientProjects)
+        .leftJoin(projects, eq(clientProjects.projectId, projects.id))
+        .where(and(eq(clientProjects.id, created.id), eq(clientProjects.companyId, companyId)))
+        .then((rows) => {
+          const clientProject = rows[0] ?? null;
+          return clientProject ? enrichClientProject(clientProject) : null;
+        });
     },
 
     async updateProject(id: string, companyId: string, data: Record<string, unknown>) {
@@ -280,7 +280,7 @@ export function clientService(db: Db) {
         throw conflict("Client project links cannot change clientId or projectId after creation");
       }
 
-      return db
+      const updated = await db
         .update(clientProjects)
         .set({
           ...data,
@@ -292,6 +292,14 @@ export function clientService(db: Db) {
         })
         .where(and(eq(clientProjects.id, id), eq(clientProjects.companyId, companyId)))
         .returning()
+        .then((rows) => rows[0] ?? null);
+
+      if (!updated) return null;
+      return await db
+        .select(listProjectsSelection())
+        .from(clientProjects)
+        .leftJoin(projects, eq(clientProjects.projectId, projects.id))
+        .where(and(eq(clientProjects.id, updated.id), eq(clientProjects.companyId, companyId)))
         .then((rows) => {
           const clientProject = rows[0] ?? null;
           return clientProject ? enrichClientProject(clientProject) : null;

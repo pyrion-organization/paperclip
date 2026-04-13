@@ -231,6 +231,7 @@ export type {
   CompanyInstructionsFileDetail,
   CompanyInstructionsBundle,
   Project,
+  ProjectClientRef,
   ProjectCodebase,
   ProjectCodebaseOrigin,
   ProjectGoalRef,

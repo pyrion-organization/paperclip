@@ -8,6 +8,7 @@ export { clientInstructionsService, resolveClientInstructionsRoot } from "./clie
 export { assetService } from "./assets.js";
 export { documentService, extractLegacyPlanBody } from "./documents.js";
 export { clientService } from "./clients.js";
+export { listActiveProjectClientLinks, type ActiveProjectClientLinkRow } from "./project-clients.js";
 export { projectService } from "./projects.js";
 export { issueService, type IssueFilters } from "./issues.js";
 export { issueApprovalService } from "./issue-approvals.js";

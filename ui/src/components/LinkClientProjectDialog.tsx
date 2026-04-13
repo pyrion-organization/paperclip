@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ClientProject } from "@paperclipai/shared";
-import { CLIENT_PROJECT_STATUSES } from "@paperclipai/shared";
 import { clientsApi } from "../api/clients";
 import { projectsApi } from "../api/projects";
 import { queryKeys } from "../lib/queryKeys";
@@ -33,7 +32,6 @@ export function LinkClientProjectDialog({
 
   const [projectId, setProjectId] = useState("");
   const [projectNameOverride, setProjectNameOverride] = useState("");
-  const [status, setStatus] = useState("active");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [description, setDescription] = useState("");
@@ -59,7 +57,6 @@ export function LinkClientProjectDialog({
   function reset() {
     setProjectId("");
     setProjectNameOverride("");
-    setStatus("active");
     setStartDate("");
     setEndDate("");
     setDescription("");
@@ -75,7 +72,6 @@ export function LinkClientProjectDialog({
     }
     setProjectId(editingProject.projectId);
     setProjectNameOverride(editingProject.projectNameOverride ?? "");
-    setStatus(editingProject.status);
     setStartDate(editingProject.startDate ? new Date(editingProject.startDate).toISOString().slice(0, 10) : "");
     setEndDate(editingProject.endDate ? new Date(editingProject.endDate).toISOString().slice(0, 10) : "");
     setDescription(editingProject.description ?? "");
@@ -103,7 +99,6 @@ export function LinkClientProjectDialog({
     try {
       const data: Record<string, unknown> = {};
       if (mode === "create") data.projectId = projectId;
-      data.status = status;
       data.projectNameOverride = projectNameOverride.trim() || null;
       data.startDate = startDate || null;
       data.endDate = endDate || null;
@@ -174,21 +169,6 @@ export function LinkClientProjectDialog({
                 value={projectNameOverride}
                 onChange={(e) => setProjectNameOverride(e.target.value)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label>Relationship status</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CLIENT_PROJECT_STATUSES.map((statusOption) => (
-                    <SelectItem key={statusOption} value={statusOption}>
-                      {statusOption}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label>Start date</Label>

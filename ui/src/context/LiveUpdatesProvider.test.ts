@@ -118,7 +118,7 @@ describe("LiveUpdatesProvider issue invalidation", () => {
         entityType: "client_project",
         entityId: "client-project-1",
         action: "client_project.updated",
-        details: { clientId: "client-1" },
+        details: { clientId: "client-1", projectId: "project-1" },
       },
       { userId: null, agentId: null },
     );
@@ -131,6 +131,44 @@ describe("LiveUpdatesProvider issue invalidation", () => {
     });
     expect(invalidations).toContainEqual({
       queryKey: queryKeys.clients.projects("client-1"),
+    });
+    expect(invalidations).toContainEqual({
+      queryKey: queryKeys.projects.list("company-1"),
+    });
+    expect(invalidations).toContainEqual({
+      queryKey: queryKeys.projects.detail("project-1"),
+    });
+  });
+
+  it("refreshes linked client project queries when a project changes", () => {
+    const invalidations: unknown[] = [];
+    const queryClient = {
+      invalidateQueries: (input: unknown) => {
+        invalidations.push(input);
+      },
+      getQueryData: () => undefined,
+    };
+
+    __liveUpdatesTestUtils.invalidateActivityQueries(
+      queryClient as never,
+      "company-1",
+      {
+        entityType: "project",
+        entityId: "project-1",
+        action: "project.updated",
+        details: null,
+      },
+      { userId: null, agentId: null },
+    );
+
+    expect(invalidations).toContainEqual({
+      queryKey: queryKeys.projects.list("company-1"),
+    });
+    expect(invalidations).toContainEqual({
+      queryKey: queryKeys.projects.detail("project-1"),
+    });
+    expect(invalidations).toContainEqual({
+      queryKey: ["clients", "projects"],
     });
   });
 

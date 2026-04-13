@@ -11,8 +11,6 @@ import {
   agentRuntimeState,
   agentTaskSessions,
   agentWakeupRequests,
-  clients,
-  clientProjects,
   heartbeatRunEvents,
   heartbeatRuns,
   issueComments,
@@ -34,6 +32,7 @@ import { getTelemetryClient } from "../telemetry.js";
 import { companySkillService } from "./company-skills.js";
 import { resolveCompanyInstructionsRoot } from "./company-instructions.js";
 import { resolveClientInstructionsRoot } from "./client-instructions.js";
+import { listActiveProjectClientLinks } from "./project-clients.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
 import { secretService } from "./secrets.js";
 import { resolveDefaultAgentWorkspaceDir, resolveManagedProjectWorkspaceDir } from "../home-paths.js";
@@ -2995,42 +2994,25 @@ export function heartbeatService(db: Db) {
 
     // Compose company, client, and agent instructions into a single runtime file for all adapters.
     try {
-      let runtimeClientLinks: RuntimeClientLink[] = [];
-      if (resolvedProjectId) {
-        runtimeClientLinks = await db
-          .select({
-            clientId: clients.id,
-            clientName: clients.name,
-            clientEmail: clients.email,
-            clientPhone: clients.phone,
-            clientContactName: clients.contactName,
-            clientNotes: clients.notes,
-            clientMetadata: clients.metadata,
-            projectDescription: clientProjects.description,
-            tags: clientProjects.tags,
-            projectNameOverride: clientProjects.projectNameOverride,
-            projectMetadata: clientProjects.metadata,
-          })
-          .from(clientProjects)
-          .innerJoin(clients, eq(clientProjects.clientId, clients.id))
-          .where(
-            and(
-              eq(clientProjects.projectId, resolvedProjectId),
-              eq(clientProjects.status, "active"),
-              eq(clients.status, "active"),
+      const runtimeClientLinks: RuntimeClientLink[] = resolvedProjectId
+        ? (await listActiveProjectClientLinks(db, agent.companyId, resolvedProjectId)).map((row) => ({
+            clientId: row.clientId,
+            clientInstructionsFilePath: path.join(
+              resolveClientInstructionsRoot(agent.companyId, row.clientId),
+              "CLIENT.md",
             ),
-          )
-          .orderBy(asc(clientProjects.createdAt), asc(clients.name))
-          .then((rows) =>
-            rows.map((row) => ({
-              ...row,
-              clientInstructionsFilePath: path.join(
-                resolveClientInstructionsRoot(agent.companyId, row.clientId),
-                "CLIENT.md",
-              ),
-            })),
-          );
-      }
+            clientName: row.clientName,
+            clientEmail: row.clientEmail,
+            clientPhone: row.clientPhone,
+            clientContactName: row.clientContactName,
+            clientNotes: row.clientNotes,
+            clientMetadata: row.clientMetadata,
+            projectDescription: row.relationshipDescription,
+            tags: row.relationshipTags,
+            projectNameOverride: row.projectNameOverride,
+            projectMetadata: row.projectMetadata,
+          }))
+        : [];
 
       const composedInstructionsFilePath = await composeRuntimeInstructionsFile({
         runId: run.id,

@@ -193,6 +193,7 @@ export function clientRoutes(db: Db) {
       ...req.body,
       clientId,
     });
+    if (!cp) throw notFound("Client project not found");
     const actor = getActorInfo(req);
     await logActivity(db, {
       companyId: client.companyId,
@@ -222,7 +223,7 @@ export function clientRoutes(db: Db) {
       action: "client_project.updated",
       entityType: "client_project",
       entityId: id,
-      details: { changedKeys: Object.keys(req.body) },
+      details: { clientId: existing.clientId, projectId: existing.projectId, changedKeys: Object.keys(req.body) },
     });
     res.json(updated);
   });
