@@ -119,6 +119,11 @@ export type {
 } from "./issue.js";
 export type { Client, ClientProject } from "./client.js";
 export type {
+  ClientInstructionsFileSummary,
+  ClientInstructionsFileDetail,
+  ClientInstructionsBundle,
+} from "./client-instructions.js";
+export type {
   CompanyInstructionsFileSummary,
   CompanyInstructionsFileDetail,
   CompanyInstructionsBundle,

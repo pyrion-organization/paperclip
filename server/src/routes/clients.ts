@@ -5,15 +5,17 @@ import {
   updateClientSchema,
   createClientProjectSchema,
   updateClientProjectSchema,
+  upsertClientInstructionsFileSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { clientService, logActivity } from "../services/index.js";
+import { clientInstructionsService, clientService, logActivity } from "../services/index.js";
 import { notFound } from "../errors.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 export function clientRoutes(db: Db) {
   const router = Router();
   const svc = clientService(db);
+  const instructions = clientInstructionsService();
 
   // ── Clients CRUD ──────────────────────────────────────────────
 
@@ -92,6 +94,83 @@ export function clientRoutes(db: Db) {
       details: { name: existing.name },
     });
     res.json({ ok: true });
+  });
+
+  // ── Client Instructions ──────────────────────────────────────
+
+  router.get("/clients/:id/instructions-bundle", async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    assertBoard(req);
+    res.json(await instructions.getBundle(client.companyId, id));
+  });
+
+  router.get("/clients/:id/instructions-bundle/file", async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    assertBoard(req);
+    const relativePath = typeof req.query.path === "string" ? req.query.path : "";
+    if (!relativePath.trim()) {
+      res.status(422).json({ error: "Query parameter 'path' is required" });
+      return;
+    }
+    res.json(await instructions.readFile(client.companyId, id, relativePath));
+  });
+
+  router.put("/clients/:id/instructions-bundle/file", validate(upsertClientInstructionsFileSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    assertBoard(req);
+    const actor = getActorInfo(req);
+    const result = await instructions.writeFile(client.companyId, id, req.body.path, req.body.content);
+    await logActivity(db, {
+      companyId: client.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "client.instructions_file_updated",
+      entityType: "client",
+      entityId: id,
+      details: {
+        path: result.file.path,
+        size: result.file.size,
+      },
+    });
+    res.json(result.file);
+  });
+
+  router.delete("/clients/:id/instructions-bundle/file", async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    assertBoard(req);
+    const relativePath = typeof req.query.path === "string" ? req.query.path : "";
+    if (!relativePath.trim()) {
+      res.status(422).json({ error: "Query parameter 'path' is required" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    const result = await instructions.deleteFile(client.companyId, id, relativePath);
+    await logActivity(db, {
+      companyId: client.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "client.instructions_file_deleted",
+      entityType: "client",
+      entityId: id,
+      details: { path: relativePath },
+    });
+    res.json(result.bundle);
   });
 
   // ── Client Projects CRUD ──────────────────────────────────────

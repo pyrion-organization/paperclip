@@ -538,6 +538,8 @@ function invalidateActivityQueries(
     if (entityId) {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(entityId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(entityId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.instructionsBundle(entityId) });
+      queryClient.invalidateQueries({ queryKey: ["clients", "instructions-file", entityId] });
     }
     return;
   }

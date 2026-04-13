@@ -179,6 +179,11 @@ export {
 } from "./execution-workspace.js";
 
 export {
+  upsertClientInstructionsFileSchema,
+  type UpsertClientInstructionsFile,
+} from "./client-instructions.js";
+
+export {
   upsertCompanyInstructionsFileSchema,
   type UpsertCompanyInstructionsFile,
 } from "./company-instructions.js";

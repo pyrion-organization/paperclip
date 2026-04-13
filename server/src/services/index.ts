@@ -4,6 +4,7 @@ export { companySkillService } from "./company-skills.js";
 export { agentService, deduplicateAgentName } from "./agents.js";
 export { agentInstructionsService, syncInstructionsBundleConfigFromFilePath } from "./agent-instructions.js";
 export { companyInstructionsService, resolveCompanyInstructionsRoot } from "./company-instructions.js";
+export { clientInstructionsService, resolveClientInstructionsRoot } from "./client-instructions.js";
 export { assetService } from "./assets.js";
 export { documentService, extractLegacyPlanBody } from "./documents.js";
 export { clientService } from "./clients.js";

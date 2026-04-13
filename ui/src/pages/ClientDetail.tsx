@@ -102,6 +102,10 @@ export function ClientDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedInstructionsFile, setSelectedInstructionsFile] = useState("CLIENT.md");
 
+  useEffect(() => {
+    setSelectedInstructionsFile("CLIENT.md");
+  }, [clientId]);
+
   const { data: client, isLoading } = useQuery({
     queryKey: queryKeys.clients.detail(clientId!),
     queryFn: () => clientsApi.get(clientId!),

@@ -94,6 +94,12 @@ describe("LiveUpdatesProvider issue invalidation", () => {
     expect(invalidations).toContainEqual({
       queryKey: queryKeys.clients.projects("client-1"),
     });
+    expect(invalidations).toContainEqual({
+      queryKey: queryKeys.clients.instructionsBundle("client-1"),
+    });
+    expect(invalidations).toContainEqual({
+      queryKey: ["clients", "instructions-file", "client-1"],
+    });
   });
 
   it("refreshes client relationship queries for client project activity events", () => {

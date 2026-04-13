@@ -61,6 +61,8 @@ describe("activity formatting", () => {
   it("formats client relationship events with native labels", () => {
     expect(formatActivityVerb("client.created")).toBe("created");
     expect(formatIssueActivityAction("client.created")).toBe("created the client");
+    expect(formatActivityVerb("client.instructions_file_updated")).toBe("updated instructions on");
+    expect(formatIssueActivityAction("client.instructions_file_deleted")).toBe("deleted client instructions");
     expect(formatActivityVerb("client_project.created")).toBe("linked project to");
     expect(formatIssueActivityAction("client_project.deleted")).toBe("removed a linked project");
   });

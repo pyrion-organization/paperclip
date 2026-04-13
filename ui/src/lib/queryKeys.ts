@@ -78,6 +78,9 @@ export const queryKeys = {
     list: (companyId: string) => ["clients", companyId] as const,
     detail: (id: string) => ["clients", "detail", id] as const,
     projects: (clientId: string) => ["clients", "projects", clientId] as const,
+    instructionsBundle: (clientId: string) => ["clients", "instructions-bundle", clientId] as const,
+    instructionsFile: (clientId: string, relativePath: string) =>
+      ["clients", "instructions-file", clientId, relativePath] as const,
   },
   projects: {
     list: (companyId: string) => ["projects", companyId] as const,
