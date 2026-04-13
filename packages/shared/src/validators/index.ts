@@ -179,6 +179,17 @@ export {
 } from "./execution-workspace.js";
 
 export {
+  createClientSchema,
+  updateClientSchema,
+  createClientProjectSchema,
+  updateClientProjectSchema,
+  type CreateClient,
+  type UpdateClient,
+  type CreateClientProject,
+  type UpdateClientProject,
+} from "./client.js";
+
+export {
   createGoalSchema,
   updateGoalSchema,
   type CreateGoal,

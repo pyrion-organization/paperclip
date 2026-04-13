@@ -168,6 +168,18 @@ export const PROJECT_STATUSES = [
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+export const CLIENT_STATUSES = ["active", "inactive", "archived"] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+
+export const CLIENT_PROJECT_STATUSES = ["active", "paused", "completed", "cancelled"] as const;
+export type ClientProjectStatus = (typeof CLIENT_PROJECT_STATUSES)[number];
+
+export const CLIENT_PROJECT_TYPES = ["consultoria", "implementacao", "desenvolvimento"] as const;
+export type ClientProjectType = (typeof CLIENT_PROJECT_TYPES)[number];
+
+export const CLIENT_PROJECT_BILLING_TYPES = ["monthly", "one_time"] as const;
+export type ClientProjectBillingType = (typeof CLIENT_PROJECT_BILLING_TYPES)[number];
+
 export const ROUTINE_STATUSES = ["active", "paused", "archived"] as const;
 export type RoutineStatus = (typeof ROUTINE_STATUSES)[number];
 

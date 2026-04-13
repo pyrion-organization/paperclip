@@ -117,6 +117,7 @@ export type {
   IssueAttachment,
   IssueLabel,
 } from "./issue.js";
+export type { Client, ClientProject } from "./client.js";
 export type { Goal } from "./goal.js";
 export type { Approval, ApprovalComment } from "./approval.js";
 export type {

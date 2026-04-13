@@ -9,6 +9,8 @@ import { Dashboard } from "./pages/Dashboard";
 import { Companies } from "./pages/Companies";
 import { Agents } from "./pages/Agents";
 import { AgentDetail } from "./pages/AgentDetail";
+import { Clients } from "./pages/Clients";
+import { ClientDetail } from "./pages/ClientDetail";
 import { Projects } from "./pages/Projects";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { ProjectWorkspaceDetail } from "./pages/ProjectWorkspaceDetail";
@@ -142,6 +144,8 @@ function boardRoutes() {
       <Route path="agents/:agentId" element={<AgentDetail />} />
       <Route path="agents/:agentId/:tab" element={<AgentDetail />} />
       <Route path="agents/:agentId/runs/:runId" element={<AgentDetail />} />
+      <Route path="clients" element={<Clients />} />
+      <Route path="clients/:clientId" element={<ClientDetail />} />
       <Route path="projects" element={<Projects />} />
       <Route path="projects/:projectId" element={<ProjectDetail />} />
       <Route path="projects/:projectId/overview" element={<ProjectDetail />} />
