@@ -138,6 +138,26 @@ export interface ProjectFilesSyncResult {
   message: string | null;
 }
 
+export type ProjectFilesBranchSyncAction =
+  | "pushed_to_remote"
+  | "created_local_tracking"
+  | "remote_deleted_local_remains"
+  | "already_in_sync"
+  | "error";
+
+export interface ProjectFilesBranchSyncDetail {
+  branchName: string;
+  action: ProjectFilesBranchSyncAction;
+  errorMessage: string | null;
+}
+
+export interface ProjectFilesBranchSyncResult {
+  status: "success" | "partial" | "auth_error" | "error";
+  details: ProjectFilesBranchSyncDetail[];
+  summary: ProjectFilesSummary;
+  message: string | null;
+}
+
 export interface Project {
   id: string;
   companyId: string;

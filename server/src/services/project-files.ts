@@ -7,6 +7,8 @@ import type {
   ProjectFileDetail,
   ProjectFilesAheadBehind,
   ProjectFilesBranch,
+  ProjectFilesBranchSyncDetail,
+  ProjectFilesBranchSyncResult,
   ProjectFilesDirtyState,
   ProjectFilesSummary,
   ProjectFilesSyncResult,
@@ -524,6 +526,149 @@ export function projectFilesService(db: Db) {
         status,
         summary: await buildSummary(project),
         message,
+      };
+    },
+
+    async syncBranches(projectId: string): Promise<ProjectFilesBranchSyncResult> {
+      const project = await ensureProject(projectId, db);
+      const summary = await buildSummary(project);
+      if (!summary.available || !summary.repoRoot) {
+        throw badRequest("Project is not a git checkout");
+      }
+
+      const repoRoot = summary.repoRoot;
+      const details: ProjectFilesBranchSyncDetail[] = [];
+
+      // Step 1: fetch --prune to update remote refs and mark gone upstreams
+      try {
+        await runGit(["fetch", "--prune", "origin"], repoRoot);
+      } catch (error) {
+        const errorMessage = sanitizeGitError(error, "Git fetch failed");
+        const isAuthError = /auth|permission denied|could not read from remote repository|authentication/i.test(errorMessage);
+        return {
+          status: isAuthError ? "auth_error" : "error",
+          details: [],
+          summary: await buildSummary(project),
+          message: errorMessage,
+        };
+      }
+
+      // Step 2: inspect local branches with upstream tracking info
+      // %(upstream:track) returns "[gone]" when upstream was pruned by fetch --prune
+      let localRaw = "";
+      try {
+        localRaw = (
+          await runGit(
+            ["for-each-ref", "--format=%(refname:short)|%(upstream:short)|%(upstream:track)", "refs/heads"],
+            repoRoot,
+          )
+        ).stdout;
+      } catch {
+        localRaw = "";
+      }
+
+      type LocalBranchInfo = { name: string; upstream: string | null; trackStatus: string };
+      const localBranches: LocalBranchInfo[] = [];
+      const localBranchNames = new Set<string>();
+
+      for (const line of localRaw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const parts = line.split("|");
+        const name = parts[0] ?? "";
+        const upstream = parts[1] || null;
+        const trackStatus = parts[2] ?? "";
+        if (!name) continue;
+        localBranchNames.add(name);
+        localBranches.push({ name, upstream, trackStatus });
+      }
+
+      // Step 3: inspect remote branches on origin (after prune, these are all live)
+      let remoteRaw = "";
+      try {
+        remoteRaw = (
+          await runGit(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], repoRoot)
+        ).stdout;
+      } catch {
+        remoteRaw = "";
+      }
+
+      const remoteBranchNames = new Set<string>();
+      for (const line of remoteRaw.split(/\r?\n/)) {
+        const name = line.trim();
+        if (!name || name === "origin/HEAD") continue;
+        const shortName = name.startsWith("origin/") ? name.slice("origin/".length) : name;
+        remoteBranchNames.add(shortName);
+      }
+
+      // Step 4: process each local branch
+      for (const local of localBranches) {
+        if (local.trackStatus.includes("[gone]")) {
+          // Remote was deleted; report but do NOT auto-delete local branch
+          details.push({
+            branchName: local.name,
+            action: "remote_deleted_local_remains",
+            errorMessage: `Upstream '${local.upstream ?? "unknown"}' was deleted on origin`,
+          });
+          continue;
+        }
+
+        if (!local.upstream) {
+          // No upstream configured — push to establish tracking
+          try {
+            await runGit(["push", "--set-upstream", "origin", local.name], repoRoot);
+            details.push({ branchName: local.name, action: "pushed_to_remote", errorMessage: null });
+          } catch (error) {
+            details.push({
+              branchName: local.name,
+              action: "error",
+              errorMessage: sanitizeGitError(error, `Failed to push ${local.name}`),
+            });
+          }
+          continue;
+        }
+
+        // Has valid upstream — fetch --prune already updated the ref
+        details.push({ branchName: local.name, action: "already_in_sync", errorMessage: null });
+      }
+
+      // Step 5: create local tracking branches for remote-only branches
+      for (const remoteName of remoteBranchNames) {
+        if (!localBranchNames.has(remoteName)) {
+          try {
+            // Creates local tracking branch without checking it out (does not disturb working tree)
+            await runGit(["branch", "--track", remoteName, `origin/${remoteName}`], repoRoot);
+            details.push({ branchName: remoteName, action: "created_local_tracking", errorMessage: null });
+          } catch (error) {
+            details.push({
+              branchName: remoteName,
+              action: "error",
+              errorMessage: sanitizeGitError(error, `Failed to create tracking branch for ${remoteName}`),
+            });
+          }
+        }
+      }
+
+      // Step 6: determine overall status
+      const hasGone = details.some((d) => d.action === "remote_deleted_local_remains");
+      const hasError = details.some((d) => d.action === "error");
+      const status: ProjectFilesBranchSyncResult["status"] = hasGone || hasError ? "partial" : "success";
+
+      const syncedCount = details.filter(
+        (d) => d.action === "pushed_to_remote" || d.action === "created_local_tracking" || d.action === "already_in_sync",
+      ).length;
+      const goneCount = details.filter((d) => d.action === "remote_deleted_local_remains").length;
+      const errorCount = details.filter((d) => d.action === "error").length;
+
+      const messageParts: string[] = [];
+      if (syncedCount > 0) messageParts.push(`${syncedCount} branch${syncedCount !== 1 ? "es" : ""} in sync`);
+      if (goneCount > 0) messageParts.push(`${goneCount} with deleted upstream${goneCount !== 1 ? "s" : ""}`);
+      if (errorCount > 0) messageParts.push(`${errorCount} error${errorCount !== 1 ? "s" : ""}`);
+
+      return {
+        status,
+        details,
+        summary: await buildSummary(project),
+        message: messageParts.join(", ") || null,
       };
     },
   };

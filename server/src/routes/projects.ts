@@ -674,6 +674,37 @@ export function projectRoutes(db: Db) {
     res.json(result);
   });
 
+  router.post("/projects/:id/files/branches/sync", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertBoard(req);
+    assertCompanyAccess(req, project.companyId);
+    const result = await filesSvc.syncBranches(id);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.branches_synced",
+      entityType: "project",
+      entityId: id,
+      details: {
+        status: result.status,
+        branchesSynced: result.details.filter(
+          (d) => d.action !== "error" && d.action !== "remote_deleted_local_remains",
+        ).length,
+        branchesWithDeletedUpstream: result.details.filter((d) => d.action === "remote_deleted_local_remains").length,
+        errors: result.details.filter((d) => d.action === "error").length,
+      },
+    });
+    res.json(result);
+  });
+
   router.delete("/projects/:id", async (req, res) => {
     const id = req.params.id as string;
     const existing = await svc.getById(id);

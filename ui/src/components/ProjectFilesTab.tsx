@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { ProjectFileDetail, ProjectFilesBranch, ProjectFilesTreeEntry } from "@paperclipai/shared";
-import { AlertCircle, ChevronLeft, ChevronRight, Copy, FilePlus2, FolderPlus, FolderTree, GitBranch, RefreshCw, Save, Search } from "lucide-react";
+import type { ProjectFileDetail, ProjectFilesBranch, ProjectFilesBranchSyncDetail, ProjectFilesBranchSyncResult, ProjectFilesTreeEntry } from "@paperclipai/shared";
+import { AlertCircle, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronLeft, ChevronRight, Cloud, Copy, FilePlus2, FolderPlus, FolderTree, GitBranch, GitMerge, RefreshCw, Save, XCircle } from "lucide-react";
 import { projectsApi } from "../api/projects";
 import { ApiError } from "../api/client";
 import { queryKeys } from "../lib/queryKeys";
@@ -49,6 +49,33 @@ function treeSignature(entries: ProjectFilesTreeEntry[]) {
     .join("|");
 }
 
+const BRANCH_SYNC_ACTION_CONFIG: Record<
+  ProjectFilesBranchSyncDetail["action"],
+  { icon: React.ReactNode; label: string; textColor: string }
+> = {
+  pushed_to_remote: { icon: <ArrowUpFromLine className="h-4 w-4" />, label: "Pushed to remote", textColor: "text-green-400" },
+  created_local_tracking: { icon: <ArrowDownToLine className="h-4 w-4" />, label: "Created local tracking branch", textColor: "text-blue-400" },
+  remote_deleted_local_remains: { icon: <AlertTriangle className="h-4 w-4" />, label: "Remote deleted — local branch remains", textColor: "text-amber-400" },
+  already_in_sync: { icon: <CheckCircle2 className="h-4 w-4" />, label: "In sync", textColor: "text-muted-foreground" },
+  error: { icon: <XCircle className="h-4 w-4" />, label: "Error", textColor: "text-destructive" },
+};
+
+function BranchSyncDetailRow({ detail }: { detail: ProjectFilesBranchSyncDetail }) {
+  const config = BRANCH_SYNC_ACTION_CONFIG[detail.action];
+  return (
+    <div className={`flex items-start gap-2 text-sm py-1 ${config.textColor}`}>
+      <span className="mt-0.5 shrink-0">{config.icon}</span>
+      <div className="min-w-0 flex-1">
+        <span className="font-mono font-medium">{detail.branchName}</span>
+        <span className="ml-2 text-xs opacity-75">{config.label}</span>
+        {detail.errorMessage ? (
+          <p className="text-xs opacity-60 truncate mt-0.5">{detail.errorMessage}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ProjectFilesTab({
   projectId,
   companyId,
@@ -70,6 +97,8 @@ export function ProjectFilesTab({
   const [actionTargetPath, setActionTargetPath] = useState<string | null>(null);
   const [pathDraft, setPathDraft] = useState("");
   const [dirtyBranchTarget, setDirtyBranchTarget] = useState<string | null>(null);
+  const [branchSyncDialogOpen, setBranchSyncDialogOpen] = useState(false);
+  const [branchSyncResult, setBranchSyncResult] = useState<ProjectFilesBranchSyncResult | null>(null);
   const [showReloadHint, setShowReloadHint] = useState(false);
   const [editorValue, setEditorValue] = useState("");
   const [markdownViewMode, setMarkdownViewMode] = useState<"preview" | "source">("preview");
@@ -223,6 +252,7 @@ export function ProjectFilesTab({
     mutationFn: (name: string) => projectsApi.createBranch(projectId, { name }, companyId),
     onSuccess: async () => {
       setCreateBranchName("");
+      setBranchDialogOpen(false);
       await refreshAll();
     },
     onError: (mutationError) => {
@@ -245,6 +275,21 @@ export function ProjectFilesTab({
     onError: (mutationError) => {
       pushToast({
         title: mutationError instanceof Error ? mutationError.message : "Failed to sync repository",
+        tone: "error",
+      });
+    },
+  });
+
+  const syncBranches = useMutation({
+    mutationFn: () => projectsApi.syncBranches(projectId, companyId),
+    onSuccess: async (result) => {
+      await refreshAll();
+      setBranchSyncResult(result);
+      setBranchSyncDialogOpen(true);
+    },
+    onError: (mutationError) => {
+      pushToast({
+        title: mutationError instanceof Error ? mutationError.message : "Failed to sync branches",
         tone: "error",
       });
     },
@@ -302,8 +347,13 @@ export function ProjectFilesTab({
     },
   });
 
-  const filteredBranches = useMemo(
-    () => filterBranches(summary?.branches ?? [], branchSearch),
+  const filteredLocalBranches = useMemo(
+    () => filterBranches((summary?.branches ?? []).filter((b) => b.kind === "local"), branchSearch),
+    [branchSearch, summary?.branches],
+  );
+
+  const filteredRemoteBranches = useMemo(
+    () => filterBranches((summary?.branches ?? []).filter((b) => b.kind === "remote"), branchSearch),
     [branchSearch, summary?.branches],
   );
 
@@ -415,6 +465,10 @@ export function ProjectFilesTab({
         <Button variant="outline" size="sm" onClick={() => syncRepo.mutate()} disabled={syncRepo.isPending}>
           <RefreshCw className={`h-4 w-4 ${syncRepo.isPending ? "animate-spin" : ""}`} />
           Git Sync
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => syncBranches.mutate()} disabled={syncBranches.isPending}>
+          <GitMerge className={`h-4 w-4 ${syncBranches.isPending ? "animate-spin" : ""}`} />
+          Branch Sync
         </Button>
       </div>
 
@@ -584,44 +638,58 @@ export function ProjectFilesTab({
         </div>
       </div>
 
-      <Dialog open={branchDialogOpen} onOpenChange={setBranchDialogOpen}>
+      <Dialog open={branchDialogOpen} onOpenChange={(open) => { setBranchDialogOpen(open); if (!open) setBranchSearch(""); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Switch branch</DialogTitle>
             <DialogDescription>
-              Search local and remote branches. Selecting an `origin/*` branch creates a tracking branch automatically.
+              Local and remote branches. Selecting a remote branch creates a local tracking branch automatically.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={branchSearch} onChange={(event) => setBranchSearch(event.target.value)} className="pl-9" placeholder="Search branches..." />
-              </div>
-              <Button variant="outline" onClick={() => void refetch()}>
+              <Command className="rounded-md border flex-1">
+                <CommandInput placeholder="Search branches..." value={branchSearch} onValueChange={setBranchSearch} />
+                <CommandList>
+                  <CommandEmpty>No branches found.</CommandEmpty>
+                  {filteredLocalBranches.length > 0 && (
+                    <CommandGroup heading="Local">
+                      {filteredLocalBranches.map((branch) => (
+                        <CommandItem key={`local:${branch.name}`} onSelect={() => switchBranch.mutate({ branch: branch.name })}>
+                          <GitBranch className="h-4 w-4 shrink-0" />
+                          <span className={`flex-1 ${branch.current ? "font-semibold" : ""}`}>{branch.name}</span>
+                          {branch.tracking ? <span className="text-xs text-muted-foreground truncate max-w-[120px]">→ {branch.tracking}</span> : null}
+                          {branch.current ? <Check className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                  {filteredRemoteBranches.length > 0 && (
+                    <CommandGroup heading="Remote">
+                      {filteredRemoteBranches.map((branch) => (
+                        <CommandItem key={`remote:${branch.name}`} onSelect={() => switchBranch.mutate({ branch: branch.name })}>
+                          <Cloud className="h-4 w-4 shrink-0" />
+                          <span className="flex-1">{branch.name}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+              <Button variant="outline" size="sm" onClick={() => void refetch()} className="self-start mt-1">
                 Refresh
               </Button>
             </div>
-            <Command className="rounded-md border">
-              <CommandInput placeholder="Filter branches..." value={branchSearch} onValueChange={setBranchSearch} />
-              <CommandList>
-                <CommandEmpty>No branches found.</CommandEmpty>
-                <CommandGroup heading="Branches">
-                  {filteredBranches.map((branch) => (
-                    <CommandItem key={`${branch.kind}:${branch.name}`} onSelect={() => switchBranch.mutate({ branch: branch.name })}>
-                      <GitBranch className="h-4 w-4" />
-                      <span className="flex-1">{branch.name}</span>
-                      {branch.current ? <span className="text-xs text-muted-foreground">current</span> : null}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
             <div className="flex items-center gap-2">
               <Input
                 value={createBranchName}
                 onChange={(event) => setCreateBranchName(event.target.value)}
-                placeholder="Create new branch"
+                placeholder="New branch name"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && createBranchName.trim() && !createBranch.isPending) {
+                    createBranch.mutate(createBranchName);
+                  }
+                }}
               />
               <Button onClick={() => createBranch.mutate(createBranchName)} disabled={!createBranchName.trim() || createBranch.isPending}>
                 Create branch
@@ -636,7 +704,7 @@ export function ProjectFilesTab({
           <DialogHeader>
             <DialogTitle>Working tree has local changes</DialogTitle>
             <DialogDescription>
-              Switching branches now would lose or move uncommitted changes. Choose how to continue.
+              Switching to <code className="font-mono">{dirtyBranchTarget}</code> would move or lose uncommitted changes. Choose how to continue.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -696,6 +764,41 @@ export function ProjectFilesTab({
               disabled={createPath.isPending || (createPathOpen !== "delete" && !pathDraft.trim())}
             >
               {createPathOpen === "delete" ? "Delete" : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={branchSyncDialogOpen} onOpenChange={setBranchSyncDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Branch Sync Results</DialogTitle>
+            <DialogDescription>
+              {branchSyncResult?.message ?? "All branches have been reconciled with origin."}
+            </DialogDescription>
+          </DialogHeader>
+          {branchSyncResult && (
+            <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+              {branchSyncResult.details.some((d) => d.action === "remote_deleted_local_remains") && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm space-y-1 mb-3">
+                  <p className="font-medium text-amber-200 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4" />
+                    Some branches have deleted upstreams
+                  </p>
+                  <p className="text-amber-100/80 text-xs">
+                    These local branches tracked a remote branch that has since been deleted. Delete them manually with{" "}
+                    <code className="font-mono">git branch -d &lt;name&gt;</code> when ready.
+                  </p>
+                </div>
+              )}
+              {branchSyncResult.details.map((detail) => (
+                <BranchSyncDetailRow key={detail.branchName} detail={detail} />
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBranchSyncDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

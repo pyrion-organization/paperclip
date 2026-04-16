@@ -77,6 +77,9 @@ export type {
   ProjectFileDetail,
   ProjectFilesSummary,
   ProjectFilesSyncResult,
+  ProjectFilesBranchSyncAction,
+  ProjectFilesBranchSyncDetail,
+  ProjectFilesBranchSyncResult,
 } from "./project.js";
 export type {
   ExecutionWorkspace,

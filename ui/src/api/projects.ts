@@ -1,6 +1,7 @@
 import type {
   Project,
   ProjectFileDetail,
+  ProjectFilesBranchSyncResult,
   ProjectFilesSummary,
   ProjectFilesSyncResult,
   ProjectFilesTreeResponse,
@@ -80,6 +81,8 @@ export const projectsApi = {
   ) => api.post<ProjectFilesSummary>(projectPath(projectId, companyId, "/files/branch/create"), data),
   syncFiles: (projectId: string, companyId?: string) =>
     api.post<ProjectFilesSyncResult>(projectPath(projectId, companyId, "/files/sync"), {}),
+  syncBranches: (projectId: string, companyId?: string) =>
+    api.post<ProjectFilesBranchSyncResult>(projectPath(projectId, companyId, "/files/branches/sync"), {}),
   removeWorkspace: (projectId: string, workspaceId: string, companyId?: string) =>
     api.delete<ProjectWorkspace>(projectPath(projectId, companyId, `/workspaces/${encodeURIComponent(workspaceId)}`)),
   remove: (id: string, companyId?: string) => api.delete<Project>(projectPath(id, companyId)),
