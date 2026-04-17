@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { GitStatusEntry, GitStatusResponse, ProjectFileDetail, ProjectFilesBranch, ProjectFilesBranchSyncDetail, ProjectFilesBranchSyncResult, ProjectFilesTreeEntry } from "@paperclipai/shared";
-import { AlertCircle, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronLeft, ChevronRight, Cloud, Copy, FilePlus2, FolderPlus, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Loader2, Minus, Plus, RefreshCw, Save, UploadCloud, XCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronLeft, ChevronRight, Cloud, Copy, FilePlus2, FolderPlus, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Loader2, Minus, Plus, RefreshCw, RotateCcw, Save, Trash2, UploadCloud, XCircle } from "lucide-react";
 import { projectsApi } from "../api/projects";
 import { ApiError } from "../api/client";
 import { queryKeys } from "../lib/queryKeys";
@@ -99,6 +99,7 @@ function GitFileRow({
   onSelect,
   onStage,
   onUnstage,
+  onDiscard,
 }: {
   entry: GitStatusEntry;
   staged: boolean;
@@ -106,9 +107,11 @@ function GitFileRow({
   onSelect: () => void;
   onStage?: () => void;
   onUnstage?: () => void;
+  onDiscard?: () => void;
 }) {
   const statusLetter = staged ? entry.indexStatus : (entry.isUntracked ? "?" : entry.workingStatus);
   const fileName = entry.path.split("/").pop() ?? entry.path;
+  const dirPart = entry.path !== fileName ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
   return (
     <div
       className={`group flex items-center gap-1 rounded px-2 py-1 text-sm cursor-pointer hover:bg-accent/30 ${selected ? "bg-accent/20 text-foreground" : "text-muted-foreground"}`}
@@ -116,14 +119,14 @@ function GitFileRow({
     >
       <span className="min-w-0 flex-1 truncate font-mono text-xs" title={entry.path}>
         {fileName}
-        <span className="ml-1 text-[10px] opacity-50">{entry.path !== fileName ? entry.path.slice(0, entry.path.lastIndexOf("/")) : ""}</span>
+        {dirPart ? <span className="ml-1 text-[10px] opacity-50">{dirPart}</span> : null}
       </span>
       {gitStatusBadge(statusLetter)}
       {staged && onUnstage ? (
         <button
           type="button"
           title="Unstage"
-          className="ml-1 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
+          className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
           onClick={(e) => { e.stopPropagation(); onUnstage(); }}
         >
           <Minus className="h-3 w-3" />
@@ -133,10 +136,20 @@ function GitFileRow({
         <button
           type="button"
           title="Stage"
-          className="ml-1 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
+          className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
           onClick={(e) => { e.stopPropagation(); onStage(); }}
         >
           <Plus className="h-3 w-3" />
+        </button>
+      ) : null}
+      {onDiscard ? (
+        <button
+          type="button"
+          title={entry.isUntracked ? "Delete file" : "Discard changes"}
+          className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
+          onClick={(e) => { e.stopPropagation(); onDiscard(); }}
+        >
+          {entry.isUntracked ? <Trash2 className="h-3 w-3" /> : <RotateCcw className="h-3 w-3" />}
         </button>
       ) : null}
     </div>
@@ -148,11 +161,13 @@ function GitSectionHeader({
   count,
   onStageAll,
   onUnstageAll,
+  onDiscardAll,
 }: {
   label: string;
   count: number;
   onStageAll?: () => void;
   onUnstageAll?: () => void;
+  onDiscardAll?: () => void;
 }) {
   return (
     <div className="flex items-center gap-1 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -165,6 +180,11 @@ function GitSectionHeader({
       {onUnstageAll ? (
         <button type="button" title="Unstage all" className="rounded p-0.5 hover:bg-accent hover:text-foreground" onClick={onUnstageAll}>
           <Minus className="h-3 w-3" />
+        </button>
+      ) : null}
+      {onDiscardAll ? (
+        <button type="button" title="Discard all" className="rounded p-0.5 hover:bg-destructive/20 hover:text-destructive" onClick={onDiscardAll}>
+          <RotateCcw className="h-3 w-3" />
         </button>
       ) : null}
     </div>
@@ -232,6 +252,7 @@ export function ProjectFilesTab({
   const [gitViewActive, setGitViewActive] = useState(false);
   const [gitSelectedFile, setGitSelectedFile] = useState<{ path: string; staged: boolean } | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [discardConfirmPaths, setDiscardConfirmPaths] = useState<string[] | null>(null);
   const entriesByDirRef = useRef<TreeCache>({});
   const selectedPathRef = useRef<string | null>(null);
   const loadingDirKeysRef = useRef<Set<string>>(new Set());
@@ -472,6 +493,18 @@ export function ProjectFilesTab({
         tone: "error",
       });
     },
+  });
+
+  const discardFiles = useMutation({
+    mutationFn: (paths: string[]) => projectsApi.discardFiles(projectId, { paths }, companyId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.projects.gitStatus(projectId, companyId), data);
+      setDiscardConfirmPaths(null);
+      if (gitSelectedFile && !data.entries.some((e) => e.path === gitSelectedFile.path)) {
+        setGitSelectedFile(null);
+      }
+    },
+    onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Discard failed", tone: "error" }),
   });
 
   const stageFiles = useMutation({
@@ -809,6 +842,7 @@ export function ProjectFilesTab({
                         label="Staged"
                         count={stagedEntries.length}
                         onUnstageAll={() => unstageFiles.mutate(stagedEntries.map((e) => e.path))}
+                        onDiscardAll={() => setDiscardConfirmPaths(stagedEntries.map((e) => e.path))}
                       />
                       {stagedEntries.map((entry) => (
                         <GitFileRow
@@ -818,6 +852,7 @@ export function ProjectFilesTab({
                           selected={gitSelectedFile?.path === entry.path && gitSelectedFile?.staged === true}
                           onSelect={() => setGitSelectedFile({ path: entry.path, staged: true })}
                           onUnstage={() => unstageFiles.mutate([entry.path])}
+                          onDiscard={() => setDiscardConfirmPaths([entry.path])}
                         />
                       ))}
                     </div>
@@ -829,6 +864,7 @@ export function ProjectFilesTab({
                         label="Changes"
                         count={unstagedEntries.length}
                         onStageAll={() => stageFiles.mutate(unstagedEntries.map((e) => e.path))}
+                        onDiscardAll={() => setDiscardConfirmPaths(unstagedEntries.map((e) => e.path))}
                       />
                       {unstagedEntries.map((entry) => (
                         <GitFileRow
@@ -838,6 +874,7 @@ export function ProjectFilesTab({
                           selected={gitSelectedFile?.path === entry.path && gitSelectedFile?.staged === false}
                           onSelect={() => setGitSelectedFile({ path: entry.path, staged: false })}
                           onStage={() => stageFiles.mutate([entry.path])}
+                          onDiscard={() => setDiscardConfirmPaths([entry.path])}
                         />
                       ))}
                     </div>
@@ -849,6 +886,7 @@ export function ProjectFilesTab({
                         label="Untracked"
                         count={untrackedEntries.length}
                         onStageAll={() => stageFiles.mutate(untrackedEntries.map((e) => e.path))}
+                        onDiscardAll={() => setDiscardConfirmPaths(untrackedEntries.map((e) => e.path))}
                       />
                       {untrackedEntries.map((entry) => (
                         <GitFileRow
@@ -858,6 +896,7 @@ export function ProjectFilesTab({
                           selected={gitSelectedFile?.path === entry.path && gitSelectedFile?.staged === false}
                           onSelect={() => setGitSelectedFile({ path: entry.path, staged: false })}
                           onStage={() => stageFiles.mutate([entry.path])}
+                          onDiscard={() => setDiscardConfirmPaths([entry.path])}
                         />
                       ))}
                     </div>
@@ -866,27 +905,30 @@ export function ProjectFilesTab({
               )}
 
               <div className="space-y-2 border-t border-border pt-2">
-                <textarea
-                  className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  rows={3}
-                  placeholder="Commit message..."
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && commitMessage.trim() && stagedEntries.length > 0) {
-                      commitStaged.mutate(commitMessage);
-                    }
-                  }}
-                />
-                <div className="flex gap-2">
+                {!compactTreePane ? (
+                  <textarea
+                    className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    rows={3}
+                    placeholder="Commit message..."
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && commitMessage.trim() && stagedEntries.length > 0) {
+                        commitStaged.mutate(commitMessage);
+                      }
+                    }}
+                  />
+                ) : null}
+                <div className="flex gap-1.5">
                   <Button
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                     onClick={() => commitStaged.mutate(commitMessage)}
                     disabled={!commitMessage.trim() || stagedEntries.length === 0 || commitStaged.isPending}
+                    title="Commit staged changes"
                   >
                     {commitStaged.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitCommitHorizontal className="h-3.5 w-3.5" />}
-                    Commit
+                    {!compactTreePane ? "Commit" : null}
                   </Button>
                   {summary.hasRemote ? (
                     <Button
@@ -895,15 +937,22 @@ export function ProjectFilesTab({
                       onClick={() => pushFiles.mutate()}
                       disabled={pushFiles.isPending}
                       title="Push to remote"
+                      className="shrink-0"
                     >
                       {pushFiles.isPending ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <ArrowUpFromLine className="h-3.5 w-3.5" />
                       )}
-                      Push
-                      {summary.aheadBehind?.ahead ? (
-                        <span className="ml-1 text-xs opacity-70">↑{summary.aheadBehind.ahead}</span>
+                      {!compactTreePane ? (
+                        <>
+                          Push
+                          {summary.aheadBehind?.ahead ? (
+                            <span className="ml-1 text-xs opacity-70">↑{summary.aheadBehind.ahead}</span>
+                          ) : null}
+                        </>
+                      ) : summary.aheadBehind?.ahead ? (
+                        <span className="text-[10px] opacity-70">↑{summary.aheadBehind.ahead}</span>
                       ) : null}
                     </Button>
                   ) : null}
@@ -1220,6 +1269,30 @@ export function ProjectFilesTab({
           <DialogFooter>
             <Button variant="outline" onClick={() => setBranchSyncDialogOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={discardConfirmPaths !== null} onOpenChange={(open) => { if (!open) setDiscardConfirmPaths(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard changes?</DialogTitle>
+            <DialogDescription>
+              {discardConfirmPaths?.length === 1
+                ? `This will permanently discard changes to "${discardConfirmPaths[0]}". This cannot be undone.`
+                : `This will permanently discard changes to ${discardConfirmPaths?.length ?? 0} files. This cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDiscardConfirmPaths(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => discardConfirmPaths && discardFiles.mutate(discardConfirmPaths)}
+              disabled={discardFiles.isPending}
+            >
+              {discardFiles.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Discard
             </Button>
           </DialogFooter>
         </DialogContent>

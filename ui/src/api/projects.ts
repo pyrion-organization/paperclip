@@ -104,6 +104,8 @@ export const projectsApi = {
     api.get<GitDiffResponse>(
       projectPath(projectId, companyId, `/files/git-diff?path=${encodeURIComponent(filePath)}${staged ? "&staged=true" : ""}`),
     ),
+  discardFiles: (projectId: string, data: { paths: string[] }, companyId?: string) =>
+    api.post<GitStatusResponse>(projectPath(projectId, companyId, "/files/git-discard"), data),
   pushFiles: (projectId: string, companyId?: string) =>
     api.post<GitPushResult>(projectPath(projectId, companyId, "/files/git-push"), {}),
   removeWorkspace: (projectId: string, workspaceId: string, companyId?: string) =>

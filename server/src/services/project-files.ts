@@ -823,6 +823,43 @@ export function projectFilesService(db: Db) {
       }
     },
 
+    async discardFiles(projectId: string, paths: string[]): Promise<GitStatusResponse> {
+      const project = await ensureProject(projectId, db);
+      const summary = await buildSummary(project);
+      if (!summary.available || !summary.repoRoot) throw badRequest("Project is not a git checkout");
+      if (!paths.length) throw badRequest("At least one path is required");
+
+      const statusOutput = (await runGit(["status", "--porcelain=v1", "--untracked-files=all"], summary.repoRoot)).stdout;
+      const untrackedPaths = new Set<string>();
+      for (const line of statusOutput.split(/\r?\n/)) {
+        if (!line) continue;
+        if (line.startsWith("??")) untrackedPaths.add(line.slice(3).trim());
+      }
+
+      const trackedPaths = paths.filter((p) => !untrackedPaths.has(p));
+      const untracked = paths.filter((p) => untrackedPaths.has(p));
+
+      if (trackedPaths.length > 0) {
+        try {
+          await runGit(["restore", "--staged", "--worktree", "--", ...trackedPaths], summary.repoRoot);
+        } catch {
+          // some paths may not be staged — fall back to worktree-only restore
+          try {
+            await runGit(["restore", "--worktree", "--", ...trackedPaths], summary.repoRoot);
+          } catch (error) {
+            throw conflict(sanitizeGitError(error, "Failed to discard changes"));
+          }
+        }
+      }
+
+      for (const filePath of untracked) {
+        const absPath = resolvePathWithinRoot(summary.repoRoot, filePath);
+        await fs.rm(absPath, { recursive: true, force: true });
+      }
+
+      return await this.getGitStatus(projectId);
+    },
+
     async pushFiles(projectId: string): Promise<GitPushResult> {
       const project = await ensureProject(projectId, db);
       const summary = await buildSummary(project);

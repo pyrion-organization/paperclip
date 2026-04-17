@@ -823,6 +823,20 @@ export function projectRoutes(db: Db) {
     res.json(result);
   });
 
+  router.post("/projects/:id/files/git-discard", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+    assertBoard(req);
+    assertCompanyAccess(req, project.companyId);
+    const { paths } = req.body as { paths?: unknown };
+    if (!Array.isArray(paths) || paths.length === 0) {
+      res.status(400).json({ error: "paths array is required" }); return;
+    }
+    const result = await filesSvc.discardFiles(id, paths.map(String));
+    res.json(result);
+  });
+
   router.post("/projects/:id/files/git-push", async (req, res) => {
     const id = req.params.id as string;
     const project = await svc.getById(id);
