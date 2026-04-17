@@ -655,12 +655,27 @@ export function projectFilesService(db: Db) {
       // Step 4: process each local branch
       for (const local of localBranches) {
         if (local.trackStatus.includes("[gone]")) {
-          // Remote was deleted; report but do NOT auto-delete local branch
-          details.push({
-            branchName: local.name,
-            action: "remote_deleted_local_remains",
-            errorMessage: `Upstream '${local.upstream ?? "unknown"}' was deleted on origin`,
-          });
+          // Remote was deleted — try to auto-delete the local branch
+          if (local.name === summary.currentBranch) {
+            // Cannot delete the currently checked-out branch
+            details.push({
+              branchName: local.name,
+              action: "remote_deleted_local_remains",
+              errorMessage: "Cannot delete current branch — switch to another branch first",
+            });
+            continue;
+          }
+          try {
+            await runGit(["branch", "-d", local.name], repoRoot);
+            details.push({ branchName: local.name, action: "local_auto_deleted", errorMessage: null });
+          } catch (error) {
+            // -d refuses to delete branches with unmerged commits; surface as actionable message
+            details.push({
+              branchName: local.name,
+              action: "remote_deleted_local_remains",
+              errorMessage: sanitizeGitError(error, `Could not delete ${local.name} — may have unmerged commits`),
+            });
+          }
           continue;
         }
 

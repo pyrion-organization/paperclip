@@ -143,6 +143,7 @@ export type ProjectFilesBranchSyncAction =
   | "pushed_to_remote"
   | "created_local_tracking"
   | "remote_deleted_local_remains"
+  | "local_auto_deleted"
   | "already_in_sync"
   | "error";
 

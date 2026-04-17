@@ -55,7 +55,8 @@ const BRANCH_SYNC_ACTION_CONFIG: Record<
 > = {
   pushed_to_remote: { icon: <ArrowUpFromLine className="h-4 w-4" />, label: "Pushed to remote", textColor: "text-green-400" },
   created_local_tracking: { icon: <ArrowDownToLine className="h-4 w-4" />, label: "Created local tracking branch", textColor: "text-blue-400" },
-  remote_deleted_local_remains: { icon: <AlertTriangle className="h-4 w-4" />, label: "Remote deleted — local branch remains", textColor: "text-amber-400" },
+  local_auto_deleted: { icon: <XCircle className="h-4 w-4" />, label: "Local branch deleted (remote was gone)", textColor: "text-muted-foreground" },
+  remote_deleted_local_remains: { icon: <AlertTriangle className="h-4 w-4" />, label: "Remote deleted — could not auto-delete local", textColor: "text-amber-400" },
   already_in_sync: { icon: <CheckCircle2 className="h-4 w-4" />, label: "In sync", textColor: "text-muted-foreground" },
   error: { icon: <XCircle className="h-4 w-4" />, label: "Error", textColor: "text-destructive" },
 };
@@ -1256,10 +1257,10 @@ export function ProjectFilesTab({
                 <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm space-y-1 mb-3">
                   <p className="font-medium text-amber-200 flex items-center gap-1.5">
                     <AlertTriangle className="h-4 w-4" />
-                    Some branches have deleted upstreams
+                    Some branches could not be auto-deleted
                   </p>
                   <p className="text-amber-100/80 text-xs">
-                    These local branches tracked a remote branch that has since been deleted. Delete them manually with{" "}
+                    These local branches have a deleted upstream but could not be removed automatically (current branch or unmerged commits). Delete manually with{" "}
                     <code className="font-mono">git branch -d &lt;name&gt;</code> when ready.
                   </p>
                 </div>
