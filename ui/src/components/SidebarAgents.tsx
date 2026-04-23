@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { NavLink, useLocation } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, ChevronRight, Plus } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";
 import { useSidebar } from "../context/SidebarContext";
@@ -14,14 +14,8 @@ import { cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { useAgentOrder } from "../hooks/useAgentOrder";
 import { AgentIcon } from "./AgentIconPicker";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import type { Agent } from "@paperclipai/shared";
 export function SidebarAgents() {
-  const [open, setOpen] = useState(true);
   const { selectedCompanyId } = useCompany();
   const { openNewAgent } = useDialog();
   const { isMobile, isCollapsed, setSidebarOpen } = useSidebar();
@@ -71,7 +65,7 @@ export function SidebarAgents() {
 
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <div>
       <div className="group">
         <div className={cn("flex items-center py-1.5", isCollapsed ? "px-2 justify-center" : "px-3")}>
           {isCollapsed ? (
@@ -79,17 +73,11 @@ export function SidebarAgents() {
               <Bot className="h-3.5 w-3.5" />
             </div>
           ) : (
-            <CollapsibleTrigger className="flex items-center gap-1 flex-1 min-w-0">
-              <ChevronRight
-                className={cn(
-                  "h-3 w-3 text-muted-foreground/60 transition-transform opacity-0 group-hover:opacity-100",
-                  open && "rotate-90"
-                )}
-              />
+            <NavLink to="/agents/all" className="flex items-center gap-1 flex-1 min-w-0">
               <span className="text-[10px] font-medium uppercase tracking-widest font-mono text-muted-foreground/60">
                 Agents
               </span>
-            </CollapsibleTrigger>
+            </NavLink>
           )}
           <button
             onClick={(e) => {
@@ -104,9 +92,8 @@ export function SidebarAgents() {
         </div>
       </div>
 
-      <CollapsibleContent>
-        <div className="flex flex-col gap-0.5 mt-0.5">
-          {orderedAgents.map((agent: Agent) => {
+      <div className="flex flex-col gap-0.5 mt-0.5">
+        {orderedAgents.map((agent: Agent) => {
             const runCount = liveCountByAgent.get(agent.id) ?? 0;
             return (
               <NavLink
@@ -149,8 +136,7 @@ export function SidebarAgents() {
               </NavLink>
             );
           })}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+      </div>
+    </div>
   );
 }
