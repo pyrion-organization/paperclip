@@ -2095,13 +2095,16 @@ export function agentRoutes(db: Db) {
   });
 
   router.post("/agents/bulk/pause", async (req, res) => {
+    console.log("[BULK PAUSE] actor:", req.actor);
     assertBoard(req);
     const companyId = req.actor.companyIds?.[0];
+    console.log("[BULK PAUSE] companyId:", companyId);
     if (!companyId) {
       res.status(403).json({ error: "No company access" });
       return;
     }
     const result = await svc.pauseAll(companyId);
+    console.log("[BULK PAUSE] result:", result);
 
     await logActivity(db, {
       companyId,
@@ -2117,13 +2120,16 @@ export function agentRoutes(db: Db) {
   });
 
   router.post("/agents/bulk/resume", async (req, res) => {
+    console.log("[BULK RESUME] actor:", req.actor);
     assertBoard(req);
     const companyId = req.actor.companyIds?.[0];
+    console.log("[BULK RESUME] companyId:", companyId);
     if (!companyId) {
       res.status(403).json({ error: "No company access" });
       return;
     }
     const result = await svc.resumeAll(companyId);
+    console.log("[BULK RESUME] result:", result);
 
     await logActivity(db, {
       companyId,
