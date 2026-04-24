@@ -52,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import { CircleDot, Plus, ArrowUpDown, Layers, Check, ChevronRight, List, ListTree, Columns3, User, Search } from "lucide-react";
+import { CircleDot, Plus, ArrowUpDown, Layers, Check, ChevronRight, List, ListTree, Columns3, User, Search, EyeOff, LoaderCircle } from "lucide-react";
 import { KanbanBoard } from "./KanbanBoard";
 import { buildIssueTree, countDescendants } from "../lib/issue-tree";
 import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
@@ -208,6 +208,8 @@ interface IssuesListProps {
   baseCreateIssueDefaults?: Record<string, unknown>;
   createIssueLabel?: string;
   enableRoutineVisibilityFilter?: boolean;
+  onHideCancelledIssues?: () => void;
+  hideCancelledIssuesPending?: boolean;
   onSearchChange?: (search: string) => void;
   onUpdateIssue: (id: string, data: Record<string, unknown>) => void;
 }
@@ -291,6 +293,8 @@ export function IssuesList({
   baseCreateIssueDefaults,
   createIssueLabel,
   enableRoutineVisibilityFilter = false,
+  onHideCancelledIssues,
+  hideCancelledIssuesPending = false,
   onSearchChange,
   onUpdateIssue,
 }: IssuesListProps) {
@@ -543,6 +547,10 @@ export function IssuesList({
     () => getAvailableInboxIssueColumns(isolatedWorkspacesEnabled),
     [isolatedWorkspacesEnabled],
   );
+  const hasVisibleCancelledIssues = useMemo(
+    () => issues.some((issue) => issue.status === "cancelled"),
+    [issues],
+  );
   const availableIssueColumnSet = useMemo(() => new Set(availableIssueColumns), [availableIssueColumns]);
   const visibleTrailingIssueColumns = useMemo(
     () => issueTrailingColumns.filter((column) => visibleIssueColumnSet.has(column) && availableIssueColumnSet.has(column)),
@@ -785,6 +793,26 @@ export function IssuesList({
             iconOnly
             workspaces={isolatedWorkspacesEnabled ? workspaceOptions : undefined}
           />
+
+          {onHideCancelledIssues ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={onHideCancelledIssues}
+              disabled={hideCancelledIssuesPending || !hasVisibleCancelledIssues}
+              title="Hide cancelled issues"
+              aria-label="Hide cancelled issues"
+              aria-busy={hideCancelledIssuesPending}
+            >
+              {hideCancelledIssuesPending ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          ) : null}
 
           {/* Sort (list view only) */}
           {viewState.viewMode === "list" && (

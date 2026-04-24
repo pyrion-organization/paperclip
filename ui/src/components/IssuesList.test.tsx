@@ -246,6 +246,84 @@ describe("IssuesList", () => {
     });
   });
 
+  it("exposes a hide-cancelled action in the issues toolbar", async () => {
+    const activeIssue = createIssue({ id: "issue-active", identifier: "PAP-1", title: "Active issue" });
+    const cancelledIssue = createIssue({
+      id: "issue-cancelled",
+      identifier: "PAP-2",
+      title: "Cancelled issue",
+      status: "cancelled",
+    });
+    const onHideCancelledIssues = vi.fn();
+
+    const { root } = renderWithQueryClient(
+      <IssuesList
+        issues={[activeIssue, cancelledIssue]}
+        agents={[]}
+        projects={[]}
+        viewStateKey="paperclip:test-issues"
+        onHideCancelledIssues={onHideCancelledIssues}
+        onUpdateIssue={() => undefined}
+      />,
+      container,
+    );
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("Active issue");
+      expect(container.textContent).toContain("Cancelled issue");
+      const hideButton = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.getAttribute("aria-label") === "Hide cancelled issues",
+      );
+      expect(hideButton).not.toBeUndefined();
+    });
+
+    await act(async () => {
+      const hideButton = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.getAttribute("aria-label") === "Hide cancelled issues",
+      );
+      hideButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onHideCancelledIssues).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("shows a loading spinner while hide-cancelled is pending", async () => {
+    const activeIssue = createIssue({ id: "issue-active", identifier: "PAP-1", title: "Active issue" });
+    const onHideCancelledIssues = vi.fn();
+
+    const { root } = renderWithQueryClient(
+      <IssuesList
+        issues={[activeIssue]}
+        agents={[]}
+        projects={[]}
+        viewStateKey="paperclip:test-issues"
+        onHideCancelledIssues={onHideCancelledIssues}
+        hideCancelledIssuesPending
+        onUpdateIssue={() => undefined}
+      />,
+      container,
+    );
+
+    await waitForAssertion(() => {
+      const button = Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.getAttribute("aria-label") === "Hide cancelled issues",
+      ) as HTMLButtonElement | undefined;
+      expect(button).not.toBeUndefined();
+      expect(button?.disabled).toBe(true);
+      expect(button?.getAttribute("aria-busy")).toBe("true");
+      expect(button?.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("keeps server-side search scoped to the provided parent issue filters", async () => {
     const localIssue = createIssue({ id: "issue-local", identifier: "PAP-1", title: "Local issue" });
     const serverIssue = createIssue({ id: "issue-server", identifier: "PAP-2", title: "Server result" });
