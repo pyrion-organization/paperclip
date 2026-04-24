@@ -27,7 +27,10 @@ import {
   RoutineRunVariablesDialog,
   type RoutineRunDialogSubmitData,
 } from "../components/RoutineRunVariablesDialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { RoutineVariablesEditor, RoutineVariablesHint } from "../components/RoutineVariablesEditor";
+import { ScriptEditor } from "../components/ScriptEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -135,7 +138,11 @@ function buildRoutineMutationPayload(input: {
   variables: RoutineVariable[];
   executionMode: string;
   scriptBody: string;
+  scriptCommandArgs: string[];
   scriptTimeoutSec: number;
+  remediationEnabled: boolean;
+  remediationPrompt: string;
+  remediationAssigneeAgentId: string;
 }) {
   return {
     ...input,
@@ -143,6 +150,10 @@ function buildRoutineMutationPayload(input: {
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
     scriptBody: input.executionMode !== "agent" ? input.scriptBody || null : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    remediationEnabled: input.remediationEnabled,
+    remediationPrompt: input.remediationEnabled ? input.remediationPrompt || null : null,
+    remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
   };
 }
 
@@ -328,7 +339,11 @@ export function Routines() {
     variables: RoutineVariable[];
     executionMode: string;
     scriptBody: string;
+    scriptCommandArgs: string[];
     scriptTimeoutSec: number;
+    remediationEnabled: boolean;
+    remediationPrompt: string;
+    remediationAssigneeAgentId: string;
   }>({
     title: "",
     description: "",
@@ -340,7 +355,11 @@ export function Routines() {
     variables: [],
     executionMode: "agent",
     scriptBody: "",
+    scriptCommandArgs: [],
     scriptTimeoutSec: 60,
+    remediationEnabled: false,
+    remediationPrompt: "",
+    remediationAssigneeAgentId: "",
   });
   const routineViewStateKey = selectedCompanyId
     ? `paperclip:routines-view:${selectedCompanyId}`
@@ -401,7 +420,11 @@ export function Routines() {
         variables: [],
         executionMode: "agent",
         scriptBody: "",
+        scriptCommandArgs: [],
         scriptTimeoutSec: 60,
+        remediationEnabled: false,
+        remediationPrompt: "",
+        remediationAssigneeAgentId: "",
       });
       setComposerOpen(false);
       setAdvancedOpen(false);
@@ -846,21 +869,95 @@ export function Routines() {
               </div>
             </div>}
 
-            <div className="border-t border-border/60 px-5 py-4">
-              <MarkdownEditor
-                ref={descriptionEditorRef}
-                value={draft.description}
-                onChange={(description) => setDraft((current) => ({ ...current, description }))}
-                placeholder="Add instructions..."
-                bordered={false}
-                contentClassName="min-h-[160px] text-sm text-muted-foreground"
-                onSubmit={() => {
-                  if (!createRoutine.isPending && draft.title.trim() && draft.projectId && draft.assigneeAgentId) {
-                    createRoutine.mutate();
-                  }
-                }}
-              />
-            </div>
+            {draft.executionMode !== "agent" && (
+              <div className="space-y-3 px-5 pb-3">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Script</p>
+                  <ScriptEditor
+                    value={draft.scriptBody}
+                    onChange={(scriptBody) => setDraft((current) => ({ ...current, scriptBody }))}
+                    language={draft.executionMode === "script_python" ? "python" : "javascript"}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Arguments (optional)</p>
+                  <Input
+                    value={draft.scriptCommandArgs.join(" ")}
+                    onChange={(e) => setDraft((current) => ({ ...current, scriptCommandArgs: e.target.value.split(" ").filter(Boolean) }))}
+                    placeholder="--arg1 value --arg2 value"
+                  />
+                  <p className="text-xs text-muted-foreground">Command line arguments passed to the script.</p>
+                </div>
+                <RoutineVariablesEditor
+                  title={draft.title}
+                  description=""
+                  value={draft.variables}
+                  onChange={(variables) => setDraft((current) => ({ ...current, variables }))}
+                />
+                <div className="space-y-3 border-t border-border/60 pt-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Failure remediation</p>
+                    <ToggleSwitch
+                      checked={draft.remediationEnabled}
+                      onCheckedChange={(checked) => setDraft((current) => ({ ...current, remediationEnabled: checked }))}
+                    />
+                  </div>
+                  {draft.remediationEnabled && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Remediation prompt</Label>
+                        <Input
+                          value={draft.remediationPrompt}
+                          onChange={(e) => setDraft((current) => ({ ...current, remediationPrompt: e.target.value }))}
+                          placeholder="Instructions for handling script failures..."
+                        />
+                        <p className="text-xs text-muted-foreground">Prompt sent to remediation agent when script fails.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Remediation agent</Label>
+                        <Select
+                          value={draft.remediationAssigneeAgentId}
+                          onValueChange={(value) => setDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a remediation agent" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(agents ?? []).map((agent) => (
+                              <SelectItem key={agent.id} value={agent.id}>
+                                <div className="flex items-center gap-2">
+                                  <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                                  {agent.name}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Agent assigned to handle failures.</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+)}
+
+            {draft.executionMode === "agent" && (
+              <div className="border-t border-border/60 px-5 py-4">
+                <MarkdownEditor
+                  ref={descriptionEditorRef}
+                  value={draft.description}
+                  onChange={(description) => setDraft((current) => ({ ...current, description }))}
+                  placeholder="Add instructions..."
+                  bordered={false}
+                  contentClassName="min-h-[160px] text-sm text-muted-foreground"
+                  onSubmit={() => {
+                    if (!createRoutine.isPending && draft.title.trim() && draft.projectId && draft.assigneeAgentId) {
+                      createRoutine.mutate();
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             <div className="border-t border-border/60 px-5 py-3">
               <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>

@@ -52,7 +52,11 @@ export interface Routine {
   variables: RoutineVariable[];
   executionMode: string;
   scriptBody: string | null;
+  scriptCommandArgs: string[] | null;
   scriptTimeoutSec: number;
+  remediationEnabled: boolean;
+  remediationPrompt: string | null;
+  remediationAssigneeAgentId: string | null;
   createdByAgentId: string | null;
   createdByUserId: string | null;
   updatedByAgentId: string | null;
@@ -78,6 +82,8 @@ export interface RoutineTrigger {
   secretId: string | null;
   signingMode: string | null;
   replayWindowSec: number | null;
+  minIntervalSec: number | null;
+  maxIntervalSec: number | null;
   lastRotatedAt: Date | null;
   lastResult: string | null;
   createdByAgentId: string | null;
@@ -105,6 +111,8 @@ export interface RoutineRun {
   scriptOutput: string | null;
   scriptExitCode: number | null;
   completedAt: Date | null;
+  retryOfRunId: string | null;
+  retryAttempt: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -134,8 +142,14 @@ export interface RoutineExecutionIssueOrigin {
   runId: string | null;
 }
 
+export interface RoutineRemediationIssueOrigin {
+  kind: Extract<IssueOriginKind, "routine_remediation">;
+  routineId: string;
+  runId: string | null;
+}
+
 export interface RoutineListItem extends Routine {
-  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult">[];
+  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult" | "minIntervalSec" | "maxIntervalSec">[];
   lastRun: RoutineRunSummary | null;
   activeIssue: RoutineIssueSummary | null;
 }

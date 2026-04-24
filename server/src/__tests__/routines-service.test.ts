@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -916,5 +916,243 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
     expect(run.source).toBe("webhook");
     expect(run.status).toBe("issue_created");
+  });
+
+  it("creates a random_interval trigger with valid interval bounds", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "random_interval",
+        minIntervalSec: 3600,
+        maxIntervalSec: 7200,
+      },
+      {},
+    );
+
+    expect(trigger.kind).toBe("random_interval");
+    expect(trigger.minIntervalSec).toBe(3600);
+    expect(trigger.maxIntervalSec).toBe(7200);
+    expect(trigger.nextRunAt).toBeTruthy();
+    expect(trigger.nextRunAt!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("rejects random_interval when maxIntervalSec < minIntervalSec", async () => {
+    const { routine, svc } = await seedFixture();
+    await expect(
+      svc.createTrigger(
+        routine.id,
+        {
+          kind: "random_interval",
+          minIntervalSec: 7200,
+          maxIntervalSec: 3600,
+        },
+        {},
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects random_interval when missing minIntervalSec", async () => {
+    const { routine, svc } = await seedFixture();
+    await expect(
+      svc.createTrigger(
+        routine.id,
+        {
+          kind: "random_interval",
+          maxIntervalSec: 7200,
+        } as any,
+        {},
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("updates a random_interval trigger interval bounds", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "random_interval",
+        minIntervalSec: 3600,
+        maxIntervalSec: 7200,
+      },
+      {},
+    );
+
+    const updated = await svc.updateTrigger(
+      trigger.id,
+      {
+        minIntervalSec: 1800,
+        maxIntervalSec: 3600,
+      },
+      {},
+    );
+
+    expect(updated!.minIntervalSec).toBe(1800);
+    expect(updated!.maxIntervalSec).toBe(3600);
+  });
+
+  it("rejects update when maxIntervalSec < minIntervalSec", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "random_interval",
+        minIntervalSec: 3600,
+        maxIntervalSec: 7200,
+      },
+      {},
+    );
+
+    await expect(
+      svc.updateTrigger(
+        trigger.id,
+        {
+          minIntervalSec: 7200,
+          maxIntervalSec: 3600,
+        },
+        {},
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("tickRandomIntervalTriggers fires triggers when nextRunAt is due", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.createTrigger(
+      routine.id,
+      {
+        kind: "random_interval",
+        minIntervalSec: 60,
+        maxIntervalSec: 120,
+      },
+      {},
+    );
+
+    const result = await svc.tickRandomIntervalTriggers(new Date(Date.now() + 1000 * 200));
+    expect(result.triggered).toBe(1);
+  });
+
+  it("tickRandomIntervalTriggers does not fire when nextRunAt is in future", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.createTrigger(
+      routine.id,
+      {
+        kind: "random_interval",
+        minIntervalSec: 3600,
+        maxIntervalSec: 7200,
+      },
+      {},
+    );
+
+    const result = await svc.tickRandomIntervalTriggers(new Date());
+    expect(result.triggered).toBe(0);
+  });
+
+  it("createRemediationIssueIfNeeded creates issue on first failure when remediation enabled", async () => {
+    const { routine, agentId, svc } = await seedFixture();
+
+    await db
+      .update(routines)
+      .set({
+        remediationEnabled: true,
+        remediationPrompt: "Fix the script: {{FAILURE_REASON}}",
+        remediationAssigneeAgentId: agentId,
+      })
+      .where(eq(routines.id, routine.id));
+
+    await db.insert(routineRuns).values({
+      companyId: routine.companyId,
+      routineId: routine.id,
+      source: "manual",
+      status: "failed",
+      triggeredAt: new Date(),
+      failureReason: "Script exited with code 1",
+    });
+    const run = await db.select().from(routineRuns).then((rows) => rows[0]!);
+    const freshRoutine = await db.select().from(routines).where(eq(routines.id, routine.id)).then((r) => r[0]!);
+
+    await svc.createRemediationIssueIfNeeded!(freshRoutine, run, "script output here", "Script exited with code 1");
+
+    const remediationIssues = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.originKind, "routine_remediation"));
+    expect(remediationIssues.length).toBe(1);
+    expect(remediationIssues[0].assigneeAgentId).toBe(agentId);
+    expect(remediationIssues[0].description).toContain("Script exited with code 1");
+  });
+
+  it("createRemediationIssueIfNeeded skips non-remediable infra failures", async () => {
+    const { routine, agentId, svc } = await seedFixture();
+
+    await db
+      .update(routines)
+      .set({
+        remediationEnabled: true,
+        remediationPrompt: "Fix it",
+        remediationAssigneeAgentId: agentId,
+      })
+      .where(eq(routines.id, routine.id));
+    const freshRoutine = await db.select().from(routines).where(eq(routines.id, routine.id)).then((r) => r[0]!);
+
+    const infraFailures = [
+      "ENOENT: no such file or directory",
+      "command not found: npm",
+      "python3: not found",
+      "node: not found",
+      "missing runtime binary",
+    ];
+
+    for (const failure of infraFailures) {
+      await db.insert(routineRuns).values({
+        companyId: routine.companyId,
+        routineId: routine.id,
+        source: "manual",
+        status: "failed",
+        triggeredAt: new Date(),
+        failureReason: failure,
+      });
+      const run = await db.select().from(routineRuns).orderBy(desc(routineRuns.createdAt)).then((rows) => rows[0]!);
+
+      await svc.createRemediationIssueIfNeeded!(freshRoutine, run, "", failure);
+    }
+
+    const remediationIssues = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.originKind, "routine_remediation"));
+    expect(remediationIssues.length).toBe(0);
+  });
+
+  it("createRemediationIssueIfNeeded does not create duplicate remediation issues", async () => {
+    const { routine, agentId, svc } = await seedFixture();
+
+    await db
+      .update(routines)
+      .set({
+        remediationEnabled: true,
+        remediationPrompt: "Fix it",
+        remediationAssigneeAgentId: agentId,
+      })
+      .where(eq(routines.id, routine.id));
+    const freshRoutine = await db.select().from(routines).where(eq(routines.id, routine.id)).then((r) => r[0]!);
+
+    await db.insert(routineRuns).values({
+      companyId: routine.companyId,
+      routineId: routine.id,
+      source: "manual",
+      status: "failed",
+      triggeredAt: new Date(),
+      failureReason: "Script failed",
+    });
+    const failedRun = await db.select().from(routineRuns).then((rows) => rows[0]!);
+
+    await svc.createRemediationIssueIfNeeded!(freshRoutine, failedRun, "", "Script failed");
+    await svc.createRemediationIssueIfNeeded!(freshRoutine, failedRun, "", "Script failed");
+
+    const remediationIssues = await db
+      .select()
+      .from(issues)
+      .where(eq(issues.originKind, "routine_remediation"));
+    expect(remediationIssues.length).toBe(1);
   });
 });

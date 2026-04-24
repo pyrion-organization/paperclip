@@ -62,7 +62,11 @@ export const createRoutineSchema = z.object({
   variables: z.array(routineVariableSchema).optional().default([]),
   executionMode: z.enum(ROUTINE_EXECUTION_MODES).optional().default("agent"),
   scriptBody: z.string().optional().nullable(),
+  scriptCommandArgs: z.array(z.string().trim().max(500)).max(100).optional().default([]),
   scriptTimeoutSec: z.number().int().min(1).max(3600).optional().default(60),
+  remediationEnabled: z.boolean().optional().default(false),
+  remediationPrompt: z.string().optional().nullable(),
+  remediationAssigneeAgentId: z.string().uuid().optional().nullable(),
 });
 
 export type CreateRoutine = z.infer<typeof createRoutineSchema>;
@@ -89,7 +93,20 @@ export const createRoutineTriggerSchema = z.discriminatedUnion("kind", [
   baseTriggerSchema.extend({
     kind: z.literal("api"),
   }),
-]);
+  baseTriggerSchema.extend({
+    kind: z.literal("random_interval"),
+    minIntervalSec: z.number().int().min(60).max(604_800),
+    maxIntervalSec: z.number().int().min(60).max(604_800),
+  }),
+]).superRefine((value, ctx) => {
+  if (value.kind === "random_interval" && value.maxIntervalSec < value.minIntervalSec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxIntervalSec"],
+      message: "maxIntervalSec must be greater than or equal to minIntervalSec",
+    });
+  }
+});
 
 export type CreateRoutineTrigger = z.infer<typeof createRoutineTriggerSchema>;
 
@@ -100,6 +117,8 @@ export const updateRoutineTriggerSchema = z.object({
   timezone: z.string().trim().min(1).optional().nullable(),
   signingMode: z.enum(ROUTINE_TRIGGER_SIGNING_MODES).optional().nullable(),
   replayWindowSec: z.number().int().min(30).max(86_400).optional().nullable(),
+  minIntervalSec: z.number().int().min(60).max(604_800).optional().nullable(),
+  maxIntervalSec: z.number().int().min(60).max(604_800).optional().nullable(),
 });
 
 export type UpdateRoutineTrigger = z.infer<typeof updateRoutineTriggerSchema>;

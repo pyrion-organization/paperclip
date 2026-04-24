@@ -67,7 +67,7 @@ const executionModeLabels: Record<ExecutionMode, string> = {
 };
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
-const triggerKinds = ["schedule", "webhook"];
+const triggerKinds = ["schedule", "webhook", "random_interval"];
 const signingModes = ["bearer", "hmac_sha256", "github_hmac", "none"];
 const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
@@ -141,7 +141,11 @@ function buildRoutineMutationPayload(input: {
   variables: RoutineVariable[];
   executionMode: string;
   scriptBody: string;
+  scriptCommandArgs: string[];
   scriptTimeoutSec: number;
+  remediationEnabled: boolean;
+  remediationPrompt: string;
+  remediationAssigneeAgentId: string;
 }) {
   return {
     ...input,
@@ -149,6 +153,10 @@ function buildRoutineMutationPayload(input: {
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
     scriptBody: input.executionMode !== "agent" ? input.scriptBody || null : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    remediationEnabled: input.remediationEnabled,
+    remediationPrompt: input.remediationEnabled ? input.remediationPrompt || null : null,
+    remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
   };
 }
 
@@ -168,6 +176,12 @@ function TriggerEditor({
     cronExpression: trigger.cronExpression ?? "",
     signingMode: trigger.signingMode ?? "bearer",
     replayWindowSec: String(trigger.replayWindowSec ?? 300),
+    minIntervalSec: String(trigger.minIntervalSec ?? 3600),
+    maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
+    minDays: String(Math.floor((trigger.minIntervalSec ?? 3600) / 86400)),
+    minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
+    maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
+    maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
   });
 
   useEffect(() => {
@@ -176,6 +190,12 @@ function TriggerEditor({
       cronExpression: trigger.cronExpression ?? "",
       signingMode: trigger.signingMode ?? "bearer",
       replayWindowSec: String(trigger.replayWindowSec ?? 300),
+      minIntervalSec: String(trigger.minIntervalSec ?? 3600),
+      maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
+      minDays: String(Math.floor((trigger.minIntervalSec ?? 3600) / 86400)),
+      minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
+      maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
+      maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
     });
   }, [trigger]);
 
@@ -241,6 +261,54 @@ function TriggerEditor({
             )}
           </>
         )}
+        {trigger.kind === "random_interval" && (
+          <div className="md:col-span-2 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Min days</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={7}
+                  value={draft.minDays}
+                  onChange={(event) => setDraft((current) => ({ ...current, minDays: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Min hours</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={draft.minHours}
+                  onChange={(event) => setDraft((current) => ({ ...current, minHours: event.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Max days</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={7}
+                  value={draft.maxDays}
+                  onChange={(event) => setDraft((current) => ({ ...current, maxDays: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Max hours</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={draft.maxHours}
+                  onChange={(event) => setDraft((current) => ({ ...current, maxHours: event.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -295,6 +363,8 @@ export function RoutineDetail() {
     cronExpression: "0 10 * * *",
     signingMode: "bearer",
     replayWindowSec: "300",
+    minIntervalSec: "3600",
+    maxIntervalSec: "86400",
   });
   const [editDraft, setEditDraft] = useState<{
     title: string;
@@ -307,7 +377,11 @@ export function RoutineDetail() {
     variables: RoutineVariable[];
     executionMode: string;
     scriptBody: string;
+    scriptCommandArgs: string[];
     scriptTimeoutSec: number;
+    remediationEnabled: boolean;
+    remediationPrompt: string;
+    remediationAssigneeAgentId: string;
   }>({
     title: "",
     description: "",
@@ -319,7 +393,11 @@ export function RoutineDetail() {
     variables: [],
     executionMode: "agent",
     scriptBody: "",
+    scriptCommandArgs: [],
     scriptTimeoutSec: 60,
+    remediationEnabled: false,
+    remediationPrompt: "",
+    remediationAssigneeAgentId: "",
   });
   const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
 
@@ -383,7 +461,11 @@ export function RoutineDetail() {
             variables: routine.variables,
             executionMode: routine.executionMode ?? "agent",
             scriptBody: routine.scriptBody ?? "",
+            scriptCommandArgs: routine.scriptCommandArgs ?? [],
             scriptTimeoutSec: routine.scriptTimeoutSec ?? 60,
+            remediationEnabled: routine.remediationEnabled ?? false,
+            remediationPrompt: routine.remediationPrompt ?? "",
+            remediationAssigneeAgentId: routine.remediationAssigneeAgentId ?? "",
           }
         : null,
     [routine],
@@ -401,7 +483,11 @@ export function RoutineDetail() {
       JSON.stringify(editDraft.variables) !== JSON.stringify(routineDefaults.variables) ||
       editDraft.executionMode !== routineDefaults.executionMode ||
       editDraft.scriptBody !== routineDefaults.scriptBody ||
-      editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec
+      editDraft.scriptCommandArgs !== routineDefaults.scriptCommandArgs ||
+      editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec ||
+      editDraft.remediationEnabled !== routineDefaults.remediationEnabled ||
+      editDraft.remediationPrompt !== routineDefaults.remediationPrompt ||
+      editDraft.remediationAssigneeAgentId !== routineDefaults.remediationAssigneeAgentId
     );
   }, [editDraft, routineDefaults]);
 
@@ -542,6 +628,12 @@ export function RoutineDetail() {
           ? {
             signingMode: newTrigger.signingMode,
             replayWindowSec: Number(newTrigger.replayWindowSec || "300"),
+          }
+          : {}),
+        ...(newTrigger.kind === "random_interval"
+          ? {
+            minIntervalSec: Number(newTrigger.minIntervalSec || "3600"),
+            maxIntervalSec: Number(newTrigger.maxIntervalSec || "86400"),
           }
           : {}),
       });
@@ -969,6 +1061,15 @@ export function RoutineDetail() {
             onChange={(scriptBody) => setEditDraft((current) => ({ ...current, scriptBody }))}
             language={editDraft.executionMode === "script_python" ? "python" : "javascript"}
           />
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Arguments (optional)</p>
+            <Input
+              value={editDraft.scriptCommandArgs.join(" ")}
+              onChange={(e) => setEditDraft((current) => ({ ...current, scriptCommandArgs: e.target.value.split(" ").filter(Boolean) }))}
+              placeholder="--arg1 value --arg2 value"
+            />
+            <p className="text-xs text-muted-foreground">Command line arguments passed to the script.</p>
+          </div>
           <RoutineVariablesEditor
             title={editDraft.title}
             description=""
@@ -1034,6 +1135,52 @@ export function RoutineDetail() {
                   }}
                 />
                 <p className="text-xs text-muted-foreground">Script is killed after this many seconds (1–3600).</p>
+              </div>
+            )}
+            {isScriptMode && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Failure remediation</p>
+                  <ToggleSwitch
+                    checked={editDraft.remediationEnabled}
+                    onCheckedChange={(checked) => setEditDraft((current) => ({ ...current, remediationEnabled: checked }))}
+                  />
+                </div>
+                {editDraft.remediationEnabled && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Remediation prompt</Label>
+                      <Input
+                        value={editDraft.remediationPrompt}
+                        onChange={(e) => setEditDraft((current) => ({ ...current, remediationPrompt: e.target.value }))}
+                        placeholder="Instructions for handling script failures..."
+                      />
+                      <p className="text-xs text-muted-foreground">Prompt sent to remediation agent when script fails.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Remediation agent</Label>
+                      <Select
+                        value={editDraft.remediationAssigneeAgentId}
+                        onValueChange={(value) => setEditDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a remediation agent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(agents ?? []).map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              <div className="flex items-center gap-2">
+                                <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                                {agent.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Agent assigned to handle failures.</p>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1128,6 +1275,32 @@ export function RoutineDetail() {
                     </div>
                   )}
                 </>
+              )}
+              {newTrigger.kind === "random_interval" && (
+                <div className="md:col-span-2 grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Min interval (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={60}
+                      max={604800}
+                      value={newTrigger.minIntervalSec}
+                      onChange={(event) => setNewTrigger((current) => ({ ...current, minIntervalSec: event.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Minimum 60 seconds</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max interval (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={60}
+                      max={604800}
+                      value={newTrigger.maxIntervalSec}
+                      onChange={(event) => setNewTrigger((current) => ({ ...current, maxIntervalSec: event.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Maximum 604800 seconds</p>
+                  </div>
+                </div>
               )}
             </div>
             <div className="flex items-center justify-end">

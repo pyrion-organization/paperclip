@@ -51,7 +51,7 @@ import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
-const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
+const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running"];
 const TERMINAL_ISSUE_STATUSES = new Set(["done", "cancelled"]);
 const MAX_CATCH_UP_RUNS = 25;
 const WEEKDAY_INDEX: Record<string, number> = {
@@ -148,10 +148,38 @@ function nextResultText(status: string, issueId?: string | null) {
   return status;
 }
 
+function computeNextRandomIntervalRun(
+  minIntervalSec: number,
+  maxIntervalSec: number,
+  after: Date,
+): Date {
+  const diff = maxIntervalSec - minIntervalSec;
+  const randomOffsetSec = diff > 0 ? Math.floor(Math.random() * (diff + 1)) : 0;
+  const intervalSec = minIntervalSec + randomOffsetSec;
+  return new Date(after.getTime() + intervalSec * 1000);
+}
+
 function normalizeWebhookTimestampMs(rawTimestamp: string) {
   const parsed = Number(rawTimestamp);
   if (!Number.isFinite(parsed)) return null;
   return parsed > 1e12 ? parsed : parsed * 1000;
+}
+
+const NON_REMEDIABLE_FAILURE_PATTERNS = [
+  "ENOENT",
+  "command not found",
+  "npm not found",
+  "python3: not found",
+  "node: not found",
+  "missing runtime",
+  "runtime not found",
+  "binary not found",
+];
+
+function isRemediableFailure(failureReason: string | null): boolean {
+  if (!failureReason) return false;
+  const lower = failureReason.toLowerCase();
+  return !NON_REMEDIABLE_FAILURE_PATTERNS.some((pattern) => lower.includes(pattern.toLowerCase()));
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -470,6 +498,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: routineRuns.scriptOutput,
         scriptExitCode: routineRuns.scriptExitCode,
         completedAt: routineRuns.completedAt,
+        retryOfRunId: routineRuns.retryOfRunId,
+        retryAttempt: routineRuns.retryAttempt,
         createdAt: routineRuns.createdAt,
         updatedAt: routineRuns.updatedAt,
         triggerKind: routineTriggers.kind,
@@ -505,24 +535,26 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: row.scriptOutput,
         scriptExitCode: row.scriptExitCode,
         completedAt: row.completedAt,
+        retryOfRunId: row.retryOfRunId,
+        retryAttempt: row.retryAttempt,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         linkedIssue: row.linkedIssueId
           ? {
-            id: row.linkedIssueId,
-            identifier: row.issueIdentifier,
-            title: row.issueTitle ?? "Routine execution",
-            status: row.issueStatus ?? "todo",
-            priority: row.issuePriority ?? "medium",
-            updatedAt: row.issueUpdatedAt ?? row.updatedAt,
-          }
+              id: row.linkedIssueId,
+              identifier: row.issueIdentifier,
+              title: row.issueTitle ?? "Routine execution",
+              status: row.issueStatus ?? "todo",
+              priority: row.issuePriority ?? "medium",
+              updatedAt: row.issueUpdatedAt ?? row.updatedAt,
+            }
           : null,
         trigger: row.triggerId
           ? {
-            id: row.triggerId,
-            kind: row.triggerKind as NonNullable<RoutineRunSummary["trigger"]>["kind"],
-            label: row.triggerLabel,
-          }
+              id: row.triggerId,
+              kind: row.triggerKind as NonNullable<RoutineRunSummary["trigger"]>["kind"],
+              label: row.triggerLabel,
+            }
           : null,
       });
     }
@@ -1098,6 +1130,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     const ext = isNodeJs ? ".js" : ".py";
     const command = isNodeJs ? "node" : "python3";
     const tmpFile = path.join(os.tmpdir(), `routine-${run.id}${ext}`);
+    const scriptArgs = routine.scriptCommandArgs ?? [];
 
     // Build env: pass all resolved variables as ROUTINE_VAR_<NAME>
     const env: Record<string, string> = {};
@@ -1108,7 +1141,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     let output = "";
     try {
       await fs.writeFile(tmpFile, scriptBody, "utf8");
-      const result = await runChildProcess(run.id, command, [tmpFile], {
+      const result = await runChildProcess(run.id, command, [tmpFile, ...scriptArgs], {
         cwd: os.tmpdir(),
         env,
         timeoutSec: routine.scriptTimeoutSec,
@@ -1130,15 +1163,19 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
 
       const exitCode = result.exitCode ?? 1;
       const succeeded = exitCode === 0 && !result.timedOut;
+      const failureReason = result.timedOut
+        ? `Script timed out after ${routine.scriptTimeoutSec}s`
+        : succeeded ? null : `Script exited with code ${exitCode}`;
       const finalRun = await finalizeRun(run.id, {
         status: succeeded ? "completed" : "failed",
         scriptOutput: output || null,
         scriptExitCode: exitCode,
-        failureReason: result.timedOut
-          ? `Script timed out after ${routine.scriptTimeoutSec}s`
-          : succeeded ? null : `Script exited with code ${exitCode}`,
+        failureReason,
         completedAt: new Date(),
       });
+      if (!succeeded && routine.remediationEnabled && isRemediableFailure(failureReason)) {
+        await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
+      }
       return finalRun ?? run;
     } catch (error) {
       const failureReason = error instanceof Error ? error.message : String(error);
@@ -1149,10 +1186,102 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         failureReason,
         completedAt: new Date(),
       });
+      if (routine.remediationEnabled && isRemediableFailure(failureReason)) {
+        await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
+      }
       return finalRun ?? run;
     } finally {
       await fs.unlink(tmpFile).catch(() => {});
     }
+  }
+
+  async function createRemediationIssueIfNeeded(
+    routine: typeof routines.$inferSelect,
+    failedRun: typeof routineRuns.$inferSelect,
+    scriptOutput: string,
+    failureReason: string | null,
+  ) {
+    if (!routine.remediationEnabled) return;
+    if (!routine.remediationPrompt) return;
+    if (!isRemediableFailure(failureReason)) return;
+
+    const assigneeId = routine.remediationAssigneeAgentId ?? routine.assigneeAgentId;
+    if (!assigneeId) {
+      logger.warn(
+        { routineId: routine.id, runId: failedRun.id },
+        "remediation enabled but no assignee configured",
+      );
+      return;
+    }
+
+    const existingRemediationRun = await db
+      .select()
+      .from(routineRuns)
+      .where(
+        and(
+          eq(routineRuns.routineId, routine.id),
+          eq(routineRuns.retryOfRunId, failedRun.id),
+          eq(routineRuns.status, "remediation_issue_created"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (existingRemediationRun) {
+      logger.info(
+        { routineId: routine.id, runId: failedRun.id, existingRemediationRunId: existingRemediationRun.id },
+        "remediation issue already created for this failure",
+      );
+      return;
+    }
+
+    const remediationRun = await db
+      .insert(routineRuns)
+      .values({
+        companyId: routine.companyId,
+        routineId: routine.id,
+        triggerId: failedRun.triggerId,
+        source: failedRun.source,
+        status: "remediation_issue_created",
+        triggeredAt: new Date(),
+        triggerPayload: failedRun.triggerPayload,
+        dispatchFingerprint: failedRun.dispatchFingerprint,
+        retryOfRunId: failedRun.id,
+        retryAttempt: 1,
+      })
+      .returning()
+      .then((rows) => rows[0]);
+
+    const prompt = interpolateRoutineTemplate(routine.remediationPrompt, {
+      ROUTINE_TITLE: routine.title,
+      ROUTINE_ID: routine.id,
+      RUN_ID: failedRun.id,
+      FAILURE_REASON: failureReason ?? "",
+      SCRIPT_OUTPUT: scriptOutput ?? "",
+    }) ?? routine.remediationPrompt;
+
+    const remediationIssue = await issueSvc.create(routine.companyId, {
+      projectId: routine.projectId,
+      goalId: routine.goalId,
+      parentId: routine.parentIssueId,
+      title: `[Routine Remediation] ${routine.title}`,
+      description: `${prompt}\n\n---\n\n**Failed run**: ${failedRun.id}\n**Failure reason**: ${failureReason}\n**Script output**:\n\`\`\`\n${(scriptOutput ?? "").slice(0, 5000)}\n\`\`\``,
+      status: "todo",
+      priority: routine.priority,
+      assigneeAgentId: assigneeId,
+      originKind: "routine_remediation",
+      originId: routine.id,
+      originRunId: remediationRun?.id ?? failedRun.id,
+    });
+
+    await db
+      .update(routineRuns)
+      .set({ linkedIssueId: remediationIssue.id })
+      .where(eq(routineRuns.id, remediationRun?.id ?? failedRun.id));
+
+    logger.info(
+      { routineId: routine.id, runId: failedRun.id, remediationIssueId: remediationIssue.id },
+      "created remediation issue for failed routine script",
+    );
   }
 
   return {
@@ -1183,6 +1312,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           nextRunAt: trigger.nextRunAt,
           lastFiredAt: trigger.lastFiredAt,
           lastResult: trigger.lastResult,
+          minIntervalSec: trigger.minIntervalSec,
+          maxIntervalSec: trigger.maxIntervalSec,
         })),
         lastRun: latestRunByRoutine.get(row.id) ?? null,
         activeIssue: activeIssueByRoutine.get(row.id) ?? null,
@@ -1219,6 +1350,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
             scriptOutput: routineRuns.scriptOutput,
             scriptExitCode: routineRuns.scriptExitCode,
             completedAt: routineRuns.completedAt,
+            retryOfRunId: routineRuns.retryOfRunId,
+            retryAttempt: routineRuns.retryAttempt,
             createdAt: routineRuns.createdAt,
             updatedAt: routineRuns.updatedAt,
             triggerKind: routineTriggers.kind,
@@ -1253,6 +1386,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
               scriptOutput: run.scriptOutput,
               scriptExitCode: run.scriptExitCode,
               completedAt: run.completedAt,
+              retryOfRunId: run.retryOfRunId ?? null,
+              retryAttempt: run.retryAttempt ?? null,
               createdAt: run.createdAt,
               updatedAt: run.updatedAt,
               linkedIssue: run.linkedIssueId
@@ -1317,6 +1452,10 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           executionMode: input.executionMode,
           scriptBody: input.scriptBody ?? null,
           scriptTimeoutSec: input.scriptTimeoutSec,
+          scriptCommandArgs: input.scriptCommandArgs ?? null,
+          remediationEnabled: input.remediationEnabled ?? false,
+          remediationPrompt: input.remediationEnabled ? (input.remediationPrompt ?? null) : null,
+          remediationAssigneeAgentId: input.remediationEnabled ? (input.remediationAssigneeAgentId ?? null) : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
           updatedByAgentId: actor.agentId ?? null,
@@ -1382,6 +1521,14 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           executionMode: nextExecutionMode,
           scriptBody: patch.scriptBody === undefined ? existing.scriptBody : patch.scriptBody ?? null,
           scriptTimeoutSec: patch.scriptTimeoutSec ?? existing.scriptTimeoutSec,
+          scriptCommandArgs: patch.scriptCommandArgs === undefined ? existing.scriptCommandArgs : patch.scriptCommandArgs ?? null,
+          remediationEnabled: patch.remediationEnabled ?? existing.remediationEnabled,
+          remediationPrompt: patch.remediationEnabled
+            ? (patch.remediationPrompt === undefined ? existing.remediationPrompt : patch.remediationPrompt ?? null)
+            : null,
+          remediationAssigneeAgentId: patch.remediationEnabled
+            ? (patch.remediationAssigneeAgentId === undefined ? existing.remediationAssigneeAgentId : patch.remediationAssigneeAgentId ?? null)
+            : null,
           updatedByAgentId: actor.agentId ?? null,
           updatedByUserId: actor.userId ?? null,
           updatedAt: new Date(),
@@ -1423,6 +1570,17 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         };
       }
 
+      if (input.kind === "random_interval") {
+        assertScheduleCompatibleVariables(routine.variables ?? []);
+        if (!input.minIntervalSec || !input.maxIntervalSec) {
+          throw unprocessable("Random interval triggers require minIntervalSec and maxIntervalSec");
+        }
+        if (input.maxIntervalSec < input.minIntervalSec) {
+          throw unprocessable("maxIntervalSec must be greater than or equal to minIntervalSec");
+        }
+        nextRunAt = computeNextRandomIntervalRun(input.minIntervalSec, input.maxIntervalSec, new Date());
+      }
+
       const [trigger] = await db
         .insert(routineTriggers)
         .values({
@@ -1438,6 +1596,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           secretId,
           signingMode: input.kind === "webhook" ? input.signingMode : null,
           replayWindowSec: input.kind === "webhook" ? input.replayWindowSec : null,
+          minIntervalSec: input.kind === "random_interval" ? input.minIntervalSec : null,
+          maxIntervalSec: input.kind === "random_interval" ? input.maxIntervalSec : null,
           lastRotatedAt: input.kind === "webhook" ? new Date() : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
@@ -1459,6 +1619,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       let nextRunAt = existing.nextRunAt;
       let cronExpression = existing.cronExpression;
       let timezone = existing.timezone;
+      let minIntervalSec = existing.minIntervalSec;
+      let maxIntervalSec = existing.maxIntervalSec;
 
       if (existing.kind === "schedule") {
         const routine = await getRoutineById(existing.routineId);
@@ -1482,6 +1644,26 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         }
       }
 
+      if (existing.kind === "random_interval") {
+        const routine = await getRoutineById(existing.routineId);
+        if (!routine) throw notFound("Routine not found");
+        if (patch.minIntervalSec !== undefined) {
+          if (patch.minIntervalSec == null) throw unprocessable("Random interval triggers require minIntervalSec");
+          minIntervalSec = patch.minIntervalSec;
+        }
+        if (patch.maxIntervalSec !== undefined) {
+          if (patch.maxIntervalSec == null) throw unprocessable("Random interval triggers require maxIntervalSec");
+          maxIntervalSec = patch.maxIntervalSec;
+        }
+        if (minIntervalSec && maxIntervalSec && maxIntervalSec < minIntervalSec) {
+          throw unprocessable("maxIntervalSec must be greater than or equal to minIntervalSec");
+        }
+        if ((patch.enabled ?? existing.enabled) === true && minIntervalSec && maxIntervalSec) {
+          assertScheduleCompatibleVariables(routine.variables ?? []);
+          nextRunAt = computeNextRandomIntervalRun(minIntervalSec, maxIntervalSec, new Date());
+        }
+      }
+
       const [updated] = await db
         .update(routineTriggers)
         .set({
@@ -1490,6 +1672,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           cronExpression,
           timezone,
           nextRunAt,
+          minIntervalSec: patch.minIntervalSec === undefined ? existing.minIntervalSec : minIntervalSec,
+          maxIntervalSec: patch.maxIntervalSec === undefined ? existing.maxIntervalSec : maxIntervalSec,
           signingMode: patch.signingMode === undefined ? existing.signingMode : patch.signingMode,
           replayWindowSec: patch.replayWindowSec === undefined ? existing.replayWindowSec : patch.replayWindowSec,
           updatedByAgentId: actor.agentId ?? null,
@@ -1709,6 +1893,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: row.scriptOutput,
         scriptExitCode: row.scriptExitCode,
         completedAt: row.completedAt,
+        retryOfRunId: null as string | null,
+        retryAttempt: null as number | null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         linkedIssue: row.linkedIssueId
@@ -1797,6 +1983,68 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       return { triggered };
     },
 
+    tickRandomIntervalTriggers: async (now: Date = new Date()) => {
+      const due = await db
+        .select({
+          trigger: routineTriggers,
+          routine: routines,
+        })
+        .from(routineTriggers)
+        .innerJoin(routines, eq(routineTriggers.routineId, routines.id))
+        .where(
+          and(
+            eq(routineTriggers.kind, "random_interval"),
+            eq(routineTriggers.enabled, true),
+            eq(routines.status, "active"),
+            isNotNull(routineTriggers.nextRunAt),
+            lte(routineTriggers.nextRunAt, now),
+          ),
+        )
+        .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));
+
+      let triggered = 0;
+      for (const row of due) {
+        if (
+          !row.trigger.nextRunAt ||
+          !row.trigger.minIntervalSec ||
+          !row.trigger.maxIntervalSec
+        )
+          continue;
+
+        const claimedNextRunAt = computeNextRandomIntervalRun(
+          row.trigger.minIntervalSec,
+          row.trigger.maxIntervalSec,
+          now,
+        );
+
+        const claimed = await db
+          .update(routineTriggers)
+          .set({
+            nextRunAt: claimedNextRunAt,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(routineTriggers.id, row.trigger.id),
+              eq(routineTriggers.enabled, true),
+              eq(routineTriggers.nextRunAt, row.trigger.nextRunAt),
+            ),
+          )
+          .returning({ id: routineTriggers.id })
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) continue;
+
+        await dispatchRoutineRun({
+          routine: row.routine,
+          trigger: row.trigger,
+          source: "manual" as const,
+        });
+        triggered += 1;
+      }
+
+      return { triggered };
+    },
+
     syncRunStatusForIssue: async (issueId: string) => {
       const issue = await db
         .select({
@@ -1824,5 +2072,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       }
       return null;
     },
+
+    createRemediationIssueIfNeeded,
   };
 }

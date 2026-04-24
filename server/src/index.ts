@@ -710,7 +710,18 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "routine scheduler tick failed");
         });
-  
+
+      void routines
+        .tickRandomIntervalTriggers(new Date())
+        .then((result) => {
+          if (result.triggered > 0) {
+            logger.info({ ...result }, "random interval trigger tick enqueued runs");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "random interval trigger tick failed");
+        });
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat

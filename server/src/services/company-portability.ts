@@ -656,6 +656,8 @@ function normalizeRoutineTriggerExtension(value: unknown): CompanyPortabilityIss
     timezone: asString(value.timezone),
     signingMode: asString(value.signingMode),
     replayWindowSec: asInteger(value.replayWindowSec),
+    minIntervalSec: asInteger(value.minIntervalSec),
+    maxIntervalSec: asInteger(value.maxIntervalSec),
   };
 }
 
@@ -716,6 +718,8 @@ function buildRoutineManifestFromLiveRoutine(routine: RoutineLike): CompanyPorta
       timezone: trigger.kind === "schedule" ? trigger.timezone ?? null : null,
       signingMode: trigger.kind === "webhook" ? trigger.signingMode ?? null : null,
       replayWindowSec: trigger.kind === "webhook" ? trigger.replayWindowSec ?? null : null,
+      minIntervalSec: trigger.kind === "random_interval" ? trigger.minIntervalSec ?? null : null,
+      maxIntervalSec: trigger.kind === "random_interval" ? trigger.maxIntervalSec ?? null : null,
     })),
   };
 }
@@ -1197,6 +1201,8 @@ function buildLegacyRoutineTriggerFromRecurrence(
       timezone,
       signingMode: null,
       replayWindowSec: null,
+      minIntervalSec: null,
+      maxIntervalSec: null,
     } satisfies CompanyPortabilityIssueRoutineTriggerManifestEntry,
     warnings,
     errors,
@@ -1252,6 +1258,11 @@ function resolvePortableRoutineDefinition(
     }
     if (trigger.kind === "webhook" && trigger.signingMode && !ROUTINE_TRIGGER_SIGNING_MODES.includes(trigger.signingMode as any)) {
       errors.push(`Recurring task ${issue.slug} uses unsupported webhook signingMode "${trigger.signingMode}".`);
+    }
+    if (trigger.kind === "random_interval") {
+      if (!trigger.minIntervalSec || !trigger.maxIntervalSec) {
+        errors.push(`Recurring task ${issue.slug} has a random_interval trigger missing minIntervalSec/maxIntervalSec.`);
+      }
     }
   }
 
@@ -3441,6 +3452,8 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           replayWindowSec: trigger.kind === "webhook" && trigger.replayWindowSec !== 300
             ? trigger.replayWindowSec ?? null
             : undefined,
+          minIntervalSec: trigger.kind === "random_interval" ? trigger.minIntervalSec ?? null : undefined,
+          maxIntervalSec: trigger.kind === "random_interval" ? trigger.maxIntervalSec ?? null : undefined,
         })),
       });
       paperclipRoutinesOut[taskSlug] = isPlainRecord(extension) ? extension : {};
@@ -4443,7 +4456,11 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
                 : "skip_missed",
             variables: routineDefinition.variables ?? [],
             executionMode: "agent",
+            scriptCommandArgs: [],
             scriptTimeoutSec: 60,
+            remediationEnabled: false,
+            remediationPrompt: null,
+            remediationAssigneeAgentId: null,
           }, {
             agentId: null,
             userId: actorUserId ?? null,
@@ -4472,6 +4489,19 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
                     ? trigger.signingMode as typeof ROUTINE_TRIGGER_SIGNING_MODES[number]
                     : "bearer",
                 replayWindowSec: trigger.replayWindowSec ?? 300,
+              }, {
+                agentId: null,
+                userId: actorUserId ?? null,
+              });
+              continue;
+            }
+            if (trigger.kind === "random_interval") {
+              await routines.createTrigger(createdRoutine.id, {
+                kind: "random_interval",
+                label: trigger.label,
+                enabled: trigger.enabled,
+                minIntervalSec: trigger.minIntervalSec ?? 3600,
+                maxIntervalSec: trigger.maxIntervalSec ?? 86400,
               }, {
                 agentId: null,
                 userId: actorUserId ?? null,
