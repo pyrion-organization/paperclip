@@ -13,12 +13,10 @@ export function isCodexLocalFastModeSupported(model: string | null | undefined):
 
 export const models = [
   { id: "gpt-5.4", label: "gpt-5.4" },
-  { id: "gpt-5.2-codex", label: "gpt-5.2-codex" },
-  { id: "gpt-5.1-codex-max", label: "gpt-5.1-codex-max" },
+  { id: "gpt-5.5", label: "gpt-5.5" },
   { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
-  { id: DEFAULT_CODEX_LOCAL_MODEL, label: DEFAULT_CODEX_LOCAL_MODEL },
+  { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
   { id: "gpt-5.2", label: "gpt-5.2" },
-  { id: "gpt-5.1-codex-mini", label: "gpt-5.1-codex-mini" },
 ];
 
 export const agentConfigurationDoc = `# codex_local agent configuration
