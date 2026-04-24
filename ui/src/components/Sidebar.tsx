@@ -4,6 +4,7 @@ import {
   Target,
   LayoutDashboard,
   DollarSign,
+  Gauge,
   History,
   Search,
   SquarePen,
@@ -105,6 +106,7 @@ export function Sidebar() {
             {!isCollapsed && <span className="truncate">New Issue</span>}
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/usage" label="Usage" icon={Gauge} />
           <SidebarNavItem
             to="/inbox"
             label="Inbox"
