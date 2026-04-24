@@ -2122,6 +2122,12 @@ export function agentRoutes(db: Db) {
     }
     const result = await svc.pauseAll(companyId);
 
+    await Promise.all(
+      result.pausedAgentIds.map((agentId) =>
+        heartbeat.cancelActiveForAgent(agentId).catch(() => {}),
+      ),
+    );
+
     await logActivity(db, {
       companyId,
       actorType: "user",
@@ -2132,7 +2138,7 @@ export function agentRoutes(db: Db) {
       details: { count: result.pausedCount },
     });
 
-    res.json(result);
+    res.json({ pausedCount: result.pausedCount });
   });
 
   router.post("/agents/bulk/resume", async (req, res) => {

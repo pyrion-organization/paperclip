@@ -61,12 +61,11 @@ export function parseOpenCodeJsonl(stdout: string) {
     }
 
     if (type === "tool_use") {
-      const part = parseObject(event.part);
-      const state = parseObject(part.state);
-      if (asString(state.status, "") === "error") {
-        const text = asString(state.error, "").trim();
-        if (text) errors.push(text);
-      }
+      // Tool-use errors are non-fatal — the agent may recover from them.
+      // Only type==="error" events (fatal opencode errors) drive the error message
+      // that synthesizes a non-zero exit code. Collecting tool errors here would
+      // cause successful runs (exit 0) to be misclassified as failed, blocking
+      // the liveness continuation that would otherwise give the agent another attempt.
       continue;
     }
 

@@ -474,7 +474,7 @@ export function agentService(db: Db) {
 
     pauseAll: async (companyId: string) => {
       const allAgents = await listAgents(companyId, { includeTerminated: true });
-      let pausedCount = 0;
+      const pausedAgentIds: string[] = [];
       for (const agent of allAgents) {
         if (agent.status !== "terminated" && agent.status !== "paused") {
           await updateAgent(agent.id, {
@@ -482,10 +482,10 @@ export function agentService(db: Db) {
             pauseReason: "manual",
             pausedAt: new Date(),
           });
-          pausedCount++;
+          pausedAgentIds.push(agent.id);
         }
       }
-      return { pausedCount };
+      return { pausedCount: pausedAgentIds.length, pausedAgentIds };
     },
 
     resumeAll: async (companyId: string) => {

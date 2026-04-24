@@ -13,6 +13,7 @@ export interface RunProcessResult {
   stdout: string;
   stderr: string;
   pid: number | null;
+  processGroupId: number | null;
   startedAt: string | null;
 }
 
@@ -1297,6 +1298,7 @@ export async function runChildProcess(
     onSpawn?: (meta: { pid: number; processGroupId: number | null; startedAt: string }) => Promise<void>;
     terminalResultCleanup?: TerminalResultCleanupOptions;
     stdin?: string;
+    killProcessGroupOnClose?: boolean;
   },
 ): Promise<RunProcessResult> {
   const onLogError = opts.onLogError ?? ((err, id, msg) => console.warn({ err, runId: id }, msg));
@@ -1470,6 +1472,16 @@ export async function runChildProcess(
           if (timeout) clearTimeout(timeout);
           clearTerminalCleanupTimers();
           runningProcesses.delete(runId);
+          // After the main process exits, kill any orphaned children that
+          // remain in the same process group (e.g. background server processes
+          // spawned by the adapter command that closed their own stdio).
+          // Errors are suppressed — the group may already be fully gone.
+          if (opts.killProcessGroupOnClose && process.platform !== "win32" && processGroupId) {
+            try { process.kill(-processGroupId, "SIGTERM"); } catch { /* group already gone */ }
+            setTimeout(() => {
+              try { process.kill(-processGroupId, "SIGKILL"); } catch { /* group already gone */ }
+            }, Math.max(1, opts.graceSec) * 1000);
+          }
           void logChain.finally(() => {
             resolve({
               exitCode: code,
@@ -1478,6 +1490,7 @@ export async function runChildProcess(
               stdout,
               stderr,
               pid: child.pid ?? null,
+              processGroupId,
               startedAt,
             });
           });
