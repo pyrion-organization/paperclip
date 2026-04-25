@@ -114,12 +114,14 @@ function formatRoutineRunStatus(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
-const executionModes = ["agent", "script_nodejs", "script_python"] as const;
+const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
 const executionModeLabels: Record<ExecutionMode, string> = {
   agent: "Agent",
   script_nodejs: "Node.js Script",
   script_python: "Python Script",
+  bash_command: "Bash Command",
+  shell_script: "Shell Script",
 };
 
 function buildRoutineMutationPayload(input: {
@@ -695,7 +697,7 @@ export function Routines() {
               </div>
             </div>
 
-            <div className="px-5 pb-3">
+            {draft.executionMode !== "bash_command" && <div className="px-5 pb-3">
               <div className="overflow-x-auto overscroll-x-contain">
                 <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
                   {draft.executionMode === "agent" && (
@@ -792,19 +794,34 @@ export function Routines() {
                   />
                 </div>
               </div>
-            </div>
+            </div>}
 
             {draft.executionMode !== "agent" && (
               <div className="space-y-3 px-5 pb-3">
+                {draft.executionMode === "bash_command" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Bash command</label>
+                    <textarea
+                      className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
+                      placeholder={'echo "hello world" && date'}
+                      value={draft.scriptPath}
+                      onChange={(e) => setDraft((current) => ({ ...current, scriptPath: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
+                    </p>
+                  </div>
+                ) : (
                 <RoutineScriptConfig
                   projectId={draft.projectId}
                   companyId={selectedCompanyId ?? undefined}
-                  executionMode={draft.executionMode === "script_nodejs" ? "script_nodejs" : "script_python"}
+                  executionMode={draft.executionMode as "script_nodejs" | "script_python" | "shell_script"}
                   scriptPath={draft.scriptPath}
                   scriptCommandArgs={draft.scriptCommandArgs}
                   onScriptPathChange={(scriptPath) => setDraft((current) => ({ ...current, scriptPath }))}
                   onArgsChange={(scriptCommandArgs) => setDraft((current) => ({ ...current, scriptCommandArgs }))}
                 />
+                )}
                 <RoutineVariablesEditor
                   title={draft.title}
                   description=""

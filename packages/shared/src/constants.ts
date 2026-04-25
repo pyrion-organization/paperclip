@@ -208,7 +208,7 @@ export type RoutineTriggerSigningMode = (typeof ROUTINE_TRIGGER_SIGNING_MODES)[n
 export const ROUTINE_VARIABLE_TYPES = ["text", "textarea", "number", "boolean", "select"] as const;
 export type RoutineVariableType = (typeof ROUTINE_VARIABLE_TYPES)[number];
 
-export const ROUTINE_EXECUTION_MODES = ["agent", "script_nodejs", "script_python"] as const;
+export const ROUTINE_EXECUTION_MODES = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 export type RoutineExecutionMode = (typeof ROUTINE_EXECUTION_MODES)[number];
 
 export const ROUTINE_RUN_STATUSES = [

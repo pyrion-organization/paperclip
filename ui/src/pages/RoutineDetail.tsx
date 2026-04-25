@@ -58,12 +58,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
 
-const executionModes = ["agent", "script_nodejs", "script_python"] as const;
+const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
 const executionModeLabels: Record<ExecutionMode, string> = {
   agent: "Agent",
   script_nodejs: "Node.js Script",
   script_python: "Python Script",
+  bash_command: "Bash Command",
+  shell_script: "Shell Script",
 };
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
@@ -901,7 +903,7 @@ export function RoutineDetail() {
     );
   }
 
-  const isScriptMode = editDraft.executionMode === "script_nodejs" || editDraft.executionMode === "script_python";
+  const isScriptMode = editDraft.executionMode !== "agent";
   const automationEnabled = routine.status === "active";
   const selectedProject = routine.projectId ? (projects?.find((project) => project.id === routine.projectId) ?? null) : null;
   const automationToggleDisabled = updateRoutineStatus.isPending || routine.status === "archived";
@@ -1159,75 +1161,94 @@ export function RoutineDetail() {
       {/* Script mode: code editor */}
       {isScriptMode && (
         <div className="space-y-2">
-          <div className="overflow-x-auto overscroll-x-contain">
-            <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
-              <span>In</span>
-              <InlineEntitySelector
-                ref={projectSelectorRef}
-                value={editDraft.projectId}
-                options={projectOptions}
-                recentOptionIds={recentProjectIds}
-                placeholder="Project"
-                noneLabel="No project"
-                searchPlaceholder="Search projects..."
-                emptyMessage="No projects found."
-                onChange={(projectId) => {
-                  if (projectId) trackRecentProject(projectId);
-                  setEditDraft((current) => ({ ...current, projectId }));
-                }}
-                onConfirm={() => {}}
-                renderTriggerValue={(option) =>
-                  option && currentProject ? (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: currentProject.color ?? "#64748b" }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Project</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const project = projectById.get(option.id);
-                  return (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: project?.color ?? "#64748b" }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
+          {editDraft.executionMode !== "bash_command" && (
+            <div className="overflow-x-auto overscroll-x-contain">
+              <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
+                <span>In</span>
+                <InlineEntitySelector
+                  ref={projectSelectorRef}
+                  value={editDraft.projectId}
+                  options={projectOptions}
+                  recentOptionIds={recentProjectIds}
+                  placeholder="Project"
+                  noneLabel="No project"
+                  searchPlaceholder="Search projects..."
+                  emptyMessage="No projects found."
+                  onChange={(projectId) => {
+                    if (projectId) trackRecentProject(projectId);
+                    setEditDraft((current) => ({ ...current, projectId }));
+                  }}
+                  onConfirm={() => {}}
+                  renderTriggerValue={(option) =>
+                    option && currentProject ? (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Project</span>
+                    )
+                  }
+                  renderOption={(option) => {
+                    if (!option.id) return <span className="truncate">{option.label}</span>;
+                    const project = projectById.get(option.id);
+                    return (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: project?.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    );
+                  }}
+                />
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Script</p>
-            {editDraft.variables.length > 0 && (
+          )}
+          {editDraft.executionMode === "bash_command" ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Bash command</label>
+              <textarea
+                className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
+                placeholder={'echo "hello world" && date'}
+                value={editDraft.scriptPath}
+                onChange={(e) => setEditDraft((current) => ({ ...current, scriptPath: e.target.value }))}
+              />
               <p className="text-xs text-muted-foreground">
-                Available:{" "}
-                {editDraft.variables.map((v) => (
-                  <code key={v.name} className="text-xs font-mono bg-muted px-1 rounded mr-1">
-                    ROUTINE_VAR_{v.name.toUpperCase()}
-                  </code>
-                ))}
-                <code className="text-xs font-mono bg-muted px-1 rounded">ROUTINE_VAR_DATE</code>
+                Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
               </p>
-            )}
-          </div>
-          <RoutineScriptConfig
-            projectId={editDraft.projectId}
-            companyId={routine?.companyId ?? undefined}
-            executionMode={editDraft.executionMode === "script_nodejs" ? "script_nodejs" : "script_python"}
-            scriptPath={editDraft.scriptPath}
-            scriptCommandArgs={editDraft.scriptCommandArgs}
-            onScriptPathChange={(scriptPath) => setEditDraft((current) => ({ ...current, scriptPath }))}
-            onArgsChange={(scriptCommandArgs) => setEditDraft((current) => ({ ...current, scriptCommandArgs }))}
-          />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Script</p>
+                {editDraft.variables.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Available:{" "}
+                    {editDraft.variables.map((v) => (
+                      <code key={v.name} className="text-xs font-mono bg-muted px-1 rounded mr-1">
+                        ROUTINE_VAR_{v.name.toUpperCase()}
+                      </code>
+                    ))}
+                    <code className="text-xs font-mono bg-muted px-1 rounded">ROUTINE_VAR_DATE</code>
+                  </p>
+                )}
+              </div>
+              <RoutineScriptConfig
+                projectId={editDraft.projectId}
+                companyId={routine?.companyId ?? undefined}
+                executionMode={editDraft.executionMode as "script_nodejs" | "script_python" | "shell_script"}
+                scriptPath={editDraft.scriptPath}
+                scriptCommandArgs={editDraft.scriptCommandArgs}
+                onScriptPathChange={(scriptPath) => setEditDraft((current) => ({ ...current, scriptPath }))}
+                onArgsChange={(scriptCommandArgs) => setEditDraft((current) => ({ ...current, scriptCommandArgs }))}
+              />
+            </>
+          )}
           <RoutineVariablesEditor
             title={editDraft.title}
             description=""

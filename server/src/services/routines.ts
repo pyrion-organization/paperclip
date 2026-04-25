@@ -883,7 +883,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     executionWorkspacePreference?: string | null;
     executionWorkspaceSettings?: Record<string, unknown> | null;
   }) {
-    const isScriptMode = input.routine.executionMode === "script_nodejs" || input.routine.executionMode === "script_python";
+    const isScriptMode = input.routine.executionMode !== "agent";
     const projectId = input.projectId ?? input.routine.projectId ?? null;
     const assigneeAgentId = input.assigneeAgentId ?? input.routine.assigneeAgentId ?? null;
     if (!isScriptMode && !assigneeAgentId) {
@@ -1188,8 +1188,6 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     allVariables: Record<string, string | number | boolean>;
   }) {
     const { run, routine, allVariables } = input;
-    const isNodeJs = routine.executionMode === "script_nodejs";
-    const command = isNodeJs ? "node" : "python3";
     const scriptArgs = routine.scriptCommandArgs ?? [];
 
     // Build env: pass all resolved variables as ROUTINE_VAR_<NAME>
@@ -1200,18 +1198,37 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
 
     let output = "";
     try {
-      if (!routine.projectId) {
-        throw new Error("Script routines require a project");
+      let command: string;
+      let args: string[];
+      let cwd: string;
+
+      if (routine.executionMode === "bash_command") {
+        if (!routine.scriptPath) {
+          throw new Error("Bash command is not configured");
+        }
+        command = "bash";
+        args = ["-c", routine.scriptPath];
+        cwd = "/tmp";
+      } else {
+        if (!routine.projectId) {
+          throw new Error("Script routines require a project");
+        }
+        if (!routine.scriptPath) {
+          throw new Error("Script path is not configured");
+        }
+        const { absolutePath, rootPath } = await projectFilesService(db).resolveAbsolutePath(
+          routine.projectId,
+          routine.scriptPath,
+        );
+        command = routine.executionMode === "script_nodejs" ? "node"
+          : routine.executionMode === "script_python" ? "python3"
+          : "bash"; // shell_script
+        args = [absolutePath, ...scriptArgs];
+        cwd = rootPath;
       }
-      if (!routine.scriptPath) {
-        throw new Error("Script path is not configured");
-      }
-      const { absolutePath, rootPath } = await projectFilesService(db).resolveAbsolutePath(
-        routine.projectId,
-        routine.scriptPath,
-      );
-      const result = await runChildProcess(run.id, command, [absolutePath, ...scriptArgs], {
-        cwd: rootPath,
+
+      const result = await runChildProcess(run.id, command, args, {
+        cwd,
         env,
         timeoutSec: routine.scriptTimeoutSec,
         graceSec: 5,
