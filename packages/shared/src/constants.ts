@@ -223,7 +223,7 @@ export const ROUTINE_RUN_STATUSES = [
 ] as const;
 export type RoutineRunStatus = (typeof ROUTINE_RUN_STATUSES)[number];
 
-export const ROUTINE_RUN_SOURCES = ["schedule", "manual", "api", "webhook", "random_interval"] as const;
+export const ROUTINE_RUN_SOURCES = ["schedule", "manual", "api", "webhook", "random_interval", "random_cron_scheduler"] as const;
 export type RoutineRunSource = (typeof ROUTINE_RUN_SOURCES)[number];
 
 export const PAUSE_REASONS = ["manual", "budget", "system"] as const;

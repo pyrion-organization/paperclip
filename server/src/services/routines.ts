@@ -19,6 +19,7 @@ import type {
   Routine,
   RoutineDetail,
   RoutineListItem,
+  RoutineRunSource,
   RoutineRunSummary,
   RoutineTrigger,
   RoutineTriggerSecretMaterial,
@@ -349,7 +350,7 @@ function assertRoutineCanEnable(status: string, assigneeAgentId: string | null |
 }
 
 function collectProvidedRoutineVariables(
-  source: "schedule" | "manual" | "api" | "webhook" | "random_interval",
+  source: RoutineRunSource,
   payload: Record<string, unknown> | null | undefined,
   variables: Record<string, unknown> | null | undefined,
 ) {
@@ -366,7 +367,7 @@ function collectProvidedRoutineVariables(
 function resolveRoutineVariableValues(
   variables: RoutineVariable[],
   input: {
-    source: "schedule" | "manual" | "api" | "webhook" | "random_interval";
+    source: RoutineRunSource;
     payload?: Record<string, unknown> | null;
     variables?: Record<string, unknown> | null;
     automaticVariables?: Record<string, string | number | boolean>;
@@ -873,7 +874,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
   async function dispatchRoutineRun(input: {
     routine: typeof routines.$inferSelect;
     trigger: typeof routineTriggers.$inferSelect | null;
-    source: "schedule" | "manual" | "api" | "webhook" | "random_interval";
+    source: RoutineRunSource;
     payload?: Record<string, unknown> | null;
     variables?: Record<string, unknown> | null;
     projectId?: string | null;
@@ -1100,7 +1101,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           reason: "issue_assigned",
           mutation: "create",
           contextSource: "routine.dispatch",
-          requestedByActorType: input.source === "schedule" ? "system" : undefined,
+          requestedByActorType: (input.source === "schedule" || input.source === "random_interval" || input.source === "random_cron_scheduler") ? "system" : undefined,
           rethrowOnError: true,
         });
         const updated = await finalizeRun(createdRun.id, {
@@ -1147,8 +1148,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       });
     }
 
-    if (input.source === "schedule" || input.source === "webhook") {
-      const actorId = input.source === "schedule" ? "routine-scheduler" : "routine-webhook";
+    if (input.source === "schedule" || input.source === "random_interval" || input.source === "random_cron_scheduler" || input.source === "webhook") {
+      const actorId = input.source === "webhook" ? "routine-webhook" : "routine-scheduler";
       try {
         await logActivity(db, {
           companyId: input.routine.companyId,
@@ -2274,7 +2275,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         await dispatchRoutineRun({
           routine: row.routine,
           trigger: row.trigger,
-          source: "schedule",
+          source: "random_cron_scheduler",
         });
         triggered += 1;
       }
