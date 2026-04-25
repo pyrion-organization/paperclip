@@ -213,10 +213,6 @@ function TriggerEditor({
     replayWindowSec: String(trigger.replayWindowSec ?? 300),
     minIntervalSec: String(trigger.minIntervalSec ?? 3600),
     maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
-    minDays: String(Math.floor((trigger.minIntervalSec ?? 3600) / 86400)),
-    minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
-    maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
-    maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
     allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
     minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
     maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
@@ -233,10 +229,6 @@ function TriggerEditor({
       replayWindowSec: String(trigger.replayWindowSec ?? 300),
       minIntervalSec: String(trigger.minIntervalSec ?? 3600),
       maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
-      minDays: String(Math.floor((trigger.minIntervalSec ?? 3600) / 86400)),
-      minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
-      maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
-      maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
       allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
       minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
       maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
@@ -315,50 +307,28 @@ function TriggerEditor({
           </>
         )}
         {trigger.kind === "random_interval" && (
-          <div className="md:col-span-2 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Min days</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={7}
-                  value={draft.minDays}
-                  onChange={(event) => setDraft((current) => ({ ...current, minDays: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Min hours</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={draft.minHours}
-                  onChange={(event) => setDraft((current) => ({ ...current, minHours: event.target.value }))}
-                />
-              </div>
+          <div className="md:col-span-2 grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Min interval (seconds)</Label>
+              <Input
+                type="number"
+                min={60}
+                max={604800}
+                value={draft.minIntervalSec}
+                onChange={(event) => setDraft((current) => ({ ...current, minIntervalSec: event.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Minimum 60 seconds</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Max days</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={7}
-                  value={draft.maxDays}
-                  onChange={(event) => setDraft((current) => ({ ...current, maxDays: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Max hours</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={draft.maxHours}
-                  onChange={(event) => setDraft((current) => ({ ...current, maxHours: event.target.value }))}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max interval (seconds)</Label>
+              <Input
+                type="number"
+                min={60}
+                max={604800}
+                value={draft.maxIntervalSec}
+                onChange={(event) => setDraft((current) => ({ ...current, maxIntervalSec: event.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Maximum 604800 seconds</p>
             </div>
           </div>
         )}

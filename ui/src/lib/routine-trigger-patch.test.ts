@@ -92,24 +92,20 @@ describe("buildRoutineTriggerPatch", () => {
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "300",
-        minIntervalSec: "1800",
-        maxIntervalSec: "43200",
-        minDays: "0",
-        minHours: "30",
-        maxDays: "1",
-        maxHours: "0",
+        minIntervalSec: "108000",
+        maxIntervalSec: "86400",
       },
       "UTC",
     );
 
     expect(patch).toEqual({
       label: "Random interval",
-      minIntervalSec: 30 * 3600,
-      maxIntervalSec: 1 * 86400,
+      minIntervalSec: 108000,
+      maxIntervalSec: 86400,
     });
   });
 
-  it("converts day/hour inputs to seconds correctly", () => {
+  it("uses the raw seconds value directly", () => {
     const patch = buildRoutineTriggerPatch(
       makeScheduleTrigger({ kind: "random_interval" }),
       {
@@ -117,22 +113,20 @@ describe("buildRoutineTriggerPatch", () => {
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "300",
-        minDays: "2",
-        minHours: "12",
-        maxDays: "5",
-        maxHours: "6",
+        minIntervalSec: "7200",
+        maxIntervalSec: "259200",
       },
       "UTC",
     );
 
     expect(patch).toEqual({
       label: "Test",
-      minIntervalSec: 2 * 86400 + 12 * 3600,
-      maxIntervalSec: 5 * 86400 + 6 * 3600,
+      minIntervalSec: 7200,
+      maxIntervalSec: 259200,
     });
   });
 
-  it("defaults to 1h/24h when no days/hours are provided", () => {
+  it("defaults to 1h/24h when no interval is provided", () => {
     const patch = buildRoutineTriggerPatch(
       makeScheduleTrigger({ kind: "random_interval" }),
       {

@@ -7,10 +7,6 @@ export type RoutineTriggerEditorDraft = {
   replayWindowSec: string;
   minIntervalSec?: string;
   maxIntervalSec?: string;
-  minDays?: string;
-  minHours?: string;
-  maxDays?: string;
-  maxHours?: string;
   allowedWeekdays?: number[];
   minTimeOfDayMin?: string;
   maxTimeOfDayMin?: string;
@@ -18,15 +14,6 @@ export type RoutineTriggerEditorDraft = {
   maxDaysAhead?: string;
   timezone?: string;
 };
-
-const SECONDS_PER_DAY = 86400;
-const SECONDS_PER_HOUR = 3600;
-
-function toSeconds(days: string, hours: string): number {
-  const d = parseInt(days, 10) || 0;
-  const h = parseInt(hours, 10) || 0;
-  return d * SECONDS_PER_DAY + h * SECONDS_PER_HOUR;
-}
 
 export function parseTimeToMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -53,8 +40,8 @@ export function buildRoutineTriggerPatch(
   }
 
   if (trigger.kind === "random_interval") {
-    patch.minIntervalSec = toSeconds(draft.minDays || "0", draft.minHours || "0") || 3600;
-    patch.maxIntervalSec = toSeconds(draft.maxDays || "0", draft.maxHours || "0") || 86400;
+    patch.minIntervalSec = Number(draft.minIntervalSec || "3600") || 3600;
+    patch.maxIntervalSec = Number(draft.maxIntervalSec || "86400") || 86400;
   }
 
   if (trigger.kind === "random_cron_scheduler") {
