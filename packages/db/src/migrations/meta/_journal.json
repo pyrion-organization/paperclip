@@ -484,6 +484,13 @@
       "when": 1776103000000,
       "tag": "0068_routine_script_path",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1776104000000,
+      "tag": "0069_routine_random_cron_scheduler",
+      "breakpoints": true
     }
   ]
 }

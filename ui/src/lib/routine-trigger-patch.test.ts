@@ -28,6 +28,11 @@ function makeScheduleTrigger(overrides: Partial<RoutineTrigger> = {}): RoutineTr
     updatedAt: new Date("2026-03-20T00:00:00.000Z"),
     minIntervalSec: null,
     maxIntervalSec: null,
+    allowedWeekdays: null,
+    minTimeOfDayMin: null,
+    maxTimeOfDayMin: null,
+    minDaysAhead: null,
+    maxDaysAhead: null,
     ...overrides,
   };
 }

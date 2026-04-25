@@ -157,6 +157,71 @@ function computeNextRandomIntervalRun(
   return new Date(after.getTime() + intervalSec * 1000);
 }
 
+interface RandomCronConfig {
+  allowedWeekdays: number[];
+  minTimeOfDayMin: number;
+  maxTimeOfDayMin: number;
+  minDaysAhead: number;
+  maxDaysAhead: number;
+  timezone: string;
+}
+
+function localMidnightUtcForOffset(now: Date, tz: string, offsetDays: number): Date {
+  const rough = new Date(now.getTime() + offsetDays * 86_400_000);
+  const parts = getZonedMinuteParts(rough, tz);
+  const minuteOfDay = parts.hour * 60 + parts.minute;
+  const candidate = new Date(rough.getTime() - minuteOfDay * 60_000);
+  candidate.setUTCSeconds(0, 0);
+  const check = getZonedMinuteParts(candidate, tz);
+  if (check.hour !== 0 || check.minute !== 0) {
+    return new Date(candidate.getTime() - (check.hour * 60 + check.minute) * 60_000);
+  }
+  return candidate;
+}
+
+function computeNextRandomCronRun(config: RandomCronConfig, now: Date): Date {
+  const tz = config.timezone;
+  const effectiveWeekdays = config.allowedWeekdays.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : config.allowedWeekdays;
+  const nowParts = getZonedMinuteParts(now, tz);
+  const nowMinuteOfDay = nowParts.hour * 60 + nowParts.minute;
+
+  const candidates: Date[] = [];
+  for (let d = config.minDaysAhead; d <= config.maxDaysAhead; d++) {
+    const midnight = localMidnightUtcForOffset(now, tz, d);
+    const parts = getZonedMinuteParts(midnight, tz);
+    if (!effectiveWeekdays.includes(parts.weekday)) continue;
+    if (d === 0 && nowMinuteOfDay >= config.maxTimeOfDayMin) continue;
+    candidates.push(midnight);
+  }
+
+  if (candidates.length === 0) {
+    for (let d = config.maxDaysAhead + 1; d <= config.maxDaysAhead + 30; d++) {
+      const midnight = localMidnightUtcForOffset(now, tz, d);
+      const parts = getZonedMinuteParts(midnight, tz);
+      if (!effectiveWeekdays.includes(parts.weekday)) continue;
+      candidates.push(midnight);
+      break;
+    }
+  }
+
+  if (candidates.length === 0) {
+    return new Date(now.getTime() + 86_400_000);
+  }
+
+  const chosenDay = candidates[Math.floor(Math.random() * candidates.length)]!;
+  const chosenParts = getZonedMinuteParts(chosenDay, tz);
+  const isToday =
+    chosenParts.year === nowParts.year &&
+    chosenParts.month === nowParts.month &&
+    chosenParts.day === nowParts.day;
+  const effectiveMin = isToday ? Math.max(config.minTimeOfDayMin, nowMinuteOfDay + 1) : config.minTimeOfDayMin;
+  const effectiveMax = config.maxTimeOfDayMin;
+  const range = Math.max(0, effectiveMax - effectiveMin);
+  const chosenMinute = effectiveMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+
+  return new Date(chosenDay.getTime() + chosenMinute * 60_000);
+}
+
 function normalizeWebhookTimestampMs(rawTimestamp: string) {
   const parsed = Number(rawTimestamp);
   if (!Number.isFinite(parsed)) return null;
@@ -1316,6 +1381,11 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           lastResult: trigger.lastResult,
           minIntervalSec: trigger.minIntervalSec,
           maxIntervalSec: trigger.maxIntervalSec,
+          allowedWeekdays: trigger.allowedWeekdays ?? null,
+          minTimeOfDayMin: trigger.minTimeOfDayMin ?? null,
+          maxTimeOfDayMin: trigger.maxTimeOfDayMin ?? null,
+          minDaysAhead: trigger.minDaysAhead ?? null,
+          maxDaysAhead: trigger.maxDaysAhead ?? null,
         })),
         lastRun: latestRunByRoutine.get(row.id) ?? null,
         activeIssue: activeIssueByRoutine.get(row.id) ?? null,
@@ -1583,6 +1653,20 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         nextRunAt = computeNextRandomIntervalRun(input.minIntervalSec, input.maxIntervalSec, new Date());
       }
 
+      if (input.kind === "random_cron_scheduler") {
+        assertScheduleCompatibleVariables(routine.variables ?? []);
+        assertTimeZone(input.timezone);
+        const weekdays = input.allowedWeekdays?.length ? input.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6];
+        nextRunAt = computeNextRandomCronRun({
+          allowedWeekdays: weekdays,
+          minTimeOfDayMin: input.minTimeOfDayMin ?? 540,
+          maxTimeOfDayMin: input.maxTimeOfDayMin ?? 1020,
+          minDaysAhead: input.minDaysAhead ?? 1,
+          maxDaysAhead: input.maxDaysAhead ?? 7,
+          timezone: input.timezone,
+        }, new Date());
+      }
+
       const [trigger] = await db
         .insert(routineTriggers)
         .values({
@@ -1592,7 +1676,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           label: input.label ?? null,
           enabled: input.enabled ?? true,
           cronExpression: input.kind === "schedule" ? input.cronExpression : null,
-          timezone: input.kind === "schedule" ? (input.timezone || "UTC") : null,
+          timezone: input.kind === "schedule" ? (input.timezone || "UTC") : input.kind === "random_cron_scheduler" ? input.timezone : null,
           nextRunAt,
           publicId,
           secretId,
@@ -1600,6 +1684,11 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           replayWindowSec: input.kind === "webhook" ? input.replayWindowSec : null,
           minIntervalSec: input.kind === "random_interval" ? input.minIntervalSec : null,
           maxIntervalSec: input.kind === "random_interval" ? input.maxIntervalSec : null,
+          allowedWeekdays: input.kind === "random_cron_scheduler" ? (input.allowedWeekdays?.length ? input.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6]) : null,
+          minTimeOfDayMin: input.kind === "random_cron_scheduler" ? (input.minTimeOfDayMin ?? 540) : null,
+          maxTimeOfDayMin: input.kind === "random_cron_scheduler" ? (input.maxTimeOfDayMin ?? 1020) : null,
+          minDaysAhead: input.kind === "random_cron_scheduler" ? (input.minDaysAhead ?? 1) : null,
+          maxDaysAhead: input.kind === "random_cron_scheduler" ? (input.maxDaysAhead ?? 7) : null,
           lastRotatedAt: input.kind === "webhook" ? new Date() : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
@@ -1666,6 +1755,43 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         }
       }
 
+      let allowedWeekdays = existing.allowedWeekdays;
+      let minTimeOfDayMin = existing.minTimeOfDayMin;
+      let maxTimeOfDayMin = existing.maxTimeOfDayMin;
+      let minDaysAhead = existing.minDaysAhead;
+      let maxDaysAhead = existing.maxDaysAhead;
+
+      if (existing.kind === "random_cron_scheduler") {
+        const routine = await getRoutineById(existing.routineId);
+        if (!routine) throw notFound("Routine not found");
+        if (patch.allowedWeekdays !== undefined) allowedWeekdays = patch.allowedWeekdays?.length ? patch.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6];
+        if (patch.minTimeOfDayMin !== undefined) minTimeOfDayMin = patch.minTimeOfDayMin;
+        if (patch.maxTimeOfDayMin !== undefined) maxTimeOfDayMin = patch.maxTimeOfDayMin;
+        if (patch.minDaysAhead !== undefined) minDaysAhead = patch.minDaysAhead;
+        if (patch.maxDaysAhead !== undefined) maxDaysAhead = patch.maxDaysAhead;
+        if (patch.timezone !== undefined && patch.timezone !== null) {
+          assertTimeZone(patch.timezone);
+          timezone = patch.timezone;
+        }
+        const effectiveMin = minTimeOfDayMin ?? 540;
+        const effectiveMax = maxTimeOfDayMin ?? 1020;
+        if (effectiveMax < effectiveMin) throw unprocessable("maxTimeOfDayMin must be >= minTimeOfDayMin");
+        const effectiveMinDays = minDaysAhead ?? 1;
+        const effectiveMaxDays = maxDaysAhead ?? 7;
+        if (effectiveMaxDays < effectiveMinDays) throw unprocessable("maxDaysAhead must be >= minDaysAhead");
+        if ((patch.enabled ?? existing.enabled) === true) {
+          assertScheduleCompatibleVariables(routine.variables ?? []);
+          nextRunAt = computeNextRandomCronRun({
+            allowedWeekdays: allowedWeekdays?.length ? allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+            minTimeOfDayMin: effectiveMin,
+            maxTimeOfDayMin: effectiveMax,
+            minDaysAhead: effectiveMinDays,
+            maxDaysAhead: effectiveMaxDays,
+            timezone: timezone ?? "UTC",
+          }, new Date());
+        }
+      }
+
       const [updated] = await db
         .update(routineTriggers)
         .set({
@@ -1676,6 +1802,11 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           nextRunAt,
           minIntervalSec: patch.minIntervalSec === undefined ? existing.minIntervalSec : minIntervalSec,
           maxIntervalSec: patch.maxIntervalSec === undefined ? existing.maxIntervalSec : maxIntervalSec,
+          allowedWeekdays,
+          minTimeOfDayMin,
+          maxTimeOfDayMin,
+          minDaysAhead,
+          maxDaysAhead,
           signingMode: patch.signingMode === undefined ? existing.signingMode : patch.signingMode,
           replayWindowSec: patch.replayWindowSec === undefined ? existing.replayWindowSec : patch.replayWindowSec,
           updatedByAgentId: actor.agentId ?? null,
@@ -2047,6 +2178,76 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           routine: row.routine,
           trigger: row.trigger,
           source: "manual" as const,
+        });
+        triggered += 1;
+      }
+
+      return { triggered };
+    },
+
+    tickRandomCronSchedulerTriggers: async (now: Date = new Date()) => {
+      const due = await db
+        .select({
+          trigger: routineTriggers,
+          routine: routines,
+        })
+        .from(routineTriggers)
+        .innerJoin(routines, eq(routineTriggers.routineId, routines.id))
+        .where(
+          and(
+            eq(routineTriggers.kind, "random_cron_scheduler"),
+            eq(routineTriggers.enabled, true),
+            eq(routines.status, "active"),
+            isNotNull(routineTriggers.nextRunAt),
+            lte(routineTriggers.nextRunAt, now),
+          ),
+        )
+        .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));
+
+      let triggered = 0;
+      for (const row of due) {
+        if (
+          !row.trigger.nextRunAt ||
+          row.trigger.minTimeOfDayMin == null ||
+          row.trigger.maxTimeOfDayMin == null ||
+          row.trigger.minDaysAhead == null ||
+          row.trigger.maxDaysAhead == null
+        )
+          continue;
+
+        const claimedNextRunAt = computeNextRandomCronRun(
+          {
+            allowedWeekdays: row.trigger.allowedWeekdays?.length ? row.trigger.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+            minTimeOfDayMin: row.trigger.minTimeOfDayMin,
+            maxTimeOfDayMin: row.trigger.maxTimeOfDayMin,
+            minDaysAhead: row.trigger.minDaysAhead,
+            maxDaysAhead: row.trigger.maxDaysAhead,
+            timezone: row.trigger.timezone ?? "UTC",
+          },
+          now,
+        );
+
+        const claimed = await db
+          .update(routineTriggers)
+          .set({
+            nextRunAt: claimedNextRunAt,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(routineTriggers.id, row.trigger.id),
+              eq(routineTriggers.enabled, true),
+              eq(routineTriggers.nextRunAt, row.trigger.nextRunAt),
+            ),
+          )
+          .returning({ id: routineTriggers.id })
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) continue;
+
+        await dispatchRoutineRun({
+          routine: row.routine,
+          trigger: row.trigger,
+          source: "schedule",
         });
         triggered += 1;
       }

@@ -199,7 +199,7 @@ export type RoutineConcurrencyPolicy = (typeof ROUTINE_CONCURRENCY_POLICIES)[num
 export const ROUTINE_CATCH_UP_POLICIES = ["skip_missed", "enqueue_missed_with_cap"] as const;
 export type RoutineCatchUpPolicy = (typeof ROUTINE_CATCH_UP_POLICIES)[number];
 
-export const ROUTINE_TRIGGER_KINDS = ["schedule", "webhook", "api", "random_interval"] as const;
+export const ROUTINE_TRIGGER_KINDS = ["schedule", "webhook", "api", "random_interval", "random_cron_scheduler"] as const;
 export type RoutineTriggerKind = (typeof ROUTINE_TRIGGER_KINDS)[number];
 
 export const ROUTINE_TRIGGER_SIGNING_MODES = ["bearer", "hmac_sha256", "github_hmac", "none"] as const;

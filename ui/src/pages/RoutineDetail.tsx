@@ -24,7 +24,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
-import { buildRoutineTriggerPatch } from "../lib/routine-trigger-patch";
+import { buildRoutineTriggerPatch, parseTimeToMin } from "../lib/routine-trigger-patch";
 import { timeAgo } from "../lib/timeAgo";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { EmptyState } from "../components/EmptyState";
@@ -67,7 +67,7 @@ const executionModeLabels: Record<ExecutionMode, string> = {
 };
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
-const triggerKinds = ["schedule", "webhook", "random_interval"];
+const triggerKinds = ["schedule", "webhook", "random_interval", "random_cron_scheduler"];
 const signingModes = ["bearer", "hmac_sha256", "github_hmac", "none"];
 const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
@@ -94,6 +94,41 @@ type SecretMessage = {
   webhookUrl: string;
   webhookSecret: string;
 };
+
+function minToHHMM(min: number): string {
+  const h = Math.floor(min / 60).toString().padStart(2, "0");
+  const m = (min % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"] as const;
+const WEEKDAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (days: number[]) => void }) {
+  return (
+    <div className="flex gap-1">
+      {WEEKDAY_LABELS.map((label, i) => {
+        const active = value.includes(i);
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-label={WEEKDAY_FULL[i]}
+            aria-pressed={active}
+            className={`w-7 h-7 rounded text-xs font-medium border transition-colors ${
+              active
+                ? "bg-foreground text-background border-foreground"
+                : "bg-background text-muted-foreground border-border hover:border-foreground"
+            }`}
+            onClick={() => onChange(active ? value.filter((d) => d !== i) : [...value, i].sort((a, b) => a - b))}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function autoResizeTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return;
@@ -182,6 +217,12 @@ function TriggerEditor({
     minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
     maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
     maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
+    allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
+    minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
+    maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
+    minDaysAhead: String(trigger.minDaysAhead ?? 1),
+    maxDaysAhead: String(trigger.maxDaysAhead ?? 7),
+    timezone: trigger.timezone ?? getLocalTimezone(),
   });
 
   useEffect(() => {
@@ -196,6 +237,12 @@ function TriggerEditor({
       minHours: String(Math.floor(((trigger.minIntervalSec ?? 3600) % 86400) / 3600)),
       maxDays: String(Math.floor((trigger.maxIntervalSec ?? 86400) / 86400)),
       maxHours: String(Math.floor(((trigger.maxIntervalSec ?? 86400) % 86400) / 3600)),
+      allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
+      minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
+      maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
+      minDaysAhead: String(trigger.minDaysAhead ?? 1),
+      maxDaysAhead: String(trigger.maxDaysAhead ?? 7),
+      timezone: trigger.timezone ?? getLocalTimezone(),
     });
   }, [trigger]);
 
@@ -203,15 +250,21 @@ function TriggerEditor({
     <div className="rounded-lg border border-border p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
-          {trigger.kind === "schedule" ? <Clock3 className="h-3.5 w-3.5" /> : trigger.kind === "webhook" ? <Webhook className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
+          {trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler"
+            ? <Clock3 className="h-3.5 w-3.5" />
+            : trigger.kind === "webhook"
+              ? <Webhook className="h-3.5 w-3.5" />
+              : <Zap className="h-3.5 w-3.5" />}
           {trigger.label ?? trigger.kind}
         </div>
         <span className="text-xs text-muted-foreground">
-          {trigger.kind === "schedule" && trigger.nextRunAt
+          {(trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler") && trigger.nextRunAt
             ? `Next: ${new Date(trigger.nextRunAt).toLocaleString()}`
             : trigger.kind === "webhook"
               ? "Webhook"
-              : "API"}
+              : trigger.kind === "random_interval"
+                ? "Random interval"
+                : "API"}
         </span>
       </div>
 
@@ -309,6 +362,67 @@ function TriggerEditor({
             </div>
           </div>
         )}
+        {trigger.kind === "random_cron_scheduler" && (
+          <div className="md:col-span-2 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Allowed weekdays</Label>
+              <WeekdayPicker
+                value={draft.allowedWeekdays}
+                onChange={(allowedWeekdays) => setDraft((c) => ({ ...c, allowedWeekdays }))}
+              />
+              <p className="text-xs text-muted-foreground">All toggled = any day of the week.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Earliest time</Label>
+                <Input
+                  type="time"
+                  value={draft.minTimeOfDayMin}
+                  onChange={(e) => setDraft((c) => ({ ...c, minTimeOfDayMin: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Latest time</Label>
+                <Input
+                  type="time"
+                  value={draft.maxTimeOfDayMin}
+                  onChange={(e) => setDraft((c) => ({ ...c, maxTimeOfDayMin: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Min days ahead</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={draft.minDaysAhead}
+                  onChange={(e) => setDraft((c) => ({ ...c, minDaysAhead: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Max days ahead</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={draft.maxDaysAhead}
+                  onChange={(e) => setDraft((c) => ({ ...c, maxDaysAhead: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Timezone</Label>
+              <Input
+                value={draft.timezone}
+                onChange={(e) => setDraft((c) => ({ ...c, timezone: e.target.value }))}
+                placeholder="e.g. America/New_York"
+              />
+              <p className="text-xs text-muted-foreground">IANA timezone name. Defaults to your browser timezone.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -366,6 +480,12 @@ export function RoutineDetail() {
     replayWindowSec: "300",
     minIntervalSec: "3600",
     maxIntervalSec: "86400",
+    allowedWeekdays: [1, 2, 3, 4, 5] as number[],
+    minTimeOfDayMin: "09:00",
+    maxTimeOfDayMin: "17:00",
+    minDaysAhead: "1",
+    maxDaysAhead: "7",
+    timezone: getLocalTimezone(),
   });
   const [editDraft, setEditDraft] = useState<{
     title: string;
@@ -635,6 +755,16 @@ export function RoutineDetail() {
           ? {
             minIntervalSec: Number(newTrigger.minIntervalSec || "3600"),
             maxIntervalSec: Number(newTrigger.maxIntervalSec || "86400"),
+          }
+          : {}),
+        ...(newTrigger.kind === "random_cron_scheduler"
+          ? {
+            allowedWeekdays: newTrigger.allowedWeekdays,
+            minTimeOfDayMin: parseTimeToMin(newTrigger.minTimeOfDayMin || "09:00"),
+            maxTimeOfDayMin: parseTimeToMin(newTrigger.maxTimeOfDayMin || "17:00"),
+            minDaysAhead: Number(newTrigger.minDaysAhead || "1"),
+            maxDaysAhead: Number(newTrigger.maxDaysAhead || "7"),
+            timezone: newTrigger.timezone || getLocalTimezone(),
           }
           : {}),
       });
@@ -1249,7 +1379,12 @@ export function RoutineDetail() {
                   <SelectContent>
                     {triggerKinds.map((kind) => (
                       <SelectItem key={kind} value={kind} disabled={kind === "webhook"}>
-                        {kind}{kind === "webhook" ? " — COMING SOON" : ""}
+                        {kind === "random_cron_scheduler"
+                          ? "Random weekday scheduler"
+                          : kind === "random_interval"
+                            ? "Random interval"
+                            : kind}
+                        {kind === "webhook" ? " — COMING SOON" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1311,6 +1446,67 @@ export function RoutineDetail() {
                       onChange={(event) => setNewTrigger((current) => ({ ...current, maxIntervalSec: event.target.value }))}
                     />
                     <p className="text-xs text-muted-foreground">Maximum 604800 seconds</p>
+                  </div>
+                </div>
+              )}
+              {newTrigger.kind === "random_cron_scheduler" && (
+                <div className="md:col-span-2 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Allowed weekdays</Label>
+                    <WeekdayPicker
+                      value={newTrigger.allowedWeekdays}
+                      onChange={(allowedWeekdays) => setNewTrigger((c) => ({ ...c, allowedWeekdays }))}
+                    />
+                    <p className="text-xs text-muted-foreground">All toggled = any day of the week.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Earliest time</Label>
+                      <Input
+                        type="time"
+                        value={newTrigger.minTimeOfDayMin}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, minTimeOfDayMin: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Latest time</Label>
+                      <Input
+                        type="time"
+                        value={newTrigger.maxTimeOfDayMin}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, maxTimeOfDayMin: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Min days ahead</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={30}
+                        value={newTrigger.minDaysAhead}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, minDaysAhead: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Max days ahead</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={newTrigger.maxDaysAhead}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, maxDaysAhead: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Timezone</Label>
+                    <Input
+                      value={newTrigger.timezone}
+                      onChange={(e) => setNewTrigger((c) => ({ ...c, timezone: e.target.value }))}
+                      placeholder="e.g. America/New_York"
+                    />
+                    <p className="text-xs text-muted-foreground">Defaults to your browser timezone ({getLocalTimezone()}).</p>
                   </div>
                 </div>
               )}

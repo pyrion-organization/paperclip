@@ -11,6 +11,12 @@ export type RoutineTriggerEditorDraft = {
   minHours?: string;
   maxDays?: string;
   maxHours?: string;
+  allowedWeekdays?: number[];
+  minTimeOfDayMin?: string;
+  maxTimeOfDayMin?: string;
+  minDaysAhead?: string;
+  maxDaysAhead?: string;
+  timezone?: string;
 };
 
 const SECONDS_PER_DAY = 86400;
@@ -20,6 +26,11 @@ function toSeconds(days: string, hours: string): number {
   const d = parseInt(days, 10) || 0;
   const h = parseInt(hours, 10) || 0;
   return d * SECONDS_PER_DAY + h * SECONDS_PER_HOUR;
+}
+
+export function parseTimeToMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
 }
 
 export function buildRoutineTriggerPatch(
@@ -54,6 +65,15 @@ export function buildRoutineTriggerPatch(
       patch.minIntervalSec = Number(draft.minIntervalSec || "3600");
       patch.maxIntervalSec = Number(draft.maxIntervalSec || "86400");
     }
+  }
+
+  if (trigger.kind === "random_cron_scheduler") {
+    patch.allowedWeekdays = draft.allowedWeekdays ?? [0, 1, 2, 3, 4, 5, 6];
+    patch.minTimeOfDayMin = parseTimeToMin(draft.minTimeOfDayMin || "09:00");
+    patch.maxTimeOfDayMin = parseTimeToMin(draft.maxTimeOfDayMin || "17:00");
+    patch.minDaysAhead = Number(draft.minDaysAhead || "1");
+    patch.maxDaysAhead = Number(draft.maxDaysAhead || "7");
+    patch.timezone = draft.timezone || fallbackTimezone;
   }
 
   return patch;

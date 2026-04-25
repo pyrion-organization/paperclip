@@ -84,6 +84,11 @@ export interface RoutineTrigger {
   replayWindowSec: number | null;
   minIntervalSec: number | null;
   maxIntervalSec: number | null;
+  allowedWeekdays: number[] | null;
+  minTimeOfDayMin: number | null;
+  maxTimeOfDayMin: number | null;
+  minDaysAhead: number | null;
+  maxDaysAhead: number | null;
   lastRotatedAt: Date | null;
   lastResult: string | null;
   createdByAgentId: string | null;
@@ -149,7 +154,7 @@ export interface RoutineRemediationIssueOrigin {
 }
 
 export interface RoutineListItem extends Routine {
-  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult" | "minIntervalSec" | "maxIntervalSec">[];
+  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult" | "minIntervalSec" | "maxIntervalSec" | "allowedWeekdays" | "minTimeOfDayMin" | "maxTimeOfDayMin" | "minDaysAhead" | "maxDaysAhead">[];
   lastRun: RoutineRunSummary | null;
   activeIssue: RoutineIssueSummary | null;
 }
