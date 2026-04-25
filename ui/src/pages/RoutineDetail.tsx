@@ -25,7 +25,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { buildRoutineTriggerPatch, parseTimeToMin } from "../lib/routine-trigger-patch";
-import { timeAgo } from "../lib/timeAgo";
+import { timeAgo, timeUntil } from "../lib/timeAgo";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -1556,46 +1556,66 @@ export function RoutineDetail() {
           {hasLiveRun && activeIssueId && routine && (
             <LiveRunWidget issueId={activeIssueId} companyId={routine.companyId} />
           )}
-          {(routineRuns ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground">No runs yet.</p>
-          ) : (
-            <div className="border border-border rounded-lg divide-y divide-border">
-              {(routineRuns ?? []).map((run) => (
-                <div key={run.id} className="px-3 py-2 text-sm space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant="outline" className="shrink-0">{run.source}</Badge>
-                      <Badge variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"} className="shrink-0">
-                        {run.status.replaceAll("_", " ")}
-                      </Badge>
-                      {run.scriptExitCode != null && (
-                        <Badge variant={run.scriptExitCode === 0 ? "default" : "destructive"} className="shrink-0 font-mono text-xs">
-                          exit {run.scriptExitCode}
-                        </Badge>
-                      )}
-                      {run.trigger && (
-                        <span className="text-muted-foreground truncate">{run.trigger.label ?? run.trigger.kind}</span>
-                      )}
-                      {run.linkedIssue && (
-                        <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="text-muted-foreground hover:underline truncate">
-                          {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)}
-                        </Link>
-                      )}
+          {(() => {
+            const upcomingRuns = (routine.triggers ?? [])
+              .filter((t) => t.enabled && t.nextRunAt != null)
+              .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime());
+            const pastRuns = routineRuns ?? [];
+            if (upcomingRuns.length === 0 && pastRuns.length === 0) {
+              return <p className="text-xs text-muted-foreground">No runs yet.</p>;
+            }
+            return (
+              <div className="border border-border rounded-lg divide-y divide-border">
+                {upcomingRuns.map((trigger) => (
+                  <div key={`upcoming-${trigger.id}`} className="px-3 py-2 text-sm border-l-2 border-l-blue-400/50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge variant="outline" className="shrink-0 border-blue-400/50 text-blue-400 bg-blue-400/5">scheduled</Badge>
+                        <span className="text-muted-foreground truncate">{trigger.label ?? trigger.kind.replaceAll("_", " ")}</span>
+                      </div>
+                      <span className="text-xs text-blue-400/80 shrink-0 ml-2">
+                        {new Date(trigger.nextRunAt!).toLocaleString()} · {timeUntil(trigger.nextRunAt!)}
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
                   </div>
-                  {run.scriptOutput && (
-                    <pre className="text-xs font-mono bg-muted rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all text-muted-foreground">
-                      {run.scriptOutput}
-                    </pre>
-                  )}
-                  {run.failureReason && !run.scriptOutput && (
-                    <p className="text-xs text-destructive">{run.failureReason}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+                {pastRuns.map((run) => (
+                  <div key={run.id} className="px-3 py-2 text-sm space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge variant="outline" className="shrink-0">{run.source}</Badge>
+                        <Badge variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"} className="shrink-0">
+                          {run.status.replaceAll("_", " ")}
+                        </Badge>
+                        {run.scriptExitCode != null && (
+                          <Badge variant={run.scriptExitCode === 0 ? "default" : "destructive"} className="shrink-0 font-mono text-xs">
+                            exit {run.scriptExitCode}
+                          </Badge>
+                        )}
+                        {run.trigger && (
+                          <span className="text-muted-foreground truncate">{run.trigger.label ?? run.trigger.kind}</span>
+                        )}
+                        {run.linkedIssue && (
+                          <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="text-muted-foreground hover:underline truncate">
+                            {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)}
+                          </Link>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
+                    </div>
+                    {run.scriptOutput && (
+                      <pre className="text-xs font-mono bg-muted rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all text-muted-foreground">
+                        {run.scriptOutput}
+                      </pre>
+                    )}
+                    {run.failureReason && !run.scriptOutput && (
+                      <p className="text-xs text-destructive">{run.failureReason}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="activity">
