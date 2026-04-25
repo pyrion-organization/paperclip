@@ -774,7 +774,7 @@ export function Routines() {
               </div>
             </div>
 
-            {draft.executionMode === "agent" && <div className="px-5 pb-3">
+            <div className="px-5 pb-3">
               <div className="overflow-x-auto overscroll-x-contain">
                 <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
                   <span>For</span>
@@ -867,7 +867,7 @@ export function Routines() {
                   />
                 </div>
               </div>
-            </div>}
+            </div>
 
             {draft.executionMode !== "agent" && (
               <div className="space-y-3 px-5 pb-3">
