@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -48,7 +51,7 @@ import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
-import { sendRoutineFailureEmail } from "./email.js";
+import { sendRemediationResultEmail, sendRoutineFailureEmail } from "./email.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
@@ -65,6 +68,27 @@ const WEEKDAY_INDEX: Record<string, number> = {
 };
 
 type Actor = { agentId?: string | null; userId?: string | null };
+
+async function captureProjectGitDiff(repoRoot: string): Promise<string | null> {
+  try {
+    const [logResult, statResult, diffResult] = await Promise.all([
+      execFileAsync("git", ["log", "--oneline", "-5"], { cwd: repoRoot }),
+      execFileAsync("git", ["diff", "HEAD~1", "HEAD", "--stat"], { cwd: repoRoot }),
+      execFileAsync("git", ["diff", "HEAD~1", "HEAD"], { cwd: repoRoot }),
+    ]);
+    const log = logResult.stdout.trim();
+    const stat = statResult.stdout.trim();
+    const diff = diffResult.stdout.trim().slice(0, 4000);
+    const parts = [
+      log && `Recent commits:\n${log}`,
+      stat && `Files changed:\n${stat}`,
+      diff && `Diff:\n${diff}`,
+    ].filter(Boolean);
+    return parts.length ? parts.join("\n\n") : null;
+  } catch {
+    return null;
+  }
+}
 
 function assertTimeZone(timeZone: string) {
   try {
@@ -1270,7 +1294,19 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       if (!succeeded && routine.remediationEnabled && isRemediableFailure(failureReason)) {
         await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
       }
-      if (!succeeded && routine.notificationEmail) {
+      if (run.retryOfRunId && routine.notificationEmail) {
+        const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
+        sendRemediationResultEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          succeeded,
+          failureReason,
+          scriptOutput: output || null,
+          remediationDiff,
+        }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (!succeeded && routine.notificationEmail) {
         sendRoutineFailureEmail({
           to: routine.notificationEmail,
           routineTitle: routine.title,
@@ -1292,7 +1328,19 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       if (routine.remediationEnabled && isRemediableFailure(failureReason)) {
         await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
       }
-      if (routine.notificationEmail) {
+      if (run.retryOfRunId && routine.notificationEmail) {
+        const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
+        sendRemediationResultEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          succeeded: false,
+          failureReason,
+          scriptOutput: output || null,
+          remediationDiff,
+        }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (routine.notificationEmail) {
         sendRoutineFailureEmail({
           to: routine.notificationEmail,
           routineTitle: routine.title,
@@ -2378,6 +2426,14 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
 
         const trigger = remediationRun.triggerId ? await getTriggerById(remediationRun.triggerId) : null;
 
+        let remediationDiff: string | null = null;
+        if (routine.projectId) {
+          const summary = await projectFilesService(db).getSummary(routine.projectId);
+          if (summary.repoRoot) {
+            remediationDiff = await captureProjectGitDiff(summary.repoRoot);
+          }
+        }
+
         await finalizeRun(remediationRun.id, { status: "completed", completedAt: new Date() });
 
         logger.info(
@@ -2389,6 +2445,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           routine,
           trigger: trigger ?? null,
           source: remediationRun.source as RoutineRunSource,
+          payload: remediationDiff ? { _remediationDiff: remediationDiff } : null,
         });
 
         return remediationRun;

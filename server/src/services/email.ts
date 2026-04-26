@@ -12,6 +12,45 @@ function getTransport() {
   });
 }
 
+export async function sendRemediationResultEmail(params: {
+  to: string;
+  routineTitle: string;
+  routineId: string;
+  runId: string;
+  succeeded: boolean;
+  failureReason: string | null;
+  scriptOutput: string | null;
+  remediationDiff: string | null;
+}): Promise<void> {
+  const transport = getTransport();
+  if (!transport) return;
+  const from = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  const status = params.succeeded ? "succeeded" : "failed again";
+  const lines: string[] = [
+    `Routine "${params.routineTitle}" was automatically re-run after agent remediation.`,
+    ``,
+    `Result: ${params.succeeded ? "✓ Success" : "✗ Failed again"}`,
+    `Routine ID: ${params.routineId}`,
+    `Run ID: ${params.runId}`,
+    `Time: ${new Date().toISOString()}`,
+  ];
+  if (!params.succeeded && params.failureReason) {
+    lines.push(``, `Failure reason: ${params.failureReason}`);
+  }
+  if (params.remediationDiff) {
+    lines.push(``, `--- Changes made by remediation agent ---`, params.remediationDiff);
+  }
+  if (params.scriptOutput) {
+    lines.push(``, `--- Script output ---`, params.scriptOutput.slice(0, 3000));
+  }
+  await transport.sendMail({
+    from,
+    to: params.to,
+    subject: `Routine re-run ${status}: ${params.routineTitle}`,
+    text: lines.join("\n"),
+  });
+}
+
 export async function sendRoutineFailureEmail(params: {
   to: string;
   routineTitle: string;
