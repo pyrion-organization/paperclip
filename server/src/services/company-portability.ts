@@ -4486,7 +4486,6 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
             scriptCommandArgs: [],
             scriptTimeoutSec: 60,
             remediationEnabled: false,
-            remediationPrompt: null,
             remediationAssigneeAgentId: null,
           }, {
             agentId: null,

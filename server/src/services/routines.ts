@@ -1312,7 +1312,6 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     failureReason: string | null,
   ) {
     if (!routine.remediationEnabled) return;
-    if (!routine.remediationPrompt) return;
     if (!isRemediableFailure(failureReason)) return;
 
     let assigneeId = routine.remediationAssigneeAgentId ?? routine.assigneeAgentId;
@@ -1366,18 +1365,21 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         triggerPayload: failedRun.triggerPayload,
         dispatchFingerprint: failedRun.dispatchFingerprint,
         retryOfRunId: failedRun.id,
-        retryAttempt: 1,
+        retryAttempt: (failedRun.retryAttempt ?? 0) + 1,
       })
       .returning()
       .then((rows) => rows[0]);
 
-    const prompt = interpolateRoutineTemplate(routine.remediationPrompt, {
-      ROUTINE_TITLE: routine.title,
-      ROUTINE_ID: routine.id,
-      RUN_ID: failedRun.id,
+    const REMEDIATION_PROMPT_TEMPLATE =
+      "The following routine script has failed and needs to be fixed so it can run successfully again.\n\n" +
+      "**Failure reason:** {{FAILURE_REASON}}\n\n" +
+      "**Script output:**\n```\n{{SCRIPT_OUTPUT}}\n```\n\n" +
+      "Please investigate the root cause, fix the issue in the codebase, and mark this issue as done. " +
+      "The script will be automatically re-run to verify the fix.";
+    const prompt = interpolateRoutineTemplate(REMEDIATION_PROMPT_TEMPLATE, {
       FAILURE_REASON: failureReason ?? "",
-      SCRIPT_OUTPUT: scriptOutput ?? "",
-    }) ?? routine.remediationPrompt;
+      SCRIPT_OUTPUT: (scriptOutput ?? "").slice(0, 3000),
+    }) ?? REMEDIATION_PROMPT_TEMPLATE;
 
     const remediationIssue = await issueSvc.create(routine.companyId, {
       projectId: routine.projectId,
@@ -1579,7 +1581,6 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           scriptTimeoutSec: input.scriptTimeoutSec,
           scriptCommandArgs: input.scriptCommandArgs ?? null,
           remediationEnabled: input.remediationEnabled ?? false,
-          remediationPrompt: input.remediationEnabled ? (input.remediationPrompt ?? null) : null,
           remediationAssigneeAgentId: input.remediationEnabled ? (input.remediationAssigneeAgentId ?? null) : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
@@ -1648,12 +1649,10 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           scriptTimeoutSec: patch.scriptTimeoutSec ?? existing.scriptTimeoutSec,
           scriptCommandArgs: patch.scriptCommandArgs === undefined ? existing.scriptCommandArgs : patch.scriptCommandArgs ?? null,
           remediationEnabled: patch.remediationEnabled ?? existing.remediationEnabled,
-          remediationPrompt: patch.remediationEnabled
-            ? (patch.remediationPrompt === undefined ? existing.remediationPrompt : patch.remediationPrompt ?? null)
-            : null,
           remediationAssigneeAgentId: patch.remediationEnabled
             ? (patch.remediationAssigneeAgentId === undefined ? existing.remediationAssigneeAgentId : patch.remediationAssigneeAgentId ?? null)
             : null,
+          notificationEmail: patch.notificationEmail === undefined ? existing.notificationEmail : patch.notificationEmail ?? null,
           updatedByAgentId: actor.agentId ?? null,
           updatedByUserId: actor.userId ?? null,
           updatedAt: new Date(),
@@ -1902,7 +1901,6 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           scriptTimeoutSec: source.scriptTimeoutSec,
           scriptCommandArgs: source.scriptCommandArgs,
           remediationEnabled: source.remediationEnabled,
-          remediationPrompt: source.remediationPrompt,
           remediationAssigneeAgentId: source.remediationAssigneeAgentId,
           notificationEmail: source.notificationEmail,
           createdByAgentId: actor.agentId ?? null,
@@ -2354,7 +2352,50 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         .from(issues)
         .where(eq(issues.id, issueId))
         .then((rows) => rows[0] ?? null);
-      if (!issue || issue.originKind !== "routine_execution" || !issue.originRunId) return null;
+      if (!issue || !issue.originRunId) return null;
+
+      if (issue.originKind === "routine_remediation") {
+        if (issue.status !== "done") return null;
+
+        const remediationRun = await db
+          .select()
+          .from(routineRuns)
+          .where(eq(routineRuns.id, issue.originRunId))
+          .then((rows) => rows[0] ?? null);
+        if (!remediationRun || !remediationRun.retryOfRunId) return null;
+
+        const MAX_RETRY_ATTEMPTS = 3;
+        if ((remediationRun.retryAttempt ?? 1) >= MAX_RETRY_ATTEMPTS) {
+          logger.warn(
+            { routineId: remediationRun.routineId, runId: remediationRun.id, retryAttempt: remediationRun.retryAttempt },
+            "max remediation retry attempts reached, not re-dispatching",
+          );
+          return finalizeRun(remediationRun.id, { status: "completed", completedAt: new Date() });
+        }
+
+        const routine = await getRoutineById(remediationRun.routineId);
+        if (!routine) return null;
+
+        const trigger = remediationRun.triggerId ? await getTriggerById(remediationRun.triggerId) : null;
+
+        await finalizeRun(remediationRun.id, { status: "completed", completedAt: new Date() });
+
+        logger.info(
+          { routineId: routine.id, remediationRunId: remediationRun.id, retryAttempt: remediationRun.retryAttempt },
+          "remediation issue resolved, re-dispatching routine script",
+        );
+
+        await dispatchRoutineRun({
+          routine,
+          trigger: trigger ?? null,
+          source: remediationRun.source as RoutineRunSource,
+        });
+
+        return remediationRun;
+      }
+
+      if (issue.originKind !== "routine_execution") return null;
+
       if (issue.status === "done") {
         return finalizeRun(issue.originRunId, {
           status: "completed",

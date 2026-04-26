@@ -181,7 +181,6 @@ function buildRoutineMutationPayload(input: {
   scriptCommandArgs: string[];
   scriptTimeoutSec: number;
   remediationEnabled: boolean;
-  remediationPrompt: string;
   remediationAssigneeAgentId: string;
   notificationEmail: string;
 }) {
@@ -193,7 +192,6 @@ function buildRoutineMutationPayload(input: {
     scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
     scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
     remediationEnabled: input.remediationEnabled,
-    remediationPrompt: input.remediationEnabled ? input.remediationPrompt || null : null,
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
   };
@@ -474,7 +472,6 @@ export function RoutineDetail() {
     scriptCommandArgs: string[];
     scriptTimeoutSec: number;
     remediationEnabled: boolean;
-    remediationPrompt: string;
     remediationAssigneeAgentId: string;
     notificationEmail: string;
   }>({
@@ -491,7 +488,6 @@ export function RoutineDetail() {
     scriptCommandArgs: [],
     scriptTimeoutSec: 60,
     remediationEnabled: false,
-    remediationPrompt: "",
     remediationAssigneeAgentId: "",
     notificationEmail: "",
   });
@@ -560,7 +556,6 @@ export function RoutineDetail() {
             scriptCommandArgs: routine.scriptCommandArgs ?? [],
             scriptTimeoutSec: routine.scriptTimeoutSec ?? 60,
             remediationEnabled: routine.remediationEnabled ?? false,
-            remediationPrompt: routine.remediationPrompt ?? "",
             remediationAssigneeAgentId: routine.remediationAssigneeAgentId ?? "",
             notificationEmail: routine.notificationEmail ?? "",
           }
@@ -583,7 +578,6 @@ export function RoutineDetail() {
       JSON.stringify(editDraft.scriptCommandArgs) !== JSON.stringify(routineDefaults.scriptCommandArgs) ||
       editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec ||
       editDraft.remediationEnabled !== routineDefaults.remediationEnabled ||
-      editDraft.remediationPrompt !== routineDefaults.remediationPrompt ||
       editDraft.remediationAssigneeAgentId !== routineDefaults.remediationAssigneeAgentId ||
       editDraft.notificationEmail !== routineDefaults.notificationEmail
     );
@@ -1347,39 +1341,28 @@ export function RoutineDetail() {
                   />
                 </div>
                 {editDraft.remediationEnabled && (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Remediation prompt</Label>
-                      <Input
-                        value={editDraft.remediationPrompt}
-                        onChange={(e) => setEditDraft((current) => ({ ...current, remediationPrompt: e.target.value }))}
-                        placeholder="Instructions for handling script failures..."
-                      />
-                      <p className="text-xs text-muted-foreground">Prompt sent to remediation agent when script fails.</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Remediation agent</Label>
-                      <Select
-                        value={editDraft.remediationAssigneeAgentId}
-                        onValueChange={(value) => setEditDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a remediation agent" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(agents ?? []).map((agent) => (
-                            <SelectItem key={agent.id} value={agent.id}>
-                              <div className="flex items-center gap-2">
-                                <AgentIcon icon={agent.icon} className="h-4 w-4" />
-                                {agent.name}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">Agent assigned to handle failures.</p>
-                    </div>
-                  </>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Remediation agent</Label>
+                    <Select
+                      value={editDraft.remediationAssigneeAgentId}
+                      onValueChange={(value) => setEditDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a remediation agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(agents ?? []).map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            <div className="flex items-center gap-2">
+                              <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                              {agent.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Agent assigned to handle failures. The script will be automatically re-run after the fix.</p>
+                  </div>
                 )}
                 <div className="space-y-1.5 border-t border-border pt-3">
                   <Label className="text-xs">Failure notification email</Label>

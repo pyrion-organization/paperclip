@@ -65,7 +65,6 @@ export const createRoutineSchema = z.object({
   scriptCommandArgs: z.array(z.string().trim().max(500)).max(100).optional().default([]),
   scriptTimeoutSec: z.number().int().min(1).max(3600).optional().default(60),
   remediationEnabled: z.boolean().optional().default(false),
-  remediationPrompt: z.string().max(10_000).optional().nullable(),
   remediationAssigneeAgentId: z.string().uuid().optional().nullable(),
   notificationEmail: z.string().email().optional().nullable(),
 });

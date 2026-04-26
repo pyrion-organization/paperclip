@@ -138,7 +138,6 @@ function buildRoutineMutationPayload(input: {
   scriptCommandArgs: string[];
   scriptTimeoutSec: number;
   remediationEnabled: boolean;
-  remediationPrompt: string;
   remediationAssigneeAgentId: string;
   notificationEmail: string;
 }) {
@@ -150,7 +149,6 @@ function buildRoutineMutationPayload(input: {
     scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
     scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
     remediationEnabled: input.remediationEnabled,
-    remediationPrompt: input.remediationEnabled ? input.remediationPrompt || null : null,
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
   };
@@ -315,7 +313,6 @@ export function Routines() {
     scriptCommandArgs: string[];
     scriptTimeoutSec: number;
     remediationEnabled: boolean;
-    remediationPrompt: string;
     remediationAssigneeAgentId: string;
     notificationEmail: string;
   }>({
@@ -332,7 +329,6 @@ export function Routines() {
     scriptCommandArgs: [],
     scriptTimeoutSec: 60,
     remediationEnabled: false,
-    remediationPrompt: "",
     remediationAssigneeAgentId: "",
     notificationEmail: "",
   });
@@ -398,7 +394,6 @@ export function Routines() {
         scriptCommandArgs: [],
         scriptTimeoutSec: 60,
         remediationEnabled: false,
-        remediationPrompt: "",
         remediationAssigneeAgentId: "",
         notificationEmail: "",
       });
@@ -859,39 +854,28 @@ export function Routines() {
                     />
                   </div>
                   {draft.remediationEnabled && (
-                    <>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Remediation prompt</Label>
-                        <Input
-                          value={draft.remediationPrompt}
-                          onChange={(e) => setDraft((current) => ({ ...current, remediationPrompt: e.target.value }))}
-                          placeholder="Instructions for handling script failures..."
-                        />
-                        <p className="text-xs text-muted-foreground">Prompt sent to remediation agent when script fails.</p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Remediation agent</Label>
-                        <Select
-                          value={draft.remediationAssigneeAgentId}
-                          onValueChange={(value) => setDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a remediation agent" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(agents ?? []).map((agent) => (
-                              <SelectItem key={agent.id} value={agent.id}>
-                                <div className="flex items-center gap-2">
-                                  <AgentIcon icon={agent.icon} className="h-4 w-4" />
-                                  {agent.name}
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">Agent assigned to handle failures.</p>
-                      </div>
-                    </>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Remediation agent</Label>
+                      <Select
+                        value={draft.remediationAssigneeAgentId}
+                        onValueChange={(value) => setDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a remediation agent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(agents ?? []).map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              <div className="flex items-center gap-2">
+                                <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                                {agent.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Agent assigned to handle failures. The script will be automatically re-run after the fix.</p>
+                    </div>
                   )}
                 </div>
               </div>
