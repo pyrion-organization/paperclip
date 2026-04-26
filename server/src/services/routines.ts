@@ -1401,6 +1401,23 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       return;
     }
 
+    const enabledTriggerIds = await db
+      .select({ id: routineTriggers.id })
+      .from(routineTriggers)
+      .where(and(eq(routineTriggers.routineId, routine.id), eq(routineTriggers.enabled, true)))
+      .then((rows) => rows.map((r) => r.id));
+
+    if (enabledTriggerIds.length > 0) {
+      await db
+        .update(routineTriggers)
+        .set({ enabled: false, nextRunAt: null })
+        .where(inArray(routineTriggers.id, enabledTriggerIds));
+      logger.info(
+        { routineId: routine.id, pausedTriggerIds: enabledTriggerIds },
+        "paused routine triggers for remediation",
+      );
+    }
+
     const remediationRun = await db
       .insert(routineRuns)
       .values({
@@ -1410,7 +1427,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         source: failedRun.source,
         status: "remediation_issue_created",
         triggeredAt: new Date(),
-        triggerPayload: failedRun.triggerPayload,
+        triggerPayload: { ...(failedRun.triggerPayload ?? {}), _pausedTriggerIds: enabledTriggerIds },
         dispatchFingerprint: failedRun.dispatchFingerprint,
         retryOfRunId: failedRun.id,
         retryAttempt: (failedRun.retryAttempt ?? 0) + 1,
@@ -1447,6 +1464,15 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       .update(routineRuns)
       .set({ linkedIssueId: remediationIssue.id })
       .where(eq(routineRuns.id, remediationRun?.id ?? failedRun.id));
+
+    await queueIssueAssignmentWakeup({
+      heartbeat,
+      issue: { id: remediationIssue.id, assigneeAgentId: assigneeId, status: "todo" },
+      reason: "routine_remediation_assigned",
+      mutation: "create",
+      contextSource: "routine.remediation",
+      requestedByActorType: "system",
+    });
 
     logger.info(
       { routineId: routine.id, runId: failedRun.id, remediationIssueId: remediationIssue.id },
@@ -2425,6 +2451,40 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         if (!routine) return null;
 
         const trigger = remediationRun.triggerId ? await getTriggerById(remediationRun.triggerId) : null;
+
+        const pausedTriggerIds = (remediationRun.triggerPayload?._pausedTriggerIds as string[] | null) ?? [];
+        if (pausedTriggerIds.length > 0) {
+          const triggersToResume = await db
+            .select()
+            .from(routineTriggers)
+            .where(inArray(routineTriggers.id, pausedTriggerIds));
+
+          for (const t of triggersToResume) {
+            let nextRunAt: Date | null = null;
+            if (t.kind === "schedule" && t.cronExpression && t.timezone) {
+              nextRunAt = nextCronTickInTimeZone(t.cronExpression, t.timezone, new Date());
+            } else if (t.kind === "random_interval" && t.minIntervalSec && t.maxIntervalSec) {
+              nextRunAt = computeNextRandomIntervalRun(t.minIntervalSec, t.maxIntervalSec, new Date());
+            } else if (t.kind === "random_cron_scheduler") {
+              nextRunAt = computeNextRandomCronRun({
+                allowedWeekdays: t.allowedWeekdays?.length ? t.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+                minTimeOfDayMin: t.minTimeOfDayMin ?? 540,
+                maxTimeOfDayMin: t.maxTimeOfDayMin ?? 1020,
+                minDaysAhead: t.minDaysAhead ?? 1,
+                maxDaysAhead: t.maxDaysAhead ?? 7,
+                timezone: t.timezone ?? "UTC",
+              }, new Date());
+            }
+            await db
+              .update(routineTriggers)
+              .set({ enabled: true, nextRunAt })
+              .where(eq(routineTriggers.id, t.id));
+          }
+          logger.info(
+            { routineId: routine.id, resumedTriggerIds: pausedTriggerIds },
+            "resumed routine triggers after remediation",
+          );
+        }
 
         let remediationDiff: string | null = null;
         if (routine.projectId) {
