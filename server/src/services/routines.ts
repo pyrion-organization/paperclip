@@ -1294,7 +1294,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       if (!succeeded && routine.remediationEnabled && isRemediableFailure(failureReason)) {
         await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
       }
-      if (run.retryOfRunId && routine.notificationEmail) {
+      if (run.triggerPayload?._isRemediationRetry && routine.notificationEmail) {
         const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
         sendRemediationResultEmail({
           to: routine.notificationEmail,
@@ -1313,6 +1313,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           routineId: routine.id,
           runId: run.id,
           failureReason,
+          scriptOutput: output || null,
         }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
       }
       return finalRun ?? run;
@@ -1328,7 +1329,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       if (routine.remediationEnabled && isRemediableFailure(failureReason)) {
         await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
       }
-      if (run.retryOfRunId && routine.notificationEmail) {
+      if (run.triggerPayload?._isRemediationRetry && routine.notificationEmail) {
         const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
         sendRemediationResultEmail({
           to: routine.notificationEmail,
@@ -1347,6 +1348,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           routineId: routine.id,
           runId: run.id,
           failureReason,
+          scriptOutput: output || null,
         }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
       }
       return finalRun ?? run;
@@ -2505,7 +2507,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           routine,
           trigger: trigger ?? null,
           source: remediationRun.source as RoutineRunSource,
-          payload: remediationDiff ? { _remediationDiff: remediationDiff } : null,
+          payload: { _isRemediationRetry: true, ...(remediationDiff ? { _remediationDiff: remediationDiff } : {}) },
         });
 
         return remediationRun;
