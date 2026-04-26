@@ -1690,6 +1690,7 @@ export function RoutineDetail() {
         projects={projects ?? []}
         defaultProjectId={routine.projectId}
         defaultAssigneeAgentId={routine.assigneeAgentId}
+        executionMode={routine.executionMode ?? "agent"}
         variables={routine.variables ?? []}
         isPending={runRoutine.isPending}
         onSubmit={(data) => runRoutine.mutate(data)}

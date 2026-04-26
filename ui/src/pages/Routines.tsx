@@ -1065,6 +1065,7 @@ export function Routines() {
         projects={projects ?? []}
         defaultProjectId={runDialogRoutine?.projectId ?? null}
         defaultAssigneeAgentId={runDialogRoutine?.assigneeAgentId ?? null}
+        executionMode={runDialogRoutine?.executionMode ?? "agent"}
         variables={runDialogRoutine?.variables ?? []}
         isPending={runRoutine.isPending}
         onSubmit={(data) => {
