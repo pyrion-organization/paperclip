@@ -91,9 +91,29 @@ async function fetchClaudeUsage(): Promise<ProviderUsage> {
       signal: AbortSignal.timeout(10_000),
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // A 429 means the session/weekly limit is hit. The response body still
+    // contains the usage shape, so parse it instead of falling back to mock.
+    if (!res.ok && res.status !== 429) throw new Error(`HTTP ${res.status}`);
 
-    const data = (await res.json()) as Record<string, { utilization?: number; resets_at?: string } | null>;
+    let data: Record<string, { utilization?: number; resets_at?: string } | null> = {};
+    try {
+      data = (await res.json()) as typeof data;
+    } catch {
+      if (res.status === 429) {
+        // Body wasn't JSON — surface a real limited state rather than mock.
+        return {
+          provider: "claude",
+          plan: "Pro",
+          isMock: false,
+          error: "Rate limit reached",
+          windows: [
+            { label: "5-hour session", usedPercent: 100, resetsAt: null },
+            { label: "7-day", usedPercent: 100, resetsAt: null },
+          ],
+        };
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
 
     const windows: TimeWindow[] = [];
 

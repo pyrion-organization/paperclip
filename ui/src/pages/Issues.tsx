@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useCallback } from "react";
 import { useLocation, useSearchParams } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { Issue } from "@paperclipai/shared";
 import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
@@ -100,6 +101,20 @@ export function Issues() {
     enabled: !!selectedCompanyId,
   });
 
+  const hideCancelledIssues = useMutation({
+    mutationFn: async () => {
+      const hiddenAt = new Date().toISOString();
+      const cancelledIssues = (issues ?? []).filter(
+        (issue): issue is Issue => issue.status === "cancelled" && issue.hiddenAt == null,
+      );
+      await Promise.all(cancelledIssues.map((issue) => issuesApi.update(issue.id, { hiddenAt })));
+      return cancelledIssues.length;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["issues"] });
+    },
+  });
+
   const updateIssue = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       issuesApi.update(id, data),
@@ -127,6 +142,8 @@ export function Issues() {
       initialSearch={initialSearch}
       onSearchChange={handleSearchChange}
       enableRoutineVisibilityFilter
+      onHideCancelledIssues={() => hideCancelledIssues.mutate()}
+      hideCancelledIssuesPending={hideCancelledIssues.isPending}
       onUpdateIssue={(id, data) => updateIssue.mutate({ id, data })}
       searchFilters={participantAgentId || workspaceIdFilter ? { participantAgentId, workspaceId: workspaceIdFilter } : undefined}
     />
