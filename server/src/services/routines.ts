@@ -97,11 +97,14 @@ function getZonedMinuteParts(date: Date, timeZone: string) {
   if (weekday == null) {
     throw new Error(`Unable to resolve weekday for timezone ${timeZone}`);
   }
+  // Some ICU/V8 builds return "24" for midnight with hour12:false + numeric.
+  // Normalise to 0 so convergence and minute-of-day math stay correct.
+  const rawHour = Number(map.hour);
   return {
     year: Number(map.year),
     month: Number(map.month),
     day: Number(map.day),
-    hour: Number(map.hour),
+    hour: rawHour === 24 ? 0 : rawHour,
     minute: Number(map.minute),
     weekday,
   };
@@ -221,7 +224,10 @@ function computeNextRandomCronRun(config: RandomCronConfig, now: Date): Date {
   const range = Math.max(0, effectiveMax - effectiveMin);
   const chosenMinute = effectiveMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
 
-  return new Date(chosenDay.getTime() + chosenMinute * 60_000);
+  const result = new Date(chosenDay.getTime() + chosenMinute * 60_000);
+  // Safety net: if all candidates were in the past (e.g. due to timezone edge
+  // cases), fall back to +1 day from now rather than scheduling in the past.
+  return result > now ? result : new Date(now.getTime() + 86_400_000);
 }
 
 function normalizeWebhookTimestampMs(rawTimestamp: string) {

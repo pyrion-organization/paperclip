@@ -311,7 +311,7 @@ function TriggerEditor({
           </>
         )}
         {trigger.kind === "random_interval" && (
-          <div className="md:col-span-2 grid grid-cols-2 gap-3">
+          <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Min interval (seconds)</Label>
               <Input
@@ -344,9 +344,8 @@ function TriggerEditor({
                 value={draft.allowedWeekdays}
                 onChange={(allowedWeekdays) => setDraft((c) => ({ ...c, allowedWeekdays }))}
               />
-              <p className="text-xs text-muted-foreground">All toggled = any day of the week.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Earliest time</Label>
                 <Input
@@ -364,7 +363,7 @@ function TriggerEditor({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Min days ahead</Label>
                 <Input
@@ -1493,7 +1492,7 @@ export function RoutineDetail() {
                 </>
               )}
               {newTrigger.kind === "random_interval" && (
-                <div className="md:col-span-2 grid grid-cols-2 gap-3">
+                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs">Min interval (seconds)</Label>
                     <Input
@@ -1526,9 +1525,8 @@ export function RoutineDetail() {
                       value={newTrigger.allowedWeekdays}
                       onChange={(allowedWeekdays) => setNewTrigger((c) => ({ ...c, allowedWeekdays }))}
                     />
-                    <p className="text-xs text-muted-foreground">All toggled = any day of the week.</p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Earliest time</Label>
                       <Input
@@ -1546,7 +1544,7 @@ export function RoutineDetail() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Min days ahead</Label>
                       <Input
