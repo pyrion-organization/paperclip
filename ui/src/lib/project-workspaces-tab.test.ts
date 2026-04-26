@@ -60,6 +60,7 @@ function createIssue(overrides: Partial<Issue>): Issue {
     completedAt: overrides.completedAt ?? null,
     cancelledAt: overrides.cancelledAt ?? null,
     hiddenAt: overrides.hiddenAt ?? null,
+    scheduledAt: null,
     createdAt: overrides.createdAt ?? new Date("2026-03-20T00:00:00Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-03-20T00:00:00Z"),
   } as Issue;

@@ -33,8 +33,14 @@ import { formatDate, cn, projectUrl } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { User, Hexagon, ArrowUpRight, Tag, Plus, GitBranch, FolderOpen, Check, ExternalLink } from "lucide-react";
+import { User, Hexagon, ArrowUpRight, Tag, Plus, GitBranch, FolderOpen, Check, ExternalLink, Calendar, X } from "lucide-react";
 import { AgentIcon } from "./AgentIconPicker";
+
+function toDatetimeLocalValue(date: Date): string {
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function TruncatedCopyable({ value, icon: Icon }: { value: string; icon: React.ComponentType<{ className?: string }> }) {
   const [copied, setCopied] = useState(false);
@@ -238,6 +244,7 @@ export function IssueProperties({
   const [labelSearch, setLabelSearch] = useState("");
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState("#6366f1");
+  const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
 
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
@@ -1070,6 +1077,67 @@ export function IssueProperties({
             onChange={(priority) => onUpdate({ priority })}
             showLabel
           />
+        </PropertyRow>
+
+        <PropertyRow label="Scheduled">
+          <Popover open={scheduledAtOpen} onOpenChange={setScheduledAtOpen}>
+            <PopoverTrigger asChild>
+              <button className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors text-sm text-left">
+                <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className={issue.scheduledAt ? "text-foreground" : "text-muted-foreground"}>
+                  {issue.scheduledAt
+                    ? new Date(issue.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                    : "Not scheduled"}
+                </span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3 space-y-3" align="end">
+              <p className="text-xs font-medium text-foreground">Schedule start</p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                value={issue.scheduledAt ? toDatetimeLocalValue(new Date(issue.scheduledAt)) : ""}
+                min={toDatetimeLocalValue(new Date())}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  onUpdate({ scheduledAt: val ? new Date(val).toISOString() : null });
+                }}
+              />
+              <div className="grid grid-cols-2 gap-1">
+                {[
+                  { label: "In 1h", ms: 60 * 60 * 1000 },
+                  { label: "In 5h", ms: 5 * 60 * 60 * 1000 },
+                  { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
+                  { label: "Next week", ms: 7 * 24 * 60 * 60 * 1000 },
+                ].map(({ label, ms }) => (
+                  <button
+                    key={label}
+                    className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                    onClick={() => { onUpdate({ scheduledAt: new Date(Date.now() + ms).toISOString() }); setScheduledAtOpen(false); }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {issue.scheduledAt && (
+                <button
+                  className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
+                  onClick={() => { onUpdate({ scheduledAt: null }); setScheduledAtOpen(false); }}
+                >
+                  Clear schedule
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
+          {issue.scheduledAt && (
+            <button
+              className="h-4 w-4 inline-flex items-center justify-center rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-destructive"
+              onClick={() => onUpdate({ scheduledAt: null })}
+              title="Clear schedule"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </PropertyRow>
 
         <PropertyPicker

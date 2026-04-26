@@ -1485,8 +1485,14 @@ export function issueRoutes(
 
     const actor = getActorInfo(req);
     const executionPolicy = normalizeIssueExecutionPolicy(req.body.executionPolicy);
+    const scheduledAtInput = req.body.scheduledAt as string | null | undefined;
+    const scheduledAt = scheduledAtInput ? new Date(scheduledAtInput) : undefined;
+    // Scheduled issues must stay in backlog until the trigger time arrives.
+    const effectiveStatus = scheduledAt && scheduledAt > new Date() ? "backlog" : req.body.status;
     const issue = await svc.create(companyId, {
       ...req.body,
+      status: effectiveStatus,
+      scheduledAt,
       executionPolicy,
       createdByAgentId: actor.agentId,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
@@ -1620,6 +1626,7 @@ export function issueRoutes(
       reopen: reopenRequested,
       interrupt: interruptRequested,
       hiddenAt: hiddenAtRaw,
+      scheduledAt: scheduledAtRaw,
       ...updateFields
     } = req.body;
     const requestedAssigneeAgentId =
@@ -1681,6 +1688,9 @@ export function issueRoutes(
 
     if (hiddenAtRaw !== undefined) {
       updateFields.hiddenAt = hiddenAtRaw ? new Date(hiddenAtRaw) : null;
+    }
+    if (scheduledAtRaw !== undefined) {
+      updateFields.scheduledAt = scheduledAtRaw ? new Date(scheduledAtRaw) : null;
     }
     if (
       commentBody &&

@@ -153,6 +153,7 @@ function createIssue(overrides: Partial<Issue> = {}): Issue {
     completedAt: null,
     cancelledAt: null,
     hiddenAt: null,
+    scheduledAt: null,
     labels: [],
     labelIds: [],
     blockedBy: [],
