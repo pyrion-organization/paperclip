@@ -12,6 +12,7 @@ type IssuePropertiesPanelKeyIssue = Pick<
   | "parentId"
   | "createdByUserId"
   | "hiddenAt"
+  | "scheduledAt"
   | "labelIds"
   | "executionPolicy"
   | "executionState"
@@ -43,6 +44,7 @@ export function buildIssuePropertiesPanelKey(
     parentId: issue.parentId,
     createdByUserId: issue.createdByUserId,
     hiddenAt: issue.hiddenAt,
+    scheduledAt: issue.scheduledAt,
     labelIds: issue.labelIds ?? [],
     executionWorkspaceId: issue.executionWorkspaceId,
     executionWorkspacePreference: issue.executionWorkspacePreference,
