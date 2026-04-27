@@ -329,6 +329,7 @@ export function NewIssueDialog() {
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
+  const [pendingScheduledAtStr, setPendingScheduledAtStr] = useState("");
   const [companyOpen, setCompanyOpen] = useState(false);
   const descriptionEditorRef = useRef<MarkdownEditorRef>(null);
   const stageFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1649,7 +1650,13 @@ export function NewIssueDialog() {
           </button>
 
           {/* Scheduled start */}
-          <Popover open={scheduledAtOpen} onOpenChange={setScheduledAtOpen}>
+          <Popover
+            open={scheduledAtOpen}
+            onOpenChange={(open) => {
+              if (open) setPendingScheduledAtStr(scheduledAt ? toDatetimeLocalValue(scheduledAt) : "");
+              setScheduledAtOpen(open);
+            }}
+          >
             <PopoverTrigger asChild>
               <button
                 className={cn(
@@ -1673,17 +1680,18 @@ export function NewIssueDialog() {
                 )}
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-3 space-y-3" align="start">
+            <PopoverContent
+              className="w-64 p-3 space-y-3"
+              align="start"
+              onInteractOutside={(e) => e.preventDefault()}
+            >
               <p className="text-xs font-medium text-foreground">Schedule start</p>
               <input
                 type="datetime-local"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                value={scheduledAt ? toDatetimeLocalValue(scheduledAt) : ""}
+                value={pendingScheduledAtStr}
                 min={toDatetimeLocalValue(new Date())}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setScheduledAt(val ? new Date(val) : null);
-                }}
+                onChange={(e) => setPendingScheduledAtStr(e.target.value)}
               />
               <div className="grid grid-cols-2 gap-1">
                 {[
@@ -1701,10 +1709,28 @@ export function NewIssueDialog() {
                   </button>
                 ))}
               </div>
-              {scheduledAt && (
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  disabled={!pendingScheduledAtStr}
+                  onClick={() => {
+                    setScheduledAt(new Date(pendingScheduledAtStr));
+                    setScheduledAtOpen(false);
+                  }}
+                >
+                  Set
+                </button>
+                <button
+                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                  onClick={() => setScheduledAtOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+              {(scheduledAt || pendingScheduledAtStr) && (
                 <button
                   className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
-                  onClick={() => { setScheduledAt(null); setScheduledAtOpen(false); }}
+                  onClick={() => { setScheduledAt(null); setPendingScheduledAtStr(""); setScheduledAtOpen(false); }}
                 >
                   Clear schedule
                 </button>

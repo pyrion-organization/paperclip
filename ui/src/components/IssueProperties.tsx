@@ -245,6 +245,7 @@ export function IssueProperties({
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState("#6366f1");
   const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
+  const [pendingScheduledAt, setPendingScheduledAt] = useState("");
 
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
@@ -1080,7 +1081,15 @@ export function IssueProperties({
         </PropertyRow>
 
         <PropertyRow label="Scheduled">
-          <Popover open={scheduledAtOpen} onOpenChange={setScheduledAtOpen}>
+          <Popover
+            open={scheduledAtOpen}
+            onOpenChange={(open) => {
+              if (open) {
+                setPendingScheduledAt(issue.scheduledAt ? toDatetimeLocalValue(new Date(issue.scheduledAt)) : "");
+              }
+              setScheduledAtOpen(open);
+            }}
+          >
             <PopoverTrigger asChild>
               <button className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors text-sm text-left">
                 <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1091,17 +1100,18 @@ export function IssueProperties({
                 </span>
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-3 space-y-3" align="end">
+            <PopoverContent
+              className="w-64 p-3 space-y-3"
+              align="end"
+              onInteractOutside={(e) => e.preventDefault()}
+            >
               <p className="text-xs font-medium text-foreground">Schedule start</p>
               <input
                 type="datetime-local"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                value={issue.scheduledAt ? toDatetimeLocalValue(new Date(issue.scheduledAt)) : ""}
+                value={pendingScheduledAt}
                 min={toDatetimeLocalValue(new Date())}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  onUpdate({ scheduledAt: val ? new Date(val).toISOString() : null });
-                }}
+                onChange={(e) => setPendingScheduledAt(e.target.value)}
               />
               <div className="grid grid-cols-2 gap-1">
                 {[
@@ -1113,13 +1123,34 @@ export function IssueProperties({
                   <button
                     key={label}
                     className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
-                    onClick={() => { onUpdate({ scheduledAt: new Date(Date.now() + ms).toISOString() }); setScheduledAtOpen(false); }}
+                    onClick={() => {
+                      onUpdate({ scheduledAt: new Date(Date.now() + ms).toISOString() });
+                      setScheduledAtOpen(false);
+                    }}
                   >
                     {label}
                   </button>
                 ))}
               </div>
-              {issue.scheduledAt && (
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  disabled={!pendingScheduledAt}
+                  onClick={() => {
+                    onUpdate({ scheduledAt: new Date(pendingScheduledAt).toISOString() });
+                    setScheduledAtOpen(false);
+                  }}
+                >
+                  Set
+                </button>
+                <button
+                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                  onClick={() => setScheduledAtOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+              {(issue.scheduledAt || pendingScheduledAt) && (
                 <button
                   className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
                   onClick={() => { onUpdate({ scheduledAt: null }); setScheduledAtOpen(false); }}
