@@ -602,11 +602,12 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
             </Popover>
           )}
         </PropertyRow>
-        <PropertyRow label="Clients" alignStart valueClassName="space-y-2">
+        <PropertyRow label={<FieldLabel label="Clients" state="idle" />} alignStart valueClassName="space-y-2">
           <ProjectClientList
             clients={project.clients}
             projectStatus={project.status}
             emptyMessage="No active clients linked to this project."
+            compact
           />
         </PropertyRow>
         <PropertyRow
