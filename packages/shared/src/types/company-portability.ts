@@ -84,6 +84,13 @@ export interface CompanyPortabilityIssueRoutineTriggerManifestEntry {
   timezone: string | null;
   signingMode: string | null;
   replayWindowSec: number | null;
+  minIntervalSec: number | null;
+  maxIntervalSec: number | null;
+  allowedWeekdays: number[] | null;
+  minTimeOfDayMin: number | null;
+  maxTimeOfDayMin: number | null;
+  minDaysAhead: number | null;
+  maxDaysAhead: number | null;
 }
 
 export interface CompanyPortabilityIssueRoutineManifestEntry {

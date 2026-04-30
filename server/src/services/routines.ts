@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -22,6 +22,7 @@ import type {
   Routine,
   RoutineDetail,
   RoutineListItem,
+  RoutineRunSource,
   RoutineRunSummary,
   RoutineTrigger,
   RoutineTriggerSecretMaterial,
@@ -43,12 +44,14 @@ import { conflict, forbidden, notFound, unauthorized, unprocessable } from "../e
 import { logger } from "../middleware/logger.js";
 import { getTelemetryClient } from "../telemetry.js";
 import { issueService } from "./issues.js";
+import { projectFilesService } from "./project-files.js";
 import { secretService } from "./secrets.js";
 import { parseCron, validateCron } from "./cron.js";
 import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
+import { sendRemediationResultEmail, sendRoutineFailureEmail } from "./email.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running", "scheduled_retry"];
@@ -65,6 +68,27 @@ const WEEKDAY_INDEX: Record<string, number> = {
 };
 
 type Actor = { agentId?: string | null; userId?: string | null };
+
+async function captureProjectGitDiff(repoRoot: string): Promise<string | null> {
+  try {
+    const [logResult, statResult, diffResult] = await Promise.all([
+      execFileAsync("git", ["log", "--oneline", "-5"], { cwd: repoRoot }),
+      execFileAsync("git", ["diff", "HEAD~1", "HEAD", "--stat"], { cwd: repoRoot }),
+      execFileAsync("git", ["diff", "HEAD~1", "HEAD"], { cwd: repoRoot }),
+    ]);
+    const log = logResult.stdout.trim();
+    const stat = statResult.stdout.trim();
+    const diff = diffResult.stdout.trim().slice(0, 4000);
+    const parts = [
+      log && `Recent commits:\n${log}`,
+      stat && `Files changed:\n${stat}`,
+      diff && `Diff:\n${diff}`,
+    ].filter(Boolean);
+    return parts.length ? parts.join("\n\n") : null;
+  } catch {
+    return null;
+  }
+}
 
 function assertTimeZone(timeZone: string) {
   try {
@@ -97,11 +121,14 @@ function getZonedMinuteParts(date: Date, timeZone: string) {
   if (weekday == null) {
     throw new Error(`Unable to resolve weekday for timezone ${timeZone}`);
   }
+  // Some ICU/V8 builds return "24" for midnight with hour12:false + numeric.
+  // Normalise to 0 so convergence and minute-of-day math stay correct.
+  const rawHour = Number(map.hour);
   return {
     year: Number(map.year),
     month: Number(map.month),
     day: Number(map.day),
-    hour: Number(map.hour),
+    hour: rawHour === 24 ? 0 : rawHour,
     minute: Number(map.minute),
     weekday,
   };
@@ -148,10 +175,106 @@ function nextResultText(status: string, issueId?: string | null) {
   return status;
 }
 
+function computeNextRandomIntervalRun(
+  minIntervalSec: number,
+  maxIntervalSec: number,
+  after: Date,
+): Date {
+  const diff = maxIntervalSec - minIntervalSec;
+  const randomOffsetSec = diff > 0 ? Math.floor(Math.random() * (diff + 1)) : 0;
+  const intervalSec = minIntervalSec + randomOffsetSec;
+  return new Date(after.getTime() + intervalSec * 1000);
+}
+
+interface RandomCronConfig {
+  allowedWeekdays: number[];
+  minTimeOfDayMin: number;
+  maxTimeOfDayMin: number;
+  minDaysAhead: number;
+  maxDaysAhead: number;
+  timezone: string;
+}
+
+function localMidnightUtcForOffset(now: Date, tz: string, offsetDays: number): Date {
+  let candidate = new Date(now.getTime() + offsetDays * 86_400_000);
+  // Iterate to convergence: handles DST transitions and sub-hour timezone offsets.
+  // Three passes are sufficient for any real-world timezone.
+  for (let i = 0; i < 3; i++) {
+    const parts = getZonedMinuteParts(candidate, tz);
+    const msIntoDay = (parts.hour * 60 + parts.minute) * 60_000 + candidate.getUTCSeconds() * 1000 + candidate.getUTCMilliseconds();
+    if (msIntoDay === 0) break;
+    candidate = new Date(candidate.getTime() - msIntoDay);
+  }
+  return candidate;
+}
+
+function computeNextRandomCronRun(config: RandomCronConfig, now: Date): Date {
+  const tz = config.timezone;
+  const effectiveWeekdays = config.allowedWeekdays.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : config.allowedWeekdays;
+  const nowParts = getZonedMinuteParts(now, tz);
+  const nowMinuteOfDay = nowParts.hour * 60 + nowParts.minute;
+
+  const candidates: Date[] = [];
+  for (let d = config.minDaysAhead; d <= config.maxDaysAhead; d++) {
+    const midnight = localMidnightUtcForOffset(now, tz, d);
+    const parts = getZonedMinuteParts(midnight, tz);
+    if (!effectiveWeekdays.includes(parts.weekday)) continue;
+    if (d === 0 && nowMinuteOfDay >= config.maxTimeOfDayMin) continue;
+    candidates.push(midnight);
+  }
+
+  if (candidates.length === 0) {
+    for (let d = config.maxDaysAhead + 1; d <= config.maxDaysAhead + 30; d++) {
+      const midnight = localMidnightUtcForOffset(now, tz, d);
+      const parts = getZonedMinuteParts(midnight, tz);
+      if (!effectiveWeekdays.includes(parts.weekday)) continue;
+      candidates.push(midnight);
+      break;
+    }
+  }
+
+  if (candidates.length === 0) {
+    return new Date(now.getTime() + 86_400_000);
+  }
+
+  const chosenDay = candidates[Math.floor(Math.random() * candidates.length)]!;
+  const chosenParts = getZonedMinuteParts(chosenDay, tz);
+  const isToday =
+    chosenParts.year === nowParts.year &&
+    chosenParts.month === nowParts.month &&
+    chosenParts.day === nowParts.day;
+  const effectiveMin = isToday ? Math.max(config.minTimeOfDayMin, nowMinuteOfDay + 1) : config.minTimeOfDayMin;
+  const effectiveMax = config.maxTimeOfDayMin;
+  const range = Math.max(0, effectiveMax - effectiveMin);
+  const chosenMinute = effectiveMin + (range > 0 ? Math.floor(Math.random() * (range + 1)) : 0);
+
+  const result = new Date(chosenDay.getTime() + chosenMinute * 60_000);
+  // Safety net: if all candidates were in the past (e.g. due to timezone edge
+  // cases), fall back to +1 day from now rather than scheduling in the past.
+  return result > now ? result : new Date(now.getTime() + 86_400_000);
+}
+
 function normalizeWebhookTimestampMs(rawTimestamp: string) {
   const parsed = Number(rawTimestamp);
   if (!Number.isFinite(parsed)) return null;
   return parsed > 1e12 ? parsed : parsed * 1000;
+}
+
+const NON_REMEDIABLE_FAILURE_PATTERNS = [
+  "ENOENT",
+  "command not found",
+  "npm not found",
+  "python3: not found",
+  "node: not found",
+  "missing runtime",
+  "runtime not found",
+  "binary not found",
+];
+
+function isRemediableFailure(failureReason: string | null): boolean {
+  if (!failureReason) return false;
+  const lower = failureReason.toLowerCase();
+  return !NON_REMEDIABLE_FAILURE_PATTERNS.some((pattern) => lower.includes(pattern.toLowerCase()));
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -258,7 +381,7 @@ function assertRoutineCanEnable(status: string, assigneeAgentId: string | null |
 }
 
 function collectProvidedRoutineVariables(
-  source: "schedule" | "manual" | "api" | "webhook",
+  source: RoutineRunSource,
   payload: Record<string, unknown> | null | undefined,
   variables: Record<string, unknown> | null | undefined,
 ) {
@@ -275,7 +398,7 @@ function collectProvidedRoutineVariables(
 function resolveRoutineVariableValues(
   variables: RoutineVariable[],
   input: {
-    source: "schedule" | "manual" | "api" | "webhook";
+    source: RoutineRunSource;
     payload?: Record<string, unknown> | null;
     variables?: Record<string, unknown> | null;
     automaticVariables?: Record<string, string | number | boolean>;
@@ -470,6 +593,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: routineRuns.scriptOutput,
         scriptExitCode: routineRuns.scriptExitCode,
         completedAt: routineRuns.completedAt,
+        retryOfRunId: routineRuns.retryOfRunId,
+        retryAttempt: routineRuns.retryAttempt,
         createdAt: routineRuns.createdAt,
         updatedAt: routineRuns.updatedAt,
         triggerKind: routineTriggers.kind,
@@ -505,24 +630,26 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: row.scriptOutput,
         scriptExitCode: row.scriptExitCode,
         completedAt: row.completedAt,
+        retryOfRunId: row.retryOfRunId,
+        retryAttempt: row.retryAttempt,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         linkedIssue: row.linkedIssueId
           ? {
-            id: row.linkedIssueId,
-            identifier: row.issueIdentifier,
-            title: row.issueTitle ?? "Routine execution",
-            status: row.issueStatus ?? "todo",
-            priority: row.issuePriority ?? "medium",
-            updatedAt: row.issueUpdatedAt ?? row.updatedAt,
-          }
+              id: row.linkedIssueId,
+              identifier: row.issueIdentifier,
+              title: row.issueTitle ?? "Routine execution",
+              status: row.issueStatus ?? "todo",
+              priority: row.issuePriority ?? "medium",
+              updatedAt: row.issueUpdatedAt ?? row.updatedAt,
+            }
           : null,
         trigger: row.triggerId
           ? {
-            id: row.triggerId,
-            kind: row.triggerKind as NonNullable<RoutineRunSummary["trigger"]>["kind"],
-            label: row.triggerLabel,
-          }
+              id: row.triggerId,
+              kind: row.triggerKind as NonNullable<RoutineRunSummary["trigger"]>["kind"],
+              label: row.triggerLabel,
+            }
           : null,
       });
     }
@@ -778,7 +905,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
   async function dispatchRoutineRun(input: {
     routine: typeof routines.$inferSelect;
     trigger: typeof routineTriggers.$inferSelect | null;
-    source: "schedule" | "manual" | "api" | "webhook";
+    source: RoutineRunSource;
     payload?: Record<string, unknown> | null;
     variables?: Record<string, unknown> | null;
     projectId?: string | null;
@@ -788,7 +915,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     executionWorkspacePreference?: string | null;
     executionWorkspaceSettings?: Record<string, unknown> | null;
   }) {
-    const isScriptMode = input.routine.executionMode === "script_nodejs" || input.routine.executionMode === "script_python";
+    const isScriptMode = input.routine.executionMode !== "agent";
     const projectId = input.projectId ?? input.routine.projectId ?? null;
     const assigneeAgentId = input.assigneeAgentId ?? input.routine.assigneeAgentId ?? null;
     if (!isScriptMode && !assigneeAgentId) {
@@ -1005,7 +1132,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           reason: "issue_assigned",
           mutation: "create",
           contextSource: "routine.dispatch",
-          requestedByActorType: input.source === "schedule" ? "system" : undefined,
+          requestedByActorType: (input.source === "schedule" || input.source === "random_interval" || input.source === "random_cron_scheduler") ? "system" : undefined,
           rethrowOnError: true,
         });
         const updated = await finalizeRun(createdRun.id, {
@@ -1052,8 +1179,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       });
     }
 
-    if (input.source === "schedule" || input.source === "webhook") {
-      const actorId = input.source === "schedule" ? "routine-scheduler" : "routine-webhook";
+    if (input.source === "schedule" || input.source === "random_interval" || input.source === "random_cron_scheduler" || input.source === "webhook") {
+      const actorId = input.source === "webhook" ? "routine-webhook" : "routine-scheduler";
       try {
         await logActivity(db, {
           companyId: input.routine.companyId,
@@ -1093,11 +1220,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     allVariables: Record<string, string | number | boolean>;
   }) {
     const { run, routine, allVariables } = input;
-    const scriptBody = routine.scriptBody ?? "";
-    const isNodeJs = routine.executionMode === "script_nodejs";
-    const ext = isNodeJs ? ".js" : ".py";
-    const command = isNodeJs ? "node" : "python3";
-    const tmpFile = path.join(os.tmpdir(), `routine-${run.id}${ext}`);
+    const scriptArgs = routine.scriptCommandArgs ?? [];
 
     // Build env: pass all resolved variables as ROUTINE_VAR_<NAME>
     const env: Record<string, string> = {};
@@ -1107,9 +1230,37 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
 
     let output = "";
     try {
-      await fs.writeFile(tmpFile, scriptBody, "utf8");
-      const result = await runChildProcess(run.id, command, [tmpFile], {
-        cwd: os.tmpdir(),
+      let command: string;
+      let args: string[];
+      let cwd: string;
+
+      if (routine.executionMode === "bash_command") {
+        if (!routine.scriptPath) {
+          throw new Error("Bash command is not configured");
+        }
+        command = "bash";
+        args = ["-c", routine.scriptPath];
+        cwd = "/tmp";
+      } else {
+        if (!routine.projectId) {
+          throw new Error("Script routines require a project");
+        }
+        if (!routine.scriptPath) {
+          throw new Error("Script path is not configured");
+        }
+        const { absolutePath, rootPath } = await projectFilesService(db).resolveAbsolutePath(
+          routine.projectId,
+          routine.scriptPath,
+        );
+        command = routine.executionMode === "script_nodejs" ? "node"
+          : routine.executionMode === "script_python" ? "python3"
+          : "bash"; // shell_script
+        args = [absolutePath, ...scriptArgs];
+        cwd = rootPath;
+      }
+
+      const result = await runChildProcess(run.id, command, args, {
+        cwd,
         env,
         timeoutSec: routine.scriptTimeoutSec,
         graceSec: 5,
@@ -1130,15 +1281,41 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
 
       const exitCode = result.exitCode ?? 1;
       const succeeded = exitCode === 0 && !result.timedOut;
+      const failureReason = result.timedOut
+        ? `Script timed out after ${routine.scriptTimeoutSec}s`
+        : succeeded ? null : `Script exited with code ${exitCode}`;
       const finalRun = await finalizeRun(run.id, {
         status: succeeded ? "completed" : "failed",
         scriptOutput: output || null,
         scriptExitCode: exitCode,
-        failureReason: result.timedOut
-          ? `Script timed out after ${routine.scriptTimeoutSec}s`
-          : succeeded ? null : `Script exited with code ${exitCode}`,
+        failureReason,
         completedAt: new Date(),
       });
+      if (!succeeded && routine.remediationEnabled && isRemediableFailure(failureReason)) {
+        await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
+      }
+      if (run.triggerPayload?._isRemediationRetry && routine.notificationEmail) {
+        const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
+        sendRemediationResultEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          succeeded,
+          failureReason,
+          scriptOutput: output || null,
+          remediationDiff,
+        }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (!succeeded && routine.notificationEmail) {
+        sendRoutineFailureEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          failureReason,
+          scriptOutput: output || null,
+        }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
+      }
       return finalRun ?? run;
     } catch (error) {
       const failureReason = error instanceof Error ? error.message : String(error);
@@ -1149,10 +1326,160 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         failureReason,
         completedAt: new Date(),
       });
+      if (routine.remediationEnabled && isRemediableFailure(failureReason)) {
+        await createRemediationIssueIfNeeded(routine, finalRun ?? run, output, failureReason);
+      }
+      if (run.triggerPayload?._isRemediationRetry && routine.notificationEmail) {
+        const remediationDiff = (run.triggerPayload?._remediationDiff as string | null) ?? null;
+        sendRemediationResultEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          succeeded: false,
+          failureReason,
+          scriptOutput: output || null,
+          remediationDiff,
+        }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (routine.notificationEmail) {
+        sendRoutineFailureEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          failureReason,
+          scriptOutput: output || null,
+        }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
+      }
       return finalRun ?? run;
-    } finally {
-      await fs.unlink(tmpFile).catch(() => {});
     }
+  }
+
+  async function createRemediationIssueIfNeeded(
+    routine: typeof routines.$inferSelect,
+    failedRun: typeof routineRuns.$inferSelect,
+    scriptOutput: string,
+    failureReason: string | null,
+  ) {
+    if (!routine.remediationEnabled) return;
+    if (!isRemediableFailure(failureReason)) return;
+
+    let assigneeId = routine.remediationAssigneeAgentId ?? routine.assigneeAgentId;
+    if (!assigneeId) {
+      const fallback = await db
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.companyId, routine.companyId), ne(agents.status, "terminated")))
+        .orderBy(asc(agents.createdAt))
+        .limit(1)
+        .then((rows) => rows[0] ?? null);
+      if (!fallback) {
+        logger.warn(
+          { routineId: routine.id, runId: failedRun.id },
+          "remediation enabled but no agents in company",
+        );
+        return;
+      }
+      assigneeId = fallback.id;
+    }
+
+    const existingRemediationRun = await db
+      .select()
+      .from(routineRuns)
+      .where(
+        and(
+          eq(routineRuns.routineId, routine.id),
+          eq(routineRuns.retryOfRunId, failedRun.id),
+          eq(routineRuns.status, "remediation_issue_created"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (existingRemediationRun) {
+      logger.info(
+        { routineId: routine.id, runId: failedRun.id, existingRemediationRunId: existingRemediationRun.id },
+        "remediation issue already created for this failure",
+      );
+      return;
+    }
+
+    const enabledTriggerIds = await db
+      .select({ id: routineTriggers.id })
+      .from(routineTriggers)
+      .where(and(eq(routineTriggers.routineId, routine.id), eq(routineTriggers.enabled, true)))
+      .then((rows) => rows.map((r) => r.id));
+
+    if (enabledTriggerIds.length > 0) {
+      await db
+        .update(routineTriggers)
+        .set({ enabled: false, nextRunAt: null })
+        .where(inArray(routineTriggers.id, enabledTriggerIds));
+      logger.info(
+        { routineId: routine.id, pausedTriggerIds: enabledTriggerIds },
+        "paused routine triggers for remediation",
+      );
+    }
+
+    const remediationRun = await db
+      .insert(routineRuns)
+      .values({
+        companyId: routine.companyId,
+        routineId: routine.id,
+        triggerId: failedRun.triggerId,
+        source: failedRun.source,
+        status: "remediation_issue_created",
+        triggeredAt: new Date(),
+        triggerPayload: { ...(failedRun.triggerPayload ?? {}), _pausedTriggerIds: enabledTriggerIds },
+        dispatchFingerprint: failedRun.dispatchFingerprint,
+        retryOfRunId: failedRun.id,
+        retryAttempt: (failedRun.retryAttempt ?? 0) + 1,
+      })
+      .returning()
+      .then((rows) => rows[0]);
+
+    const REMEDIATION_PROMPT_TEMPLATE =
+      "The following routine script has failed and needs to be fixed so it can run successfully again.\n\n" +
+      "**Failure reason:** {{FAILURE_REASON}}\n\n" +
+      "**Script output:**\n```\n{{SCRIPT_OUTPUT}}\n```\n\n" +
+      "Please investigate the root cause, fix the issue in the codebase, and mark this issue as done. " +
+      "The script will be automatically re-run to verify the fix.";
+    const prompt = interpolateRoutineTemplate(REMEDIATION_PROMPT_TEMPLATE, {
+      FAILURE_REASON: failureReason ?? "",
+      SCRIPT_OUTPUT: (scriptOutput ?? "").slice(0, 3000),
+    }) ?? REMEDIATION_PROMPT_TEMPLATE;
+
+    const remediationIssue = await issueSvc.create(routine.companyId, {
+      projectId: routine.projectId,
+      goalId: routine.goalId,
+      parentId: routine.parentIssueId,
+      title: `[Routine Remediation] ${routine.title}`,
+      description: `${prompt}\n\n---\n\n**Failed run**: ${failedRun.id}\n**Failure reason**: ${failureReason}\n**Script output**:\n\`\`\`\n${(scriptOutput ?? "").slice(0, 5000)}\n\`\`\``,
+      status: "todo",
+      priority: routine.priority,
+      assigneeAgentId: assigneeId,
+      originKind: "routine_remediation",
+      originId: routine.id,
+      originRunId: remediationRun?.id ?? failedRun.id,
+    });
+
+    await db
+      .update(routineRuns)
+      .set({ linkedIssueId: remediationIssue.id })
+      .where(eq(routineRuns.id, remediationRun?.id ?? failedRun.id));
+
+    await queueIssueAssignmentWakeup({
+      heartbeat,
+      issue: { id: remediationIssue.id, assigneeAgentId: assigneeId, status: "todo" },
+      reason: "routine_remediation_assigned",
+      mutation: "create",
+      contextSource: "routine.remediation",
+      requestedByActorType: "system",
+    });
+
+    logger.info(
+      { routineId: routine.id, runId: failedRun.id, remediationIssueId: remediationIssue.id },
+      "created remediation issue for failed routine script",
+    );
   }
 
   return {
@@ -1183,6 +1510,13 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           nextRunAt: trigger.nextRunAt,
           lastFiredAt: trigger.lastFiredAt,
           lastResult: trigger.lastResult,
+          minIntervalSec: trigger.minIntervalSec,
+          maxIntervalSec: trigger.maxIntervalSec,
+          allowedWeekdays: trigger.allowedWeekdays ?? null,
+          minTimeOfDayMin: trigger.minTimeOfDayMin ?? null,
+          maxTimeOfDayMin: trigger.maxTimeOfDayMin ?? null,
+          minDaysAhead: trigger.minDaysAhead ?? null,
+          maxDaysAhead: trigger.maxDaysAhead ?? null,
         })),
         lastRun: latestRunByRoutine.get(row.id) ?? null,
         activeIssue: activeIssueByRoutine.get(row.id) ?? null,
@@ -1219,6 +1553,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
             scriptOutput: routineRuns.scriptOutput,
             scriptExitCode: routineRuns.scriptExitCode,
             completedAt: routineRuns.completedAt,
+            retryOfRunId: routineRuns.retryOfRunId,
+            retryAttempt: routineRuns.retryAttempt,
             createdAt: routineRuns.createdAt,
             updatedAt: routineRuns.updatedAt,
             triggerKind: routineTriggers.kind,
@@ -1253,6 +1589,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
               scriptOutput: run.scriptOutput,
               scriptExitCode: run.scriptExitCode,
               completedAt: run.completedAt,
+              retryOfRunId: run.retryOfRunId ?? null,
+              retryAttempt: run.retryAttempt ?? null,
               createdAt: run.createdAt,
               updatedAt: run.updatedAt,
               linkedIssue: run.linkedIssueId
@@ -1315,8 +1653,11 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           catchUpPolicy: input.catchUpPolicy,
           variables,
           executionMode: input.executionMode,
-          scriptBody: input.scriptBody ?? null,
+          scriptPath: input.scriptPath ?? null,
           scriptTimeoutSec: input.scriptTimeoutSec,
+          scriptCommandArgs: input.scriptCommandArgs ?? null,
+          remediationEnabled: input.remediationEnabled ?? false,
+          remediationAssigneeAgentId: input.remediationEnabled ? (input.remediationAssigneeAgentId ?? null) : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
           updatedByAgentId: actor.agentId ?? null,
@@ -1380,8 +1721,14 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           catchUpPolicy: patch.catchUpPolicy ?? existing.catchUpPolicy,
           variables: nextVariables,
           executionMode: nextExecutionMode,
-          scriptBody: patch.scriptBody === undefined ? existing.scriptBody : patch.scriptBody ?? null,
+          scriptPath: patch.scriptPath === undefined ? existing.scriptPath : patch.scriptPath ?? null,
           scriptTimeoutSec: patch.scriptTimeoutSec ?? existing.scriptTimeoutSec,
+          scriptCommandArgs: patch.scriptCommandArgs === undefined ? existing.scriptCommandArgs : patch.scriptCommandArgs ?? null,
+          remediationEnabled: patch.remediationEnabled ?? existing.remediationEnabled,
+          remediationAssigneeAgentId: patch.remediationEnabled
+            ? (patch.remediationAssigneeAgentId === undefined ? existing.remediationAssigneeAgentId : patch.remediationAssigneeAgentId ?? null)
+            : null,
+          notificationEmail: patch.notificationEmail === undefined ? existing.notificationEmail : patch.notificationEmail ?? null,
           updatedByAgentId: actor.agentId ?? null,
           updatedByUserId: actor.userId ?? null,
           updatedAt: new Date(),
@@ -1423,6 +1770,31 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         };
       }
 
+      if (input.kind === "random_interval") {
+        assertScheduleCompatibleVariables(routine.variables ?? []);
+        if (!input.minIntervalSec || !input.maxIntervalSec) {
+          throw unprocessable("Random interval triggers require minIntervalSec and maxIntervalSec");
+        }
+        if (input.maxIntervalSec < input.minIntervalSec) {
+          throw unprocessable("maxIntervalSec must be greater than or equal to minIntervalSec");
+        }
+        nextRunAt = computeNextRandomIntervalRun(input.minIntervalSec, input.maxIntervalSec, new Date());
+      }
+
+      if (input.kind === "random_cron_scheduler") {
+        assertScheduleCompatibleVariables(routine.variables ?? []);
+        assertTimeZone(input.timezone);
+        const weekdays = input.allowedWeekdays?.length ? input.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6];
+        nextRunAt = computeNextRandomCronRun({
+          allowedWeekdays: weekdays,
+          minTimeOfDayMin: input.minTimeOfDayMin ?? 540,
+          maxTimeOfDayMin: input.maxTimeOfDayMin ?? 1020,
+          minDaysAhead: input.minDaysAhead ?? 1,
+          maxDaysAhead: input.maxDaysAhead ?? 7,
+          timezone: input.timezone,
+        }, new Date());
+      }
+
       const [trigger] = await db
         .insert(routineTriggers)
         .values({
@@ -1432,12 +1804,19 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           label: input.label ?? null,
           enabled: input.enabled ?? true,
           cronExpression: input.kind === "schedule" ? input.cronExpression : null,
-          timezone: input.kind === "schedule" ? (input.timezone || "UTC") : null,
+          timezone: input.kind === "schedule" ? (input.timezone || "UTC") : input.kind === "random_cron_scheduler" ? input.timezone : null,
           nextRunAt,
           publicId,
           secretId,
           signingMode: input.kind === "webhook" ? input.signingMode : null,
           replayWindowSec: input.kind === "webhook" ? input.replayWindowSec : null,
+          minIntervalSec: input.kind === "random_interval" ? input.minIntervalSec : null,
+          maxIntervalSec: input.kind === "random_interval" ? input.maxIntervalSec : null,
+          allowedWeekdays: input.kind === "random_cron_scheduler" ? (input.allowedWeekdays?.length ? input.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6]) : null,
+          minTimeOfDayMin: input.kind === "random_cron_scheduler" ? (input.minTimeOfDayMin ?? 540) : null,
+          maxTimeOfDayMin: input.kind === "random_cron_scheduler" ? (input.maxTimeOfDayMin ?? 1020) : null,
+          minDaysAhead: input.kind === "random_cron_scheduler" ? (input.minDaysAhead ?? 1) : null,
+          maxDaysAhead: input.kind === "random_cron_scheduler" ? (input.maxDaysAhead ?? 7) : null,
           lastRotatedAt: input.kind === "webhook" ? new Date() : null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
@@ -1459,6 +1838,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       let nextRunAt = existing.nextRunAt;
       let cronExpression = existing.cronExpression;
       let timezone = existing.timezone;
+      let minIntervalSec = existing.minIntervalSec;
+      let maxIntervalSec = existing.maxIntervalSec;
 
       if (existing.kind === "schedule") {
         const routine = await getRoutineById(existing.routineId);
@@ -1482,6 +1863,63 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         }
       }
 
+      if (existing.kind === "random_interval") {
+        const routine = await getRoutineById(existing.routineId);
+        if (!routine) throw notFound("Routine not found");
+        if (patch.minIntervalSec !== undefined) {
+          if (patch.minIntervalSec == null) throw unprocessable("Random interval triggers require minIntervalSec");
+          minIntervalSec = patch.minIntervalSec;
+        }
+        if (patch.maxIntervalSec !== undefined) {
+          if (patch.maxIntervalSec == null) throw unprocessable("Random interval triggers require maxIntervalSec");
+          maxIntervalSec = patch.maxIntervalSec;
+        }
+        if (minIntervalSec !== null && maxIntervalSec !== null && maxIntervalSec < minIntervalSec) {
+          throw unprocessable("maxIntervalSec must be greater than or equal to minIntervalSec");
+        }
+        if ((patch.enabled ?? existing.enabled) === true && minIntervalSec && maxIntervalSec) {
+          assertScheduleCompatibleVariables(routine.variables ?? []);
+          nextRunAt = computeNextRandomIntervalRun(minIntervalSec, maxIntervalSec, new Date());
+        }
+      }
+
+      let allowedWeekdays = existing.allowedWeekdays;
+      let minTimeOfDayMin = existing.minTimeOfDayMin;
+      let maxTimeOfDayMin = existing.maxTimeOfDayMin;
+      let minDaysAhead = existing.minDaysAhead;
+      let maxDaysAhead = existing.maxDaysAhead;
+
+      if (existing.kind === "random_cron_scheduler") {
+        const routine = await getRoutineById(existing.routineId);
+        if (!routine) throw notFound("Routine not found");
+        if (patch.allowedWeekdays !== undefined) allowedWeekdays = patch.allowedWeekdays?.length ? patch.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6];
+        if (patch.minTimeOfDayMin !== undefined) minTimeOfDayMin = patch.minTimeOfDayMin;
+        if (patch.maxTimeOfDayMin !== undefined) maxTimeOfDayMin = patch.maxTimeOfDayMin;
+        if (patch.minDaysAhead !== undefined) minDaysAhead = patch.minDaysAhead;
+        if (patch.maxDaysAhead !== undefined) maxDaysAhead = patch.maxDaysAhead;
+        if (patch.timezone !== undefined && patch.timezone !== null) {
+          assertTimeZone(patch.timezone);
+          timezone = patch.timezone;
+        }
+        const effectiveMin = minTimeOfDayMin ?? 540;
+        const effectiveMax = maxTimeOfDayMin ?? 1020;
+        if (effectiveMax < effectiveMin) throw unprocessable("maxTimeOfDayMin must be >= minTimeOfDayMin");
+        const effectiveMinDays = minDaysAhead ?? 1;
+        const effectiveMaxDays = maxDaysAhead ?? 7;
+        if (effectiveMaxDays < effectiveMinDays) throw unprocessable("maxDaysAhead must be >= minDaysAhead");
+        if ((patch.enabled ?? existing.enabled) === true) {
+          assertScheduleCompatibleVariables(routine.variables ?? []);
+          nextRunAt = computeNextRandomCronRun({
+            allowedWeekdays: allowedWeekdays?.length ? allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+            minTimeOfDayMin: effectiveMin,
+            maxTimeOfDayMin: effectiveMax,
+            minDaysAhead: effectiveMinDays,
+            maxDaysAhead: effectiveMaxDays,
+            timezone: timezone ?? "UTC",
+          }, new Date());
+        }
+      }
+
       const [updated] = await db
         .update(routineTriggers)
         .set({
@@ -1490,6 +1928,13 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           cronExpression,
           timezone,
           nextRunAt,
+          minIntervalSec: patch.minIntervalSec === undefined ? existing.minIntervalSec : minIntervalSec,
+          maxIntervalSec: patch.maxIntervalSec === undefined ? existing.maxIntervalSec : maxIntervalSec,
+          allowedWeekdays,
+          minTimeOfDayMin,
+          maxTimeOfDayMin,
+          minDaysAhead,
+          maxDaysAhead,
           signingMode: patch.signingMode === undefined ? existing.signingMode : patch.signingMode,
           replayWindowSec: patch.replayWindowSec === undefined ? existing.replayWindowSec : patch.replayWindowSec,
           updatedByAgentId: actor.agentId ?? null,
@@ -1500,6 +1945,47 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         .returning();
 
       return (updated as RoutineTrigger | undefined) ?? null;
+    },
+
+    deleteRoutine: async (id: string): Promise<boolean> => {
+      const existing = await getRoutineById(id);
+      if (!existing) return false;
+      await db.delete(routines).where(eq(routines.id, id));
+      return true;
+    },
+
+    clone: async (id: string, actor: Actor): Promise<Routine | null> => {
+      const source = await getRoutineById(id);
+      if (!source) return null;
+      const [cloned] = await db
+        .insert(routines)
+        .values({
+          companyId: source.companyId,
+          projectId: source.projectId,
+          goalId: source.goalId,
+          parentIssueId: source.parentIssueId,
+          title: `Copy of ${source.title}`,
+          description: source.description,
+          assigneeAgentId: source.assigneeAgentId,
+          priority: source.priority,
+          status: "paused",
+          concurrencyPolicy: source.concurrencyPolicy,
+          catchUpPolicy: source.catchUpPolicy,
+          variables: source.variables,
+          executionMode: source.executionMode,
+          scriptPath: source.scriptPath,
+          scriptTimeoutSec: source.scriptTimeoutSec,
+          scriptCommandArgs: source.scriptCommandArgs,
+          remediationEnabled: source.remediationEnabled,
+          remediationAssigneeAgentId: source.remediationAssigneeAgentId,
+          notificationEmail: source.notificationEmail,
+          createdByAgentId: actor.agentId ?? null,
+          createdByUserId: actor.userId ?? null,
+          updatedByAgentId: actor.agentId ?? null,
+          updatedByUserId: actor.userId ?? null,
+        })
+        .returning();
+      return cloned;
     },
 
     deleteTrigger: async (id: string): Promise<boolean> => {
@@ -1709,6 +2195,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         scriptOutput: row.scriptOutput,
         scriptExitCode: row.scriptExitCode,
         completedAt: row.completedAt,
+        retryOfRunId: null as string | null,
+        retryAttempt: null as number | null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         linkedIssue: row.linkedIssueId
@@ -1797,6 +2285,138 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       return { triggered };
     },
 
+    tickRandomIntervalTriggers: async (now: Date = new Date()) => {
+      const due = await db
+        .select({
+          trigger: routineTriggers,
+          routine: routines,
+        })
+        .from(routineTriggers)
+        .innerJoin(routines, eq(routineTriggers.routineId, routines.id))
+        .where(
+          and(
+            eq(routineTriggers.kind, "random_interval"),
+            eq(routineTriggers.enabled, true),
+            eq(routines.status, "active"),
+            isNotNull(routineTriggers.nextRunAt),
+            lte(routineTriggers.nextRunAt, now),
+          ),
+        )
+        .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));
+
+      let triggered = 0;
+      for (const row of due) {
+        if (
+          !row.trigger.nextRunAt ||
+          !row.trigger.minIntervalSec ||
+          !row.trigger.maxIntervalSec
+        )
+          continue;
+
+        const claimedNextRunAt = computeNextRandomIntervalRun(
+          row.trigger.minIntervalSec,
+          row.trigger.maxIntervalSec,
+          now,
+        );
+
+        const claimed = await db
+          .update(routineTriggers)
+          .set({
+            nextRunAt: claimedNextRunAt,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(routineTriggers.id, row.trigger.id),
+              eq(routineTriggers.enabled, true),
+              eq(routineTriggers.nextRunAt, row.trigger.nextRunAt),
+            ),
+          )
+          .returning({ id: routineTriggers.id })
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) continue;
+
+        await dispatchRoutineRun({
+          routine: row.routine,
+          trigger: row.trigger,
+          source: "random_interval" as const,
+        });
+        triggered += 1;
+      }
+
+      return { triggered };
+    },
+
+    tickRandomCronSchedulerTriggers: async (now: Date = new Date()) => {
+      const due = await db
+        .select({
+          trigger: routineTriggers,
+          routine: routines,
+        })
+        .from(routineTriggers)
+        .innerJoin(routines, eq(routineTriggers.routineId, routines.id))
+        .where(
+          and(
+            eq(routineTriggers.kind, "random_cron_scheduler"),
+            eq(routineTriggers.enabled, true),
+            eq(routines.status, "active"),
+            isNotNull(routineTriggers.nextRunAt),
+            lte(routineTriggers.nextRunAt, now),
+          ),
+        )
+        .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));
+
+      let triggered = 0;
+      for (const row of due) {
+        if (
+          !row.trigger.nextRunAt ||
+          row.trigger.minTimeOfDayMin == null ||
+          row.trigger.maxTimeOfDayMin == null ||
+          row.trigger.minDaysAhead == null ||
+          row.trigger.maxDaysAhead == null
+        )
+          continue;
+
+        const claimedNextRunAt = computeNextRandomCronRun(
+          {
+            allowedWeekdays: row.trigger.allowedWeekdays?.length ? row.trigger.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+            minTimeOfDayMin: row.trigger.minTimeOfDayMin,
+            maxTimeOfDayMin: row.trigger.maxTimeOfDayMin,
+            minDaysAhead: row.trigger.minDaysAhead,
+            maxDaysAhead: row.trigger.maxDaysAhead,
+            timezone: row.trigger.timezone ?? "UTC",
+          },
+          now,
+        );
+
+        const claimed = await db
+          .update(routineTriggers)
+          .set({
+            nextRunAt: claimedNextRunAt,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(routineTriggers.id, row.trigger.id),
+              eq(routineTriggers.enabled, true),
+              eq(routineTriggers.nextRunAt, row.trigger.nextRunAt),
+            ),
+          )
+          .returning({ id: routineTriggers.id })
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) continue;
+
+        await dispatchRoutineRun({
+          routine: row.routine,
+          trigger: row.trigger,
+          source: "random_cron_scheduler",
+        });
+        triggered += 1;
+      }
+
+      return { triggered };
+    },
+
     syncRunStatusForIssue: async (issueId: string) => {
       const issue = await db
         .select({
@@ -1808,7 +2428,93 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         .from(issues)
         .where(eq(issues.id, issueId))
         .then((rows) => rows[0] ?? null);
-      if (!issue || issue.originKind !== "routine_execution" || !issue.originRunId) return null;
+      if (!issue || !issue.originRunId) return null;
+
+      if (issue.originKind === "routine_remediation") {
+        if (issue.status !== "done") return null;
+
+        const remediationRun = await db
+          .select()
+          .from(routineRuns)
+          .where(eq(routineRuns.id, issue.originRunId))
+          .then((rows) => rows[0] ?? null);
+        if (!remediationRun || !remediationRun.retryOfRunId) return null;
+
+        const MAX_RETRY_ATTEMPTS = 3;
+        if ((remediationRun.retryAttempt ?? 1) >= MAX_RETRY_ATTEMPTS) {
+          logger.warn(
+            { routineId: remediationRun.routineId, runId: remediationRun.id, retryAttempt: remediationRun.retryAttempt },
+            "max remediation retry attempts reached, not re-dispatching",
+          );
+          return finalizeRun(remediationRun.id, { status: "completed", completedAt: new Date() });
+        }
+
+        const routine = await getRoutineById(remediationRun.routineId);
+        if (!routine) return null;
+
+        const trigger = remediationRun.triggerId ? await getTriggerById(remediationRun.triggerId) : null;
+
+        const pausedTriggerIds = (remediationRun.triggerPayload?._pausedTriggerIds as string[] | null) ?? [];
+        if (pausedTriggerIds.length > 0) {
+          const triggersToResume = await db
+            .select()
+            .from(routineTriggers)
+            .where(inArray(routineTriggers.id, pausedTriggerIds));
+
+          for (const t of triggersToResume) {
+            let nextRunAt: Date | null = null;
+            if (t.kind === "schedule" && t.cronExpression && t.timezone) {
+              nextRunAt = nextCronTickInTimeZone(t.cronExpression, t.timezone, new Date());
+            } else if (t.kind === "random_interval" && t.minIntervalSec && t.maxIntervalSec) {
+              nextRunAt = computeNextRandomIntervalRun(t.minIntervalSec, t.maxIntervalSec, new Date());
+            } else if (t.kind === "random_cron_scheduler") {
+              nextRunAt = computeNextRandomCronRun({
+                allowedWeekdays: t.allowedWeekdays?.length ? t.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6],
+                minTimeOfDayMin: t.minTimeOfDayMin ?? 540,
+                maxTimeOfDayMin: t.maxTimeOfDayMin ?? 1020,
+                minDaysAhead: t.minDaysAhead ?? 1,
+                maxDaysAhead: t.maxDaysAhead ?? 7,
+                timezone: t.timezone ?? "UTC",
+              }, new Date());
+            }
+            await db
+              .update(routineTriggers)
+              .set({ enabled: true, nextRunAt })
+              .where(eq(routineTriggers.id, t.id));
+          }
+          logger.info(
+            { routineId: routine.id, resumedTriggerIds: pausedTriggerIds },
+            "resumed routine triggers after remediation",
+          );
+        }
+
+        let remediationDiff: string | null = null;
+        if (routine.projectId) {
+          const summary = await projectFilesService(db).getSummary(routine.projectId);
+          if (summary.repoRoot) {
+            remediationDiff = await captureProjectGitDiff(summary.repoRoot);
+          }
+        }
+
+        await finalizeRun(remediationRun.id, { status: "completed", completedAt: new Date() });
+
+        logger.info(
+          { routineId: routine.id, remediationRunId: remediationRun.id, retryAttempt: remediationRun.retryAttempt },
+          "remediation issue resolved, re-dispatching routine script",
+        );
+
+        await dispatchRoutineRun({
+          routine,
+          trigger: trigger ?? null,
+          source: remediationRun.source as RoutineRunSource,
+          payload: { _isRemediationRetry: true, ...(remediationDiff ? { _remediationDiff: remediationDiff } : {}) },
+        });
+
+        return remediationRun;
+      }
+
+      if (issue.originKind !== "routine_execution") return null;
+
       if (issue.status === "done") {
         return finalizeRun(issue.originRunId, {
           status: "completed",
@@ -1823,6 +2529,33 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         });
       }
       return null;
+    },
+
+    createRemediationIssueIfNeeded,
+
+    detectScriptArgs: async (projectId: string, scriptPath: string, executionMode: "script_nodejs" | "script_python") => {
+      const { parseHelpOutput } = await import("./script-help-parser.js");
+      const { absolutePath, rootPath } = await projectFilesService(db).resolveAbsolutePath(projectId, scriptPath);
+      const command = executionMode === "script_nodejs" ? "node" : "python3";
+      let output = "";
+      const result = await runChildProcess(`detect-${crypto.randomUUID()}`, command, [absolutePath, "--help"], {
+        cwd: rootPath,
+        env: {},
+        timeoutSec: 5,
+        graceSec: 2,
+        onLog: async (_stream, chunk) => {
+          output += chunk;
+          if (output.length > 10 * 1024) output = output.slice(0, 10 * 1024);
+        },
+      });
+      // Prefer longer output between onLog accumulation and buffered result fields
+      if ((result.stdout?.length ?? 0) > output.length) output = result.stdout!.slice(0, 10 * 1024);
+      if (!output && result.stderr) output = result.stderr.slice(0, 10 * 1024);
+      if (result.timedOut) {
+        return { args: [], error: "Script --help timed out after 5s" };
+      }
+      const args = parseHelpOutput(output);
+      return { args, error: args.length === 0 ? "No arguments detected in --help output" : null };
     },
   };
 }

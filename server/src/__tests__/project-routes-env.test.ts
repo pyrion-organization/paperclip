@@ -19,6 +19,7 @@ const mockSecretService = vi.hoisted(() => ({
 }));
 const mockProjectFilesService = vi.hoisted(() => ({}));
 const mockWorkspaceOperationService = vi.hoisted(() => ({}));
+const mockInitWorkspaceGit = vi.hoisted(() => vi.fn());
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockGetTelemetryClient = vi.hoisted(() => vi.fn());
 
@@ -28,6 +29,7 @@ vi.mock("../telemetry.js", () => ({
 
 vi.mock("../services/index.js", () => ({
   logActivity: mockLogActivity,
+  initWorkspaceGit: mockInitWorkspaceGit,
   projectService: () => mockProjectService,
   secretService: () => mockSecretService,
   workspaceOperationService: () => mockWorkspaceOperationService,
@@ -45,6 +47,7 @@ function registerModuleMocks() {
 
   vi.doMock("../services/index.js", () => ({
     logActivity: mockLogActivity,
+    initWorkspaceGit: mockInitWorkspaceGit,
     projectFilesService: () => mockProjectFilesService,
     projectService: () => mockProjectService,
     secretService: () => mockSecretService,
@@ -128,6 +131,7 @@ describe("project env routes", () => {
     mockGetTelemetryClient.mockReturnValue({ track: vi.fn() });
     mockProjectService.resolveByReference.mockResolvedValue({ ambiguous: false, project: null });
     mockProjectService.createWorkspace.mockResolvedValue(null);
+    mockProjectService.updateWorkspace.mockResolvedValue(null);
     mockProjectService.listWorkspaces.mockResolvedValue([]);
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);
   });
@@ -194,6 +198,74 @@ describe("project env routes", () => {
           changedKeys: ["env"],
           envKeys: ["PLAIN_KEY"],
         },
+      }),
+    );
+  });
+
+  it("relocates repo-backed project workspaces into the project workspace directory on create", async () => {
+    const repoWorkspace = {
+      id: "workspace-1",
+      companyId: "company-1",
+      projectId: "project-1",
+      name: "paperclip",
+      sourceType: "git_repo",
+      cwd: "/home/core/.paperclip/instances/default/projects/company-1/project-1/workspace-1/_default",
+      repoUrl: "https://github.com/paperclipai/paperclip.git",
+      repoRef: null,
+      defaultRef: null,
+      visibility: "default",
+      setupCommand: null,
+      cleanupCommand: null,
+      remoteProvider: null,
+      remoteWorkspaceRef: null,
+      sharedWorkspaceKey: null,
+      metadata: null,
+      runtimeConfig: null,
+      isPrimary: true,
+      runtimeServices: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockProjectService.create.mockResolvedValue(buildProject({ id: "project-1", name: "Project" }));
+    mockProjectService.createWorkspace.mockResolvedValue({ ...repoWorkspace, cwd: null });
+    mockProjectService.updateWorkspace.mockResolvedValue(repoWorkspace);
+    mockProjectService.getById.mockResolvedValue(buildProject({
+      id: "project-1",
+      name: "Project",
+      codebase: {
+        workspaceId: repoWorkspace.id,
+        repoUrl: repoWorkspace.repoUrl,
+        repoRef: null,
+        defaultRef: null,
+        repoName: "paperclip",
+        localFolder: repoWorkspace.cwd,
+        managedFolder: repoWorkspace.cwd,
+        effectiveLocalFolder: repoWorkspace.cwd,
+        origin: "local_folder",
+      },
+      workspaces: [repoWorkspace],
+      primaryWorkspace: repoWorkspace,
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/projects")
+      .send({
+        name: "Project",
+        workspace: {
+          name: "paperclip",
+          repoUrl: "https://github.com/paperclipai/paperclip.git",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateWorkspace).toHaveBeenCalledWith(
+      "project-1",
+      "workspace-1",
+      expect.objectContaining({
+        cwd: "/home/core/.paperclip/instances/default/projects/company-1/project-1/workspace-1/_default",
+        name: "paperclip",
       }),
     );
   });

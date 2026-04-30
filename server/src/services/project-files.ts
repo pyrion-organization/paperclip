@@ -399,10 +399,24 @@ export function projectFilesService(db: Db) {
     };
   }
 
+  async function resolveAbsolutePath(projectId: string, relativePath: string): Promise<{ absolutePath: string; rootPath: string }> {
+    const project = await ensureProject(projectId, db);
+    const summary = await buildSummary(project);
+    if (!summary.available || !summary.rootPath) {
+      throw badRequest("Project does not have a local workspace");
+    }
+    const normalizedPath = normalizeRelativePath(relativePath);
+    if (!normalizedPath) throw badRequest("File path is required");
+    const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
+    return { absolutePath, rootPath: summary.rootPath };
+  }
+
   return {
     async getSummary(projectId: string): Promise<ProjectFilesSummary> {
       return await buildSummary(await ensureProject(projectId, db));
     },
+
+    resolveAbsolutePath,
 
     async listTree(projectId: string, relativePath: string, showIgnored: boolean): Promise<ProjectFilesTreeResponse> {
       const project = await ensureProject(projectId, db);

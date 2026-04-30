@@ -14,6 +14,7 @@ function createIssue(overrides: Partial<Issue> = {}) {
     parentId: null,
     createdByUserId: "user-1",
     hiddenAt: null,
+    scheduledAt: null,
     labelIds: ["label-1"],
     executionPolicy: null,
     executionState: null,

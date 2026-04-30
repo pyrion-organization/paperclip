@@ -27,7 +27,10 @@ import {
   RoutineRunVariablesDialog,
   type RoutineRunDialogSubmitData,
 } from "../components/RoutineRunVariablesDialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { RoutineVariablesEditor, RoutineVariablesHint } from "../components/RoutineVariablesEditor";
+import { RoutineScriptConfig } from "../components/RoutineScriptConfig";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -73,11 +76,6 @@ function formatLastRunTimestamp(value: Date | string | null | undefined) {
   return new Date(value).toLocaleString();
 }
 
-function nextRoutineStatus(currentStatus: string, enabled: boolean) {
-  if (currentStatus === "archived" && enabled) return "active";
-  return enabled ? "active" : "paused";
-}
-
 type RoutinesTab = "routines" | "runs";
 type RoutineGroupBy = "none" | "project" | "assignee";
 
@@ -116,12 +114,14 @@ function formatRoutineRunStatus(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
-const executionModes = ["agent", "script_nodejs", "script_python"] as const;
+const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
 const executionModeLabels: Record<ExecutionMode, string> = {
   agent: "Agent",
   script_nodejs: "Node.js Script",
   script_python: "Python Script",
+  bash_command: "Bash Command",
+  shell_script: "Shell Script",
 };
 
 function buildRoutineMutationPayload(input: {
@@ -134,15 +134,23 @@ function buildRoutineMutationPayload(input: {
   catchUpPolicy: string;
   variables: RoutineVariable[];
   executionMode: string;
-  scriptBody: string;
+  scriptPath: string;
+  scriptCommandArgs: string[];
   scriptTimeoutSec: number;
+  remediationEnabled: boolean;
+  remediationAssigneeAgentId: string;
+  notificationEmail: string;
 }) {
   return {
     ...input,
     description: input.description.trim() || null,
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
-    scriptBody: input.executionMode !== "agent" ? input.scriptBody || null : null,
+    scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    remediationEnabled: input.remediationEnabled,
+    remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
+    notificationEmail: input.notificationEmail.trim() || null,
   };
 }
 
@@ -194,28 +202,22 @@ function RoutineListRow({
   projectById,
   agentById,
   runningRoutineId,
-  statusMutationRoutineId,
   href,
   onRunNow,
-  onToggleEnabled,
-  onToggleArchived,
+  onClone,
 }: {
   routine: RoutineListItem;
   projectById: Map<string, { name: string; color?: string | null }>;
   agentById: Map<string, { name: string; icon?: string | null }>;
   runningRoutineId: string | null;
-  statusMutationRoutineId: string | null;
   href: string;
   onRunNow: (routine: RoutineListItem) => void;
-  onToggleEnabled: (routine: RoutineListItem, enabled: boolean) => void;
-  onToggleArchived: (routine: RoutineListItem) => void;
+  onClone: (routine: RoutineListItem) => void;
 }) {
   const enabled = routine.status === "active";
   const isArchived = routine.status === "archived";
-  const isStatusPending = statusMutationRoutineId === routine.id;
   const project = routine.projectId ? projectById.get(routine.projectId) ?? null : null;
   const agent = routine.assigneeAgentId ? agentById.get(routine.assigneeAgentId) ?? null : null;
-  const isDraft = !isArchived && !routine.assigneeAgentId;
 
   return (
     <Link
@@ -225,9 +227,9 @@ function RoutineListRow({
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="truncate text-sm font-medium">{routine.title}</span>
-          {(isArchived || routine.status === "paused" || isDraft) ? (
+          {!enabled ? (
             <span className="text-xs text-muted-foreground">
-              {isArchived ? "archived" : isDraft ? "draft" : "paused"}
+              {routine.status}
             </span>
           ) : null}
         </div>
@@ -241,7 +243,7 @@ function RoutineListRow({
           </span>
           <span className="flex items-center gap-2">
             {agent?.icon ? <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0" /> : null}
-            <span>{routine.assigneeAgentId ? (agent?.name ?? "Unknown agent") : "No default agent"}</span>
+            <span>{routine.assigneeAgentId ? (agent?.name ?? "Unknown agent") : routine.executionMode === "agent" ? "No default agent" : "Script"}</span>
           </span>
           <span>
             {formatLastRunTimestamp(routine.lastRun?.triggeredAt)}
@@ -251,18 +253,9 @@ function RoutineListRow({
       </div>
 
       <div className="flex items-center gap-3" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
-        <div className="flex items-center gap-3">
-          <ToggleSwitch
-            size="lg"
-            checked={enabled}
-            onCheckedChange={() => onToggleEnabled(routine, enabled)}
-            disabled={isStatusPending || isArchived}
-            aria-label={enabled ? `Disable ${routine.title}` : `Enable ${routine.title}`}
-          />
-          <span className="w-12 text-xs text-muted-foreground">
-            {isArchived ? "Archived" : isDraft ? "Draft" : enabled ? "On" : "Off"}
-          </span>
-        </div>
+        <span className="text-xs text-muted-foreground">
+          {routine.status}
+        </span>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -280,18 +273,8 @@ function RoutineListRow({
             >
               {runningRoutineId === routine.id ? "Running..." : "Run now"}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onToggleEnabled(routine, enabled)}
-              disabled={isStatusPending || isArchived}
-            >
-              {enabled ? "Pause" : "Enable"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onToggleArchived(routine)}
-              disabled={isStatusPending}
-            >
-              {routine.status === "archived" ? "Restore" : "Archive"}
+            <DropdownMenuItem onClick={() => onClone(routine)}>
+              Duplicate
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -312,7 +295,6 @@ export function Routines() {
   const assigneeSelectorRef = useRef<HTMLButtonElement | null>(null);
   const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [runningRoutineId, setRunningRoutineId] = useState<string | null>(null);
-  const [statusMutationRoutineId, setStatusMutationRoutineId] = useState<string | null>(null);
   const [runDialogRoutine, setRunDialogRoutine] = useState<RoutineListItem | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -327,8 +309,12 @@ export function Routines() {
     catchUpPolicy: string;
     variables: RoutineVariable[];
     executionMode: string;
-    scriptBody: string;
+    scriptPath: string;
+    scriptCommandArgs: string[];
     scriptTimeoutSec: number;
+    remediationEnabled: boolean;
+    remediationAssigneeAgentId: string;
+    notificationEmail: string;
   }>({
     title: "",
     description: "",
@@ -339,8 +325,12 @@ export function Routines() {
     catchUpPolicy: "skip_missed",
     variables: [],
     executionMode: "agent",
-    scriptBody: "",
+    scriptPath: "",
+    scriptCommandArgs: [],
     scriptTimeoutSec: 60,
+    remediationEnabled: false,
+    remediationAssigneeAgentId: "",
+    notificationEmail: "",
   });
   const routineViewStateKey = selectedCompanyId
     ? `paperclip:routines-view:${selectedCompanyId}`
@@ -400,50 +390,45 @@ export function Routines() {
         catchUpPolicy: "skip_missed",
         variables: [],
         executionMode: "agent",
-        scriptBody: "",
+        scriptPath: "",
+        scriptCommandArgs: [],
         scriptTimeoutSec: 60,
+        remediationEnabled: false,
+        remediationAssigneeAgentId: "",
+        notificationEmail: "",
       });
       setComposerOpen(false);
       setAdvancedOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
       pushToast({
         title: "Routine created",
-        body: routine.assigneeAgentId
-          ? "Add the first trigger to turn it into a live workflow."
-          : "Draft saved. Add a default agent before enabling automation.",
+        body: routine.executionMode !== "agent"
+          ? "Add the first trigger to start running the script automatically."
+          : routine.assigneeAgentId
+            ? "Add the first trigger to turn it into a live workflow."
+            : "Draft saved. Add a default agent before enabling automation.",
         tone: "success",
       });
       navigate(`/routines/${routine.id}?tab=triggers`);
     },
   });
+  const cloneRoutine = useMutation({
+    mutationFn: (id: string) => routinesApi.clone(id),
+    onSuccess: async (cloned) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
+      pushToast({ title: "Routine duplicated", body: `"${cloned.title}" created as paused.`, tone: "success" });
+      navigate(`/routines/${cloned.id}`);
+    },
+    onError: () => {
+      pushToast({ title: "Duplicate failed", body: "Could not duplicate the routine.", tone: "error" });
+    },
+  });
+
   const updateIssue = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       issuesApi.update(id, data),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [...queryKeys.issues.list(selectedCompanyId!), "routine-executions"] });
-    },
-  });
-
-  const updateRoutineStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => routinesApi.update(id, { status }),
-    onMutate: ({ id }) => {
-      setStatusMutationRoutineId(id);
-    },
-    onSuccess: async (_, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(variables.id) }),
-      ]);
-    },
-    onSettled: () => {
-      setStatusMutationRoutineId(null);
-    },
-    onError: (mutationError) => {
-      pushToast({
-        title: "Failed to update routine",
-        body: mutationError instanceof Error ? mutationError.message : "Paperclip could not update the routine.",
-        tone: "error",
-      });
     },
   });
 
@@ -553,28 +538,6 @@ export function Routines() {
 
   function handleRunNow(routine: RoutineListItem) {
     setRunDialogRoutine(routine);
-  }
-
-  function handleToggleEnabled(routine: RoutineListItem, enabled: boolean) {
-    if (!enabled && !routine.assigneeAgentId) {
-      pushToast({
-        title: "Default agent required",
-        body: "Set a default agent before enabling routine automation.",
-        tone: "warn",
-      });
-      return;
-    }
-    updateRoutineStatus.mutate({
-      id: routine.id,
-      status: nextRoutineStatus(routine.status, !enabled),
-    });
-  }
-
-  function handleToggleArchived(routine: RoutineListItem) {
-    updateRoutineStatus.mutate({
-      id: routine.id,
-      status: routine.status === "archived" ? "active" : "archived",
-    });
   }
 
   if (!selectedCompanyId) {
@@ -751,55 +714,59 @@ export function Routines() {
               </div>
             </div>
 
-            {draft.executionMode === "agent" && <div className="px-5 pb-3">
+            {draft.executionMode !== "bash_command" && <div className="px-5 pb-3">
               <div className="overflow-x-auto overscroll-x-contain">
                 <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
-                  <span>For</span>
-                  <InlineEntitySelector
-                    ref={assigneeSelectorRef}
-                    value={draft.assigneeAgentId}
-                    options={assigneeOptions}
-                    recentOptionIds={recentAssigneeIds}
-                    placeholder="Assignee"
-                    noneLabel="No assignee"
-                    searchPlaceholder="Search assignees..."
-                    emptyMessage="No assignees found."
-                    onChange={(assigneeAgentId) => {
-                      if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
-                      setDraft((current) => ({ ...current, assigneeAgentId }));
-                    }}
-                    onConfirm={() => {
-                      if (draft.projectId) {
-                        descriptionEditorRef.current?.focus();
-                      } else {
-                        projectSelectorRef.current?.focus();
-                      }
-                    }}
-                    renderTriggerValue={(option) =>
-                      option ? (
-                        currentAssignee ? (
-                          <>
-                            <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{option.label}</span>
-                          </>
-                        ) : (
-                          <span className="truncate">{option.label}</span>
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">Assignee</span>
-                      )
-                    }
-                    renderOption={(option) => {
-                      if (!option.id) return <span className="truncate">{option.label}</span>;
-                      const assignee = agentById.get(option.id);
-                      return (
-                        <>
-                          {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-                          <span className="truncate">{option.label}</span>
-                        </>
-                      );
-                    }}
-                  />
+                  {draft.executionMode === "agent" && (
+                    <>
+                      <span>For</span>
+                      <InlineEntitySelector
+                        ref={assigneeSelectorRef}
+                        value={draft.assigneeAgentId}
+                        options={assigneeOptions}
+                        recentOptionIds={recentAssigneeIds}
+                        placeholder="Assignee"
+                        noneLabel="No assignee"
+                        searchPlaceholder="Search assignees..."
+                        emptyMessage="No assignees found."
+                        onChange={(assigneeAgentId) => {
+                          if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+                          setDraft((current) => ({ ...current, assigneeAgentId }));
+                        }}
+                        onConfirm={() => {
+                          if (draft.projectId) {
+                            descriptionEditorRef.current?.focus();
+                          } else {
+                            projectSelectorRef.current?.focus();
+                          }
+                        }}
+                        renderTriggerValue={(option) =>
+                          option ? (
+                            currentAssignee ? (
+                              <>
+                                <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span className="truncate">{option.label}</span>
+                              </>
+                            ) : (
+                              <span className="truncate">{option.label}</span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground">Assignee</span>
+                          )
+                        }
+                        renderOption={(option) => {
+                          if (!option.id) return <span className="truncate">{option.label}</span>;
+                          const assignee = agentById.get(option.id);
+                          return (
+                            <>
+                              {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                              <span className="truncate">{option.label}</span>
+                            </>
+                          );
+                        }}
+                      />
+                    </>
+                  )}
                   <span>in</span>
                   <InlineEntitySelector
                     ref={projectSelectorRef}
@@ -846,21 +813,91 @@ export function Routines() {
               </div>
             </div>}
 
-            <div className="border-t border-border/60 px-5 py-4">
-              <MarkdownEditor
-                ref={descriptionEditorRef}
-                value={draft.description}
-                onChange={(description) => setDraft((current) => ({ ...current, description }))}
-                placeholder="Add instructions..."
-                bordered={false}
-                contentClassName="min-h-[160px] text-sm text-muted-foreground"
-                onSubmit={() => {
-                  if (!createRoutine.isPending && draft.title.trim() && draft.projectId && draft.assigneeAgentId) {
-                    createRoutine.mutate();
-                  }
-                }}
-              />
-            </div>
+            {draft.executionMode !== "agent" && (
+              <div className="space-y-3 px-5 pb-3">
+                {draft.executionMode === "bash_command" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Bash command</label>
+                    <textarea
+                      className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
+                      placeholder={'echo "hello world" && date'}
+                      value={draft.scriptPath}
+                      onChange={(e) => setDraft((current) => ({ ...current, scriptPath: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
+                    </p>
+                  </div>
+                ) : (
+                <RoutineScriptConfig
+                  projectId={draft.projectId}
+                  companyId={selectedCompanyId ?? undefined}
+                  executionMode={draft.executionMode as "script_nodejs" | "script_python" | "shell_script"}
+                  scriptPath={draft.scriptPath}
+                  scriptCommandArgs={draft.scriptCommandArgs}
+                  onScriptPathChange={(scriptPath) => setDraft((current) => ({ ...current, scriptPath }))}
+                  onArgsChange={(scriptCommandArgs) => setDraft((current) => ({ ...current, scriptCommandArgs }))}
+                />
+                )}
+                <RoutineVariablesEditor
+                  title={draft.title}
+                  description=""
+                  value={draft.variables}
+                  onChange={(variables) => setDraft((current) => ({ ...current, variables }))}
+                />
+                <div className="space-y-3 border-t border-border/60 pt-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Failure remediation</p>
+                    <ToggleSwitch
+                      checked={draft.remediationEnabled}
+                      onCheckedChange={(checked) => setDraft((current) => ({ ...current, remediationEnabled: checked }))}
+                    />
+                  </div>
+                  {draft.remediationEnabled && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Remediation agent</Label>
+                      <Select
+                        value={draft.remediationAssigneeAgentId}
+                        onValueChange={(value) => setDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a remediation agent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(agents ?? []).map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              <div className="flex items-center gap-2">
+                                <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                                {agent.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Agent assigned to handle failures. The script will be automatically re-run after the fix.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+)}
+
+            {draft.executionMode === "agent" && (
+              <div className="border-t border-border/60 px-5 py-4">
+                <MarkdownEditor
+                  ref={descriptionEditorRef}
+                  value={draft.description}
+                  onChange={(description) => setDraft((current) => ({ ...current, description }))}
+                  placeholder="Add instructions..."
+                  bordered={false}
+                  contentClassName="min-h-[160px] text-sm text-muted-foreground"
+                  onSubmit={() => {
+                    if (!createRoutine.isPending && draft.title.trim() && draft.projectId && draft.assigneeAgentId) {
+                      createRoutine.mutate();
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             <div className="border-t border-border/60 px-5 py-3">
               <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -907,6 +944,18 @@ export function Routines() {
                       </Select>
                       <p className="text-xs text-muted-foreground">{catchUpPolicyDescriptions[draft.catchUpPolicy]}</p>
                     </div>
+                    {draft.executionMode !== "agent" && (
+                      <div className="space-y-1.5 md:col-span-2">
+                        <Label className="text-xs">Failure notification email</Label>
+                        <Input
+                          type="email"
+                          placeholder="you@example.com"
+                          value={draft.notificationEmail}
+                          onChange={(e) => setDraft((current) => ({ ...current, notificationEmail: e.target.value }))}
+                        />
+                        <p className="text-xs text-muted-foreground">Receives an email when this routine fails.</p>
+                      </div>
+                    )}
                   </div>
                 </CollapsibleContent>
               </Collapsible>
@@ -992,11 +1041,9 @@ export function Routines() {
                         projectById={projectById}
                         agentById={agentById}
                         runningRoutineId={runningRoutineId}
-                        statusMutationRoutineId={statusMutationRoutineId}
                         href={`/routines/${routine.id}`}
                         onRunNow={handleRunNow}
-                        onToggleEnabled={handleToggleEnabled}
-                        onToggleArchived={handleToggleArchived}
+                        onClone={(r) => cloneRoutine.mutate(r.id)}
                       />
                     ))}
                   </CollapsibleContent>
@@ -1018,6 +1065,7 @@ export function Routines() {
         projects={projects ?? []}
         defaultProjectId={runDialogRoutine?.projectId ?? null}
         defaultAssigneeAgentId={runDialogRoutine?.assigneeAgentId ?? null}
+        executionMode={runDialogRoutine?.executionMode ?? "agent"}
         variables={runDialogRoutine?.variables ?? []}
         isPending={runRoutine.isPending}
         onSubmit={(data) => {

@@ -10,7 +10,7 @@ import {
 } from "@paperclipai/shared";
 import { trackRoutineCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
-import { accessService, logActivity, routineService } from "../services/index.js";
+import { accessService, logActivity, projectService, routineService } from "../services/index.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden, unauthorized } from "../errors.js";
 import { getTelemetryClient } from "../telemetry.js";
@@ -19,6 +19,7 @@ export function routineRoutes(db: Db) {
   const router = Router();
   const svc = routineService(db);
   const access = accessService(db);
+  const projects = projectService(db);
 
   async function assertBoardCanAssignTasks(req: Request, companyId: string) {
     assertCompanyAccess(req, companyId);
@@ -85,6 +86,29 @@ export function routineRoutes(db: Db) {
     res.status(201).json(created);
   });
 
+  router.post("/projects/:projectId/scripts/detect-args", async (req, res) => {
+    const projectId = req.params.projectId as string;
+    const project = await projects.getById(projectId);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const scriptPath = typeof req.body?.scriptPath === "string" ? req.body.scriptPath : "";
+    const executionMode = req.body?.executionMode === "script_nodejs" ? "script_nodejs" : "script_python";
+    if (!scriptPath.trim()) {
+      res.status(400).json({ error: "scriptPath is required" });
+      return;
+    }
+    try {
+      const result = await svc.detectScriptArgs(projectId, scriptPath, executionMode);
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ args: [], error: message });
+    }
+  });
+
   router.get("/routines/:id", async (req, res) => {
     const detail = await svc.getDetail(req.params.id as string);
     if (!detail) {
@@ -138,6 +162,41 @@ export function routineRoutes(db: Db) {
       details: { title: updated?.title ?? routine.title },
     });
     res.json(updated);
+  });
+
+  router.delete("/routines/:id", async (req, res) => {
+    const routine = await assertCanManageExistingRoutine(req, req.params.id as string);
+    if (!routine) {
+      res.status(404).json({ error: "Routine not found" });
+      return;
+    }
+    await svc.deleteRoutine(routine.id);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: routine.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "routine.deleted",
+      entityType: "routine",
+      entityId: routine.id,
+      details: { title: routine.title },
+    });
+    res.status(204).end();
+  });
+
+  router.post("/routines/:id/clone", async (req, res) => {
+    const routine = await assertCanManageExistingRoutine(req, req.params.id as string);
+    if (!routine) {
+      res.status(404).json({ error: "Routine not found" });
+      return;
+    }
+    const cloned = await svc.clone(routine.id, {
+      agentId: req.actor.type === "agent" ? req.actor.agentId : null,
+      userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,
+    });
+    res.status(201).json(cloned);
   });
 
   router.get("/routines/:id/runs", async (req, res) => {

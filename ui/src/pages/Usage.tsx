@@ -175,7 +175,7 @@ export function Usage() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: queryKeys.usage,
     queryFn: () => usageApi.getAll(),
-    refetchInterval: 30_000,
+    refetchInterval: 5 * 60_000,
   });
 
   useEffect(() => {

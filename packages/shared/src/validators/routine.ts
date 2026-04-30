@@ -61,8 +61,12 @@ export const createRoutineSchema = z.object({
   catchUpPolicy: z.enum(ROUTINE_CATCH_UP_POLICIES).optional().default("skip_missed"),
   variables: z.array(routineVariableSchema).optional().default([]),
   executionMode: z.enum(ROUTINE_EXECUTION_MODES).optional().default("agent"),
-  scriptBody: z.string().optional().nullable(),
+  scriptPath: z.string().trim().max(500).optional().nullable(),
+  scriptCommandArgs: z.array(z.string().trim().max(500)).max(100).optional().default([]),
   scriptTimeoutSec: z.number().int().min(1).max(3600).optional().default(60),
+  remediationEnabled: z.boolean().optional().default(false),
+  remediationAssigneeAgentId: z.string().uuid().optional().nullable(),
+  notificationEmail: z.string().email().optional().nullable(),
 });
 
 export type CreateRoutine = z.infer<typeof createRoutineSchema>;
@@ -89,7 +93,45 @@ export const createRoutineTriggerSchema = z.discriminatedUnion("kind", [
   baseTriggerSchema.extend({
     kind: z.literal("api"),
   }),
-]);
+  baseTriggerSchema.extend({
+    kind: z.literal("random_interval"),
+    minIntervalSec: z.number().int().min(60).max(604_800),
+    maxIntervalSec: z.number().int().min(60).max(604_800),
+  }),
+  baseTriggerSchema.extend({
+    kind: z.literal("random_cron_scheduler"),
+    allowedWeekdays: z.array(z.number().int().min(0).max(6)).max(7).optional().default([0, 1, 2, 3, 4, 5, 6]),
+    minTimeOfDayMin: z.number().int().min(0).max(1439).optional().default(540),
+    maxTimeOfDayMin: z.number().int().min(0).max(1439).optional().default(1020),
+    minDaysAhead: z.number().int().min(0).max(30).optional().default(1),
+    maxDaysAhead: z.number().int().min(1).max(30).optional().default(7),
+    timezone: z.string().trim().min(1),
+  }),
+]).superRefine((value, ctx) => {
+  if (value.kind === "random_interval" && value.maxIntervalSec < value.minIntervalSec) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxIntervalSec"],
+      message: "maxIntervalSec must be greater than or equal to minIntervalSec",
+    });
+  }
+  if (value.kind === "random_cron_scheduler") {
+    if (value.maxTimeOfDayMin < value.minTimeOfDayMin) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxTimeOfDayMin"],
+        message: "maxTimeOfDayMin must be greater than or equal to minTimeOfDayMin",
+      });
+    }
+    if (value.maxDaysAhead < value.minDaysAhead) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxDaysAhead"],
+        message: "maxDaysAhead must be greater than or equal to minDaysAhead",
+      });
+    }
+  }
+});
 
 export type CreateRoutineTrigger = z.infer<typeof createRoutineTriggerSchema>;
 
@@ -100,6 +142,13 @@ export const updateRoutineTriggerSchema = z.object({
   timezone: z.string().trim().min(1).optional().nullable(),
   signingMode: z.enum(ROUTINE_TRIGGER_SIGNING_MODES).optional().nullable(),
   replayWindowSec: z.number().int().min(30).max(86_400).optional().nullable(),
+  minIntervalSec: z.number().int().min(60).max(604_800).optional().nullable(),
+  maxIntervalSec: z.number().int().min(60).max(604_800).optional().nullable(),
+  allowedWeekdays: z.array(z.number().int().min(0).max(6)).max(7).optional().nullable(),
+  minTimeOfDayMin: z.number().int().min(0).max(1439).optional().nullable(),
+  maxTimeOfDayMin: z.number().int().min(0).max(1439).optional().nullable(),
+  minDaysAhead: z.number().int().min(0).max(30).optional().nullable(),
+  maxDaysAhead: z.number().int().min(1).max(30).optional().nullable(),
 });
 
 export type UpdateRoutineTrigger = z.infer<typeof updateRoutineTriggerSchema>;

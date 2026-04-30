@@ -215,6 +215,7 @@ export function applyOptimisticIssueFieldUpdate(
   assign("executionWorkspacePreference");
   assign("executionWorkspaceSettings");
   assign("hiddenAt");
+  assign("scheduledAt");
 
   if (hasOwn("labelIds") && Array.isArray(data.labelIds)) {
     const nextLabelIds = data.labelIds.filter((value): value is string => typeof value === "string");

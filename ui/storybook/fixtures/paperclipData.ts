@@ -721,6 +721,7 @@ export function createIssue(overrides: Partial<Issue> = {}): Issue {
     completedAt: null,
     cancelledAt: null,
     hiddenAt: null,
+    scheduledAt: null,
     labelIds: ["label-ui", "label-docs"],
     labels: labelsFor(["label-ui", "label-docs"]),
     blockedBy: [],

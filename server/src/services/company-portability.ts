@@ -656,6 +656,15 @@ function normalizeRoutineTriggerExtension(value: unknown): CompanyPortabilityIss
     timezone: asString(value.timezone),
     signingMode: asString(value.signingMode),
     replayWindowSec: asInteger(value.replayWindowSec),
+    minIntervalSec: asInteger(value.minIntervalSec),
+    maxIntervalSec: asInteger(value.maxIntervalSec),
+    allowedWeekdays: Array.isArray(value.allowedWeekdays)
+      ? value.allowedWeekdays.map((d) => asInteger(d)).filter((d): d is number => d !== null)
+      : null,
+    minTimeOfDayMin: asInteger(value.minTimeOfDayMin),
+    maxTimeOfDayMin: asInteger(value.maxTimeOfDayMin),
+    minDaysAhead: asInteger(value.minDaysAhead),
+    maxDaysAhead: asInteger(value.maxDaysAhead),
   };
 }
 
@@ -716,6 +725,13 @@ function buildRoutineManifestFromLiveRoutine(routine: RoutineLike): CompanyPorta
       timezone: trigger.kind === "schedule" ? trigger.timezone ?? null : null,
       signingMode: trigger.kind === "webhook" ? trigger.signingMode ?? null : null,
       replayWindowSec: trigger.kind === "webhook" ? trigger.replayWindowSec ?? null : null,
+      minIntervalSec: trigger.kind === "random_interval" ? trigger.minIntervalSec ?? null : null,
+      maxIntervalSec: trigger.kind === "random_interval" ? trigger.maxIntervalSec ?? null : null,
+      allowedWeekdays: trigger.kind === "random_cron_scheduler" ? trigger.allowedWeekdays ?? null : null,
+      minTimeOfDayMin: trigger.kind === "random_cron_scheduler" ? trigger.minTimeOfDayMin ?? null : null,
+      maxTimeOfDayMin: trigger.kind === "random_cron_scheduler" ? trigger.maxTimeOfDayMin ?? null : null,
+      minDaysAhead: trigger.kind === "random_cron_scheduler" ? trigger.minDaysAhead ?? null : null,
+      maxDaysAhead: trigger.kind === "random_cron_scheduler" ? trigger.maxDaysAhead ?? null : null,
     })),
   };
 }
@@ -1197,6 +1213,13 @@ function buildLegacyRoutineTriggerFromRecurrence(
       timezone,
       signingMode: null,
       replayWindowSec: null,
+      minIntervalSec: null,
+      maxIntervalSec: null,
+      allowedWeekdays: null,
+      minTimeOfDayMin: null,
+      maxTimeOfDayMin: null,
+      minDaysAhead: null,
+      maxDaysAhead: null,
     } satisfies CompanyPortabilityIssueRoutineTriggerManifestEntry,
     warnings,
     errors,
@@ -1252,6 +1275,16 @@ function resolvePortableRoutineDefinition(
     }
     if (trigger.kind === "webhook" && trigger.signingMode && !ROUTINE_TRIGGER_SIGNING_MODES.includes(trigger.signingMode as any)) {
       errors.push(`Recurring task ${issue.slug} uses unsupported webhook signingMode "${trigger.signingMode}".`);
+    }
+    if (trigger.kind === "random_interval") {
+      if (!trigger.minIntervalSec || !trigger.maxIntervalSec) {
+        errors.push(`Recurring task ${issue.slug} has a random_interval trigger missing minIntervalSec/maxIntervalSec.`);
+      }
+    }
+    if (trigger.kind === "random_cron_scheduler") {
+      if (!trigger.timezone) {
+        errors.push(`Recurring task ${issue.slug} has a random_cron_scheduler trigger missing timezone.`);
+      }
     }
   }
 
@@ -3441,6 +3474,13 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           replayWindowSec: trigger.kind === "webhook" && trigger.replayWindowSec !== 300
             ? trigger.replayWindowSec ?? null
             : undefined,
+          minIntervalSec: trigger.kind === "random_interval" ? trigger.minIntervalSec ?? null : undefined,
+          maxIntervalSec: trigger.kind === "random_interval" ? trigger.maxIntervalSec ?? null : undefined,
+          allowedWeekdays: trigger.kind === "random_cron_scheduler" ? trigger.allowedWeekdays ?? null : undefined,
+          minTimeOfDayMin: trigger.kind === "random_cron_scheduler" ? trigger.minTimeOfDayMin ?? null : undefined,
+          maxTimeOfDayMin: trigger.kind === "random_cron_scheduler" ? trigger.maxTimeOfDayMin ?? null : undefined,
+          minDaysAhead: trigger.kind === "random_cron_scheduler" ? trigger.minDaysAhead ?? null : undefined,
+          maxDaysAhead: trigger.kind === "random_cron_scheduler" ? trigger.maxDaysAhead ?? null : undefined,
         })),
       });
       paperclipRoutinesOut[taskSlug] = isPlainRecord(extension) ? extension : {};
@@ -4443,7 +4483,10 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
                 : "skip_missed",
             variables: routineDefinition.variables ?? [],
             executionMode: "agent",
+            scriptCommandArgs: [],
             scriptTimeoutSec: 60,
+            remediationEnabled: false,
+            remediationAssigneeAgentId: null,
           }, {
             agentId: null,
             userId: actorUserId ?? null,
@@ -4472,6 +4515,36 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
                     ? trigger.signingMode as typeof ROUTINE_TRIGGER_SIGNING_MODES[number]
                     : "bearer",
                 replayWindowSec: trigger.replayWindowSec ?? 300,
+              }, {
+                agentId: null,
+                userId: actorUserId ?? null,
+              });
+              continue;
+            }
+            if (trigger.kind === "random_interval") {
+              await routines.createTrigger(createdRoutine.id, {
+                kind: "random_interval",
+                label: trigger.label,
+                enabled: trigger.enabled,
+                minIntervalSec: trigger.minIntervalSec ?? 3600,
+                maxIntervalSec: trigger.maxIntervalSec ?? 86400,
+              }, {
+                agentId: null,
+                userId: actorUserId ?? null,
+              });
+              continue;
+            }
+            if (trigger.kind === "random_cron_scheduler" && trigger.timezone) {
+              await routines.createTrigger(createdRoutine.id, {
+                kind: "random_cron_scheduler",
+                label: trigger.label,
+                enabled: trigger.enabled,
+                timezone: trigger.timezone,
+                allowedWeekdays: trigger.allowedWeekdays ?? [0, 1, 2, 3, 4, 5, 6],
+                minTimeOfDayMin: trigger.minTimeOfDayMin ?? 540,
+                maxTimeOfDayMin: trigger.maxTimeOfDayMin ?? 1020,
+                minDaysAhead: trigger.minDaysAhead ?? 1,
+                maxDaysAhead: trigger.maxDaysAhead ?? 7,
               }, {
                 agentId: null,
                 userId: actorUserId ?? null,

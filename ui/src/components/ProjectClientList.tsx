@@ -19,14 +19,14 @@ export function ProjectClientList({
   maxVisible,
 }: ProjectClientListProps) {
   if (clients.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+    return <p className={cn(compact ? "text-xs" : "text-sm", "text-muted-foreground")}>{emptyMessage}</p>;
   }
 
   const visibleClients = maxVisible ? clients.slice(0, maxVisible) : clients;
   const hiddenCount = Math.max(clients.length - visibleClients.length, 0);
 
   return (
-    <div className="space-y-2">
+    <div className={cn(compact ? "space-y-1.5" : "space-y-2")}>
       {visibleClients.map((client) => {
         const cnpj = readMetadataString(client.metadata, "cnpj");
         return (
@@ -37,21 +37,25 @@ export function ProjectClientList({
               compact && "border-none bg-transparent px-0 py-0",
             )}
           >
-            <div className="flex items-center justify-between gap-2 min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className={cn("flex items-center min-w-0", compact ? "gap-1.5" : "justify-between gap-2")}>
+              <div className={cn("flex items-center min-w-0", compact ? "gap-1.5" : "gap-2")}>
                 <Link
                   to={clientUrl({ id: client.clientId })}
-                  className="truncate text-sm font-medium hover:underline"
+                  className={cn("truncate font-medium hover:underline", compact ? "text-xs" : "text-sm")}
                 >
                   {client.name}
                 </Link>
                 {client.relationshipTags.length > 0 ? (
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className={cn("truncate text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>
                     {client.relationshipTags.join(", ")}
                   </span>
                 ) : null}
               </div>
-              {projectStatus ? <StatusBadge status={projectStatus} /> : null}
+              {projectStatus ? (
+                <div className={cn("shrink-0", compact && "ml-1")}>
+                  <StatusBadge status={projectStatus} />
+                </div>
+              ) : null}
             </div>
             {!compact && (
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -65,7 +69,9 @@ export function ProjectClientList({
         );
       })}
       {hiddenCount > 0 ? (
-        <p className="text-xs text-muted-foreground">+{hiddenCount} more linked client{hiddenCount === 1 ? "" : "s"}</p>
+        <p className="text-xs text-muted-foreground">
+          +{hiddenCount} more linked client{hiddenCount === 1 ? "" : "s"}
+        </p>
       ) : null}
     </div>
   );

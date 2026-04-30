@@ -463,6 +463,48 @@
       "when": 1776100000000,
       "tag": "0065_routine_script_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1776101000000,
+      "tag": "0066_routine_script_command_args",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1776102000000,
+      "tag": "0067_routine_random_interval_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1776103000000,
+      "tag": "0068_routine_script_path",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1776104000000,
+      "tag": "0069_routine_random_cron_scheduler",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1776105000000,
+      "tag": "0070_routine_notification_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1776106000000,
+      "tag": "0071_issue_scheduled_at",
+      "breakpoints": true
     }
   ]
 }

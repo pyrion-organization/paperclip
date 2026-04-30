@@ -249,6 +249,11 @@ const EXECUTION_WORKSPACE_MODES = [
   { value: "reuse_existing", label: "Reuse existing workspace" },
 ] as const;
 
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function defaultProjectWorkspaceIdForProject(project: { workspaces?: Array<{ id: string; isPrimary: boolean }>; executionWorkspacePolicy?: { defaultProjectWorkspaceId?: string | null } | null } | null | undefined) {
   if (!project) return "";
   return project.executionWorkspacePolicy?.defaultProjectWorkspaceId
@@ -317,10 +322,14 @@ export function NewIssueDialog() {
   const parentExecutionWorkspaceId = newIssueDefaults.executionWorkspaceId ?? "";
   const parentExecutionWorkspaceLabel = newIssueDefaults.parentExecutionWorkspaceLabel ?? parentExecutionWorkspaceId;
 
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+
   // Popover states
   const [statusOpen, setStatusOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
+  const [pendingScheduledAtStr, setPendingScheduledAtStr] = useState("");
   const [companyOpen, setCompanyOpen] = useState(false);
   const descriptionEditorRef = useRef<MarkdownEditorRef>(null);
   const stageFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -659,6 +668,7 @@ export function NewIssueDialog() {
     setStagedFiles([]);
     setIsFileDragOver(false);
     setCompanyOpen(false);
+    setScheduledAt(null);
     executionWorkspaceDefaultProjectId.current = null;
   }
 
@@ -713,13 +723,15 @@ export function NewIssueDialog() {
       reviewerValues: reviewerValue ? [reviewerValue] : [],
       approverValues: approverValue ? [approverValue] : [],
     });
+    const isScheduledInFuture = scheduledAt !== null && scheduledAt > new Date();
     createIssue.mutate({
       companyId: effectiveCompanyId,
       stagedFiles,
       title: title.trim(),
       description: description.trim() || undefined,
-      status,
+      status: isScheduledInFuture ? "backlog" : status,
       priority: priority || "medium",
+      ...(scheduledAt ? { scheduledAt: scheduledAt.toISOString() } : {}),
       ...(selectedAssigneeAgentId ? { assigneeAgentId: selectedAssigneeAgentId } : {}),
       ...(selectedAssigneeUserId ? { assigneeUserId: selectedAssigneeUserId } : {}),
       ...(newIssueDefaults.parentId ? { parentId: newIssueDefaults.parentId } : {}),
@@ -1637,22 +1649,92 @@ export function NewIssueDialog() {
             Upload
           </button>
 
-          {/* More (dates) */}
-          <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+          {/* Scheduled start */}
+          <Popover
+            open={scheduledAtOpen}
+            onOpenChange={(open) => {
+              if (open) setPendingScheduledAtStr(scheduledAt ? toDatetimeLocalValue(scheduledAt) : "");
+              setScheduledAtOpen(open);
+            }}
+          >
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center justify-center rounded-md border border-border p-1 text-xs hover:bg-accent/50 transition-colors text-muted-foreground">
-                <MoreHorizontal className="h-3 w-3" />
+              <button
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors",
+                  scheduledAt ? "text-foreground" : "text-muted-foreground",
+                )}
+                title="Schedule start time"
+              >
+                <Calendar className="h-3 w-3 shrink-0" />
+                {scheduledAt
+                  ? scheduledAt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                  : "Schedule"}
+                {scheduledAt && (
+                  <span
+                    role="button"
+                    className="ml-0.5 hover:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); setScheduledAt(null); }}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </span>
+                )}
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-44 p-1" align="start">
-              <button className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                Start date
-              </button>
-              <button className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                Due date
-              </button>
+            <PopoverContent
+              className="w-64 p-3 space-y-3"
+              align="start"
+              onInteractOutside={(e) => e.preventDefault()}
+            >
+              <p className="text-xs font-medium text-foreground">Schedule start</p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                value={pendingScheduledAtStr}
+                min={toDatetimeLocalValue(new Date())}
+                onChange={(e) => setPendingScheduledAtStr(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-1">
+                {[
+                  { label: "In 1h", ms: 60 * 60 * 1000 },
+                  { label: "In 5h", ms: 5 * 60 * 60 * 1000 },
+                  { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
+                  { label: "Next week", ms: 7 * 24 * 60 * 60 * 1000 },
+                ].map(({ label, ms }) => (
+                  <button
+                    key={label}
+                    className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                    onClick={() => { setScheduledAt(new Date(Date.now() + ms)); setScheduledAtOpen(false); }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  disabled={!pendingScheduledAtStr}
+                  onClick={() => {
+                    setScheduledAt(new Date(pendingScheduledAtStr));
+                    setScheduledAtOpen(false);
+                  }}
+                >
+                  Set
+                </button>
+                <button
+                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                  onClick={() => setScheduledAtOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+              {(scheduledAt || pendingScheduledAtStr) && (
+                <button
+                  className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
+                  onClick={() => { setScheduledAt(null); setPendingScheduledAtStr(""); setScheduledAtOpen(false); }}
+                >
+                  Clear schedule
+                </button>
+              )}
             </PopoverContent>
           </Popover>
         </div>

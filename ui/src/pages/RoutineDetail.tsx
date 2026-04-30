@@ -24,8 +24,8 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
-import { buildRoutineTriggerPatch } from "../lib/routine-trigger-patch";
-import { timeAgo } from "../lib/timeAgo";
+import { buildRoutineTriggerPatch, parseTimeToMin } from "../lib/routine-trigger-patch";
+import { timeAgo, timeUntil } from "../lib/timeAgo";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -38,7 +38,7 @@ import {
 } from "../components/RoutineRunVariablesDialog";
 import { RoutineVariablesEditor, RoutineVariablesHint } from "../components/RoutineVariablesEditor";
 import { ScheduleEditor, describeSchedule } from "../components/ScheduleEditor";
-import { ScriptEditor } from "../components/ScriptEditor";
+import { RoutineScriptConfig } from "../components/RoutineScriptConfig";
 import { RunButton } from "../components/AgentActionButtons";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "../lib/recent-projects";
@@ -58,16 +58,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
 
-const executionModes = ["agent", "script_nodejs", "script_python"] as const;
+const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
 const executionModeLabels: Record<ExecutionMode, string> = {
   agent: "Agent",
   script_nodejs: "Node.js Script",
   script_python: "Python Script",
+  bash_command: "Bash Command",
+  shell_script: "Shell Script",
 };
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
-const triggerKinds = ["schedule", "webhook"];
+const triggerKinds = ["schedule", "webhook", "random_interval", "random_cron_scheduler"];
 const signingModes = ["bearer", "hmac_sha256", "github_hmac", "none"];
 const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
@@ -94,6 +96,41 @@ type SecretMessage = {
   webhookUrl: string;
   webhookSecret: string;
 };
+
+function minToHHMM(min: number): string {
+  const h = Math.floor(min / 60).toString().padStart(2, "0");
+  const m = (min % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"] as const;
+const WEEKDAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (days: number[]) => void }) {
+  return (
+    <div className="flex gap-1">
+      {WEEKDAY_LABELS.map((label, i) => {
+        const active = value.includes(i);
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-label={WEEKDAY_FULL[i]}
+            aria-pressed={active}
+            className={`w-7 h-7 rounded text-xs font-medium border transition-colors ${
+              active
+                ? "bg-foreground text-background border-foreground"
+                : "bg-background text-muted-foreground border-border hover:border-foreground"
+            }`}
+            onClick={() => onChange(active ? value.filter((d) => d !== i) : [...value, i].sort((a, b) => a - b))}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function autoResizeTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return;
@@ -140,15 +177,23 @@ function buildRoutineMutationPayload(input: {
   catchUpPolicy: string;
   variables: RoutineVariable[];
   executionMode: string;
-  scriptBody: string;
+  scriptPath: string;
+  scriptCommandArgs: string[];
   scriptTimeoutSec: number;
+  remediationEnabled: boolean;
+  remediationAssigneeAgentId: string;
+  notificationEmail: string;
 }) {
   return {
     ...input,
     description: input.description.trim() || null,
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
-    scriptBody: input.executionMode !== "agent" ? input.scriptBody || null : null,
+    scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    remediationEnabled: input.remediationEnabled,
+    remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
+    notificationEmail: input.notificationEmail.trim() || null,
   };
 }
 
@@ -168,6 +213,14 @@ function TriggerEditor({
     cronExpression: trigger.cronExpression ?? "",
     signingMode: trigger.signingMode ?? "bearer",
     replayWindowSec: String(trigger.replayWindowSec ?? 300),
+    minIntervalSec: String(trigger.minIntervalSec ?? 3600),
+    maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
+    allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
+    minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
+    maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
+    minDaysAhead: String(trigger.minDaysAhead ?? 1),
+    maxDaysAhead: String(trigger.maxDaysAhead ?? 7),
+    timezone: trigger.timezone ?? getLocalTimezone(),
   });
 
   useEffect(() => {
@@ -176,6 +229,14 @@ function TriggerEditor({
       cronExpression: trigger.cronExpression ?? "",
       signingMode: trigger.signingMode ?? "bearer",
       replayWindowSec: String(trigger.replayWindowSec ?? 300),
+      minIntervalSec: String(trigger.minIntervalSec ?? 3600),
+      maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
+      allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
+      minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
+      maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
+      minDaysAhead: String(trigger.minDaysAhead ?? 1),
+      maxDaysAhead: String(trigger.maxDaysAhead ?? 7),
+      timezone: trigger.timezone ?? getLocalTimezone(),
     });
   }, [trigger]);
 
@@ -183,15 +244,21 @@ function TriggerEditor({
     <div className="rounded-lg border border-border p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
-          {trigger.kind === "schedule" ? <Clock3 className="h-3.5 w-3.5" /> : trigger.kind === "webhook" ? <Webhook className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
+          {trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler"
+            ? <Clock3 className="h-3.5 w-3.5" />
+            : trigger.kind === "webhook"
+              ? <Webhook className="h-3.5 w-3.5" />
+              : <Zap className="h-3.5 w-3.5" />}
           {trigger.label ?? trigger.kind}
         </div>
         <span className="text-xs text-muted-foreground">
-          {trigger.kind === "schedule" && trigger.nextRunAt
+          {(trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler") && trigger.nextRunAt
             ? `Next: ${new Date(trigger.nextRunAt).toLocaleString()}`
             : trigger.kind === "webhook"
               ? "Webhook"
-              : "API"}
+              : trigger.kind === "random_interval"
+                ? "Random interval"
+                : "API"}
         </span>
       </div>
 
@@ -241,6 +308,92 @@ function TriggerEditor({
             )}
           </>
         )}
+        {trigger.kind === "random_interval" && (
+          <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Min interval (seconds)</Label>
+              <Input
+                type="number"
+                min={60}
+                max={604800}
+                value={draft.minIntervalSec}
+                onChange={(event) => setDraft((current) => ({ ...current, minIntervalSec: event.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Minimum 60 seconds</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Max interval (seconds)</Label>
+              <Input
+                type="number"
+                min={60}
+                max={604800}
+                value={draft.maxIntervalSec}
+                onChange={(event) => setDraft((current) => ({ ...current, maxIntervalSec: event.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Maximum 604800 seconds</p>
+            </div>
+          </div>
+        )}
+        {trigger.kind === "random_cron_scheduler" && (
+          <div className="md:col-span-2 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Allowed weekdays</Label>
+              <WeekdayPicker
+                value={draft.allowedWeekdays}
+                onChange={(allowedWeekdays) => setDraft((c) => ({ ...c, allowedWeekdays }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Earliest time</Label>
+                <Input
+                  type="time"
+                  value={draft.minTimeOfDayMin}
+                  onChange={(e) => setDraft((c) => ({ ...c, minTimeOfDayMin: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Latest time</Label>
+                <Input
+                  type="time"
+                  value={draft.maxTimeOfDayMin}
+                  onChange={(e) => setDraft((c) => ({ ...c, maxTimeOfDayMin: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Min days ahead</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={draft.minDaysAhead}
+                  onChange={(e) => setDraft((c) => ({ ...c, minDaysAhead: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Max days ahead</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={draft.maxDaysAhead}
+                  onChange={(e) => setDraft((c) => ({ ...c, maxDaysAhead: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Timezone</Label>
+              <Input
+                value={draft.timezone}
+                onChange={(e) => setDraft((c) => ({ ...c, timezone: e.target.value }))}
+                placeholder="e.g. America/New_York"
+              />
+              <p className="text-xs text-muted-foreground">IANA timezone name. Defaults to your browser timezone.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -289,12 +442,21 @@ export function RoutineDetail() {
   const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [secretMessage, setSecretMessage] = useState<SecretMessage | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<0 | 1>(0);
   const [runVariablesOpen, setRunVariablesOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
     kind: "schedule",
     cronExpression: "0 10 * * *",
     signingMode: "bearer",
     replayWindowSec: "300",
+    minIntervalSec: "3600",
+    maxIntervalSec: "86400",
+    allowedWeekdays: [1, 2, 3, 4, 5] as number[],
+    minTimeOfDayMin: "09:00",
+    maxTimeOfDayMin: "17:00",
+    minDaysAhead: "1",
+    maxDaysAhead: "7",
+    timezone: getLocalTimezone(),
   });
   const [editDraft, setEditDraft] = useState<{
     title: string;
@@ -306,8 +468,12 @@ export function RoutineDetail() {
     catchUpPolicy: string;
     variables: RoutineVariable[];
     executionMode: string;
-    scriptBody: string;
+    scriptPath: string;
+    scriptCommandArgs: string[];
     scriptTimeoutSec: number;
+    remediationEnabled: boolean;
+    remediationAssigneeAgentId: string;
+    notificationEmail: string;
   }>({
     title: "",
     description: "",
@@ -318,8 +484,12 @@ export function RoutineDetail() {
     catchUpPolicy: "skip_missed",
     variables: [],
     executionMode: "agent",
-    scriptBody: "",
+    scriptPath: "",
+    scriptCommandArgs: [],
     scriptTimeoutSec: 60,
+    remediationEnabled: false,
+    remediationAssigneeAgentId: "",
+    notificationEmail: "",
   });
   const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
 
@@ -382,8 +552,12 @@ export function RoutineDetail() {
             catchUpPolicy: routine.catchUpPolicy,
             variables: routine.variables,
             executionMode: routine.executionMode ?? "agent",
-            scriptBody: routine.scriptBody ?? "",
+            scriptPath: routine.scriptPath ?? "",
+            scriptCommandArgs: routine.scriptCommandArgs ?? [],
             scriptTimeoutSec: routine.scriptTimeoutSec ?? 60,
+            remediationEnabled: routine.remediationEnabled ?? false,
+            remediationAssigneeAgentId: routine.remediationAssigneeAgentId ?? "",
+            notificationEmail: routine.notificationEmail ?? "",
           }
         : null,
     [routine],
@@ -400,8 +574,12 @@ export function RoutineDetail() {
       editDraft.catchUpPolicy !== routineDefaults.catchUpPolicy ||
       JSON.stringify(editDraft.variables) !== JSON.stringify(routineDefaults.variables) ||
       editDraft.executionMode !== routineDefaults.executionMode ||
-      editDraft.scriptBody !== routineDefaults.scriptBody ||
-      editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec
+      editDraft.scriptPath !== routineDefaults.scriptPath ||
+      JSON.stringify(editDraft.scriptCommandArgs) !== JSON.stringify(routineDefaults.scriptCommandArgs) ||
+      editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec ||
+      editDraft.remediationEnabled !== routineDefaults.remediationEnabled ||
+      editDraft.remediationAssigneeAgentId !== routineDefaults.remediationAssigneeAgentId ||
+      editDraft.notificationEmail !== routineDefaults.notificationEmail
     );
   }, [editDraft, routineDefaults]);
 
@@ -544,6 +722,22 @@ export function RoutineDetail() {
             replayWindowSec: Number(newTrigger.replayWindowSec || "300"),
           }
           : {}),
+        ...(newTrigger.kind === "random_interval"
+          ? {
+            minIntervalSec: Number(newTrigger.minIntervalSec || "3600"),
+            maxIntervalSec: Number(newTrigger.maxIntervalSec || "86400"),
+          }
+          : {}),
+        ...(newTrigger.kind === "random_cron_scheduler"
+          ? {
+            allowedWeekdays: newTrigger.allowedWeekdays,
+            minTimeOfDayMin: parseTimeToMin(newTrigger.minTimeOfDayMin || "09:00"),
+            maxTimeOfDayMin: parseTimeToMin(newTrigger.maxTimeOfDayMin || "17:00"),
+            minDaysAhead: Number(newTrigger.minDaysAhead || "1"),
+            maxDaysAhead: Number(newTrigger.maxDaysAhead || "7"),
+            timezone: newTrigger.timezone || getLocalTimezone(),
+          }
+          : {}),
       });
     },
     onSuccess: async (result) => {
@@ -642,6 +836,38 @@ export function RoutineDetail() {
     },
   });
 
+  const deleteRoutine = useMutation({
+    mutationFn: () => routinesApi.delete(routineId!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
+      navigate("/routines");
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Failed to delete routine",
+        body: error instanceof Error ? error.message : "Paperclip could not delete the routine.",
+        tone: "error",
+      });
+      setDeleteConfirmStep(0);
+    },
+  });
+
+  const cloneRoutine = useMutation({
+    mutationFn: () => routinesApi.clone(routineId!),
+    onSuccess: async (cloned) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
+      pushToast({ title: "Routine duplicated", body: `"${cloned.title}" created as paused.`, tone: "success" });
+      navigate(`/routines/${cloned.id}`);
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Duplicate failed",
+        body: error instanceof Error ? error.message : "Could not duplicate the routine.",
+        tone: "error",
+      });
+    },
+  });
+
   const agentById = useMemo(
     () => new Map((agents ?? []).map((agent) => [agent.id, agent])),
     [agents],
@@ -692,7 +918,7 @@ export function RoutineDetail() {
     );
   }
 
-  const isScriptMode = editDraft.executionMode === "script_nodejs" || editDraft.executionMode === "script_python";
+  const isScriptMode = editDraft.executionMode !== "agent";
   const automationEnabled = routine.status === "active";
   const selectedProject = routine.projectId ? (projects?.find((project) => project.id === routine.projectId) ?? null) : null;
   const automationToggleDisabled = updateRoutineStatus.isPending || routine.status === "archived";
@@ -950,25 +1176,94 @@ export function RoutineDetail() {
       {/* Script mode: code editor */}
       {isScriptMode && (
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Script</p>
-            {editDraft.variables.length > 0 && (
+          {editDraft.executionMode !== "bash_command" && (
+            <div className="overflow-x-auto overscroll-x-contain">
+              <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
+                <span>In</span>
+                <InlineEntitySelector
+                  ref={projectSelectorRef}
+                  value={editDraft.projectId}
+                  options={projectOptions}
+                  recentOptionIds={recentProjectIds}
+                  placeholder="Project"
+                  noneLabel="No project"
+                  searchPlaceholder="Search projects..."
+                  emptyMessage="No projects found."
+                  onChange={(projectId) => {
+                    if (projectId) trackRecentProject(projectId);
+                    setEditDraft((current) => ({ ...current, projectId }));
+                  }}
+                  onConfirm={() => {}}
+                  renderTriggerValue={(option) =>
+                    option && currentProject ? (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Project</span>
+                    )
+                  }
+                  renderOption={(option) => {
+                    if (!option.id) return <span className="truncate">{option.label}</span>;
+                    const project = projectById.get(option.id);
+                    return (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: project?.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    );
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {editDraft.executionMode === "bash_command" ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Bash command</label>
+              <textarea
+                className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
+                placeholder={'echo "hello world" && date'}
+                value={editDraft.scriptPath}
+                onChange={(e) => setEditDraft((current) => ({ ...current, scriptPath: e.target.value }))}
+              />
               <p className="text-xs text-muted-foreground">
-                Available:{" "}
-                {editDraft.variables.map((v) => (
-                  <code key={v.name} className="text-xs font-mono bg-muted px-1 rounded mr-1">
-                    ROUTINE_VAR_{v.name.toUpperCase()}
-                  </code>
-                ))}
-                <code className="text-xs font-mono bg-muted px-1 rounded">ROUTINE_VAR_DATE</code>
+                Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
               </p>
-            )}
-          </div>
-          <ScriptEditor
-            value={editDraft.scriptBody}
-            onChange={(scriptBody) => setEditDraft((current) => ({ ...current, scriptBody }))}
-            language={editDraft.executionMode === "script_python" ? "python" : "javascript"}
-          />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Script</p>
+                {editDraft.variables.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Available:{" "}
+                    {editDraft.variables.map((v) => (
+                      <code key={v.name} className="text-xs font-mono bg-muted px-1 rounded mr-1">
+                        ROUTINE_VAR_{v.name.toUpperCase()}
+                      </code>
+                    ))}
+                    <code className="text-xs font-mono bg-muted px-1 rounded">ROUTINE_VAR_DATE</code>
+                  </p>
+                )}
+              </div>
+              <RoutineScriptConfig
+                projectId={editDraft.projectId}
+                companyId={routine?.companyId ?? undefined}
+                executionMode={editDraft.executionMode as "script_nodejs" | "script_python" | "shell_script"}
+                scriptPath={editDraft.scriptPath}
+                scriptCommandArgs={editDraft.scriptCommandArgs}
+                onScriptPathChange={(scriptPath) => setEditDraft((current) => ({ ...current, scriptPath }))}
+                onArgsChange={(scriptCommandArgs) => setEditDraft((current) => ({ ...current, scriptCommandArgs }))}
+              />
+            </>
+          )}
           <RoutineVariablesEditor
             title={editDraft.title}
             description=""
@@ -1036,6 +1331,51 @@ export function RoutineDetail() {
                 <p className="text-xs text-muted-foreground">Script is killed after this many seconds (1–3600).</p>
               </div>
             )}
+            {isScriptMode && (
+              <div className="space-y-3 border-t border-border pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Failure remediation</p>
+                  <ToggleSwitch
+                    checked={editDraft.remediationEnabled}
+                    onCheckedChange={(checked) => setEditDraft((current) => ({ ...current, remediationEnabled: checked }))}
+                  />
+                </div>
+                {editDraft.remediationEnabled && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Remediation agent</Label>
+                    <Select
+                      value={editDraft.remediationAssigneeAgentId}
+                      onValueChange={(value) => setEditDraft((current) => ({ ...current, remediationAssigneeAgentId: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a remediation agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(agents ?? []).map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            <div className="flex items-center gap-2">
+                              <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                              {agent.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Agent assigned to handle failures. The script will be automatically re-run after the fix.</p>
+                  </div>
+                )}
+                <div className="space-y-1.5 border-t border-border pt-3">
+                  <Label className="text-xs">Failure notification email</Label>
+                  <Input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={editDraft.notificationEmail}
+                    onChange={(e) => setEditDraft((current) => ({ ...current, notificationEmail: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">Receives an email when this routine fails.</p>
+                </div>
+              </div>
+            )}
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -1090,7 +1430,12 @@ export function RoutineDetail() {
                   <SelectContent>
                     {triggerKinds.map((kind) => (
                       <SelectItem key={kind} value={kind} disabled={kind === "webhook"}>
-                        {kind}{kind === "webhook" ? " — COMING SOON" : ""}
+                        {kind === "random_cron_scheduler"
+                          ? "Random weekday scheduler"
+                          : kind === "random_interval"
+                            ? "Random interval"
+                            : kind}
+                        {kind === "webhook" ? " — COMING SOON" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1129,6 +1474,92 @@ export function RoutineDetail() {
                   )}
                 </>
               )}
+              {newTrigger.kind === "random_interval" && (
+                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Min interval (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={60}
+                      max={604800}
+                      value={newTrigger.minIntervalSec}
+                      onChange={(event) => setNewTrigger((current) => ({ ...current, minIntervalSec: event.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Minimum 60 seconds</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max interval (seconds)</Label>
+                    <Input
+                      type="number"
+                      min={60}
+                      max={604800}
+                      value={newTrigger.maxIntervalSec}
+                      onChange={(event) => setNewTrigger((current) => ({ ...current, maxIntervalSec: event.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">Maximum 604800 seconds</p>
+                  </div>
+                </div>
+              )}
+              {newTrigger.kind === "random_cron_scheduler" && (
+                <div className="md:col-span-2 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Allowed weekdays</Label>
+                    <WeekdayPicker
+                      value={newTrigger.allowedWeekdays}
+                      onChange={(allowedWeekdays) => setNewTrigger((c) => ({ ...c, allowedWeekdays }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Earliest time</Label>
+                      <Input
+                        type="time"
+                        value={newTrigger.minTimeOfDayMin}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, minTimeOfDayMin: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Latest time</Label>
+                      <Input
+                        type="time"
+                        value={newTrigger.maxTimeOfDayMin}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, maxTimeOfDayMin: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Min days ahead</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={30}
+                        value={newTrigger.minDaysAhead}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, minDaysAhead: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Max days ahead</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={newTrigger.maxDaysAhead}
+                        onChange={(e) => setNewTrigger((c) => ({ ...c, maxDaysAhead: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Timezone</Label>
+                    <Input
+                      value={newTrigger.timezone}
+                      onChange={(e) => setNewTrigger((c) => ({ ...c, timezone: e.target.value }))}
+                      placeholder="e.g. America/New_York"
+                    />
+                    <p className="text-xs text-muted-foreground">Defaults to your browser timezone ({getLocalTimezone()}).</p>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end">
               <Button size="sm" onClick={() => createTrigger.mutate()} disabled={createTrigger.isPending}>
@@ -1159,46 +1590,66 @@ export function RoutineDetail() {
           {hasLiveRun && activeIssueId && routine && (
             <LiveRunWidget issueId={activeIssueId} companyId={routine.companyId} />
           )}
-          {(routineRuns ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground">No runs yet.</p>
-          ) : (
-            <div className="border border-border rounded-lg divide-y divide-border">
-              {(routineRuns ?? []).map((run) => (
-                <div key={run.id} className="px-3 py-2 text-sm space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant="outline" className="shrink-0">{run.source}</Badge>
-                      <Badge variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"} className="shrink-0">
-                        {run.status.replaceAll("_", " ")}
-                      </Badge>
-                      {run.scriptExitCode != null && (
-                        <Badge variant={run.scriptExitCode === 0 ? "default" : "destructive"} className="shrink-0 font-mono text-xs">
-                          exit {run.scriptExitCode}
-                        </Badge>
-                      )}
-                      {run.trigger && (
-                        <span className="text-muted-foreground truncate">{run.trigger.label ?? run.trigger.kind}</span>
-                      )}
-                      {run.linkedIssue && (
-                        <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="text-muted-foreground hover:underline truncate">
-                          {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)}
-                        </Link>
-                      )}
+          {(() => {
+            const upcomingRuns = (routine.triggers ?? [])
+              .filter((t) => t.enabled && t.nextRunAt != null)
+              .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime());
+            const pastRuns = routineRuns ?? [];
+            if (upcomingRuns.length === 0 && pastRuns.length === 0) {
+              return <p className="text-xs text-muted-foreground">No runs yet.</p>;
+            }
+            return (
+              <div className="border border-border rounded-lg divide-y divide-border">
+                {upcomingRuns.map((trigger) => (
+                  <div key={`upcoming-${trigger.id}`} className="px-3 py-2 text-sm border-l-2 border-l-blue-400/50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge variant="outline" className="shrink-0 border-blue-400/50 text-blue-400 bg-blue-400/5">scheduled</Badge>
+                        <span className="text-muted-foreground truncate">{trigger.label ?? trigger.kind.replaceAll("_", " ")}</span>
+                      </div>
+                      <span className="text-xs text-blue-400/80 shrink-0 ml-2">
+                        {new Date(trigger.nextRunAt!).toLocaleString()} · {timeUntil(trigger.nextRunAt!)}
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
                   </div>
-                  {run.scriptOutput && (
-                    <pre className="text-xs font-mono bg-muted rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all text-muted-foreground">
-                      {run.scriptOutput}
-                    </pre>
-                  )}
-                  {run.failureReason && !run.scriptOutput && (
-                    <p className="text-xs text-destructive">{run.failureReason}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+                {pastRuns.map((run) => (
+                  <div key={run.id} className="px-3 py-2 text-sm space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge variant="outline" className="shrink-0">{run.source}</Badge>
+                        <Badge variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"} className="shrink-0">
+                          {run.status.replaceAll("_", " ")}
+                        </Badge>
+                        {run.scriptExitCode != null && (
+                          <Badge variant={run.scriptExitCode === 0 ? "default" : "destructive"} className="shrink-0 font-mono text-xs">
+                            exit {run.scriptExitCode}
+                          </Badge>
+                        )}
+                        {run.trigger && (
+                          <span className="text-muted-foreground truncate">{run.trigger.label ?? run.trigger.kind}</span>
+                        )}
+                        {run.linkedIssue && (
+                          <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="text-muted-foreground hover:underline truncate">
+                            {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)}
+                          </Link>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
+                    </div>
+                    {run.scriptOutput && (
+                      <pre className="text-xs font-mono bg-muted rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all text-muted-foreground">
+                        {run.scriptOutput}
+                      </pre>
+                    )}
+                    {run.failureReason && !run.scriptOutput && (
+                      <p className="text-xs text-destructive">{run.failureReason}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="activity">
@@ -1239,10 +1690,62 @@ export function RoutineDetail() {
         projects={projects ?? []}
         defaultProjectId={routine.projectId}
         defaultAssigneeAgentId={routine.assigneeAgentId}
+        executionMode={routine.executionMode ?? "agent"}
         variables={routine.variables ?? []}
         isPending={runRoutine.isPending}
         onSubmit={(data) => runRoutine.mutate(data)}
       />
+
+      <Separator />
+
+      <div className="space-y-3">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Danger zone</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => cloneRoutine.mutate()}
+          disabled={cloneRoutine.isPending}
+        >
+          <Copy className="mr-2 h-3.5 w-3.5" />
+          {cloneRoutine.isPending ? "Duplicating..." : "Duplicate routine"}
+        </Button>
+        {deleteConfirmStep === 0 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive border-destructive/40 hover:bg-destructive/10"
+            onClick={() => setDeleteConfirmStep(1)}
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" />
+            Delete routine
+          </Button>
+        ) : (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-3">
+            <p className="text-sm font-medium text-destructive">Delete "{routine.title}"?</p>
+            <p className="text-xs text-muted-foreground">
+              This permanently deletes the routine, all its triggers, and all run history. This cannot be undone.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deleteRoutine.isPending}
+                onClick={() => deleteRoutine.mutate()}
+              >
+                {deleteRoutine.isPending ? "Deleting..." : "Yes, delete permanently"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={deleteRoutine.isPending}
+                onClick={() => setDeleteConfirmStep(0)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

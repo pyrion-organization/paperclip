@@ -4,6 +4,10 @@ import path from "node:path";
 import os from "node:os";
 import type { Db } from "@paperclipai/db";
 
+const CLAUDE_CREDENTIALS_PATH = path.join(os.homedir(), ".claude", ".credentials.json");
+const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const CLAUDE_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
+
 interface TimeWindow {
   label: string;
   usedPercent: number;
@@ -18,16 +22,87 @@ interface ProviderUsage {
   windows: TimeWindow[];
 }
 
-function readClaudeToken(): string | null {
+interface ClaudeCredentials {
+  claudeAiOauth?: {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    scopes?: string[];
+    subscriptionType?: string;
+    rateLimitTier?: string;
+  };
+}
+
+function readClaudeCredentials(): ClaudeCredentials | null {
   try {
-    const raw = fs.readFileSync(path.join(os.homedir(), ".claude", ".credentials.json"), "utf8");
-    const json = JSON.parse(raw) as Record<string, unknown>;
-    const oauth = json?.claudeAiOauth as Record<string, unknown> | undefined;
-    const token = oauth?.accessToken;
-    return typeof token === "string" && token ? token : null;
+    const raw = fs.readFileSync(CLAUDE_CREDENTIALS_PATH, "utf8");
+    return JSON.parse(raw) as ClaudeCredentials;
   } catch {
     return null;
   }
+}
+
+async function refreshClaudeToken(refreshToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(CLAUDE_TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: CLAUDE_OAUTH_CLIENT_ID,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+
+    if (!data.access_token) return null;
+
+    // Persist refreshed tokens back to disk so the CLI stays in sync
+    const creds = readClaudeCredentials();
+    if (creds?.claudeAiOauth) {
+      creds.claudeAiOauth.accessToken = data.access_token;
+      if (data.refresh_token) creds.claudeAiOauth.refreshToken = data.refresh_token;
+      if (data.expires_in) {
+        creds.claudeAiOauth.expiresAt = Date.now() + data.expires_in * 1000;
+      }
+      try {
+        fs.writeFileSync(CLAUDE_CREDENTIALS_PATH, JSON.stringify(creds, null, 2), "utf8");
+      } catch {
+        // Non-fatal: we still have the new token in memory
+      }
+    }
+
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+async function getClaudeToken(): Promise<{ token: string | null; error?: string }> {
+  const creds = readClaudeCredentials();
+  const oauth = creds?.claudeAiOauth;
+
+  if (!oauth?.accessToken) {
+    return { token: null, error: "No credentials found — run `claude` to authenticate." };
+  }
+
+  // Proactively refresh if the token is expired or within 60 seconds of expiry
+  const isExpired = oauth.expiresAt != null && oauth.expiresAt - Date.now() < 60_000;
+  if (isExpired && oauth.refreshToken) {
+    const refreshed = await refreshClaudeToken(oauth.refreshToken);
+    if (refreshed) return { token: refreshed };
+    // Refresh failed — still try the existing token; it may work
+  }
+
+  return { token: oauth.accessToken };
 }
 
 function readCodexCreds(): { token: string; accountId: string | null } | null {
@@ -72,16 +147,16 @@ async function fetchClaudeUsage(): Promise<ProviderUsage> {
     isMock: true,
     error,
     windows: [
-      { label: "5-hour session", usedPercent: 42, resetsAt: null },
-      { label: "7-day", usedPercent: 28, resetsAt: null },
+      { label: "5-hour session", usedPercent: 0, resetsAt: null },
+      { label: "7-day", usedPercent: 0, resetsAt: null },
     ],
   });
 
-  const token = readClaudeToken();
-  if (!token) return mockResult("No credentials found — run `claude` to authenticate.");
+  const { token, error: credError } = await getClaudeToken();
+  if (!token) return mockResult(credError);
 
-  try {
-    const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
+  const fetchUsage = () =>
+    fetch("https://api.anthropic.com/api/oauth/usage", {
       headers: {
         Authorization: `Bearer ${token}`,
         "anthropic-beta": "oauth-2025-04-20",
@@ -90,6 +165,24 @@ async function fetchClaudeUsage(): Promise<ProviderUsage> {
       },
       signal: AbortSignal.timeout(10_000),
     });
+
+  try {
+    let res = await fetchUsage();
+
+    // Retry once on 529 (transient overload) after a short delay
+    if (res.status === 529) {
+      await new Promise((r) => setTimeout(r, 2000));
+      res = await fetchUsage();
+    }
+
+    if (res.status === 401) {
+      // Token is expired and refresh either wasn't attempted or failed
+      return mockResult("Session expired — run `claude` to re-authenticate.");
+    }
+
+    if (res.status === 529) {
+      return mockResult("Anthropic API overloaded — try again shortly.");
+    }
 
     // A 429 means the session/weekly limit is hit. The response body still
     // contains the usage shape, so parse it instead of falling back to mock.
@@ -149,7 +242,7 @@ async function fetchCodexUsage(): Promise<ProviderUsage> {
     plan: "Plus",
     isMock: true,
     error,
-    windows: [{ label: "Weekly", usedPercent: 18, resetsAt: null }],
+    windows: [{ label: "Weekly", usedPercent: 0, resetsAt: null }],
   });
 
   const creds = readCodexCreds();

@@ -143,6 +143,7 @@ export function RoutineRunVariablesDialog({
   agents,
   defaultProjectId,
   defaultAssigneeAgentId,
+  executionMode = "agent",
   variables,
   isPending,
   onSubmit,
@@ -155,6 +156,7 @@ export function RoutineRunVariablesDialog({
   agents: Agent[];
   defaultProjectId?: string | null;
   defaultAssigneeAgentId?: string | null;
+  executionMode?: string;
   variables: RoutineVariable[];
   isPending: boolean;
   onSubmit: (data: RoutineRunDialogSubmitData) => void;
@@ -255,8 +257,10 @@ export function RoutineRunVariablesDialog({
     workspaceConfig.projectWorkspaceId,
   ]);
 
+  const isScriptMode = executionMode !== "agent";
+
   const canSubmit =
-    selection.assigneeAgentId.trim().length > 0 &&
+    (isScriptMode || selection.assigneeAgentId.trim().length > 0) &&
     missingRequired.length === 0 &&
     (!workspaceSelectionEnabled || workspaceConfigValid);
 
@@ -290,49 +294,51 @@ export function RoutineRunVariablesDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Agent *</Label>
-              <InlineEntitySelector
-                value={selection.assigneeAgentId}
-                options={assigneeOptions}
-                recentOptionIds={recentAssigneeIds}
-                placeholder="Agent"
-                noneLabel="Select an agent"
-                searchPlaceholder="Search agents..."
-                emptyMessage="No agents found."
-                disablePortal
-                openOnFocus={false}
-                onChange={(assigneeAgentId) => {
-                  if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
-                  setSelection((current) => ({ ...current, assigneeAgentId }));
-                }}
-                renderTriggerValue={(option) =>
-                  option ? (
-                    currentAssignee ? (
+          <div className={`grid gap-4 ${isScriptMode ? "" : "md:grid-cols-2"}`}>
+            {!isScriptMode && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Agent *</Label>
+                <InlineEntitySelector
+                  value={selection.assigneeAgentId}
+                  options={assigneeOptions}
+                  recentOptionIds={recentAssigneeIds}
+                  placeholder="Agent"
+                  noneLabel="Select an agent"
+                  searchPlaceholder="Search agents..."
+                  emptyMessage="No agents found."
+                  disablePortal
+                  openOnFocus={false}
+                  onChange={(assigneeAgentId) => {
+                    if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+                    setSelection((current) => ({ ...current, assigneeAgentId }));
+                  }}
+                  renderTriggerValue={(option) =>
+                    option ? (
+                      currentAssignee ? (
+                        <>
+                          <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="truncate">{option.label}</span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">Select an agent</span>
+                    )
+                  }
+                  renderOption={(option) => {
+                    if (!option.id) return <span className="truncate">{option.label}</span>;
+                    const assignee = agents.find((agent) => agent.id === option.id);
+                    return (
                       <>
-                        <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
                         <span className="truncate">{option.label}</span>
                       </>
-                    ) : (
-                      <span className="truncate">{option.label}</span>
-                    )
-                  ) : (
-                    <span className="text-muted-foreground">Select an agent</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const assignee = agents.find((agent) => agent.id === option.id);
-                  return (
-                    <>
-                      {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
-            </div>
+                    );
+                  }}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label className="text-xs">Project</Label>
               <InlineEntitySelector
@@ -460,7 +466,7 @@ export function RoutineRunVariablesDialog({
         </div>
 
         <DialogFooter showCloseButton={false}>
-          {!selection.assigneeAgentId ? (
+          {!isScriptMode && !selection.assigneeAgentId ? (
             <p className="mr-auto text-xs text-amber-600">Default agent required for this run.</p>
           ) : missingRequired.length > 0 ? (
             <p className="mr-auto text-xs text-amber-600">
@@ -496,7 +502,7 @@ export function RoutineRunVariablesDialog({
               }
               onSubmit({
                 variables: nextVariables,
-                assigneeAgentId: selection.assigneeAgentId,
+                assigneeAgentId: isScriptMode ? null : selection.assigneeAgentId,
                 projectId: selection.projectId || null,
                 ...(workspaceSelectionEnabled
                   ? {

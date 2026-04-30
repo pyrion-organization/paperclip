@@ -32,6 +32,7 @@ import {
   feedbackService,
   heartbeatService,
   instanceSettingsService,
+  issueSchedulerService,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
 } from "./services/index.js";
@@ -658,6 +659,7 @@ export async function startServer(): Promise<StartedServer> {
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any);
     const routines = routineService(db as any);
+    const issueScheduler = issueSchedulerService(db as any, heartbeat);
   
     // Reap orphaned running runs at startup while in-memory execution state is empty,
     // then resume any persisted queued runs that were waiting on the previous process.
@@ -710,7 +712,40 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "routine scheduler tick failed");
         });
-  
+
+      void routines
+        .tickRandomIntervalTriggers(new Date())
+        .then((result) => {
+          if (result.triggered > 0) {
+            logger.info({ ...result }, "random interval trigger tick enqueued runs");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "random interval trigger tick failed");
+        });
+
+      void routines
+        .tickRandomCronSchedulerTriggers(new Date())
+        .then((result) => {
+          if (result.triggered > 0) {
+            logger.info({ ...result }, "random cron scheduler trigger tick enqueued runs");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "random cron scheduler trigger tick failed");
+        });
+
+      void issueScheduler
+        .tickScheduledIssues(new Date())
+        .then((result) => {
+          if (result.promoted > 0) {
+            logger.info({ ...result }, "scheduled issue tick promoted issues to todo");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "scheduled issue tick failed");
+        });
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat
