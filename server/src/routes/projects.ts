@@ -139,6 +139,20 @@ export function projectRoutes(db: Db) {
         res.status(422).json({ error: "Invalid project workspace payload" });
         return;
       }
+      const managedPath = resolveManagedProjectWorkspaceDir({
+        companyId,
+        projectId: project.id,
+        workspaceId: createdWorkspace.id,
+      });
+      const relocatedWorkspace = await svc.updateWorkspace(project.id, createdWorkspace.id, {
+        cwd: managedPath,
+        name: createdWorkspace.name,
+      });
+      if (!relocatedWorkspace) {
+        await svc.remove(project.id);
+        res.status(422).json({ error: "Failed to initialize project workspace" });
+        return;
+      }
       createdWorkspaceId = createdWorkspace.id;
     } else {
       // Auto-create a default workspace pointing to the managed folder so every
@@ -149,7 +163,23 @@ export function projectRoutes(db: Db) {
         cwd: managedPath,
         sourceType: "local_path",
       });
-      if (autoWorkspace) createdWorkspaceId = autoWorkspace.id;
+      if (autoWorkspace) {
+        const finalPath = resolveManagedProjectWorkspaceDir({
+          companyId,
+          projectId: project.id,
+          workspaceId: autoWorkspace.id,
+        });
+        const relocatedWorkspace = await svc.updateWorkspace(project.id, autoWorkspace.id, {
+          cwd: finalPath,
+          name: autoWorkspace.name,
+        });
+        if (!relocatedWorkspace) {
+          await svc.remove(project.id);
+          res.status(422).json({ error: "Failed to initialize project workspace" });
+          return;
+        }
+        createdWorkspaceId = autoWorkspace.id;
+      }
     }
     const hydratedProject = await svc.getById(project.id);
 

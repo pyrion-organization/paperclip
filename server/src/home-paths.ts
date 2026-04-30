@@ -74,20 +74,27 @@ function sanitizeFriendlyPathSegment(value: string | null | undefined, fallback 
 export function resolveManagedProjectWorkspaceDir(input: {
   companyId: string;
   projectId: string;
+  workspaceId?: string | null;
   repoName?: string | null;
 }): string {
   const companyId = input.companyId.trim();
   const projectId = input.projectId.trim();
+  const workspaceId = input.workspaceId?.trim() ?? "";
   if (!companyId || !projectId) {
     throw new Error("Managed project workspace path requires companyId and projectId.");
   }
-  return path.resolve(
+  const segments = [
     resolvePaperclipInstanceRoot(),
     "projects",
     sanitizeFriendlyPathSegment(companyId, "company"),
     sanitizeFriendlyPathSegment(projectId, "project"),
-    sanitizeFriendlyPathSegment(input.repoName, "_default"),
-  );
+  ];
+  if (workspaceId) {
+    segments.push(sanitizeFriendlyPathSegment(workspaceId, "workspace"), "_default");
+  } else {
+    segments.push(sanitizeFriendlyPathSegment(input.repoName, "_default"));
+  }
+  return path.resolve(...segments);
 }
 
 export function resolveHomeAwarePath(value: string): string {
