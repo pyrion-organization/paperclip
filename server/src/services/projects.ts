@@ -190,6 +190,7 @@ function deriveProjectCodebase(input: {
   const managedFolder = resolveManagedProjectWorkspaceDir({
     companyId: input.companyId,
     projectId: input.projectId,
+    workspaceId: primaryWorkspace?.id ?? null,
     repoName,
   });
 

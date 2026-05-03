@@ -535,11 +535,13 @@ function deriveRepoNameFromRepoUrl(repoUrl: string | null): string | null {
 async function ensureManagedProjectWorkspace(input: {
   companyId: string;
   projectId: string;
+  workspaceId?: string | null;
   repoUrl: string | null;
 }): Promise<{ cwd: string; warning: string | null }> {
   const cwd = resolveManagedProjectWorkspaceDir({
     companyId: input.companyId,
     projectId: input.projectId,
+    workspaceId: input.workspaceId ?? null,
     repoName: deriveRepoNameFromRepoUrl(input.repoUrl),
   });
   await fs.mkdir(path.dirname(cwd), { recursive: true });
@@ -2368,6 +2370,7 @@ export function heartbeatService(db: Db) {
             const managedWorkspace = await ensureManagedProjectWorkspace({
               companyId: agent.companyId,
               projectId: workspaceProjectId ?? resolvedProjectId ?? workspace.projectId,
+              workspaceId: workspace.id,
               repoUrl: readNonEmptyString(workspace.repoUrl),
             });
             projectCwd = managedWorkspace.cwd;
