@@ -912,8 +912,8 @@ export function NewIssueDialog() {
     createIssue.mutate({
       companyId: effectiveCompanyId,
       stagedFiles,
-      title: title.trim(),
-      description: description.trim() || undefined,
+      title: titleRef.current.trim(),
+      description: descriptionRef.current.trim() || undefined,
       status: isScheduledInFuture ? "backlog" : status,
       priority: priority || "medium",
       ...(scheduledAt ? { scheduledAt: scheduledAt.toISOString() } : {}),
