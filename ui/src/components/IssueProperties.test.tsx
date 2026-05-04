@@ -83,7 +83,9 @@ vi.mock("../lib/assignees", () => ({
 }));
 
 vi.mock("./StatusIcon", () => ({
-  StatusIcon: ({ status }: { status: string }) => <span>{status}</span>,
+  StatusIcon: ({ status, blockerAttention }: { status: string; blockerAttention?: Issue["blockerAttention"] }) => (
+    <span data-status-icon-state={blockerAttention?.state}>{status}</span>
+  ),
 }));
 
 vi.mock("./PriorityIcon", () => ({
@@ -320,6 +322,7 @@ function createExecutionState(overrides: Partial<IssueExecutionState> = {}): Iss
     currentStageType: "review",
     currentParticipant: { type: "agent", agentId: "agent-1", userId: null },
     returnAssignee: { type: "agent", agentId: "agent-2", userId: null },
+    reviewRequest: null,
     completedStageIds: [],
     lastDecisionId: null,
     lastDecisionOutcome: "changes_requested",
@@ -389,6 +392,31 @@ describe("IssueProperties", () => {
     });
 
     expect(onAddSubIssue).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it("passes blocker attention to the sidebar status icon", async () => {
+    const root = renderProperties(container, {
+      issue: createIssue({
+        status: "blocked",
+        blockerAttention: {
+          state: "covered",
+          reason: "active_child",
+          unresolvedBlockerCount: 1,
+          coveredBlockerCount: 1,
+          stalledBlockerCount: 0,
+          attentionBlockerCount: 0,
+          sampleBlockerIdentifier: "PAP-2",
+          sampleStalledBlockerIdentifier: null,
+        },
+      }),
+      childIssues: [],
+      onUpdate: vi.fn(),
+    });
+    await flush();
+
+    expect(container.querySelector('[data-status-icon-state="covered"]')?.textContent).toBe("blocked");
 
     act(() => root.unmount());
   });
@@ -940,6 +968,86 @@ describe("IssueProperties", () => {
 
     expect(container.textContent).not.toContain("Run review now");
     expect(container.textContent).not.toContain("Run approval now");
+
+    act(() => root.unmount());
+  });
+
+  it("renders monitor controls and clears an existing monitor", async () => {
+    const onUpdate = vi.fn();
+    const root = renderProperties(container, {
+      issue: createIssue({
+        status: "in_progress",
+        assigneeAgentId: "agent-1",
+        executionPolicy: createExecutionPolicy({
+          monitor: {
+            nextCheckAt: "2026-04-11T12:30:00.000Z",
+            notes: "Check deployment",
+            scheduledBy: "board",
+          },
+        }),
+        executionState: createExecutionState({
+          status: "idle",
+          currentStageId: null,
+          currentStageIndex: null,
+          currentStageType: null,
+          currentParticipant: null,
+          returnAssignee: null,
+          lastDecisionOutcome: null,
+          monitor: {
+            status: "scheduled",
+            nextCheckAt: "2026-04-11T12:30:00.000Z",
+            lastTriggeredAt: null,
+            attemptCount: 0,
+            notes: "Check deployment",
+            scheduledBy: "board",
+            clearedAt: null,
+            clearReason: null,
+          },
+        }),
+      }),
+      childIssues: [],
+      onUpdate,
+      inline: true,
+    });
+    await flush();
+
+    expect(container.textContent).toContain("Monitor");
+    expect(container.textContent).toContain("Next check");
+    expect(container.querySelector('input[type="datetime-local"]')).toBeNull();
+    expect(container.querySelector('input[placeholder="What should the agent re-check?"]')).toBeNull();
+
+    const monitorTrigger = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Next check"));
+    expect(monitorTrigger).not.toBeUndefined();
+
+    await act(async () => {
+      monitorTrigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    const inputs = Array.from(container.querySelectorAll("input"));
+    const datetimeInput = inputs.find((input) => input.getAttribute("type") === "datetime-local");
+    const textInput = inputs.find((input) => input.getAttribute("placeholder") === "What should the agent re-check?");
+    const clearButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Clear"));
+
+    expect(datetimeInput).toBeTruthy();
+    expect(textInput).toBeTruthy();
+    expect(clearButton).toBeTruthy();
+    expect(datetimeInput!.value).toBeTruthy();
+    expect(textInput!.value).toBe("Check deployment");
+
+    act(() => {
+      clearButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onUpdate).toHaveBeenCalledWith({
+      executionPolicy: {
+        mode: "normal",
+        commentRequired: true,
+        stages: [],
+      },
+    });
 
     act(() => root.unmount());
   });

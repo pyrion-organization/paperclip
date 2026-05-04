@@ -14,10 +14,16 @@ import { accessService, logActivity, projectService, routineService } from "../s
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden, unauthorized } from "../errors.js";
 import { getTelemetryClient } from "../telemetry.js";
+import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 
-export function routineRoutes(db: Db) {
+export function routineRoutes(
+  db: Db,
+  options: { pluginWorkerManager?: PluginWorkerManager } = {},
+) {
   const router = Router();
-  const svc = routineService(db);
+  const svc = routineService(db, {
+    pluginWorkerManager: options.pluginWorkerManager,
+  });
   const access = accessService(db);
   const projects = projectService(db);
 
@@ -55,7 +61,8 @@ export function routineRoutes(db: Db) {
   router.get("/companies/:companyId/routines", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    const result = await svc.list(companyId);
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    const result = await svc.list(companyId, { projectId });
     res.json(result);
   });
 
@@ -336,7 +343,10 @@ export function routineRoutes(db: Db) {
       return;
     }
     await assertBoardCanAssignTasks(req, routine.companyId);
-    const run = await svc.runRoutine(routine.id, req.body);
+    const run = await svc.runRoutine(routine.id, req.body, {
+      agentId: req.actor.type === "agent" ? req.actor.agentId : null,
+      userId: req.actor.type === "board" ? req.actor.userId ?? null : null,
+    });
     const actor = getActorInfo(req);
     await logActivity(db, {
       companyId: routine.companyId,

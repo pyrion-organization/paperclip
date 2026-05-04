@@ -1,5 +1,17 @@
 export type { Company } from "./company.js";
 export type {
+  Environment,
+  EnvironmentLease,
+  EnvironmentProbeResult,
+  FakeSandboxEnvironmentConfig,
+  LocalEnvironmentConfig,
+  PluginSandboxEnvironmentConfig,
+  PluginEnvironmentConfig,
+  SandboxEnvironmentConfig,
+  SandboxEnvironmentProvider,
+  SshEnvironmentConfig,
+} from "./environment.js";
+export type {
   FeedbackVote,
   FeedbackDataSharingPreference,
   FeedbackTargetType,
@@ -11,8 +23,23 @@ export type {
   FeedbackTraceBundleFile,
   FeedbackTraceBundle,
 } from "./feedback.js";
-export type { InstanceExperimentalSettings, InstanceGeneralSettings, InstanceSettings, BackupRetentionPolicy } from "./instance.js";
-export { DAILY_RETENTION_PRESETS, WEEKLY_RETENTION_PRESETS, MONTHLY_RETENTION_PRESETS, DEFAULT_BACKUP_RETENTION } from "./instance.js";
+export type {
+  InstanceExperimentalSettings,
+  InstanceGeneralSettings,
+  InstanceSettings,
+  BackupRetentionPolicy,
+  IssueGraphLivenessAutoRecoveryPreview,
+  IssueGraphLivenessAutoRecoveryPreviewItem,
+} from "./instance.js";
+export {
+  DAILY_RETENTION_PRESETS,
+  WEEKLY_RETENTION_PRESETS,
+  MONTHLY_RETENTION_PRESETS,
+  DEFAULT_BACKUP_RETENTION,
+  DEFAULT_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+  MIN_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+  MAX_ISSUE_GRAPH_LIVENESS_AUTO_RECOVERY_LOOKBACK_HOURS,
+} from "./instance.js";
 export type {
   CompanySkillSourceType,
   CompanySkillTrustLevel,
@@ -47,7 +74,9 @@ export type {
   AgentAccessState,
   AgentChainOfCommandEntry,
   AgentDetail,
+  AgentModelProfileConfig,
   AgentPermissions,
+  AgentRuntimeConfig,
   AgentInstructionsBundleMode,
   AgentInstructionsFileSummary,
   AgentInstructionsFileDetail,
@@ -103,6 +132,10 @@ export type {
   WorkspaceRuntimeService,
   WorkspaceRuntimeServiceStateMap,
   WorkspaceRuntimeDesiredState,
+  WorkspaceRealizationRecord,
+  WorkspaceRealizationRequest,
+  WorkspaceRealizationSyncStrategy,
+  WorkspaceRealizationTransport,
   ExecutionWorkspaceStrategyType,
   ExecutionWorkspaceMode,
   ExecutionWorkspaceProviderType,
@@ -127,18 +160,48 @@ export type {
 export type {
   Issue,
   IssueAssigneeAdapterOverrides,
+  IssueBlockerAttention,
+  IssueBlockerAttentionReason,
+  IssueBlockerAttentionState,
+  IssueProductivityReview,
+  IssueProductivityReviewTrigger,
   IssueReferenceSource,
   IssueRelatedWorkItem,
   IssueRelatedWorkSummary,
   IssueRelation,
   IssueRelationIssueSummary,
+  IssueExecutionMonitorPolicy,
+  IssueExecutionMonitorState,
   IssueExecutionPolicy,
   IssueExecutionState,
   IssueExecutionStage,
   IssueExecutionStageParticipant,
   IssueExecutionStagePrincipal,
+  IssueReviewRequest,
   IssueExecutionDecision,
   IssueComment,
+  IssueThreadInteractionActorFields,
+  SuggestedTaskDraft,
+  SuggestTasksPayload,
+  SuggestTasksResultCreatedTask,
+  SuggestTasksResult,
+  AskUserQuestionsQuestionOption,
+  AskUserQuestionsQuestion,
+  AskUserQuestionsPayload,
+  AskUserQuestionsAnswer,
+  AskUserQuestionsResult,
+  RequestConfirmationIssueDocumentTarget,
+  RequestConfirmationCustomTarget,
+  RequestConfirmationTarget,
+  RequestConfirmationPayload,
+  RequestConfirmationResult,
+  IssueThreadInteractionBase,
+  SuggestTasksInteraction,
+  AskUserQuestionsInteraction,
+  RequestConfirmationInteraction,
+  IssueThreadInteraction,
+  IssueThreadInteractionPayload,
+  IssueThreadInteractionResult,
   IssueDocument,
   IssueDocumentSummary,
   DocumentRevision,
@@ -161,6 +224,17 @@ export type {
   CompanyInstructionsFileDetail,
   CompanyInstructionsBundle,
 } from "./company-instructions.js";
+export type {
+  IssueTreeControlPreview,
+  IssueTreeHold,
+  IssueTreeHoldMember,
+  IssueTreeHoldReleasePolicy,
+  IssueTreePreviewAgent,
+  IssueTreePreviewIssue,
+  IssueTreePreviewRun,
+  IssueTreePreviewTotals,
+  IssueTreePreviewWarning,
+} from "./issue-tree-control.js";
 export type { Goal } from "./goal.js";
 export type { Approval, ApprovalComment } from "./approval.js";
 export type {
@@ -193,7 +267,7 @@ export type {
   RoutineExecutionIssueOrigin,
   RoutineListItem,
 } from "./routine.js";
-export type { CostEvent, CostSummary, CostByAgent, CostByProviderModel, CostByBiller, CostByAgentModel, CostWindowSpendRow, CostByProject } from "./cost.js";
+export type { CostEvent, CostSummary, IssueCostSummary, CostByAgent, CostByProviderModel, CostByBiller, CostByAgentModel, CostWindowSpendRow, CostByProject } from "./cost.js";
 export type { FinanceEvent, FinanceSummary, FinanceByBiller, FinanceByKind } from "./finance.js";
 export type {
   AgentWakeupResponse,
@@ -276,6 +350,7 @@ export type {
   PluginJobDeclaration,
   PluginWebhookDeclaration,
   PluginToolDeclaration,
+  PluginEnvironmentDriverDeclaration,
   PluginUiSlotDeclaration,
   PluginLauncherActionDeclaration,
   PluginLauncherRenderDeclaration,
