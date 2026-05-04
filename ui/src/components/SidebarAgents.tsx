@@ -43,6 +43,7 @@ function SidebarAgentItem({
   activeTab,
   agent,
   disabled,
+  isCollapsed,
   isMobile,
   onPauseResume,
   runCount,
@@ -52,6 +53,7 @@ function SidebarAgentItem({
   activeTab: string | null;
   agent: Agent;
   disabled: boolean;
+  isCollapsed: boolean;
   isMobile: boolean;
   onPauseResume: (agent: Agent, action: "pause" | "resume") => void;
   runCount: number;
@@ -70,6 +72,24 @@ function SidebarAgentItem({
     : isBudgetPaused
       ? "Budget paused"
       : pauseResumeLabel;
+
+  if (isCollapsed) {
+    return (
+      <NavLink
+        to={href}
+        state={SIDEBAR_SCROLL_RESET_STATE}
+        title={agent.name}
+        className={cn(
+          "flex items-center justify-center mx-2 px-1 py-1.5 rounded text-[13px] font-medium transition-colors",
+          isActive
+            ? "bg-accent text-foreground"
+            : "text-foreground/80 hover:bg-accent/50 hover:text-foreground"
+        )}
+      >
+        <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 text-muted-foreground" />
+      </NavLink>
+    );
+  }
 
   return (
     <div className="group/agent relative flex items-center">
@@ -267,16 +287,18 @@ export function SidebarAgents() {
               </span>
             </NavLink>
           )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              openNewAgent();
-            }}
-            className="flex items-center justify-center h-4 w-4 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 transition-colors"
-            aria-label="New agent"
-          >
-            <Plus className="h-3 w-3" />
-          </button>
+          {!isCollapsed && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openNewAgent();
+              }}
+              className="flex items-center justify-center h-4 w-4 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 transition-colors"
+              aria-label="New agent"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -290,6 +312,7 @@ export function SidebarAgents() {
                 activeTab={activeTab}
                 agent={agent}
                 disabled={pendingAgentIds.has(agent.id)}
+                isCollapsed={isCollapsed}
                 isMobile={isMobile}
                 onPauseResume={(targetAgent, action) => pauseResumeAgent.mutate({ agent: targetAgent, action })}
                 runCount={runCount}

@@ -14,7 +14,6 @@ import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { IssuesList } from "../components/IssuesList";
 import { CircleDot } from "lucide-react";
-import type { Issue } from "@paperclipai/shared";
 
 const WORKSPACE_FILTER_ISSUE_LIMIT = 1000;
 const ISSUES_PAGE_SIZE = 500;
@@ -153,6 +152,8 @@ export function Issues() {
     enabled: !!selectedCompanyId,
     placeholderData: (previousData) => previousData,
   });
+
+  const issues = useMemo(() => mergeIssuePagesStable(issuePages?.pages ?? []), [issuePages]);
 
   const hideCancelledIssues = useMutation({
     mutationFn: async () => {

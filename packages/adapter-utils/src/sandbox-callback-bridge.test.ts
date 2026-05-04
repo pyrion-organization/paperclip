@@ -63,6 +63,7 @@ describe("sandbox callback bridge", () => {
             stdout: result.stdout,
             stderr: result.stderr,
             pid: null,
+            processGroupId: null,
             startedAt,
           };
         } catch (error) {
@@ -80,6 +81,7 @@ describe("sandbox callback bridge", () => {
             stdout: err.stdout ?? "",
             stderr: err.stderr ?? "",
             pid: null,
+            processGroupId: null,
             startedAt,
           };
         }

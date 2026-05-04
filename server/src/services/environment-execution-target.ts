@@ -95,6 +95,7 @@ export async function resolveEnvironmentExecutionTarget(input: {
                 stdout: result.stdout,
                 stderr: result.stderr,
                 pid: null,
+                processGroupId: null,
                 startedAt,
               };
             },

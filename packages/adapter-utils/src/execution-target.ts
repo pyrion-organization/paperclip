@@ -312,6 +312,7 @@ export async function runAdapterExecutionTargetShellCommand(
           stdout: result.stdout,
           stderr: result.stderr,
           pid: null,
+          processGroupId: null,
           startedAt,
         };
       } catch (error) {
@@ -332,6 +333,7 @@ export async function runAdapterExecutionTargetShellCommand(
             stdout,
             stderr,
             pid: null,
+            processGroupId: null,
             startedAt,
           };
         }
@@ -347,6 +349,7 @@ export async function runAdapterExecutionTargetShellCommand(
           stdout,
           stderr,
           pid: null,
+          processGroupId: null,
           startedAt,
         };
       }

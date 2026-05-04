@@ -81,6 +81,7 @@ describe("command managed runtime", () => {
             stdout: result.stdout,
             stderr: result.stderr,
             pid: null,
+            processGroupId: null,
             startedAt,
           };
         } catch (error) {
@@ -98,6 +99,7 @@ describe("command managed runtime", () => {
             stdout: err.stdout ?? "",
             stderr: err.stderr ?? "",
             pid: null,
+            processGroupId: null,
             startedAt,
           };
         }

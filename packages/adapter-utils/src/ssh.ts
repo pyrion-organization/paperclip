@@ -73,6 +73,7 @@ export function createSshCommandManagedRuntimeRunner(input: {
           stdout: result.stdout,
           stderr: result.stderr,
           pid: null,
+          processGroupId: null,
           startedAt,
         };
       } catch (error) {
@@ -98,6 +99,7 @@ export function createSshCommandManagedRuntimeRunner(input: {
           stdout,
           stderr,
           pid: null,
+          processGroupId: null,
           startedAt,
         };
       }
