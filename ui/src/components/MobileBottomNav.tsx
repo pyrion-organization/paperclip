@@ -1,14 +1,13 @@
 import { useMemo } from "react";
-import { NavLink, useLocation } from "@/lib/router";
+import { NavLink } from "@/lib/router";
 import {
   House,
   CircleDot,
-  SquarePen,
+  Gauge,
   Users,
   Inbox,
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
-import { useDialog } from "../context/DialogContext";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
 import { useInboxBadge } from "../hooks/useInboxBadge";
@@ -25,26 +24,15 @@ interface MobileNavLinkItem {
   badge?: number;
 }
 
-interface MobileNavActionItem {
-  type: "action";
-  label: string;
-  icon: typeof SquarePen;
-  onClick: () => void;
-}
-
-type MobileNavItem = MobileNavLinkItem | MobileNavActionItem;
-
 export function MobileBottomNav({ visible }: MobileBottomNavProps) {
-  const location = useLocation();
   const { selectedCompanyId } = useCompany();
-  const { openNewIssue } = useDialog();
   const inboxBadge = useInboxBadge(selectedCompanyId);
 
-  const items = useMemo<MobileNavItem[]>(
+  const items = useMemo<MobileNavLinkItem[]>(
     () => [
       { type: "link", to: "/dashboard", label: "Home", icon: House },
       { type: "link", to: "/issues", label: "Issues", icon: CircleDot },
-      { type: "action", label: "Create", icon: SquarePen, onClick: () => openNewIssue() },
+      { type: "link", to: "/usage", label: "Usage", icon: Gauge },
       { type: "link", to: "/agents/all", label: "Agents", icon: Users },
       {
         type: "link",
@@ -54,7 +42,7 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
         badge: inboxBadge.inbox,
       },
     ],
-    [openNewIssue, inboxBadge.inbox],
+    [inboxBadge.inbox],
   );
 
   return (
@@ -67,27 +55,6 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
     >
       <div className="grid h-16 grid-cols-5 px-1">
         {items.map((item) => {
-          if (item.type === "action") {
-            const Icon = item.icon;
-            const active = /\/issues\/new(?:\/|$)/.test(location.pathname);
-            return (
-              <button
-                key={item.label}
-                type="button"
-                onClick={item.onClick}
-                className={cn(
-                  "relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-md text-[10px] font-medium transition-colors",
-                  active
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Icon className="h-[18px] w-[18px]" />
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          }
-
           const Icon = item.icon;
           return (
             <NavLink
