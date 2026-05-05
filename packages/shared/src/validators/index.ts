@@ -148,6 +148,7 @@ export {
   projectFileDeleteSchema,
   projectFileBranchSwitchSchema,
   projectFileBranchCreateSchema,
+  projectFileBranchPushSchema,
   type CreateProject,
   type UpdateProject,
   type CreateProjectWorkspace,
@@ -161,6 +162,7 @@ export {
   type ProjectFileDeleteInput,
   type ProjectFileBranchSwitchInput,
   type ProjectFileBranchCreateInput,
+  type ProjectFileBranchPushInput,
 } from "./project.js";
 
 export {

@@ -175,3 +175,9 @@ export const projectFileBranchCreateSchema = z.object({
 });
 
 export type ProjectFileBranchCreateInput = z.infer<typeof projectFileBranchCreateSchema>;
+
+export const projectFileBranchPushSchema = z.object({
+  name: z.string().min(1),
+});
+
+export type ProjectFileBranchPushInput = z.infer<typeof projectFileBranchPushSchema>;

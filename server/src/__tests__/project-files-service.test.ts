@@ -44,6 +44,37 @@ async function createGitRepoWithOrigin() {
   return { localRepo, originRepo, tempDirs };
 }
 
+async function insertProjectWithWorkspace(db: ReturnType<typeof createDb>, input: {
+  companyId: string;
+  projectId: string;
+  workspaceId: string;
+  cwd: string;
+}) {
+  await db.insert(companies).values({
+    id: input.companyId,
+    name: "TestCo",
+    issuePrefix: `T${input.companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+    requireBoardApprovalForNewAgents: false,
+  });
+
+  await db.insert(projects).values({
+    id: input.projectId,
+    companyId: input.companyId,
+    name: "Branch Test",
+    status: "planned",
+  });
+
+  await db.insert(projectWorkspaces).values({
+    id: input.workspaceId,
+    companyId: input.companyId,
+    projectId: input.projectId,
+    name: "Primary",
+    sourceType: "local_path",
+    cwd: input.cwd,
+    isPrimary: true,
+  });
+}
+
 describeEmbeddedPostgres("projectFilesService", () => {
   let db!: ReturnType<typeof createDb>;
   let svc!: ReturnType<typeof projectFilesService>;
@@ -79,29 +110,7 @@ describeEmbeddedPostgres("projectFilesService", () => {
     const { localRepo, originRepo, tempDirs: repoDirs } = await createGitRepoWithOrigin();
     for (const dir of repoDirs) tempDirs.add(dir);
 
-    await db.insert(companies).values({
-      id: companyId,
-      name: "TestCo",
-      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
-      requireBoardApprovalForNewAgents: false,
-    });
-
-    await db.insert(projects).values({
-      id: projectId,
-      companyId,
-      name: "Branch Test",
-      status: "planned",
-    });
-
-    await db.insert(projectWorkspaces).values({
-      id: workspaceId,
-      companyId,
-      projectId,
-      name: "Primary",
-      sourceType: "local_path",
-      cwd: localRepo,
-      isPrimary: true,
-    });
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localRepo });
 
     const summary = await svc.createBranch(projectId, branchName);
 
@@ -112,6 +121,33 @@ describeEmbeddedPostgres("projectFilesService", () => {
     const localBranch = (await runGit(localRepo, ["rev-parse", "--verify", branchName])).stdout.trim();
     expect(localBranch).toMatch(/^[0-9a-f]{40}$/);
 
+    const remoteBranch = (await execFileAsync(
+      "git",
+      ["--git-dir", originRepo, "rev-parse", "--verify", `refs/heads/${branchName}`],
+      { cwd: originRepo },
+    )).stdout.trim();
+    expect(remoteBranch).toBe(localBranch);
+  });
+
+  it("pushes an existing local branch to origin without switching branches", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const branchName = "feature/context-menu-push";
+    const { localRepo, originRepo, tempDirs: repoDirs } = await createGitRepoWithOrigin();
+    for (const dir of repoDirs) tempDirs.add(dir);
+
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localRepo });
+    const currentBranch = (await runGit(localRepo, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+    await runGit(localRepo, ["branch", branchName]);
+
+    const result = await svc.pushBranch(projectId, branchName);
+
+    expect(result.status).toBe("success");
+    expect((await runGit(localRepo, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim()).toBe(currentBranch);
+    expect((await runGit(localRepo, ["rev-parse", "--abbrev-ref", `${branchName}@{upstream}`])).stdout.trim()).toBe(`origin/${branchName}`);
+
+    const localBranch = (await runGit(localRepo, ["rev-parse", "--verify", branchName])).stdout.trim();
     const remoteBranch = (await execFileAsync(
       "git",
       ["--git-dir", originRepo, "rev-parse", "--verify", `refs/heads/${branchName}`],

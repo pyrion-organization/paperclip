@@ -794,6 +794,27 @@ export function projectFilesService(db: Db) {
       return buildSummary(project);
     },
 
+    async pushBranch(projectId: string, name: string): Promise<GitPushResult> {
+      const project = await ensureProject(projectId, db);
+      const summary = await buildSummary(project);
+      if (!summary.available || !summary.repoRoot) throw badRequest("Project is not a git checkout");
+      const trimmedName = name.trim();
+      if (!trimmedName) throw badRequest("Branch name is required");
+      if (trimmedName === "origin") throw badRequest("Cannot push branch named 'origin'");
+      try {
+        await runGit(["rev-parse", "--verify", `refs/heads/${trimmedName}`], summary.repoRoot);
+        await runGit(
+          ["push", "-u", "origin", `refs/heads/${trimmedName}:refs/heads/${trimmedName}`],
+          summary.repoRoot,
+        );
+        return { status: "success", message: null };
+      } catch (error) {
+        const msg = sanitizeGitError(error, `Failed to push branch ${trimmedName}`);
+        const isAuthError = /auth|permission denied|could not read from remote repository|authentication/i.test(msg);
+        return { status: isAuthError ? "auth_error" : "error", message: msg };
+      }
+    },
+
     async getGitStatus(projectId: string): Promise<GitStatusResponse> {
       const project = await ensureProject(projectId, db);
       const summary = await buildSummary(project);

@@ -3,6 +3,7 @@ import type { Db } from "@paperclipai/db";
 import {
   createProjectSchema,
   projectFileBranchCreateSchema,
+  projectFileBranchPushSchema,
   projectFileBranchSwitchSchema,
   projectFileCreateSchema,
   projectFileDeleteSchema,
@@ -987,6 +988,30 @@ export function projectRoutes(db: Db) {
         branchesWithDeletedUpstream: result.details.filter((d) => d.action === "remote_deleted_local_remains").length,
         errors: result.details.filter((d) => d.action === "error").length,
       },
+    });
+    res.json(result);
+  });
+
+  router.post("/projects/:id/files/branch/push", validate(projectFileBranchPushSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertBoard(req);
+    assertCompanyAccess(req, project.companyId);
+    const result = await filesSvc.pushBranch(id, req.body.name);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.branch_pushed",
+      entityType: "project",
+      entityId: id,
+      details: { name: req.body.name, status: result.status },
     });
     res.json(result);
   });

@@ -479,6 +479,24 @@ export function ProjectFilesTab({
     },
   });
 
+  const pushBranch = useMutation({
+    mutationFn: (name: string) => projectsApi.pushBranch(projectId, name, companyId),
+    onSuccess: async (result) => {
+      if (result.status === "success") {
+        pushToast({ title: "Branch pushed to origin", tone: "success" });
+        await refetch();
+        return;
+      }
+      pushToast({ title: result.message ?? "Branch push failed", tone: "error" });
+    },
+    onError: (mutationError) => {
+      pushToast({
+        title: mutationError instanceof Error ? mutationError.message : "Branch push failed",
+        tone: "error",
+      });
+    },
+  });
+
   const publishToRemote = useMutation({
     mutationFn: () => projectsApi.publishToRemote(projectId, publishUrl, companyId),
     onSuccess: async (result) => {
@@ -1223,6 +1241,14 @@ export function ProjectFilesTab({
                         </CommandItem>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
+                        {summary.hasRemote ? (
+                          <ContextMenuItem
+                            onSelect={() => pushBranch.mutate(branch.name)}
+                            disabled={pushBranch.isPending}
+                          >
+                            Push to origin
+                          </ContextMenuItem>
+                        ) : null}
                         <ContextMenuItem
                           className="text-destructive focus:text-destructive"
                           onSelect={() => { setDeleteBranchTarget(branch.name); setDeleteBranchConfirmed(false); }}
