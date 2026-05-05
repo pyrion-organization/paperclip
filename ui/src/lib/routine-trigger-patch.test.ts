@@ -54,6 +54,7 @@ describe("buildRoutineTriggerPatch", () => {
         replayWindowSec: "300",
         minIntervalSec: "3600",
         maxIntervalSec: "86400",
+        timezone: "UTC",
       },
       "America/Chicago",
     );
@@ -63,6 +64,30 @@ describe("buildRoutineTriggerPatch", () => {
       conditions: null,
       cronExpression: "0 10 * * *",
       timezone: "UTC",
+    });
+  });
+
+  it("allows schedule trigger timezone edits", () => {
+    const patch = buildRoutineTriggerPatch(
+      makeScheduleTrigger({ timezone: "UTC" }),
+      {
+        label: "Weekly",
+        conditions: [],
+        cronExpression: "0 9 * * 1",
+        signingMode: "bearer",
+        replayWindowSec: "300",
+        minIntervalSec: "3600",
+        maxIntervalSec: "86400",
+        timezone: "America/Sao_Paulo",
+      },
+      "America/Chicago",
+    );
+
+    expect(patch).toEqual({
+      label: "Weekly",
+      conditions: null,
+      cronExpression: "0 9 * * 1",
+      timezone: "America/Sao_Paulo",
     });
   });
 

@@ -378,6 +378,15 @@ function getLocalTimezone(): string {
   }
 }
 
+function formatTriggerDateTime(value: Date | string, timezone: string | null | undefined) {
+  const date = new Date(value);
+  if (!timezone) return date.toLocaleString();
+  return date.toLocaleString(undefined, {
+    timeZone: timezone,
+    timeZoneName: "short",
+  });
+}
+
 function buildRoutineMutationPayload(input: {
   title: string;
   description: string;
@@ -401,7 +410,7 @@ function buildRoutineMutationPayload(input: {
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
     scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
-    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : [],
     remediationEnabled: input.remediationEnabled,
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
@@ -468,7 +477,7 @@ function TriggerEditor({
         </div>
         <span className="text-xs text-muted-foreground">
           {(trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler") && trigger.nextRunAt
-            ? `Next: ${new Date(trigger.nextRunAt).toLocaleString()}`
+            ? `Next: ${formatTriggerDateTime(trigger.nextRunAt, trigger.timezone)}`
             : trigger.kind === "webhook"
               ? "Webhook"
               : trigger.kind === "random_interval"
@@ -486,13 +495,24 @@ function TriggerEditor({
           />
         </div>
         {trigger.kind === "schedule" && (
-          <div className="md:col-span-2 space-y-1.5">
-            <Label className="text-xs">Schedule</Label>
-            <ScheduleEditor
-              value={draft.cronExpression}
-              onChange={(cronExpression) => setDraft((current) => ({ ...current, cronExpression }))}
-            />
-          </div>
+          <>
+            <div className="md:col-span-2 space-y-1.5">
+              <Label className="text-xs">Schedule</Label>
+              <ScheduleEditor
+                value={draft.cronExpression}
+                onChange={(cronExpression) => setDraft((current) => ({ ...current, cronExpression }))}
+              />
+            </div>
+            <div className="md:col-span-2 space-y-1.5">
+              <Label className="text-xs">Timezone</Label>
+              <Input
+                value={draft.timezone}
+                onChange={(e) => setDraft((c) => ({ ...c, timezone: e.target.value }))}
+                placeholder="e.g. America/Sao_Paulo"
+              />
+              <p className="text-xs text-muted-foreground">IANA timezone used for the schedule's wall-clock time.</p>
+            </div>
+          </>
         )}
         {trigger.kind === "webhook" && (
           <>
@@ -945,7 +965,7 @@ export function RoutineDetail() {
         label: autoLabel,
         conditions: newTrigger.kind !== "api" ? newTrigger.conditions.map(({ id: _id, ...condition }) => condition) : null,
         ...(newTrigger.kind === "schedule"
-          ? { cronExpression: newTrigger.cronExpression.trim(), timezone: getLocalTimezone() }
+          ? { cronExpression: newTrigger.cronExpression.trim(), timezone: newTrigger.timezone || getLocalTimezone() }
           : {}),
         ...(newTrigger.kind === "webhook"
           ? {
@@ -1696,13 +1716,24 @@ export function RoutineDetail() {
                 </Select>
               </div>
               {newTrigger.kind === "schedule" && (
-                <div className="md:col-span-2 space-y-1.5">
-                  <Label className="text-xs">Schedule</Label>
-                  <ScheduleEditor
-                    value={newTrigger.cronExpression}
-                    onChange={(cronExpression) => setNewTrigger((current) => ({ ...current, cronExpression }))}
-                  />
-                </div>
+                <>
+                  <div className="md:col-span-2 space-y-1.5">
+                    <Label className="text-xs">Schedule</Label>
+                    <ScheduleEditor
+                      value={newTrigger.cronExpression}
+                      onChange={(cronExpression) => setNewTrigger((current) => ({ ...current, cronExpression }))}
+                    />
+                  </div>
+                  <div className="md:col-span-2 space-y-1.5">
+                    <Label className="text-xs">Timezone</Label>
+                    <Input
+                      value={newTrigger.timezone}
+                      onChange={(e) => setNewTrigger((c) => ({ ...c, timezone: e.target.value }))}
+                      placeholder="e.g. America/Sao_Paulo"
+                    />
+                    <p className="text-xs text-muted-foreground">Defaults to your browser timezone ({getLocalTimezone()}).</p>
+                  </div>
+                </>
               )}
               {newTrigger.kind === "webhook" && (
                 <>
@@ -1872,7 +1903,7 @@ export function RoutineDetail() {
                         <span className="text-muted-foreground truncate">{trigger.label ?? trigger.kind.replaceAll("_", " ")}</span>
                       </div>
                       <span className="text-xs text-blue-400/80 shrink-0 ml-2">
-                        {new Date(trigger.nextRunAt!).toLocaleString()} · {timeUntil(trigger.nextRunAt!)}
+                        {formatTriggerDateTime(trigger.nextRunAt!, trigger.timezone)} · {timeUntil(trigger.nextRunAt!)}
                       </span>
                     </div>
                   </div>

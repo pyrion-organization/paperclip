@@ -42,7 +42,7 @@ export function buildRoutineTriggerPatch(
 
   if (trigger.kind === "schedule") {
     patch.cronExpression = draft.cronExpression.trim();
-    patch.timezone = trigger.timezone ?? fallbackTimezone;
+    patch.timezone = draft.timezone || trigger.timezone || fallbackTimezone;
   }
 
   if (trigger.kind === "webhook") {
