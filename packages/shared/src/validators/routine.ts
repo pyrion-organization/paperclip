@@ -88,7 +88,7 @@ export const createRoutineSchema = z.object({
   variables: z.array(routineVariableSchema).optional().default([]),
   executionMode: z.enum(ROUTINE_EXECUTION_MODES).optional().default("agent"),
   scriptPath: z.string().trim().max(500).optional().nullable(),
-  scriptCommandArgs: z.array(z.string().trim().max(500)).max(100).optional().default([]),
+  scriptCommandArgs: z.array(z.string().trim().max(500)).max(100).optional().nullable().default([]),
   scriptTimeoutSec: z.number().int().min(1).max(3600).optional().default(60),
   remediationEnabled: z.boolean().optional().default(false),
   remediationAssigneeAgentId: z.string().uuid().optional().nullable(),

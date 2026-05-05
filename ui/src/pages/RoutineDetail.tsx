@@ -1886,6 +1886,7 @@ export function RoutineDetail() {
             <LiveRunWidget issueId={activeIssueId} companyId={routine.companyId} />
           )}
           {(() => {
+            const routineAutomationActive = routine.status === "active";
             const upcomingRuns = (routine.triggers ?? [])
               .filter((t) => t.enabled && t.nextRunAt != null)
               .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime());
@@ -1896,14 +1897,34 @@ export function RoutineDetail() {
             return (
               <div className="border border-border rounded-lg divide-y divide-border">
                 {upcomingRuns.map((trigger) => (
-                  <div key={`upcoming-${trigger.id}`} className="px-3 py-2 text-sm border-l-2 border-l-blue-400/50">
+                  <div
+                    key={`upcoming-${trigger.id}`}
+                    className={`px-3 py-2 text-sm border-l-2 ${
+                      routineAutomationActive ? "border-l-blue-400/50" : "border-l-muted"
+                    }`}
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
-                        <Badge variant="outline" className="shrink-0 border-blue-400/50 text-blue-400 bg-blue-400/5">scheduled</Badge>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 ${
+                            routineAutomationActive
+                              ? "border-blue-400/50 text-blue-400 bg-blue-400/5"
+                              : "border-muted-foreground/30 text-muted-foreground bg-muted/20"
+                          }`}
+                        >
+                          {routineAutomationActive ? "scheduled" : "paused"}
+                        </Badge>
                         <span className="text-muted-foreground truncate">{trigger.label ?? trigger.kind.replaceAll("_", " ")}</span>
                       </div>
-                      <span className="text-xs text-blue-400/80 shrink-0 ml-2">
-                        {formatTriggerDateTime(trigger.nextRunAt!, trigger.timezone)} · {timeUntil(trigger.nextRunAt!)}
+                      <span
+                        className={`text-xs shrink-0 ml-2 ${
+                          routineAutomationActive ? "text-blue-400/80" : "text-muted-foreground"
+                        }`}
+                      >
+                        {routineAutomationActive
+                          ? `${formatTriggerDateTime(trigger.nextRunAt!, trigger.timezone)} · ${timeUntil(trigger.nextRunAt!)}`
+                          : `Saved: ${formatTriggerDateTime(trigger.nextRunAt!, trigger.timezone)}`}
                       </span>
                     </div>
                   </div>

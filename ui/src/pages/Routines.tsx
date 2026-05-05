@@ -166,7 +166,7 @@ function buildRoutineMutationPayload(input: {
     projectId: input.projectId || null,
     assigneeAgentId: input.assigneeAgentId || null,
     scriptPath: input.executionMode !== "agent" ? input.scriptPath || null : null,
-    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : null,
+    scriptCommandArgs: input.executionMode !== "agent" ? input.scriptCommandArgs : [],
     remediationEnabled: input.remediationEnabled,
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
