@@ -45,9 +45,11 @@ import { RunButton } from "../components/AgentActionButtons";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "../lib/recent-projects";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -58,7 +60,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import type { RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
+import type { ProjectStatus, RoutineTrigger, RoutineTriggerCondition, RoutineVariable } from "@paperclipai/shared";
 
 const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
@@ -73,6 +75,16 @@ const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_ac
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
 const triggerKinds = ["schedule", "webhook", "random_interval", "random_cron_scheduler"];
 const signingModes = ["bearer", "hmac_sha256", "github_hmac", "none"];
+const projectStatusOptions = [
+  { value: "backlog", label: "Backlog" },
+  { value: "planned", label: "Planned" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
+const triggerConditionTypeOptions = [
+  { value: "project_status", label: "Project status" },
+] as const satisfies ReadonlyArray<{ value: RoutineTriggerCondition["type"]; label: string }>;
 const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
   coalesce_if_active: "Keep one follow-up run queued while an active run is still working.",
@@ -98,6 +110,55 @@ type SecretMessage = {
   webhookUrl: string;
   webhookSecret: string;
 };
+
+type TriggerConditionDraft = RoutineTriggerCondition & { id: string };
+let triggerConditionDraftCounter = 0;
+
+function nextTriggerConditionDraftId() {
+  triggerConditionDraftCounter += 1;
+  return `condition-${triggerConditionDraftCounter}`;
+}
+
+function createTriggerConditionDraft(type: TriggerConditionDraft["type"] = "project_status"): TriggerConditionDraft {
+  if (type === "project_status") {
+    return {
+      id: nextTriggerConditionDraftId(),
+      type,
+      statuses: [projectStatusOptions[0].value],
+    };
+  }
+  return {
+    id: nextTriggerConditionDraftId(),
+    type: "project_status",
+    statuses: [projectStatusOptions[0].value],
+  };
+}
+
+function triggerConditionsToDrafts(conditions: RoutineTrigger["conditions"] | null | undefined): TriggerConditionDraft[] {
+  return (conditions ?? []).map((condition) => {
+    if (condition.type === "project_status") {
+      return {
+        id: nextTriggerConditionDraftId(),
+        type: "project_status",
+        statuses: condition.statuses,
+      };
+    }
+    return createTriggerConditionDraft();
+  });
+}
+
+function getUnusedTriggerConditionTypes(drafts: TriggerConditionDraft[]) {
+  if (drafts.length === 0) return triggerConditionTypeOptions;
+  return triggerConditionTypeOptions;
+}
+
+function describeProjectStatusCondition(statuses: ProjectStatus[]) {
+  if (statuses.length === 0) return "Select statuses";
+  return projectStatusOptions
+    .filter((option) => statuses.includes(option.value))
+    .map((option) => option.label)
+    .join(", ");
+}
 
 function minToHHMM(min: number): string {
   const h = Math.floor(min / 60).toString().padStart(2, "0");
@@ -130,6 +191,154 @@ function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (days: 
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function ProjectStatusConditionValueEditor({
+  statuses,
+  disabled,
+  onChange,
+}: {
+  statuses: ProjectStatus[];
+  disabled?: boolean;
+  onChange: (statuses: ProjectStatus[]) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between" disabled={disabled}>
+          <span className="truncate">{describeProjectStatusCondition(statuses)}</span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[240px] p-2">
+        <div className="space-y-1">
+          {projectStatusOptions.map((status) => {
+            const active = statuses.includes(status.value);
+            return (
+              <label
+                key={status.value}
+                className="flex cursor-pointer items-center justify-between rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+              >
+                <span>{status.label}</span>
+                <Checkbox
+                  checked={active}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      onChange([...statuses, status.value].filter((value, index, values) => values.indexOf(value) === index) as ProjectStatus[]);
+                      return;
+                    }
+                    if (statuses.length === 1) return;
+                    onChange(statuses.filter((value) => value !== status.value));
+                  }}
+                />
+              </label>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TriggerConditionsEditor({
+  value,
+  disabled,
+  hasRoutineProject,
+  onChange,
+}: {
+  value: TriggerConditionDraft[];
+  disabled?: boolean;
+  hasRoutineProject: boolean;
+  onChange: (conditions: TriggerConditionDraft[]) => void;
+}) {
+  const updateCondition = (conditionId: string, nextCondition: TriggerConditionDraft) => {
+    onChange(value.map((condition) => condition.id === conditionId ? nextCondition : condition));
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs">Conditions</Label>
+        <p className="text-xs text-muted-foreground">All configured conditions must be true before a run starts.</p>
+      </div>
+
+      {value.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No conditions configured.</p>
+      ) : (
+        <div className="space-y-2">
+          {value.map((condition) => (
+            <div key={condition.id} className="grid gap-2 rounded-md border border-border p-3 md:grid-cols-[minmax(0,200px)_minmax(0,1fr)_auto]">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Condition</Label>
+                <Select
+                  value={condition.type}
+                  onValueChange={(nextType: TriggerConditionDraft["type"]) => {
+                    updateCondition(condition.id, createTriggerConditionDraft(nextType));
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {triggerConditionTypeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">Value</Label>
+                {condition.type === "project_status" && (
+                  <ProjectStatusConditionValueEditor
+                    statuses={condition.statuses}
+                    disabled={disabled || !hasRoutineProject}
+                    onChange={(statuses) => updateCondition(condition.id, { ...condition, statuses })}
+                  />
+                )}
+              </div>
+
+              <div className="flex items-end justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={disabled}
+                  onClick={() => onChange(value.filter((entry) => entry.id !== condition.id))}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!hasRoutineProject && (
+        <p className="text-xs text-muted-foreground">
+          Assign a default project to this routine before adding project-status conditions.
+        </p>
+      )}
+
+      <div className="flex items-center justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={disabled || !hasRoutineProject}
+          onClick={() => {
+            const nextType = getUnusedTriggerConditionTypes(value)[0]?.value ?? triggerConditionTypeOptions[0]?.value;
+            if (!nextType) return;
+            onChange([...value, createTriggerConditionDraft(nextType)]);
+          }}
+        >
+          Add condition
+        </Button>
+      </div>
     </div>
   );
 }
@@ -201,17 +410,20 @@ function buildRoutineMutationPayload(input: {
 
 function TriggerEditor({
   trigger,
+  hasRoutineProject,
   onSave,
   onRotate,
   onDelete,
 }: {
   trigger: RoutineTrigger;
+  hasRoutineProject: boolean;
   onSave: (id: string, patch: Record<string, unknown>) => void;
   onRotate: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
   const [draft, setDraft] = useState({
     label: trigger.label ?? "",
+    conditions: triggerConditionsToDrafts(trigger.conditions),
     cronExpression: trigger.cronExpression ?? "",
     signingMode: trigger.signingMode ?? "bearer",
     replayWindowSec: String(trigger.replayWindowSec ?? 300),
@@ -228,6 +440,7 @@ function TriggerEditor({
   useEffect(() => {
     setDraft({
       label: trigger.label ?? "",
+      conditions: triggerConditionsToDrafts(trigger.conditions),
       cronExpression: trigger.cronExpression ?? "",
       signingMode: trigger.signingMode ?? "bearer",
       replayWindowSec: String(trigger.replayWindowSec ?? 300),
@@ -396,6 +609,15 @@ function TriggerEditor({
             </div>
           </div>
         )}
+        {trigger.kind !== "api" && (
+          <div className="md:col-span-2">
+            <TriggerConditionsEditor
+              value={draft.conditions}
+              hasRoutineProject={hasRoutineProject}
+              onChange={(conditions) => setDraft((current) => ({ ...current, conditions }))}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -448,6 +670,7 @@ export function RoutineDetail() {
   const [runVariablesOpen, setRunVariablesOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
     kind: "schedule",
+    conditions: [] as TriggerConditionDraft[],
     cronExpression: "0 10 * * *",
     signingMode: "bearer",
     replayWindowSec: "300",
@@ -720,6 +943,7 @@ export function RoutineDetail() {
       return routinesApi.createTrigger(routineId!, {
         kind: newTrigger.kind,
         label: autoLabel,
+        conditions: newTrigger.kind !== "api" ? newTrigger.conditions.map(({ id: _id, ...condition }) => condition) : null,
         ...(newTrigger.kind === "schedule"
           ? { cronExpression: newTrigger.cronExpression.trim(), timezone: getLocalTimezone() }
           : {}),
@@ -761,6 +985,21 @@ export function RoutineDetail() {
           tone: "success",
         });
       }
+      setNewTrigger({
+        kind: "schedule",
+        conditions: [],
+        cronExpression: "0 10 * * *",
+        signingMode: "bearer",
+        replayWindowSec: "300",
+        minIntervalSec: "3600",
+        maxIntervalSec: "86400",
+        allowedWeekdays: [1, 2, 3, 4, 5],
+        minTimeOfDayMin: "09:00",
+        maxTimeOfDayMin: "17:00",
+        minDaysAhead: "1",
+        maxDaysAhead: "7",
+        timezone: getLocalTimezone(),
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
@@ -1575,6 +1814,15 @@ export function RoutineDetail() {
                   </div>
                 </div>
               )}
+              {newTrigger.kind !== "api" && (
+                <div className="md:col-span-2">
+                  <TriggerConditionsEditor
+                    value={newTrigger.conditions}
+                    hasRoutineProject={Boolean(routine.projectId)}
+                    onChange={(conditions) => setNewTrigger((current) => ({ ...current, conditions }))}
+                  />
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end">
               <Button size="sm" onClick={() => createTrigger.mutate()} disabled={createTrigger.isPending}>
@@ -1592,6 +1840,7 @@ export function RoutineDetail() {
                 <TriggerEditor
                   key={trigger.id}
                   trigger={trigger}
+                  hasRoutineProject={Boolean(routine.projectId)}
                   onSave={(id, patch) => updateTrigger.mutate({ id, patch })}
                   onRotate={(id) => rotateTrigger.mutate(id)}
                   onDelete={(id) => deleteTrigger.mutate(id)}
@@ -1633,7 +1882,10 @@ export function RoutineDetail() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge variant="outline" className="shrink-0">{run.source}</Badge>
-                        <Badge variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"} className="shrink-0">
+                        <Badge
+                          variant={run.status === "failed" ? "destructive" : run.status === "completed" ? "default" : "secondary"}
+                          className="shrink-0"
+                        >
                           {run.status.replaceAll("_", " ")}
                         </Badge>
                         {run.scriptExitCode != null && (
@@ -1658,7 +1910,9 @@ export function RoutineDetail() {
                       </pre>
                     )}
                     {run.failureReason && !run.scriptOutput && (
-                      <p className="text-xs text-destructive">{run.failureReason}</p>
+                      <p className={`text-xs ${run.status === "conditions_not_met" ? "text-muted-foreground" : "text-destructive"}`}>
+                        {run.failureReason}
+                      </p>
                     )}
                   </div>
                 ))}

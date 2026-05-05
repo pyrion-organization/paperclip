@@ -94,6 +94,9 @@ Three trigger kinds:
 ```
 {
   "kind": "schedule",
+  "conditions": [
+    { "type": "project_status", "statuses": ["in_progress", "completed"] }
+  ],
   "cronExpression": "0 9 * * 1",
   "timezone": "Europe/Amsterdam"
 }
@@ -120,6 +123,8 @@ Signing modes: `bearer` (default), `hmac_sha256`. Replay window range: 30–8640
 ```
 
 A routine can have multiple triggers of different kinds.
+
+`conditions` is optional and only supported for non-`api` triggers. Each entry is ANDed together. The first supported type is `project_status`, which dispatches only if the routine's default project currently has one of the selected statuses.
 
 ## Update Trigger
 
@@ -159,6 +164,8 @@ POST /api/routines/{routineId}/run
 
 Fires a run immediately, bypassing the schedule. Concurrency policy still applies.
 
+Manual runs bypass trigger conditions.
+
 `triggerId` is optional. When supplied, the server validates the trigger belongs to this routine (`403`) and is enabled (`409`), then records the run against that trigger and updates its `lastFiredAt`. Omit it for a generic manual run with no trigger attribution.
 
 ## Fire Public Trigger
@@ -176,6 +183,8 @@ GET /api/routines/{routineId}/runs?limit=50
 ```
 
 Returns recent run history for the routine. Defaults to 50 most recent runs.
+
+Run statuses include `conditions_not_met` when Paperclip evaluated the trigger normally but skipped dispatch because the trigger conditions did not match.
 
 ## Agent Access Rules
 

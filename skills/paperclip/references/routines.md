@@ -94,6 +94,9 @@ POST /api/routines/{routineId}/triggers
 ```json
 {
   "kind": "schedule",
+  "conditions": [
+    { "type": "project_status", "statuses": ["in_progress", "completed"] }
+  ],
   "cronExpression": "0 9 * * 1",
   "timezone": "Europe/Amsterdam"
 }
@@ -102,6 +105,7 @@ POST /api/routines/{routineId}/triggers
 - `cronExpression`: standard 5-field cron syntax
 - `timezone`: IANA timezone string (for example `UTC` or `America/New_York`)
 - The server computes `nextRunAt` automatically
+- Optional `conditions` are ANDed together; `project_status` gates dispatch on the routine project's current persisted status
 
 ### Webhook
 
@@ -130,6 +134,8 @@ POST /api/routines/{routineId}/triggers
 
 No configuration. Fire via the manual run endpoint.
 
+Project-status conditions are not supported for `api` triggers.
+
 ---
 
 ## Updating and Deleting Triggers
@@ -152,6 +158,8 @@ POST /api/routine-triggers/{triggerId}/rotate-secret
 ## Manual Run
 
 Fires a run immediately, bypassing the schedule. Concurrency policy still applies.
+
+Manual runs bypass trigger conditions.
 
 ```
 POST /api/routines/{routineId}/run

@@ -3,13 +3,14 @@ import type { RoutineTrigger } from "@paperclipai/shared";
 import { buildRoutineTriggerPatch } from "./routine-trigger-patch";
 
 function makeScheduleTrigger(overrides: Partial<RoutineTrigger> = {}): RoutineTrigger {
-  return {
+  const trigger: RoutineTrigger = {
     id: "trigger-1",
     companyId: "company-1",
     routineId: "routine-1",
     kind: "schedule",
     label: "Daily",
     enabled: true,
+    conditions: null,
     cronExpression: "0 10 * * *",
     timezone: "UTC",
     nextRunAt: null,
@@ -35,6 +36,10 @@ function makeScheduleTrigger(overrides: Partial<RoutineTrigger> = {}): RoutineTr
     maxDaysAhead: null,
     ...overrides,
   };
+  return {
+    ...trigger,
+    conditions: trigger.conditions ?? null,
+  };
 }
 
 describe("buildRoutineTriggerPatch", () => {
@@ -43,6 +48,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ timezone: "UTC" }),
       {
         label: "Daily label edit",
+        conditions: [],
         cronExpression: "0 10 * * *",
         signingMode: "bearer",
         replayWindowSec: "300",
@@ -54,6 +60,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Daily label edit",
+      conditions: null,
       cronExpression: "0 10 * * *",
       timezone: "UTC",
     });
@@ -64,6 +71,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ timezone: null }),
       {
         label: "",
+        conditions: [],
         cronExpression: "15 9 * * 1-5",
         signingMode: "bearer",
         replayWindowSec: "300",
@@ -75,6 +83,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: null,
+      conditions: null,
       cronExpression: "15 9 * * 1-5",
       timezone: "America/Chicago",
     });
@@ -89,6 +98,7 @@ describe("buildRoutineTriggerPatch", () => {
       }),
       {
         label: "Random interval",
+        conditions: [],
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "300",
@@ -100,6 +110,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Random interval",
+      conditions: null,
       minIntervalSec: 108000,
       maxIntervalSec: 86400,
     });
@@ -110,6 +121,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ kind: "random_interval" }),
       {
         label: "Test",
+        conditions: [],
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "300",
@@ -121,6 +133,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Test",
+      conditions: null,
       minIntervalSec: 7200,
       maxIntervalSec: 259200,
     });
@@ -131,6 +144,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ kind: "random_interval" }),
       {
         label: "Random interval",
+        conditions: [],
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "300",
@@ -140,6 +154,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Random interval",
+      conditions: null,
       minIntervalSec: 3600,
       maxIntervalSec: 86400,
     });
@@ -150,6 +165,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ kind: "webhook" }),
       {
         label: "Webhook trigger",
+        conditions: [],
         cronExpression: "",
         signingMode: "hmac",
         replayWindowSec: "600",
@@ -161,6 +177,7 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Webhook trigger",
+      conditions: null,
       signingMode: "hmac",
       replayWindowSec: 600,
     });
@@ -171,6 +188,7 @@ describe("buildRoutineTriggerPatch", () => {
       makeScheduleTrigger({ kind: "webhook" }),
       {
         label: "Webhook trigger",
+        conditions: [],
         cronExpression: "",
         signingMode: "bearer",
         replayWindowSec: "",
@@ -182,8 +200,39 @@ describe("buildRoutineTriggerPatch", () => {
 
     expect(patch).toEqual({
       label: "Webhook trigger",
+      conditions: null,
       signingMode: "bearer",
       replayWindowSec: 300,
+    });
+  });
+
+  it("serializes trigger conditions as a typed list", () => {
+    const patch = buildRoutineTriggerPatch(
+      makeScheduleTrigger(),
+      {
+        label: "Daily",
+        conditions: [{
+          id: "cond-1",
+          type: "project_status",
+          statuses: ["planned", "completed"],
+        }],
+        cronExpression: "0 10 * * *",
+        signingMode: "bearer",
+        replayWindowSec: "300",
+        minIntervalSec: "3600",
+        maxIntervalSec: "86400",
+      },
+      "UTC",
+    );
+
+    expect(patch).toEqual({
+      label: "Daily",
+      conditions: [{
+        type: "project_status",
+        statuses: ["planned", "completed"],
+      }],
+      cronExpression: "0 10 * * *",
+      timezone: "UTC",
     });
   });
 });

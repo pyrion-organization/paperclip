@@ -21,12 +21,15 @@ import {
 import type {
   CreateRoutine,
   CreateRoutineTrigger,
+  ProjectStatus,
   Routine,
   RoutineDetail,
   RoutineListItem,
   RoutineRunSource,
+  RoutineTriggerCondition,
   RoutineRunSummary,
   RoutineTrigger,
+  RoutineTriggerConditions,
   RoutineTriggerSecretMaterial,
   RoutineVariable,
   RunRoutine,
@@ -34,6 +37,7 @@ import type {
   UpdateRoutineTrigger,
 } from "@paperclipai/shared";
 import {
+  PROJECT_STATUSES,
   WORKSPACE_BRANCH_ROUTINE_VARIABLE,
   getBuiltinRoutineVariableValues,
   extractRoutineVariableNames,
@@ -173,6 +177,7 @@ function nextResultText(status: string, issueId?: string | null) {
   if (status === "issue_created" && issueId) return `Created execution issue ${issueId}`;
   if (status === "coalesced") return "Coalesced into an existing live execution issue";
   if (status === "skipped") return "Skipped because a live execution issue already exists";
+  if (status === "conditions_not_met") return "Skipped because trigger conditions were not met";
   if (status === "completed") return "Execution issue completed";
   if (status === "failed") return "Execution failed";
   return status;
@@ -344,6 +349,43 @@ function sanitizeRoutineVariableInputs(
     required: variable.required ?? true,
     options: variable.options ?? [],
   }));
+}
+
+function normalizeTriggerConditions(
+  input: RoutineTriggerConditions | Record<string, unknown> | null | undefined,
+): RoutineTriggerConditions | null {
+  if (!input) return null;
+  const conditions: RoutineTriggerCondition[] = [];
+  if (Array.isArray(input)) {
+    for (const condition of input) {
+      if (!condition || typeof condition !== "object" || !("type" in condition)) continue;
+      if (condition.type === "project_status") {
+        const rawStatuses = Array.isArray(condition.statuses) ? condition.statuses : [];
+        const statuses = PROJECT_STATUSES.filter((status) => rawStatuses.includes(status));
+        if (statuses.length === 0) continue;
+        conditions.push({ type: "project_status", statuses });
+      }
+      continue;
+    }
+  } else if (isPlainRecord(input)) {
+    const rawStatuses = Array.isArray(input.projectStatuses) ? input.projectStatuses : [];
+    const statuses = PROJECT_STATUSES.filter((status) => rawStatuses.includes(status));
+    if (statuses.length > 0) {
+      conditions.push({ type: "project_status", statuses });
+    }
+  }
+  return conditions.length > 0 ? conditions : null;
+}
+
+function hasProjectStatusCondition(conditions: RoutineTriggerConditions | null | undefined) {
+  return Boolean(conditions?.some((condition) => condition.type === "project_status" && condition.statuses.length > 0));
+}
+
+function isAutomaticConditionSource(source: RoutineRunSource) {
+  return source === "schedule"
+    || source === "random_interval"
+    || source === "random_cron_scheduler"
+    || source === "webhook";
 }
 
 function assertScheduleCompatibleVariables(variables: RoutineVariable[]) {
@@ -546,6 +588,79 @@ export function routineService(
       .then((rows) => rows[0] ?? null);
     if (!project) throw notFound("Project not found");
     if (project.companyId !== companyId) throw unprocessable("Project must belong to same company");
+  }
+
+  async function assertTriggerConditionsCompatible(
+    routine: Pick<typeof routines.$inferSelect, "id" | "companyId" | "projectId">,
+    kind: string,
+    conditions: RoutineTriggerConditions | null | undefined,
+  ) {
+    if (!hasProjectStatusCondition(conditions)) return;
+    if (kind === "api") {
+      throw unprocessable("API triggers do not support project-status conditions");
+    }
+    if (!routine.projectId) {
+      throw unprocessable("Project-status trigger conditions require the routine to have a default project");
+    }
+    await assertProject(routine.companyId, routine.projectId);
+  }
+
+  async function assertRoutineProjectConditionCompatibility(
+    routine: Pick<typeof routines.$inferSelect, "id" | "companyId" | "projectId">,
+    nextProjectId: string | null | undefined,
+  ) {
+    if (nextProjectId) return;
+    const triggers = await db
+      .select({ conditions: routineTriggers.conditions })
+      .from(routineTriggers)
+      .where(eq(routineTriggers.routineId, routine.id));
+    if (!triggers.some((trigger) => hasProjectStatusCondition(trigger.conditions as RoutineTriggerConditions | null))) return;
+    throw unprocessable("Cannot remove the default project while trigger project-status conditions are configured");
+  }
+
+  async function evaluateTriggerConditions(input: {
+    routine: typeof routines.$inferSelect;
+    trigger: typeof routineTriggers.$inferSelect | null;
+  }): Promise<{ matched: true } | { matched: false; reason: string }> {
+    const conditions = normalizeTriggerConditions(
+      input.trigger?.conditions as RoutineTriggerConditions | Record<string, unknown> | null | undefined,
+    );
+    if (!conditions || conditions.length === 0) return { matched: true };
+    let projectStatus: ProjectStatus | null | undefined;
+    let loadedProjectStatus = false;
+    const reasons: string[] = [];
+
+    for (const condition of conditions) {
+      if (condition.type === "project_status") {
+        if (!input.routine.projectId) {
+          reasons.push("routine has no default project for project-status condition evaluation");
+          continue;
+        }
+        if (!loadedProjectStatus) {
+          const project = await db
+            .select({ status: projects.status })
+            .from(projects)
+            .where(and(eq(projects.id, input.routine.projectId), eq(projects.companyId, input.routine.companyId)))
+            .then((rows) => rows[0] ?? null);
+          if (!project) {
+            reasons.push("routine project was not found during condition evaluation");
+            loadedProjectStatus = true;
+            projectStatus = null;
+            continue;
+          }
+          projectStatus = project.status as ProjectStatus;
+          loadedProjectStatus = true;
+        }
+        if (!projectStatus) continue;
+        if (!condition.statuses.includes(projectStatus)) {
+          reasons.push(`project status ${projectStatus} not in [${condition.statuses.join(", ")}]`);
+        }
+      }
+    }
+
+    return reasons.length === 0
+      ? { matched: true }
+      : { matched: false, reason: reasons.join("; ") };
   }
 
   async function assertGoal(companyId: string, goalId: string) {
@@ -959,6 +1074,7 @@ export function routineService(
     projectId?: string | null;
     assigneeAgentId?: string | null;
     idempotencyKey?: string | null;
+    nextRunAt?: Date | null;
     executionWorkspaceId?: string | null;
     executionWorkspacePreference?: string | null;
     executionWorkspaceSettings?: Record<string, unknown> | null;
@@ -1050,9 +1166,33 @@ export function routineService(
         })
         .returning();
 
-      const nextRunAt = input.trigger?.kind === "schedule" && input.trigger.cronExpression && input.trigger.timezone
-        ? nextCronTickInTimeZone(input.trigger.cronExpression, input.trigger.timezone, triggeredAt)
-        : undefined;
+      const nextRunAt = input.nextRunAt !== undefined
+        ? input.nextRunAt
+        : input.trigger?.kind === "schedule" && input.trigger.cronExpression && input.trigger.timezone
+          ? nextCronTickInTimeZone(input.trigger.cronExpression, input.trigger.timezone, triggeredAt)
+          : undefined;
+
+      if (input.trigger && isAutomaticConditionSource(input.source)) {
+        const conditionCheck = await evaluateTriggerConditions({
+          routine: input.routine,
+          trigger: input.trigger,
+        });
+        if (!conditionCheck.matched) {
+          const skippedRun = await finalizeRun(createdRun.id, {
+            status: "conditions_not_met",
+            failureReason: conditionCheck.reason,
+            completedAt: triggeredAt,
+          }, txDb);
+          await updateRoutineTouchedState({
+            routineId: input.routine.id,
+            triggerId: input.trigger.id,
+            triggeredAt,
+            status: "conditions_not_met",
+            nextRunAt,
+          }, txDb);
+          return skippedRun ?? createdRun;
+        }
+      }
 
       if (isScriptMode) {
         // Script mode: check concurrency using running script runs, then mark as running
@@ -1579,6 +1719,7 @@ export function routineService(
           kind: trigger.kind as RoutineListItem["triggers"][number]["kind"],
           label: trigger.label,
           enabled: trigger.enabled,
+          conditions: normalizeTriggerConditions(trigger.conditions as RoutineTriggerConditions | null),
           cronExpression: trigger.cronExpression,
           timezone: trigger.timezone,
           nextRunAt: trigger.nextRunAt,
@@ -1694,7 +1835,10 @@ export function routineService(
         project,
         assignee,
         parentIssue,
-        triggers: triggers as RoutineTrigger[],
+        triggers: triggers.map((trigger) => ({
+          ...trigger,
+          conditions: normalizeTriggerConditions(trigger.conditions as RoutineTriggerConditions | null),
+        })) as RoutineTrigger[],
         recentRuns,
         activeIssue,
       };
@@ -1761,6 +1905,9 @@ export function routineService(
         patch.variables === undefined ? existing.variables : sanitizeRoutineVariableInputs(patch.variables),
       );
       if (patch.projectId !== undefined) await assertProject(existing.companyId, nextProjectId);
+      if (patch.projectId !== undefined || (patch.projectId === null && nextProjectId == null)) {
+        await assertRoutineProjectConditionCompatibility(existing, nextProjectId);
+      }
       if (patch.assigneeAgentId !== undefined) await assertAssignableAgent(existing.companyId, nextAssigneeAgentId);
       if (patch.goalId) await assertGoal(existing.companyId, patch.goalId);
       if (patch.parentIssueId) await assertParentIssue(existing.companyId, patch.parentIssueId);
@@ -1824,6 +1971,8 @@ export function routineService(
       let secretId: string | null = null;
       let publicId: string | null = null;
       let nextRunAt: Date | null = null;
+      const conditions = normalizeTriggerConditions(input.conditions);
+      await assertTriggerConditionsCompatible(routine, input.kind, conditions);
 
       if (input.kind === "schedule") {
         assertScheduleCompatibleVariables(routine.variables ?? []);
@@ -1877,6 +2026,7 @@ export function routineService(
           kind: input.kind,
           label: input.label ?? null,
           enabled: input.enabled ?? true,
+          conditions,
           cronExpression: input.kind === "schedule" ? input.cronExpression : null,
           timezone: input.kind === "schedule" ? (input.timezone || "UTC") : input.kind === "random_cron_scheduler" ? input.timezone : null,
           nextRunAt,
@@ -1910,14 +2060,18 @@ export function routineService(
       if (!existing) return null;
 
       let nextRunAt = existing.nextRunAt;
+      const conditions = patch.conditions === undefined
+        ? normalizeTriggerConditions(existing.conditions as RoutineTriggerConditions | null)
+        : normalizeTriggerConditions(patch.conditions);
+      const routine = await getRoutineById(existing.routineId);
+      if (!routine) throw notFound("Routine not found");
+      await assertTriggerConditionsCompatible(routine, existing.kind, conditions);
       let cronExpression = existing.cronExpression;
       let timezone = existing.timezone;
       let minIntervalSec = existing.minIntervalSec;
       let maxIntervalSec = existing.maxIntervalSec;
 
       if (existing.kind === "schedule") {
-        const routine = await getRoutineById(existing.routineId);
-        if (!routine) throw notFound("Routine not found");
         if (patch.cronExpression !== undefined) {
           if (patch.cronExpression == null) throw unprocessable("Scheduled triggers require cronExpression");
           const error = validateCron(patch.cronExpression);
@@ -1938,8 +2092,6 @@ export function routineService(
       }
 
       if (existing.kind === "random_interval") {
-        const routine = await getRoutineById(existing.routineId);
-        if (!routine) throw notFound("Routine not found");
         if (patch.minIntervalSec !== undefined) {
           if (patch.minIntervalSec == null) throw unprocessable("Random interval triggers require minIntervalSec");
           minIntervalSec = patch.minIntervalSec;
@@ -1964,8 +2116,6 @@ export function routineService(
       let maxDaysAhead = existing.maxDaysAhead;
 
       if (existing.kind === "random_cron_scheduler") {
-        const routine = await getRoutineById(existing.routineId);
-        if (!routine) throw notFound("Routine not found");
         if (patch.allowedWeekdays !== undefined) allowedWeekdays = patch.allowedWeekdays?.length ? patch.allowedWeekdays : [0, 1, 2, 3, 4, 5, 6];
         if (patch.minTimeOfDayMin !== undefined) minTimeOfDayMin = patch.minTimeOfDayMin;
         if (patch.maxTimeOfDayMin !== undefined) maxTimeOfDayMin = patch.maxTimeOfDayMin;
@@ -1999,6 +2149,7 @@ export function routineService(
         .set({
           label: patch.label === undefined ? existing.label : patch.label,
           enabled: patch.enabled ?? existing.enabled,
+          conditions,
           cronExpression,
           timezone,
           nextRunAt,
@@ -2352,6 +2503,7 @@ export function routineService(
             routine: row.routine,
             trigger: row.trigger,
             source: "schedule",
+            nextRunAt: claimedNextRunAt,
           });
           triggered += 1;
         }
@@ -2415,6 +2567,7 @@ export function routineService(
           routine: row.routine,
           trigger: row.trigger,
           source: "random_interval" as const,
+          nextRunAt: claimedNextRunAt,
         });
         triggered += 1;
       }
@@ -2485,6 +2638,7 @@ export function routineService(
           routine: row.routine,
           trigger: row.trigger,
           source: "random_cron_scheduler",
+          nextRunAt: claimedNextRunAt,
         });
         triggered += 1;
       }

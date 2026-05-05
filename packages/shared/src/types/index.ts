@@ -257,8 +257,10 @@ export type {
 } from "./secrets.js";
 export type {
   Routine,
+  RoutineTriggerCondition,
   RoutineVariable,
   RoutineVariableDefaultValue,
+  RoutineTriggerConditions,
   RoutineTrigger,
   RoutineRun,
   RoutineTriggerSecretMaterial,

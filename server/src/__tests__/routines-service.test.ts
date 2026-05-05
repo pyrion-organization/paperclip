@@ -973,6 +973,95 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     ).rejects.toThrow(/require defaults for required variables/i);
   });
 
+  it("stores normalized project-status trigger conditions", async () => {
+    const { routine, svc } = await seedFixture();
+
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+        conditions: [
+          {
+            type: "project_status",
+            statuses: ["completed", "backlog", "completed"],
+          },
+          {
+            type: "project_status",
+            statuses: ["in_progress", "planned", "planned"],
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(trigger.conditions).toEqual([
+      {
+        type: "project_status",
+        statuses: ["backlog", "completed"],
+      },
+      {
+        type: "project_status",
+        statuses: ["planned", "in_progress"],
+      },
+    ]);
+  });
+
+  it("rejects project-status conditions for api triggers", async () => {
+    const { routine, svc } = await seedFixture();
+
+    await expect(
+      svc.createTrigger(
+        routine.id,
+        {
+          kind: "api",
+          conditions: [{
+            type: "project_status",
+            statuses: ["in_progress"],
+          }],
+        },
+        {},
+      ),
+    ).rejects.toThrow(/api triggers do not support project-status conditions/i);
+  });
+
+  it("rejects project-status conditions when the routine has no default project", async () => {
+    const { companyId, agentId, svc } = await seedFixture();
+    const routineWithoutProject = await svc.create(
+      companyId,
+      {
+        projectId: null,
+        goalId: null,
+        parentIssueId: null,
+        title: "ungrouped routine",
+        description: null,
+        assigneeAgentId: agentId,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+      },
+      {},
+    );
+
+    await expect(
+      svc.createTrigger(
+        routineWithoutProject.id,
+        {
+          kind: "schedule",
+          cronExpression: "0 10 * * *",
+          timezone: "UTC",
+          conditions: [{
+            type: "project_status",
+            statuses: ["in_progress"],
+          }],
+        },
+        {},
+      ),
+    ).rejects.toThrow(/require the routine to have a default project/i);
+  });
+
   it("serializes concurrent dispatches until the first execution issue is linked to a queued run", async () => {
     const { routine, svc } = await seedFixture({
       wakeup: async (wakeupAgentId, wakeupOpts) => {
@@ -1272,6 +1361,132 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
 
     const result = await svc.tickRandomIntervalTriggers(new Date());
     expect(result.triggered).toBe(0);
+  });
+
+  it("tickScheduledTriggers records conditions_not_met and advances nextRunAt when project status does not match", async () => {
+    const { projectId, routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        cronExpression: "0 * * * *",
+        timezone: "UTC",
+        conditions: [{
+          type: "project_status",
+          statuses: ["completed"],
+        }],
+      },
+      {},
+    );
+
+    const dueAt = new Date("2026-05-01T10:00:00.000Z");
+    await db.update(routineTriggers).set({ nextRunAt: dueAt }).where(eq(routineTriggers.id, trigger.id));
+
+    const result = await svc.tickScheduledTriggers(dueAt);
+    expect(result.triggered).toBe(1);
+
+    const run = await db.select().from(routineRuns).orderBy(desc(routineRuns.createdAt)).then((rows) => rows[0]!);
+    expect(run.status).toBe("conditions_not_met");
+    expect(run.failureReason).toContain("project status in_progress not in [completed]");
+
+    const createdIssues = await db.select().from(issues).where(eq(issues.originId, routine.id));
+    expect(createdIssues).toHaveLength(0);
+
+    const refreshedTrigger = await db.select().from(routineTriggers).where(eq(routineTriggers.id, trigger.id)).then((rows) => rows[0]!);
+    expect(refreshedTrigger.nextRunAt).toBeTruthy();
+    expect(refreshedTrigger.nextRunAt!.getTime()).toBeGreaterThan(dueAt.getTime());
+
+    await db.update(projects).set({ status: "completed" }).where(eq(projects.id, projectId));
+    await db.update(routineTriggers).set({ nextRunAt: dueAt }).where(eq(routineTriggers.id, trigger.id));
+
+    const secondResult = await svc.tickScheduledTriggers(dueAt);
+    expect(secondResult.triggered).toBe(1);
+
+    const latestRun = await db.select().from(routineRuns).orderBy(desc(routineRuns.createdAt)).then((rows) => rows[0]!);
+    expect(latestRun.status).toBe("issue_created");
+    expect(latestRun.linkedIssueId).toBeTruthy();
+  });
+
+  it("requires all configured trigger conditions to match", async () => {
+    const { projectId, routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        cronExpression: "0 * * * *",
+        timezone: "UTC",
+        conditions: [
+          {
+            type: "project_status",
+            statuses: ["in_progress", "completed"],
+          },
+          {
+            type: "project_status",
+            statuses: ["completed"],
+          },
+        ],
+      },
+      {},
+    );
+
+    const dueAt = new Date("2026-05-01T10:00:00.000Z");
+    await db.update(routineTriggers).set({ nextRunAt: dueAt }).where(eq(routineTriggers.id, trigger.id));
+
+    const firstResult = await svc.tickScheduledTriggers(dueAt);
+    expect(firstResult.triggered).toBe(1);
+
+    const firstRun = await db.select().from(routineRuns).orderBy(desc(routineRuns.createdAt)).then((rows) => rows[0]!);
+    expect(firstRun.status).toBe("conditions_not_met");
+
+    await db.update(projects).set({ status: "completed" }).where(eq(projects.id, projectId));
+    await db.update(routineTriggers).set({ nextRunAt: dueAt }).where(eq(routineTriggers.id, trigger.id));
+
+    const secondResult = await svc.tickScheduledTriggers(dueAt);
+    expect(secondResult.triggered).toBe(1);
+
+    const secondRun = await db.select().from(routineRuns).orderBy(desc(routineRuns.createdAt)).then((rows) => rows[0]!);
+    expect(secondRun.status).toBe("issue_created");
+  });
+
+  it("manual runs bypass trigger project-status conditions", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+        conditions: [{
+          type: "project_status",
+          statuses: ["completed"],
+        }],
+      },
+      {},
+    );
+
+    const run = await svc.runRoutine(routine.id, { source: "manual", triggerId: trigger.id });
+    expect(run.status).toBe("issue_created");
+  });
+
+  it("rejects removing the default project when conditioned triggers exist", async () => {
+    const { routine, svc } = await seedFixture();
+    await svc.createTrigger(
+      routine.id,
+      {
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+        conditions: [{
+          type: "project_status",
+          statuses: ["in_progress"],
+        }],
+      },
+      {},
+    );
+
+    await expect(
+      svc.update(routine.id, { projectId: null }, {}),
+    ).rejects.toThrow(/cannot remove the default project/i);
   });
 
   it("createRemediationIssueIfNeeded creates issue on first failure when remediation enabled", async () => {

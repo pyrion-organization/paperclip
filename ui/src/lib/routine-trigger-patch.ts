@@ -1,7 +1,9 @@
-import type { RoutineTrigger } from "@paperclipai/shared";
+import type { RoutineTrigger, RoutineTriggerCondition } from "@paperclipai/shared";
 
+export type RoutineTriggerConditionDraft = RoutineTriggerCondition & { id: string };
 export type RoutineTriggerEditorDraft = {
   label: string;
+  conditions: RoutineTriggerConditionDraft[];
   cronExpression: string;
   signingMode: string;
   replayWindowSec: string;
@@ -20,6 +22,14 @@ export function parseTimeToMin(hhmm: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
+export function buildRoutineTriggerConditionsPayload(drafts: RoutineTriggerConditionDraft[]): RoutineTriggerCondition[] | null {
+  const conditions = drafts.map((draft) => ({
+    type: draft.type,
+    ...(draft.type === "project_status" ? { statuses: draft.statuses } : {}),
+  })) as RoutineTriggerCondition[];
+  return conditions.length > 0 ? conditions : null;
+}
+
 export function buildRoutineTriggerPatch(
   trigger: RoutineTrigger,
   draft: RoutineTriggerEditorDraft,
@@ -27,6 +37,7 @@ export function buildRoutineTriggerPatch(
 ) {
   const patch: Record<string, unknown> = {
     label: draft.label.trim() || null,
+    conditions: buildRoutineTriggerConditionsPayload(draft.conditions),
   };
 
   if (trigger.kind === "schedule") {

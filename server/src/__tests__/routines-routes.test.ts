@@ -41,6 +41,7 @@ const trigger = {
   kind: "schedule",
   label: "weekday",
   enabled: false,
+  conditions: null,
   cronExpression: "0 10 * * 1-5",
   timezone: "UTC",
   nextRunAt: null,
@@ -78,6 +79,9 @@ const mockRoutineService = vi.hoisted(() => ({
 const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
 }));
+const mockProjectService = vi.hoisted(() => ({
+  getById: vi.fn(),
+}));
 
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockTrackRoutineCreated = vi.hoisted(() => vi.fn());
@@ -110,6 +114,7 @@ function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
     accessService: () => mockAccessService,
     logActivity: mockLogActivity,
+    projectService: () => mockProjectService,
     routineService: () => mockRoutineService,
   }));
 }

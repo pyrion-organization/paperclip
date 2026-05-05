@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
+  PROJECT_STATUSES,
   ISSUE_PRIORITIES,
   ROUTINE_CATCH_UP_POLICIES,
   ROUTINE_CONCURRENCY_POLICIES,
   ROUTINE_EXECUTION_MODES,
   ROUTINE_STATUSES,
+  ROUTINE_TRIGGER_CONDITION_TYPES,
   ROUTINE_TRIGGER_SIGNING_MODES,
   ROUTINE_VARIABLE_TYPES,
 } from "../constants.js";
@@ -14,6 +16,30 @@ import {
 } from "./issue.js";
 
 const routineVariableValueSchema = z.union([z.string(), z.number().finite(), z.boolean()]);
+
+const projectStatusRoutineTriggerConditionSchema = z.object({
+  type: z.literal(ROUTINE_TRIGGER_CONDITION_TYPES[0]),
+  statuses: z.array(z.enum(PROJECT_STATUSES)).min(1).max(PROJECT_STATUSES.length),
+});
+
+const routineTriggerConditionSchema = z.discriminatedUnion("type", [
+  projectStatusRoutineTriggerConditionSchema,
+]);
+
+export const routineTriggerConditionsSchema = z.array(routineTriggerConditionSchema)
+  .max(20)
+  .transform((value) => {
+    return value.map((condition) => {
+      if (condition.type === "project_status") {
+        const seenStatuses = new Set(condition.statuses);
+        return {
+          type: condition.type,
+          statuses: PROJECT_STATUSES.filter((status) => seenStatuses.has(status)),
+        };
+      }
+      return condition;
+    });
+  });
 
 export const routineVariableSchema = z.object({
   name: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
@@ -77,6 +103,7 @@ export type UpdateRoutine = z.infer<typeof updateRoutineSchema>;
 const baseTriggerSchema = z.object({
   label: z.string().trim().max(120).optional().nullable(),
   enabled: z.boolean().optional().default(true),
+  conditions: routineTriggerConditionsSchema.optional().nullable(),
 });
 
 export const createRoutineTriggerSchema = z.discriminatedUnion("kind", [
@@ -138,6 +165,7 @@ export type CreateRoutineTrigger = z.infer<typeof createRoutineTriggerSchema>;
 export const updateRoutineTriggerSchema = z.object({
   label: z.string().trim().max(120).optional().nullable(),
   enabled: z.boolean().optional(),
+  conditions: routineTriggerConditionsSchema.optional().nullable(),
   cronExpression: z.string().trim().min(1).optional().nullable(),
   timezone: z.string().trim().min(1).optional().nullable(),
   signingMode: z.enum(ROUTINE_TRIGGER_SIGNING_MODES).optional().nullable(),

@@ -15,7 +15,7 @@ import { companySecrets } from "./company_secrets.js";
 import { issues } from "./issues.js";
 import { projects } from "./projects.js";
 import { goals } from "./goals.js";
-import type { RoutineVariable } from "@paperclipai/shared";
+import type { RoutineTriggerConditions, RoutineVariable } from "@paperclipai/shared";
 
 export const routines = pgTable(
   "routines",
@@ -66,6 +66,7 @@ export const routineTriggers = pgTable(
     kind: text("kind").notNull(),
     label: text("label"),
     enabled: boolean("enabled").notNull().default(true),
+    conditions: jsonb("conditions").$type<RoutineTriggerConditions>(),
     cronExpression: text("cron_expression"),
     timezone: text("timezone"),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),

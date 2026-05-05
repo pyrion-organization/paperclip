@@ -314,6 +314,7 @@ export {
   updateRoutineSchema,
   createRoutineTriggerSchema,
   updateRoutineTriggerSchema,
+  routineTriggerConditionsSchema,
   routineVariableSchema,
   runRoutineSchema,
   rotateRoutineTriggerSecretSchema,

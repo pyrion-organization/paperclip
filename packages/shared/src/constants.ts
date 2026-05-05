@@ -311,6 +311,9 @@ export type RoutineCatchUpPolicy = (typeof ROUTINE_CATCH_UP_POLICIES)[number];
 export const ROUTINE_TRIGGER_KINDS = ["schedule", "webhook", "api", "random_interval", "random_cron_scheduler"] as const;
 export type RoutineTriggerKind = (typeof ROUTINE_TRIGGER_KINDS)[number];
 
+export const ROUTINE_TRIGGER_CONDITION_TYPES = ["project_status"] as const;
+export type RoutineTriggerConditionType = (typeof ROUTINE_TRIGGER_CONDITION_TYPES)[number];
+
 export const ROUTINE_TRIGGER_SIGNING_MODES = ["bearer", "hmac_sha256", "github_hmac", "none"] as const;
 export type RoutineTriggerSigningMode = (typeof ROUTINE_TRIGGER_SIGNING_MODES)[number];
 
@@ -324,6 +327,7 @@ export const ROUTINE_RUN_STATUSES = [
   "received",
   "coalesced",
   "skipped",
+  "conditions_not_met",
   "issue_created",
   "running",
   "completed",

@@ -1,4 +1,9 @@
-import type { IssueOriginKind, RoutineVariableType } from "../constants.js";
+import type {
+  IssueOriginKind,
+  ProjectStatus,
+  RoutineTriggerConditionType,
+  RoutineVariableType,
+} from "../constants.js";
 
 export interface RoutineProjectSummary {
   id: string;
@@ -35,6 +40,14 @@ export interface RoutineVariable {
   required: boolean;
   options: string[];
 }
+
+export interface ProjectStatusRoutineTriggerCondition {
+  type: Extract<RoutineTriggerConditionType, "project_status">;
+  statuses: ProjectStatus[];
+}
+
+export type RoutineTriggerCondition = ProjectStatusRoutineTriggerCondition;
+export type RoutineTriggerConditions = RoutineTriggerCondition[];
 
 export interface Routine {
   id: string;
@@ -75,6 +88,7 @@ export interface RoutineTrigger {
   kind: string;
   label: string | null;
   enabled: boolean;
+  conditions: RoutineTriggerConditions | null;
   cronExpression: string | null;
   timezone: string | null;
   nextRunAt: Date | null;
@@ -155,7 +169,7 @@ export interface RoutineRemediationIssueOrigin {
 }
 
 export interface RoutineListItem extends Routine {
-  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult" | "minIntervalSec" | "maxIntervalSec" | "allowedWeekdays" | "minTimeOfDayMin" | "maxTimeOfDayMin" | "minDaysAhead" | "maxDaysAhead">[];
+  triggers: Pick<RoutineTrigger, "id" | "kind" | "label" | "enabled" | "conditions" | "cronExpression" | "timezone" | "nextRunAt" | "lastFiredAt" | "lastResult" | "minIntervalSec" | "maxIntervalSec" | "allowedWeekdays" | "minTimeOfDayMin" | "maxTimeOfDayMin" | "minDaysAhead" | "maxDaysAhead">[];
   lastRun: RoutineRunSummary | null;
   activeIssue: RoutineIssueSummary | null;
 }

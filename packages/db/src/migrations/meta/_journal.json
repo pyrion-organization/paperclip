@@ -596,6 +596,20 @@
       "when": 1776106000000,
       "tag": "0084_issue_scheduled_at",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1777359300000,
+      "tag": "0085_routine_trigger_conditions",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1777910400000,
+      "tag": "0086_routine_trigger_condition_rows",
+      "breakpoints": true
     }
   ]
 }
