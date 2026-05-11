@@ -25,6 +25,7 @@ import {
   feedbackService,
   logActivity,
 } from "../services/index.js";
+import { sendTestEmail } from "../services/email.js";
 import type { StorageService } from "../storage/types.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 
@@ -403,6 +404,23 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       entityId: companyId,
     });
     res.json(company);
+  });
+
+  router.post("/:companyId/email/test", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const to = req.body?.to;
+    if (typeof to !== "string" || !to.trim()) {
+      res.status(400).json({ error: "to email address is required" });
+      return;
+    }
+    try {
+      await sendTestEmail({ to: to.trim(), db, companyId });
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send test email";
+      res.status(500).json({ error: message });
+    }
   });
 
   router.delete("/:companyId", async (req, res) => {

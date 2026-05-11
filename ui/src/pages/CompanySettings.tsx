@@ -139,6 +139,11 @@ export function CompanySettings() {
     },
   });
 
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const testEmailMutation = useMutation({
+    mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTo.trim()),
+  });
+
   const templateWebsiteUrlValid =
     emailTemplateWebsiteUrl.trim() === "" ||
     (() => {
@@ -607,6 +612,38 @@ export function CompanySettings() {
               )}
             </div>
           )}
+          <div className="flex items-center gap-2 pt-1 border-t border-border mt-2">
+            <input
+              data-testid="company-settings-smtp-test-email"
+              className="rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none w-56"
+              type="email"
+              placeholder="Send test to..."
+              value={testEmailTo}
+              onChange={(e) => {
+                setTestEmailTo(e.target.value);
+                testEmailMutation.reset();
+              }}
+            />
+            <Button
+              data-testid="company-settings-smtp-test-send"
+              size="sm"
+              variant="outline"
+              onClick={() => testEmailMutation.mutate()}
+              disabled={testEmailMutation.isPending || !testEmailTo.trim()}
+            >
+              {testEmailMutation.isPending ? "Sending..." : "Send test email"}
+            </Button>
+            {testEmailMutation.isSuccess && (
+              <span className="text-xs text-muted-foreground">Sent</span>
+            )}
+            {testEmailMutation.isError && (
+              <span className="text-xs text-destructive">
+                {testEmailMutation.error instanceof Error
+                  ? testEmailMutation.error.message
+                  : "Failed to send"}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

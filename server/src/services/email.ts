@@ -150,10 +150,10 @@ function buildSignatureHtml(template: EmailTemplateConfig): string {
   <tr>
     <td>
       <table cellpadding="0" cellspacing="0" border="0"
-        style="background:#111827;border-top:3px solid ${template.brandColor};padding:14px 22px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+        style="background:hsl(210,8%,7%);padding:14px 22px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <tr valign="middle">
           <td style="padding-right:0;">
-            <span style="display:block;color:#ffffff;letter-spacing:0;line-height:1;white-space:nowrap;font-size:24px;font-weight:700;">${escapeHtml(template.brandName)}</span>
+            <span style="display:block;color:${template.brandColor};letter-spacing:-0.025em;line-height:1;white-space:nowrap;font-size:28px;font-weight:700;">${escapeHtml(template.brandName)}</span>
             ${tagline}
           </td>
           <td style="width:1px;background:rgba(255,255,255,0.2);padding:0 16px;">
@@ -258,6 +258,47 @@ function alertBox(color: string, bgColor: string, borderColor: string, message: 
   return `<div style="margin:16px 0;padding:14px 16px;background:${bgColor};border-left:4px solid ${borderColor};border-radius:4px;">
     <span style="color:${color};font-size:14px;font-weight:600;">${escapeHtml(message)}</span>
   </div>`;
+}
+
+export async function sendTestEmail(params: {
+  to: string;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<void> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) throw new Error("SMTP is not configured");
+  const transport = buildTransport(config);
+  const now = new Date().toISOString();
+
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    This is a test email to confirm that your SMTP configuration is working correctly.
+  </p>
+  ${metaTable([
+    ["From", config.from],
+    ["SMTP host", config.host],
+    ["SMTP port", String(config.port)],
+    ["Time", now],
+  ])}
+  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    If you received this email, your email notification settings are configured correctly.
+  </p>`;
+
+  const html = buildEmailWrapper({
+    headerColor: "#2563eb",
+    headerIcon: "✉️",
+    headerTitle: "Test Email",
+    headerSubtitle: "Email configuration test",
+    body,
+    template: config.template,
+  });
+
+  await transport.sendMail({
+    from: config.from,
+    to: params.to,
+    subject: "✉️ Test email from Paperclip",
+    text: `This is a test email.\n\nFrom: ${config.from}\nSMTP host: ${config.host}\nTime: ${now}`,
+    html,
+  });
 }
 
 export async function sendIssueCompletionEmail(params: {
