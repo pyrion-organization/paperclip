@@ -175,10 +175,112 @@ function codeBlock(title: string, content: string, maxLen = 3000): string {
   </div>`;
 }
 
+function quoteBlock(title: string, content: string, accent = "#10b981", maxLen = 4000): string {
+  const trimmed = content.length > maxLen
+    ? content.slice(0, maxLen) + `\n\n… (truncated at ${maxLen} chars)`
+    : content;
+  return `<div style="margin:20px 0;">
+    <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">${escapeHtml(title)}</div>
+    <div style="margin:0;padding:14px 18px;background:#f9fafb;border-left:4px solid ${accent};border-radius:4px;color:#111827;font-size:14px;line-height:1.6;white-space:pre-wrap;word-wrap:break-word;">${escapeHtml(trimmed)}</div>
+  </div>`;
+}
+
 function alertBox(color: string, bgColor: string, borderColor: string, message: string): string {
   return `<div style="margin:16px 0;padding:14px 16px;background:${bgColor};border-left:4px solid ${borderColor};border-radius:4px;">
     <span style="color:${color};font-size:14px;font-weight:600;">${escapeHtml(message)}</span>
   </div>`;
+}
+
+export async function sendIssueCompletionEmail(params: {
+  to: string;
+  issueTitle: string;
+  issueId: string;
+  issueIdentifier: string | null;
+  completedByName: string;
+  completedByKind: "agent" | "user";
+  agentComment?: string | null;
+  issueDescription?: string | null;
+  completedAt?: Date;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<void> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
+  const completedAt = params.completedAt ?? new Date();
+  const completedAtIso = completedAt.toISOString();
+  const identifierLabel = params.issueIdentifier ?? params.issueId.slice(0, 8);
+  const headerSubtitle = params.issueIdentifier
+    ? `${params.issueIdentifier} — ${params.issueTitle}`
+    : params.issueTitle;
+  const completedByLabel = `${params.completedByName} (${params.completedByKind})`;
+
+  const bodyParts: string[] = [];
+
+  bodyParts.push(`<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    Issue <strong>${escapeHtml(identifierLabel)} — ${escapeHtml(params.issueTitle)}</strong>
+    has just been marked as <strong style="color:#059669;">done</strong> by
+    <strong>${escapeHtml(params.completedByName)}</strong>.
+  </p>`);
+
+  const trimmedComment = params.agentComment?.trim();
+  if (trimmedComment) {
+    const commentTitle = params.completedByKind === "agent" ? "Closing comment from agent" : "Closing comment";
+    bodyParts.push(quoteBlock(commentTitle, trimmedComment));
+  }
+
+  bodyParts.push(metaTable([
+    ["Issue", params.issueTitle],
+    ["Identifier", params.issueIdentifier ?? "—"],
+    ["Issue ID", params.issueId],
+    ["Completed by", completedByLabel],
+    ["Time", completedAtIso],
+  ]));
+
+  const trimmedDescription = params.issueDescription?.trim();
+  if (trimmedDescription) {
+    bodyParts.push(quoteBlock("Issue description", trimmedDescription, "#9ca3af", 600));
+  }
+
+  bodyParts.push(`<p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    This is an automated notification sent because an issue you created has been completed.
+  </p>`);
+
+  const html = buildEmailWrapper({
+    headerColor: "#059669",
+    headerIcon: "✅",
+    headerTitle: "Issue Done",
+    headerSubtitle,
+    body: bodyParts.join("\n"),
+  });
+
+  const textLines: string[] = [
+    `Issue "${identifierLabel} — ${params.issueTitle}" has been marked as done by ${params.completedByName}.`,
+    ``,
+    `Identifier: ${params.issueIdentifier ?? "—"}`,
+    `Issue ID: ${params.issueId}`,
+    `Completed by: ${completedByLabel}`,
+    `Time: ${completedAtIso}`,
+  ];
+  if (trimmedComment) {
+    textLines.push(``, `--- Closing comment ---`, trimmedComment);
+  }
+  if (trimmedDescription) {
+    const previewDescription = trimmedDescription.length > 600
+      ? trimmedDescription.slice(0, 600) + "…"
+      : trimmedDescription;
+    textLines.push(``, `--- Issue description ---`, previewDescription);
+  }
+
+  const subjectIdent = params.issueIdentifier ? `${params.issueIdentifier} ` : "";
+  await transport.sendMail({
+    from,
+    to: params.to,
+    subject: `✅ Issue done: ${subjectIdent}${params.issueTitle}`.slice(0, 200),
+    text: textLines.join("\n"),
+    html,
+  });
 }
 
 export async function sendRoutineFailureEmail(params: {

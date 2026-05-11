@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { issueExecutionDecisions } from "@paperclipai/db";
+import { authUsers, issueExecutionDecisions } from "@paperclipai/db";
+import { sendIssueCompletionEmail } from "../services/email.js";
 import {
   addIssueCommentSchema,
   acceptIssueThreadInteractionSchema,
@@ -2830,6 +2832,53 @@ export function issueRoutes(
               blockerIssueIds: dependent.blockerIssueIds,
             },
           });
+        }
+
+        try {
+          const creatorUserId = await svc.findRootCreatorUserId(issue.id);
+          if (creatorUserId) {
+            const isSelfClose = actor.actorType === "user" && actor.actorId === creatorUserId;
+            if (!isSelfClose) {
+              const recipient = await db
+                .select({ email: authUsers.email, name: authUsers.name })
+                .from(authUsers)
+                .where(eq(authUsers.id, creatorUserId))
+                .then((rows) => rows[0] ?? null);
+              if (recipient?.email) {
+                let completedByName = "Someone";
+                let completedByKind: "agent" | "user" = "user";
+                if (actor.actorType === "agent" && actor.agentId) {
+                  const actorAgent = await agentsSvc.getById(actor.agentId);
+                  if (actorAgent?.name) completedByName = actorAgent.name;
+                  completedByKind = "agent";
+                } else if (actor.actorType === "user" && actor.actorId) {
+                  const actorUser = await db
+                    .select({ name: authUsers.name })
+                    .from(authUsers)
+                    .where(eq(authUsers.id, actor.actorId))
+                    .then((rows) => rows[0] ?? null);
+                  if (actorUser?.name) completedByName = actorUser.name;
+                }
+                sendIssueCompletionEmail({
+                  to: recipient.email,
+                  issueTitle: issue.title,
+                  issueId: issue.id,
+                  issueIdentifier: issue.identifier ?? null,
+                  completedByName,
+                  completedByKind,
+                  agentComment: commentBody ?? null,
+                  issueDescription: issue.description ?? null,
+                  completedAt: issue.completedAt ?? new Date(),
+                  db,
+                  companyId: issue.companyId,
+                }).catch((err) =>
+                  logger.warn({ err, issueId: issue.id }, "failed to send issue completion email"),
+                );
+              }
+            }
+          }
+        } catch (err) {
+          logger.warn({ err, issueId: issue.id }, "failed to resolve issue completion email recipient");
         }
       }
 
