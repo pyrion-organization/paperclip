@@ -43,6 +43,10 @@ export const companiesApi = {
         | "smtpPort"
         | "smtpUser"
         | "smtpFrom"
+        | "emailTemplateBrandName"
+        | "emailTemplateTagline"
+        | "emailTemplateWebsiteUrl"
+        | "emailTemplateFooterText"
       >
     > & { smtpPassword?: string | null },
   ) => api.patch<Company>(`/companies/${companyId}`, data),

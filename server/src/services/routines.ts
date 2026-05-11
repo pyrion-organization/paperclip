@@ -1884,6 +1884,7 @@ export function routineService(
           scriptCommandArgs: input.scriptCommandArgs ?? null,
           remediationEnabled: input.remediationEnabled ?? false,
           remediationAssigneeAgentId: input.remediationEnabled ? (input.remediationAssigneeAgentId ?? null) : null,
+          notificationEmail: input.notificationEmail ?? null,
           createdByAgentId: actor.agentId ?? null,
           createdByUserId: actor.userId ?? null,
           updatedByAgentId: actor.agentId ?? null,

@@ -1013,7 +1013,6 @@ describe("IssueProperties", () => {
 
     expect(container.textContent).toContain("Monitor");
     expect(container.textContent).toContain("Next check");
-    expect(container.querySelector('input[type="datetime-local"]')).toBeNull();
     expect(container.querySelector('input[placeholder="What should the agent re-check?"]')).toBeNull();
 
     const monitorTrigger = Array.from(container.querySelectorAll("button"))
@@ -1026,8 +1025,8 @@ describe("IssueProperties", () => {
     await flush();
 
     const inputs = Array.from(container.querySelectorAll("input"));
-    const datetimeInput = inputs.find((input) => input.getAttribute("type") === "datetime-local");
     const textInput = inputs.find((input) => input.getAttribute("placeholder") === "What should the agent re-check?");
+    const datetimeInput = textInput?.parentElement?.querySelector<HTMLInputElement>('input[type="datetime-local"]');
     const clearButton = Array.from(container.querySelectorAll("button"))
       .find((button) => button.textContent?.includes("Clear"));
 

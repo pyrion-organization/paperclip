@@ -52,6 +52,10 @@ export function CompanySettings() {
   const [smtpFrom, setSmtpFrom] = useState("");
   const [smtpPassword, setSmtpPassword] = useState("");
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+  const [emailTemplateBrandName, setEmailTemplateBrandName] = useState("");
+  const [emailTemplateTagline, setEmailTemplateTagline] = useState("");
+  const [emailTemplateWebsiteUrl, setEmailTemplateWebsiteUrl] = useState("");
+  const [emailTemplateFooterText, setEmailTemplateFooterText] = useState("");
 
   // Sync local state from selected company
   useEffect(() => {
@@ -67,6 +71,10 @@ export function CompanySettings() {
     setSmtpFrom(selectedCompany.smtpFrom ?? "");
     setSmtpPassword("");
     setSmtpPasswordTouched(false);
+    setEmailTemplateBrandName(selectedCompany.emailTemplateBrandName ?? "");
+    setEmailTemplateTagline(selectedCompany.emailTemplateTagline ?? "");
+    setEmailTemplateWebsiteUrl(selectedCompany.emailTemplateWebsiteUrl ?? "");
+    setEmailTemplateFooterText(selectedCompany.emailTemplateFooterText ?? "");
   }, [selectedCompany]);
 
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -130,6 +138,38 @@ export function CompanySettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
     },
   });
+
+  const templateWebsiteUrlValid =
+    emailTemplateWebsiteUrl.trim() === "" ||
+    (() => {
+      try {
+        const url = new URL(emailTemplateWebsiteUrl.trim());
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    })();
+  const emailTemplateDirty =
+    !!selectedCompany &&
+    (emailTemplateBrandName !== (selectedCompany.emailTemplateBrandName ?? "") ||
+      emailTemplateTagline !== (selectedCompany.emailTemplateTagline ?? "") ||
+      emailTemplateWebsiteUrl !== (selectedCompany.emailTemplateWebsiteUrl ?? "") ||
+      emailTemplateFooterText !== (selectedCompany.emailTemplateFooterText ?? ""));
+
+  const emailTemplateMutation = useMutation({
+    mutationFn: () =>
+      companiesApi.update(selectedCompanyId!, {
+        emailTemplateBrandName: emailTemplateBrandName.trim() || null,
+        emailTemplateTagline: emailTemplateTagline.trim() || null,
+        emailTemplateWebsiteUrl: emailTemplateWebsiteUrl.trim() || null,
+        emailTemplateFooterText: emailTemplateFooterText.trim() || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    },
+  });
+  const emailTemplatePreviewBrand = emailTemplateBrandName.trim() || selectedCompany?.name || "Paperclip";
+  const emailTemplatePreviewFooter = emailTemplateFooterText.trim() || "This is an automated notification from Paperclip.";
 
   const settingsMutation = useMutation({
     mutationFn: (requireApproval: boolean) =>
@@ -562,6 +602,92 @@ export function CompanySettings() {
                 <span className="text-xs text-destructive">
                   {smtpMutation.error instanceof Error
                     ? smtpMutation.error.message
+                    : "Failed to save"}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Email Template */}
+      <div className="space-y-4" data-testid="company-settings-email-template-section">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Email Template
+          </div>
+          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Brand name" hint="Defaults to the company name when empty.">
+              <input
+                data-testid="company-settings-email-template-brand-name"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateBrandName}
+                placeholder={selectedCompany.name}
+                onChange={(e) => setEmailTemplateBrandName(e.target.value)}
+              />
+            </Field>
+            <Field label="Tagline" hint="Short line shown below the brand name.">
+              <input
+                data-testid="company-settings-email-template-tagline"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateTagline}
+                placeholder="AI company control plane"
+                onChange={(e) => setEmailTemplateTagline(e.target.value)}
+              />
+            </Field>
+            <Field label="Website URL" hint="Optional http(s) link shown in the footer.">
+              <input
+                data-testid="company-settings-email-template-website-url"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="url"
+                value={emailTemplateWebsiteUrl}
+                placeholder="https://example.com"
+                onChange={(e) => setEmailTemplateWebsiteUrl(e.target.value)}
+              />
+            </Field>
+            <Field label="Footer text" hint="Defaults to a generic automated-email notice.">
+              <input
+                data-testid="company-settings-email-template-footer-text"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateFooterText}
+                placeholder="This is an automated notification from Paperclip."
+                onChange={(e) => setEmailTemplateFooterText(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            Preview: <span className="font-medium text-foreground">{emailTemplatePreviewBrand}</span>
+            {emailTemplateTagline.trim() ? ` · ${emailTemplateTagline.trim()}` : ""}
+            <span className="block pt-1">{emailTemplatePreviewFooter}</span>
+          </div>
+          {!templateWebsiteUrlValid && (
+            <span className="text-xs text-destructive">
+              Website URL must start with http:// or https://.
+            </span>
+          )}
+          {emailTemplateDirty && (
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                data-testid="company-settings-email-template-save"
+                size="sm"
+                onClick={() => emailTemplateMutation.mutate()}
+                disabled={emailTemplateMutation.isPending || !templateWebsiteUrlValid}
+              >
+                {emailTemplateMutation.isPending ? "Saving..." : "Save template"}
+              </Button>
+              {emailTemplateMutation.isSuccess && (
+                <span className="text-xs text-muted-foreground">Saved</span>
+              )}
+              {emailTemplateMutation.isError && (
+                <span className="text-xs text-destructive">
+                  {emailTemplateMutation.error instanceof Error
+                    ? emailTemplateMutation.error.message
                     : "Failed to save"}
                 </span>
               )}

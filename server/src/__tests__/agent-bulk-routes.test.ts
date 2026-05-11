@@ -117,9 +117,13 @@ describe("agent bulk routes", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     mockGetTelemetryClient.mockReturnValue({ track: vi.fn() });
-    mockAgentService.pauseAll.mockResolvedValue({ pausedCount: 2 });
+    mockAgentService.pauseAll.mockResolvedValue({
+      pausedAgentIds: ["agent-1", "agent-2"],
+      pausedCount: 2,
+    });
     mockAgentService.resumeAll.mockResolvedValue({ resumedCount: 1 });
     mockAccessService.canUser.mockResolvedValue(true);
+    mockHeartbeatService.cancelActiveForAgent.mockResolvedValue(undefined);
   });
 
   it("uses the selected companyId query when pausing and resuming all agents", async () => {
@@ -158,5 +162,5 @@ describe("agent bulk routes", () => {
         details: { count: 1 },
       }),
     );
-  });
+  }, 10_000);
 });

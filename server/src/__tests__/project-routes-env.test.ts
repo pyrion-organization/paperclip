@@ -34,6 +34,7 @@ vi.mock("../services/index.js", () => ({
   environmentService: () => mockEnvironmentService,
   logActivity: mockLogActivity,
   initWorkspaceGit: mockInitWorkspaceGit,
+  projectFilesService: () => mockProjectFilesService,
   projectService: () => mockProjectService,
   secretService: () => mockSecretService,
   workspaceOperationService: () => mockWorkspaceOperationService,
@@ -152,6 +153,7 @@ describe("project env routes", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     mockGetTelemetryClient.mockReturnValue({ track: vi.fn() });
+    mockProjectService.getById.mockResolvedValue(null);
     mockProjectService.resolveByReference.mockResolvedValue({ ambiguous: false, project: null });
     mockProjectService.createWorkspace.mockResolvedValue(null);
     mockProjectService.updateWorkspace.mockResolvedValue(null);

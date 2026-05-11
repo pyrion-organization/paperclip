@@ -178,6 +178,37 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     return { companyId, agentId, issueSvc, projectId, routine, svc, wakeups };
   }
 
+  it("persists the notification email when creating a routine", async () => {
+    const { agentId, companyId, projectId, svc } = await seedFixture();
+
+    const created = await svc.create(
+      companyId,
+      {
+        projectId,
+        goalId: null,
+        parentIssueId: null,
+        title: "send report",
+        description: "Notify operations on failure",
+        assigneeAgentId: agentId,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+        executionMode: "script_nodejs",
+        scriptPath: "scripts/report.js",
+        notificationEmail: "ops@example.com",
+      },
+      {},
+    );
+
+    expect(created.notificationEmail).toBe("ops@example.com");
+    const [stored] = await db
+      .select({ notificationEmail: routines.notificationEmail })
+      .from(routines)
+      .where(eq(routines.id, created.id));
+    expect(stored?.notificationEmail).toBe("ops@example.com");
+  });
+
   it("filters listed routines by project", async () => {
     const { companyId, agentId, projectId, routine, svc } = await seedFixture();
     const otherProjectId = randomUUID();

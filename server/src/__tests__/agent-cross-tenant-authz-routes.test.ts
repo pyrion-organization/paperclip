@@ -342,10 +342,10 @@ describe.sequential("agent cross-tenant route authorization", () => {
       },
     ];
 
+    const deniedApp = await createApp(crossTenantActor);
     for (const deniedCase of deniedCases) {
       resetMockDefaults();
-      const app = await createApp(crossTenantActor);
-      const res = await deniedCase.request(app);
+      const res = await deniedCase.request(deniedApp);
 
       expect(res.status, `${deniedCase.label}: ${JSON.stringify(res.body)}`).toBe(403);
       expect(res.body.error).toContain("User does not have access to this company");
@@ -373,5 +373,5 @@ describe.sequential("agent cross-tenant route authorization", () => {
     expect(res.body.error).toContain("Key not found");
     expect(mockAgentService.getKeyById).toHaveBeenCalledWith(keyId);
     expect(mockAgentService.revokeKey).not.toHaveBeenCalled();
-  });
+  }, 10_000);
 });

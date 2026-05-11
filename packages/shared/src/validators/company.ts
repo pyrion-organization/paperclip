@@ -7,6 +7,17 @@ import {
 const logoAssetIdSchema = z.string().uuid().nullable().optional();
 const brandColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional();
 const feedbackDataSharingTermsVersionSchema = z.string().min(1).nullable().optional();
+const emailTemplateTextSchema = z.string().max(500).nullable().optional();
+const emailTemplateWebsiteUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  }, "Website URL must start with http:// or https://")
+  .nullable()
+  .optional();
 const attachmentMaxBytesSchema = z
   .number()
   .int()
@@ -41,6 +52,10 @@ export const updateCompanySchema = createCompanySchema
     smtpFrom: z.string().max(255).nullable().optional(),
     // Write-only: empty string clears, undefined leaves unchanged.
     smtpPassword: z.string().nullable().optional(),
+    emailTemplateBrandName: emailTemplateTextSchema,
+    emailTemplateTagline: emailTemplateTextSchema,
+    emailTemplateWebsiteUrl: emailTemplateWebsiteUrlSchema,
+    emailTemplateFooterText: emailTemplateTextSchema,
   });
 
 export type UpdateCompany = z.infer<typeof updateCompanySchema>;
