@@ -7,7 +7,8 @@ import {
   MONTHLY_RETENTION_PRESETS,
   DEFAULT_BACKUP_RETENTION,
 } from "@paperclipai/shared";
-import { LogOut, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, LogOut, SlidersHorizontal } from "lucide-react";
+import { Link } from "@/lib/router";
 import { authApi } from "@/api/auth";
 import { healthApi } from "@/api/health";
 import { instanceSettingsApi } from "@/api/instanceSettings";
@@ -84,6 +85,14 @@ export function InstanceGeneralSettings() {
 
   return (
     <div className="max-w-4xl space-y-6">
+      <div>
+        <Button asChild variant="ghost" size="sm" className="-ml-2 h-8 px-2 text-muted-foreground">
+          <Link to="/dashboard">
+            <ArrowLeft className="size-4" />
+            Back to main page
+          </Link>
+        </Button>
+      </div>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="h-5 w-5 text-muted-foreground" />
