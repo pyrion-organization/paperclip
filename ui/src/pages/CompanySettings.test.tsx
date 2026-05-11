@@ -183,4 +183,130 @@ describe("CompanySettings email settings", () => {
       emailTemplateFooterText: "Do not reply to this automated email.",
     });
   });
+
+  it("saves SMTP credentials through the company update API", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const hostInput = container.querySelector("[data-testid='company-settings-smtp-host']") as HTMLInputElement;
+    const portInput = container.querySelector("[data-testid='company-settings-smtp-port']") as HTMLInputElement;
+    const fromInput = container.querySelector("[data-testid='company-settings-smtp-from']") as HTMLInputElement;
+    const userInput = container.querySelector("[data-testid='company-settings-smtp-user']") as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(hostInput, "smtp.example.com");
+      setInputValue(portInput, "587");
+      setInputValue(fromInput, "noreply@example.com");
+      setInputValue(userInput, "mailer");
+    });
+    await flushReact();
+
+    const saveButton = container.querySelector("[data-testid='company-settings-smtp-save']") as HTMLButtonElement;
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.update).toHaveBeenCalledWith("company-1", {
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpUser: "mailer",
+      smtpFrom: "noreply@example.com",
+    });
+  });
+
+  it("shows a URL validation error and disables save when the website URL is invalid", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const websiteInput = container.querySelector("[data-testid='company-settings-email-template-website-url']") as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(websiteInput, "not-a-url");
+    });
+    await flushReact();
+
+    expect(container.textContent).toContain("Website URL must start with http:// or https://");
+    const saveButton = container.querySelector("[data-testid='company-settings-email-template-save']") as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+  });
+
+  it("omits smtpPassword from the payload when the password field has not been touched", async () => {
+    selectedCompany = { ...makeCompany(), smtpHost: "smtp.example.com", smtpPasswordSet: true };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const fromInput = container.querySelector("[data-testid='company-settings-smtp-from']") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(fromInput, "noreply@example.com");
+    });
+    await flushReact();
+
+    const saveButton = container.querySelector("[data-testid='company-settings-smtp-save']") as HTMLButtonElement;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const payload = mockCompaniesApi.update.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("smtpPassword");
+    expect(payload.smtpFrom).toBe("noreply@example.com");
+  });
+
+  it("includes smtpPassword in the payload when the password field has been touched", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const hostInput = container.querySelector("[data-testid='company-settings-smtp-host']") as HTMLInputElement;
+    const passwordInput = container.querySelector("[data-testid='company-settings-smtp-password']") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(hostInput, "smtp.example.com");
+      setInputValue(passwordInput, "fresh-pass");
+    });
+    await flushReact();
+
+    const saveButton = container.querySelector("[data-testid='company-settings-smtp-save']") as HTMLButtonElement;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const payload = mockCompaniesApi.update.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload.smtpPassword).toBe("fresh-pass");
+  });
 });

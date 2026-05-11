@@ -85,4 +85,41 @@ describeEmbeddedPostgres("company email settings", () => {
     });
     expect(updated).not.toHaveProperty("smtpPassword");
   });
+
+  it("clears the SMTP password when an empty string is provided", async () => {
+    const companyId = await seedCompany();
+    await svc.update(
+      companyId,
+      { smtpHost: "smtp.example.com", smtpPassword: "initial" },
+      { userId: "user-1" },
+    );
+
+    const cleared = await svc.update(
+      companyId,
+      { smtpPassword: "" },
+      { userId: "user-1" },
+    );
+
+    expect(cleared).toMatchObject({ smtpPasswordSet: false });
+  });
+
+  it("leaves the SMTP password unchanged when smtpPassword is omitted", async () => {
+    const companyId = await seedCompany();
+    await svc.update(
+      companyId,
+      { smtpHost: "smtp.example.com", smtpPassword: "keep-me" },
+      { userId: "user-1" },
+    );
+
+    const updated = await svc.update(
+      companyId,
+      { smtpFrom: "noreply@example.com" },
+      { userId: "user-1" },
+    );
+
+    expect(updated).toMatchObject({
+      smtpFrom: "noreply@example.com",
+      smtpPasswordSet: true,
+    });
+  });
 });

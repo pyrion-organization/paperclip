@@ -630,7 +630,7 @@ export function CompanySettings() {
                 onChange={(e) => setEmailTemplateBrandName(e.target.value)}
               />
             </Field>
-            <Field label="Tagline" hint="Short line shown below the brand name.">
+            <Field label="Tagline" hint="Short line shown below the brand name. Leave empty to show no tagline.">
               <input
                 data-testid="company-settings-email-template-tagline"
                 className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"

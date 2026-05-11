@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { companies, createDb } from "@paperclipai/db";
+import { companies, companySecrets, companySecretVersions, createDb } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { sendIssueCompletionEmail } from "../services/email.ts";
+import { secretService } from "../services/secrets.ts";
+import { SMTP_PASSWORD_SECRET_NAME } from "../services/companies.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
@@ -40,6 +42,8 @@ describeEmbeddedPostgres("email service", () => {
   });
 
   afterEach(async () => {
+    await db.delete(companySecretVersions);
+    await db.delete(companySecrets);
     await db.delete(companies);
   });
 
@@ -89,5 +93,100 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.html).toContain("https://ops.example.com");
     expect(message?.html).toContain("Do not reply to this automated email.");
     expect(message?.html).not.toContain("Pyrion");
+  });
+
+  it("falls back to company name as brand and suppresses tagline when template fields are null", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+    });
+
+    await sendIssueCompletionEmail({
+      to: "creator@example.com",
+      issueTitle: "Ship report",
+      issueId: randomUUID(),
+      issueIdentifier: "ACME-1",
+      completedByName: "CodexCoder",
+      completedByKind: "agent",
+      db,
+      companyId,
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as { html?: string } | undefined;
+    expect(message?.html).toContain("Acme Operations");
+    expect(message?.html).not.toContain("AI company control plane");
+  });
+
+  it("does not send when SMTP host is not configured", async () => {
+    const previousHost = process.env.SMTP_HOST;
+    delete process.env.SMTP_HOST;
+    try {
+      const companyId = randomUUID();
+      await db.insert(companies).values({
+        id: companyId,
+        name: "Acme Operations",
+        issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+        requireBoardApprovalForNewAgents: false,
+      });
+
+      await sendIssueCompletionEmail({
+        to: "creator@example.com",
+        issueTitle: "Ship report",
+        issueId: randomUUID(),
+        issueIdentifier: "ACME-1",
+        completedByName: "CodexCoder",
+        completedByKind: "agent",
+        db,
+        companyId,
+      });
+
+      expect(createTransportMock).not.toHaveBeenCalled();
+      expect(sendMailMock).not.toHaveBeenCalled();
+    } finally {
+      if (previousHost !== undefined) process.env.SMTP_HOST = previousHost;
+    }
+  });
+
+  it("passes SMTP auth credentials when user and password are configured", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 465,
+      smtpUser: "sender",
+      smtpFrom: "noreply@acme.example",
+    });
+    await secretService(db).create(
+      companyId,
+      { name: SMTP_PASSWORD_SECRET_NAME, provider: "local_encrypted", value: "super-secret" },
+      { userId: "test-user" },
+    );
+
+    await sendIssueCompletionEmail({
+      to: "creator@example.com",
+      issueTitle: "Ship report",
+      issueId: randomUUID(),
+      issueIdentifier: "ACME-1",
+      completedByName: "CodexCoder",
+      completedByKind: "agent",
+      db,
+      companyId,
+    });
+
+    expect(createTransportMock).toHaveBeenCalledWith({
+      host: "smtp.example.com",
+      port: 465,
+      auth: { user: "sender", pass: "super-secret" },
+    });
   });
 });

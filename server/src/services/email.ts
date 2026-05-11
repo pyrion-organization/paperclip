@@ -4,6 +4,7 @@ import type { Db } from "@paperclipai/db";
 import { companies } from "@paperclipai/db";
 import { secretService } from "./secrets.js";
 import { SMTP_PASSWORD_SECRET_NAME } from "./companies.js";
+import { logger } from "../middleware/logger.js";
 
 type SmtpConfig = {
   host: string;
@@ -53,7 +54,7 @@ function buildEmailTemplateConfig(row?: {
   const brandName = nonEmpty(row?.emailTemplateBrandName) ?? nonEmpty(row?.name) ?? DEFAULT_EMAIL_TEMPLATE.brandName;
   return {
     brandName,
-    tagline: nonEmpty(row?.emailTemplateTagline) ?? DEFAULT_EMAIL_TEMPLATE.tagline,
+    tagline: nonEmpty(row?.emailTemplateTagline),
     websiteUrl: nonEmpty(row?.emailTemplateWebsiteUrl),
     footerText: nonEmpty(row?.emailTemplateFooterText) ?? DEFAULT_EMAIL_TEMPLATE.footerText,
     brandColor: normalizeBrandColor(row?.brandColor),
@@ -100,15 +101,16 @@ async function loadSmtpConfig(
         if (secret) {
           try {
             pass = await secrets.resolveSecretValue(companyId, secret.id, "latest");
-          } catch {
+          } catch (err) {
+            logger.warn({ err, companyId }, "email: failed to resolve SMTP password secret, sending without auth");
             pass = null;
           }
         } else {
           pass = null;
         }
       }
-    } catch {
-      // fall back to env config
+    } catch (err) {
+      logger.warn({ err, companyId }, "email: failed to load company SMTP config from DB, falling back to env");
     }
   }
 
@@ -117,10 +119,13 @@ async function loadSmtpConfig(
 }
 
 function buildTransport(config: SmtpConfig) {
+  if (config.user && !config.pass) {
+    logger.warn({ host: config.host }, "email: SMTP user configured but no password; sending unauthenticated");
+  }
   return nodemailer.createTransport({
     host: config.host,
     port: config.port,
-    auth: config.user ? { user: config.user, pass: config.pass ?? "" } : undefined,
+    auth: config.user && config.pass ? { user: config.user, pass: config.pass } : undefined,
   });
 }
 
