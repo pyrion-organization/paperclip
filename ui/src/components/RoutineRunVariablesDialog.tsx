@@ -351,7 +351,7 @@ export function RoutineRunVariablesDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className={`grid gap-4 ${isScriptMode ? "" : "md:grid-cols-2"}`}>
+          <div className="space-y-4">
             {!isScriptMode && (
               <div className="space-y-1.5">
                 <Label className="text-xs">Agent *</Label>
