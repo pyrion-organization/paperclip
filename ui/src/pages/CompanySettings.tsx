@@ -140,8 +140,12 @@ export function CompanySettings() {
   });
 
   const [testEmailTo, setTestEmailTo] = useState("");
+  const testEmailTrimmed = testEmailTo.trim();
+  const testEmailValid =
+    testEmailTrimmed === "" ||
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmailTrimmed);
   const testEmailMutation = useMutation({
-    mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTo.trim()),
+    mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTrimmed),
   });
 
   const templateWebsiteUrlValid =
@@ -591,10 +595,11 @@ export function CompanySettings() {
             </span>
           )}
           {smtpDirty && (
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
               <Button
                 data-testid="company-settings-smtp-save"
                 size="sm"
+                className="w-full sm:w-auto"
                 onClick={() => smtpMutation.mutate()}
                 disabled={smtpMutation.isPending || !smtpPortValid}
               >
@@ -604,7 +609,7 @@ export function CompanySettings() {
                 <span className="text-xs text-muted-foreground">Saved</span>
               )}
               {smtpMutation.isError && (
-                <span className="text-xs text-destructive">
+                <span className="min-w-0 break-words text-xs text-destructive">
                   {smtpMutation.error instanceof Error
                     ? smtpMutation.error.message
                     : "Failed to save"}
@@ -612,32 +617,42 @@ export function CompanySettings() {
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 pt-1 border-t border-border mt-2">
-            <input
-              data-testid="company-settings-smtp-test-email"
-              className="rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none w-56"
-              type="email"
-              placeholder="Send test to..."
-              value={testEmailTo}
-              onChange={(e) => {
-                setTestEmailTo(e.target.value);
-                testEmailMutation.reset();
-              }}
-            />
-            <Button
-              data-testid="company-settings-smtp-test-send"
-              size="sm"
-              variant="outline"
-              onClick={() => testEmailMutation.mutate()}
-              disabled={testEmailMutation.isPending || !testEmailTo.trim()}
-            >
-              {testEmailMutation.isPending ? "Sending..." : "Send test email"}
-            </Button>
+          <div className="space-y-2 border-t border-border pt-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                data-testid="company-settings-smtp-test-email"
+                className="min-w-0 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none sm:w-64"
+                type="email"
+                placeholder="Send test to..."
+                value={testEmailTo}
+                onChange={(e) => {
+                  setTestEmailTo(e.target.value);
+                  testEmailMutation.reset();
+                }}
+              />
+              <Button
+                data-testid="company-settings-smtp-test-send"
+                size="sm"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => testEmailMutation.mutate()}
+                disabled={testEmailMutation.isPending || !testEmailTrimmed || !testEmailValid}
+              >
+                {testEmailMutation.isPending ? "Sending..." : "Send test email"}
+              </Button>
+            </div>
+            {!testEmailValid && (
+              <span className="block text-xs text-destructive">
+                Enter a valid email address before sending a test.
+              </span>
+            )}
             {testEmailMutation.isSuccess && (
-              <span className="text-xs text-muted-foreground">Sent</span>
+              <span className="block text-xs text-muted-foreground">
+                Test email sent to {testEmailTrimmed}.
+              </span>
             )}
             {testEmailMutation.isError && (
-              <span className="text-xs text-destructive">
+              <span className="block min-w-0 break-words text-xs text-destructive">
                 {testEmailMutation.error instanceof Error
                   ? testEmailMutation.error.message
                   : "Failed to send"}
@@ -709,10 +724,11 @@ export function CompanySettings() {
             </span>
           )}
           {emailTemplateDirty && (
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
               <Button
                 data-testid="company-settings-email-template-save"
                 size="sm"
+                className="w-full sm:w-auto"
                 onClick={() => emailTemplateMutation.mutate()}
                 disabled={emailTemplateMutation.isPending || !templateWebsiteUrlValid}
               >
@@ -722,7 +738,7 @@ export function CompanySettings() {
                 <span className="text-xs text-muted-foreground">Saved</span>
               )}
               {emailTemplateMutation.isError && (
-                <span className="text-xs text-destructive">
+                <span className="min-w-0 break-words text-xs text-destructive">
                   {emailTemplateMutation.error instanceof Error
                     ? emailTemplateMutation.error.message
                     : "Failed to save"}
