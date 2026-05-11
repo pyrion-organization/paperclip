@@ -37,6 +37,7 @@ vi.mock("../telemetry.js", () => ({
 vi.mock("../services/index.js", () => ({
   environmentService: () => mockEnvironmentService,
   goalService: () => mockGoalService,
+  initWorkspaceGit: vi.fn(),
   logActivity: mockLogActivity,
   projectFilesService: () => mockProjectFilesService,
   projectService: () => mockProjectService,
@@ -57,7 +58,9 @@ function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
     environmentService: () => mockEnvironmentService,
     goalService: () => mockGoalService,
+    initWorkspaceGit: vi.fn(),
     logActivity: mockLogActivity,
+    projectFilesService: () => mockProjectFilesService,
     projectService: () => mockProjectService,
     secretService: () => mockSecretService,
     workspaceOperationService: () => mockWorkspaceOperationService,
@@ -113,6 +116,7 @@ describe("project and goal telemetry routes", () => {
     registerModuleMocks();
     vi.clearAllMocks();
     mockGetTelemetryClient.mockReturnValue({ track: mockTelemetryTrack });
+    mockProjectService.getById.mockResolvedValue(null);
     mockProjectService.resolveByReference.mockResolvedValue({ ambiguous: false, project: null });
     mockEnvironmentService.getById.mockReset();
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);

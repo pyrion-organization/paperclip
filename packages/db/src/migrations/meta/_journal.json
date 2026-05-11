@@ -610,6 +610,20 @@
       "when": 1777910400000,
       "tag": "0086_routine_trigger_condition_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1778515200000,
+      "tag": "0087_company_smtp_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1778601600000,
+      "tag": "0088_company_email_template",
+      "breakpoints": true
     }
   ]
 }

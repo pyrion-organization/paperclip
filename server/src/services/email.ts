@@ -1,14 +1,131 @@
 import nodemailer from "nodemailer";
+import { eq } from "drizzle-orm";
+import type { Db } from "@paperclipai/db";
+import { companies } from "@paperclipai/db";
+import { secretService } from "./secrets.js";
+import { SMTP_PASSWORD_SECRET_NAME } from "./companies.js";
+import { logger } from "../middleware/logger.js";
 
-function getTransport() {
-  const host = process.env.SMTP_HOST;
+type SmtpConfig = {
+  host: string;
+  port: number;
+  user: string | null;
+  pass: string | null;
+  from: string;
+  template: EmailTemplateConfig;
+};
+
+type EmailTemplateConfig = {
+  brandName: string;
+  tagline: string | null;
+  websiteUrl: string | null;
+  footerText: string;
+  brandColor: string;
+};
+
+const DEFAULT_EMAIL_TEMPLATE: EmailTemplateConfig = {
+  brandName: "Paperclip",
+  tagline: "AI company control plane",
+  websiteUrl: null,
+  footerText: "This is an automated notification from Paperclip.",
+  brandColor: "#111827",
+};
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeBrandColor(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed && /^#[0-9a-fA-F]{6}$/.test(trimmed)
+    ? trimmed
+    : DEFAULT_EMAIL_TEMPLATE.brandColor;
+}
+
+function buildEmailTemplateConfig(row?: {
+  name?: string | null;
+  brandColor?: string | null;
+  emailTemplateBrandName?: string | null;
+  emailTemplateTagline?: string | null;
+  emailTemplateWebsiteUrl?: string | null;
+  emailTemplateFooterText?: string | null;
+} | null): EmailTemplateConfig {
+  const brandName = nonEmpty(row?.emailTemplateBrandName) ?? nonEmpty(row?.name) ?? DEFAULT_EMAIL_TEMPLATE.brandName;
+  return {
+    brandName,
+    tagline: nonEmpty(row?.emailTemplateTagline),
+    websiteUrl: nonEmpty(row?.emailTemplateWebsiteUrl),
+    footerText: nonEmpty(row?.emailTemplateFooterText) ?? DEFAULT_EMAIL_TEMPLATE.footerText,
+    brandColor: normalizeBrandColor(row?.brandColor),
+  };
+}
+
+async function loadSmtpConfig(
+  db: Db | null,
+  companyId: string | null | undefined,
+): Promise<SmtpConfig | null> {
+  let host = process.env.SMTP_HOST ?? null;
+  let port = Number(process.env.SMTP_PORT ?? 587);
+  let user: string | null = process.env.SMTP_USER ?? null;
+  let pass: string | null = process.env.SMTP_PASS ?? null;
+  let from: string = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  let template = DEFAULT_EMAIL_TEMPLATE;
+
+  if (db && companyId) {
+    try {
+      const row = await db
+        .select({
+          name: companies.name,
+          brandColor: companies.brandColor,
+          smtpHost: companies.smtpHost,
+          smtpPort: companies.smtpPort,
+          smtpUser: companies.smtpUser,
+          smtpFrom: companies.smtpFrom,
+          emailTemplateBrandName: companies.emailTemplateBrandName,
+          emailTemplateTagline: companies.emailTemplateTagline,
+          emailTemplateWebsiteUrl: companies.emailTemplateWebsiteUrl,
+          emailTemplateFooterText: companies.emailTemplateFooterText,
+        })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .then((rows) => rows[0] ?? null);
+      template = buildEmailTemplateConfig(row);
+      if (row?.smtpHost) {
+        host = row.smtpHost;
+        port = row.smtpPort ?? port;
+        user = row.smtpUser ?? null;
+        from = row.smtpFrom ?? from;
+        const secrets = secretService(db);
+        const secret = await secrets.getByName(companyId, SMTP_PASSWORD_SECRET_NAME);
+        if (secret) {
+          try {
+            pass = await secrets.resolveSecretValue(companyId, secret.id, "latest");
+          } catch (err) {
+            logger.warn({ err, companyId }, "email: failed to resolve SMTP password secret, sending without auth");
+            pass = null;
+          }
+        } else {
+          pass = null;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, companyId }, "email: failed to load company SMTP config from DB, falling back to env");
+    }
+  }
+
   if (!host) return null;
+  return { host, port, user, pass, from, template };
+}
+
+function buildTransport(config: SmtpConfig) {
+  if (config.user && !config.pass) {
+    logger.warn({ host: config.host }, "email: SMTP user configured but no password; sending unauthenticated");
+  }
   return nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-      : undefined,
+    host: config.host,
+    port: config.port,
+    auth: config.user && config.pass ? { user: config.user, pass: config.pass } : undefined,
   });
 }
 
@@ -20,7 +137,15 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const SIGNATURE_HTML = `
+function buildSignatureHtml(template: EmailTemplateConfig): string {
+  const tagline = template.tagline
+    ? `<span style="display:block;font-weight:400;color:rgb(229,231,235);letter-spacing:0.01em;line-height:1.4;white-space:nowrap;font-size:9px;margin-top:4px;">${escapeHtml(template.tagline)}</span>`
+    : "";
+  const website = template.websiteUrl
+    ? `<div style="margin-bottom:4px;"><a href="${escapeHtml(template.websiteUrl)}" style="color:#ffffff;text-decoration:none;">${escapeHtml(template.websiteUrl)}</a></div>`
+    : "";
+
+  return `
 <table cellpadding="0" cellspacing="0" border="0" style="margin-top:32px;">
   <tr>
     <td>
@@ -28,23 +153,23 @@ const SIGNATURE_HTML = `
         style="background:hsl(210,8%,7%);padding:14px 22px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <tr valign="middle">
           <td style="padding-right:0;">
-            <span style="display:block;color:rgb(252,154,34);letter-spacing:-0.025em;line-height:1;white-space:nowrap;font-size:28px;font-weight:700;">Pyrion</span>
-            <span style="display:block;font-weight:400;color:rgb(229,231,235);letter-spacing:0.01em;line-height:1.4;white-space:nowrap;font-size:9px;margin-top:4px;">Tecnologia aplicada à eficiência operacional</span>
+            <span style="display:block;color:${template.brandColor};letter-spacing:-0.025em;line-height:1;white-space:nowrap;font-size:28px;font-weight:700;">${escapeHtml(template.brandName)}</span>
+            ${tagline}
           </td>
           <td style="width:1px;background:rgba(255,255,255,0.2);padding:0 16px;">
             <div style="width:1px;height:41px;background:rgba(255,255,255,0.2);"></div>
           </td>
           <td style="font-size:10px;text-align:left;">
-            <div style="font-weight:700;color:#ffffff;margin-bottom:4px;">Automations</div>
-            <div style="color:rgb(229,231,235);margin-bottom:4px;">Agentes de IA &amp; E-mails Automatizados</div>
-            <div style="margin-bottom:4px;"><a href="https://www.pyrion.com.br" style="color:#ffffff;text-decoration:none;">www.pyrion.com.br</a></div>
-            <div style="color:rgb(180,180,180);font-size:8px;">Por favor, não responda este e-mail automático.</div>
+            <div style="font-weight:700;color:#ffffff;margin-bottom:4px;">Automated notifications</div>
+            ${website}
+            <div style="color:rgb(180,180,180);font-size:8px;">${escapeHtml(template.footerText)}</div>
           </td>
         </tr>
       </table>
     </td>
   </tr>
 </table>`;
+}
 
 function buildEmailWrapper(params: {
   headerColor: string;
@@ -52,6 +177,7 @@ function buildEmailWrapper(params: {
   headerTitle: string;
   headerSubtitle: string;
   body: string;
+  template: EmailTemplateConfig;
 }): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -84,7 +210,7 @@ function buildEmailWrapper(params: {
         <tr>
           <td style="background:#ffffff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;border-top:none;">
             ${params.body}
-            ${SIGNATURE_HTML}
+            ${buildSignatureHtml(params.template)}
           </td>
         </tr>
 
@@ -118,10 +244,151 @@ function codeBlock(title: string, content: string, maxLen = 3000): string {
   </div>`;
 }
 
+function quoteBlock(title: string, content: string, accent = "#10b981", maxLen: number | null = 4000): string {
+  const trimmed = maxLen !== null && content.length > maxLen
+    ? content.slice(0, maxLen) + `\n\n… (truncated at ${maxLen} chars)`
+    : content;
+  return `<div style="margin:20px 0;">
+    <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">${escapeHtml(title)}</div>
+    <div style="margin:0;padding:14px 18px;background:#f9fafb;border-left:4px solid ${accent};border-radius:4px;color:#111827;font-size:14px;line-height:1.6;white-space:pre-wrap;word-wrap:break-word;">${escapeHtml(trimmed)}</div>
+  </div>`;
+}
+
 function alertBox(color: string, bgColor: string, borderColor: string, message: string): string {
   return `<div style="margin:16px 0;padding:14px 16px;background:${bgColor};border-left:4px solid ${borderColor};border-radius:4px;">
     <span style="color:${color};font-size:14px;font-weight:600;">${escapeHtml(message)}</span>
   </div>`;
+}
+
+export async function sendTestEmail(params: {
+  to: string;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<void> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) throw new Error("SMTP is not configured");
+  const transport = buildTransport(config);
+  const now = new Date().toISOString();
+
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    This is a test email to confirm that your SMTP configuration is working correctly.
+  </p>
+  ${metaTable([
+    ["From", config.from],
+    ["SMTP host", config.host],
+    ["SMTP port", String(config.port)],
+    ["Time", now],
+  ])}
+  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    If you received this email, your email notification settings are configured correctly.
+  </p>`;
+
+  const html = buildEmailWrapper({
+    headerColor: "#2563eb",
+    headerIcon: "✉️",
+    headerTitle: "Test Email",
+    headerSubtitle: "Email configuration test",
+    body,
+    template: config.template,
+  });
+
+  await transport.sendMail({
+    from: config.from,
+    to: params.to,
+    subject: "✉️ Test email from Paperclip",
+    text: `This is a test email.\n\nFrom: ${config.from}\nSMTP host: ${config.host}\nTime: ${now}`,
+    html,
+  });
+}
+
+export async function sendIssueCompletionEmail(params: {
+  to: string;
+  issueTitle: string;
+  issueId: string;
+  issueIdentifier: string | null;
+  completedByName: string;
+  completedByKind: "agent" | "user";
+  agentComment?: string | null;
+  issueDescription?: string | null;
+  completedAt?: Date;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<void> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
+  const completedAt = params.completedAt ?? new Date();
+  const completedAtIso = completedAt.toISOString();
+  const identifierLabel = params.issueIdentifier ?? params.issueId.slice(0, 8);
+  const headerSubtitle = params.issueIdentifier
+    ? `${params.issueIdentifier} — ${params.issueTitle}`
+    : params.issueTitle;
+  const completedByLabel = `${params.completedByName} (${params.completedByKind})`;
+
+  const bodyParts: string[] = [];
+
+  bodyParts.push(`<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    Issue <strong>${escapeHtml(identifierLabel)} — ${escapeHtml(params.issueTitle)}</strong>
+    has just been marked as <strong style="color:#059669;">done</strong> by
+    <strong>${escapeHtml(params.completedByName)}</strong>.
+  </p>`);
+
+  const trimmedComment = params.agentComment?.trim();
+  if (trimmedComment) {
+    const commentTitle = params.completedByKind === "agent" ? "Closing comment from agent" : "Closing comment";
+    bodyParts.push(quoteBlock(commentTitle, trimmedComment, "#10b981", null));
+  }
+
+  bodyParts.push(metaTable([
+    ["Issue", params.issueTitle],
+    ["Identifier", params.issueIdentifier ?? "—"],
+    ["Issue ID", params.issueId],
+    ["Completed by", completedByLabel],
+    ["Time", completedAtIso],
+  ]));
+
+  const trimmedDescription = params.issueDescription?.trim();
+  if (trimmedDescription) {
+    bodyParts.push(quoteBlock("Issue description", trimmedDescription, "#9ca3af", null));
+  }
+
+  bodyParts.push(`<p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    This is an automated notification sent because an issue you created has been completed.
+  </p>`);
+
+  const html = buildEmailWrapper({
+    headerColor: "#059669",
+    headerIcon: "✅",
+    headerTitle: "Issue Done",
+    headerSubtitle,
+    body: bodyParts.join("\n"),
+    template: config.template,
+  });
+
+  const textLines: string[] = [
+    `Issue "${identifierLabel} — ${params.issueTitle}" has been marked as done by ${params.completedByName}.`,
+    ``,
+    `Identifier: ${params.issueIdentifier ?? "—"}`,
+    `Issue ID: ${params.issueId}`,
+    `Completed by: ${completedByLabel}`,
+    `Time: ${completedAtIso}`,
+  ];
+  if (trimmedComment) {
+    textLines.push(``, `--- Closing comment ---`, trimmedComment);
+  }
+  if (trimmedDescription) {
+    textLines.push(``, `--- Issue description ---`, trimmedDescription);
+  }
+
+  const subjectIdent = params.issueIdentifier ? `${params.issueIdentifier} ` : "";
+  await transport.sendMail({
+    from,
+    to: params.to,
+    subject: `✅ Issue done: ${subjectIdent}${params.issueTitle}`.slice(0, 200),
+    text: textLines.join("\n"),
+    html,
+  });
 }
 
 export async function sendRoutineFailureEmail(params: {
@@ -131,10 +398,13 @@ export async function sendRoutineFailureEmail(params: {
   runId: string;
   failureReason: string | null;
   scriptOutput?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
 }): Promise<void> {
-  const transport = getTransport();
-  if (!transport) return;
-  const from = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
   const now = new Date().toISOString();
 
   const bodyParts: string[] = [];
@@ -169,6 +439,7 @@ export async function sendRoutineFailureEmail(params: {
     headerTitle: "Routine Script Failed",
     headerSubtitle: params.routineTitle,
     body: bodyParts.join("\n"),
+    template: config.template,
   });
 
   const text = [
@@ -199,10 +470,13 @@ export async function sendRemediationResultEmail(params: {
   failureReason: string | null;
   scriptOutput: string | null;
   remediationDiff: string | null;
+  db?: Db | null;
+  companyId?: string | null;
 }): Promise<void> {
-  const transport = getTransport();
-  if (!transport) return;
-  const from = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
   const now = new Date().toISOString();
 
   const bodyParts: string[] = [];
@@ -245,6 +519,7 @@ export async function sendRemediationResultEmail(params: {
     headerTitle: params.succeeded ? "Routine Fixed & Re-run Successful" : "Routine Still Failing After Remediation",
     headerSubtitle: params.routineTitle,
     body: bodyParts.join("\n"),
+    template: config.template,
   });
 
   const textLines: string[] = [

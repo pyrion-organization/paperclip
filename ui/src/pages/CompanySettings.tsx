@@ -11,7 +11,7 @@ import { accessApi } from "../api/access";
 import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
-import { Settings, Check, Download, Upload } from "lucide-react";
+import { Settings, Check, Download, Upload, Mail } from "lucide-react";
 import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
 import {
   Field,
@@ -45,6 +45,18 @@ export function CompanySettings() {
   const [logoUrl, setLogoUrl] = useState("");
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
+  // Email (SMTP) settings local state
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+  const [emailTemplateBrandName, setEmailTemplateBrandName] = useState("");
+  const [emailTemplateTagline, setEmailTemplateTagline] = useState("");
+  const [emailTemplateWebsiteUrl, setEmailTemplateWebsiteUrl] = useState("");
+  const [emailTemplateFooterText, setEmailTemplateFooterText] = useState("");
+
   // Sync local state from selected company
   useEffect(() => {
     if (!selectedCompany) return;
@@ -53,6 +65,16 @@ export function CompanySettings() {
     setBrandColor(selectedCompany.brandColor ?? "");
     setAttachmentMaxMiB(String(Math.round((selectedCompany.attachmentMaxBytes ?? DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES) / BYTES_PER_MIB)));
     setLogoUrl(selectedCompany.logoUrl ?? "");
+    setSmtpHost(selectedCompany.smtpHost ?? "");
+    setSmtpPort(selectedCompany.smtpPort != null ? String(selectedCompany.smtpPort) : "");
+    setSmtpUser(selectedCompany.smtpUser ?? "");
+    setSmtpFrom(selectedCompany.smtpFrom ?? "");
+    setSmtpPassword("");
+    setSmtpPasswordTouched(false);
+    setEmailTemplateBrandName(selectedCompany.emailTemplateBrandName ?? "");
+    setEmailTemplateTagline(selectedCompany.emailTemplateTagline ?? "");
+    setEmailTemplateWebsiteUrl(selectedCompany.emailTemplateWebsiteUrl ?? "");
+    setEmailTemplateFooterText(selectedCompany.emailTemplateFooterText ?? "");
   }, [selectedCompany]);
 
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -84,6 +106,79 @@ export function CompanySettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
     }
   });
+
+  const smtpPortNum = smtpPort.trim() === "" ? null : Number(smtpPort);
+  const smtpPortValid =
+    smtpPort.trim() === "" ||
+    (Number.isInteger(smtpPortNum) && smtpPortNum !== null && smtpPortNum >= 1 && smtpPortNum <= 65535);
+  const smtpDirty =
+    !!selectedCompany &&
+    (smtpHost !== (selectedCompany.smtpHost ?? "") ||
+      (selectedCompany.smtpPort != null ? String(selectedCompany.smtpPort) : "") !== smtpPort ||
+      smtpUser !== (selectedCompany.smtpUser ?? "") ||
+      smtpFrom !== (selectedCompany.smtpFrom ?? "") ||
+      smtpPasswordTouched);
+
+  const smtpMutation = useMutation({
+    mutationFn: () => {
+      const payload: Parameters<typeof companiesApi.update>[1] = {
+        smtpHost: smtpHost.trim() || null,
+        smtpPort: smtpPortNum,
+        smtpUser: smtpUser.trim() || null,
+        smtpFrom: smtpFrom.trim() || null,
+      };
+      if (smtpPasswordTouched) {
+        payload.smtpPassword = smtpPassword;
+      }
+      return companiesApi.update(selectedCompanyId!, payload);
+    },
+    onSuccess: () => {
+      setSmtpPassword("");
+      setSmtpPasswordTouched(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    },
+  });
+
+  const [testEmailTo, setTestEmailTo] = useState("");
+  const testEmailTrimmed = testEmailTo.trim();
+  const testEmailValid =
+    testEmailTrimmed === "" ||
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmailTrimmed);
+  const testEmailMutation = useMutation({
+    mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTrimmed),
+  });
+
+  const templateWebsiteUrlValid =
+    emailTemplateWebsiteUrl.trim() === "" ||
+    (() => {
+      try {
+        const url = new URL(emailTemplateWebsiteUrl.trim());
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    })();
+  const emailTemplateDirty =
+    !!selectedCompany &&
+    (emailTemplateBrandName !== (selectedCompany.emailTemplateBrandName ?? "") ||
+      emailTemplateTagline !== (selectedCompany.emailTemplateTagline ?? "") ||
+      emailTemplateWebsiteUrl !== (selectedCompany.emailTemplateWebsiteUrl ?? "") ||
+      emailTemplateFooterText !== (selectedCompany.emailTemplateFooterText ?? ""));
+
+  const emailTemplateMutation = useMutation({
+    mutationFn: () =>
+      companiesApi.update(selectedCompanyId!, {
+        emailTemplateBrandName: emailTemplateBrandName.trim() || null,
+        emailTemplateTagline: emailTemplateTagline.trim() || null,
+        emailTemplateWebsiteUrl: emailTemplateWebsiteUrl.trim() || null,
+        emailTemplateFooterText: emailTemplateFooterText.trim() || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    },
+  });
+  const emailTemplatePreviewBrand = emailTemplateBrandName.trim() || selectedCompany?.name || "Paperclip";
+  const emailTemplatePreviewFooter = emailTemplateFooterText.trim() || "This is an automated notification from Paperclip.";
 
   const settingsMutation = useMutation({
     mutationFn: (requireApproval: boolean) =>
@@ -415,6 +510,244 @@ export function CompanySettings() {
           )}
         </div>
       )}
+
+      {/* Email Notifications (SMTP) */}
+      <div className="space-y-4" data-testid="company-settings-smtp-section">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Email Notifications
+          </div>
+          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <p className="text-xs text-muted-foreground">
+            Per-company SMTP credentials used to send routine failure and remediation emails. Leave
+            host empty to fall back to the server's environment variables.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="SMTP host" hint="Hostname of your SMTP server (e.g., smtp.gmail.com).">
+              <input
+                data-testid="company-settings-smtp-host"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpHost}
+                placeholder="smtp.example.com"
+                onChange={(e) => setSmtpHost(e.target.value)}
+              />
+            </Field>
+            <Field label="Port" hint="Typically 587 (STARTTLS) or 465 (TLS).">
+              <input
+                data-testid="company-settings-smtp-port"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="number"
+                min={1}
+                max={65535}
+                value={smtpPort}
+                placeholder="587"
+                onChange={(e) => setSmtpPort(e.target.value)}
+              />
+            </Field>
+            <Field label="From address" hint="The address routine emails are sent from.">
+              <input
+                data-testid="company-settings-smtp-from"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpFrom}
+                placeholder="noreply@example.com"
+                onChange={(e) => setSmtpFrom(e.target.value)}
+              />
+            </Field>
+            <Field label="Username" hint="SMTP auth username (optional).">
+              <input
+                data-testid="company-settings-smtp-user"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpUser}
+                autoComplete="off"
+                onChange={(e) => setSmtpUser(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Password"
+              hint={
+                selectedCompany.smtpPasswordSet
+                  ? "A password is configured. Type to replace it; leave blank to keep unchanged."
+                  : "SMTP auth password. Stored encrypted."
+              }
+            >
+              <input
+                data-testid="company-settings-smtp-password"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="password"
+                value={smtpPassword}
+                autoComplete="new-password"
+                placeholder={selectedCompany.smtpPasswordSet ? "•••••••• (configured)" : ""}
+                onChange={(e) => {
+                  setSmtpPassword(e.target.value);
+                  setSmtpPasswordTouched(true);
+                }}
+              />
+            </Field>
+          </div>
+          {!smtpPortValid && (
+            <span className="text-xs text-destructive">
+              Port must be a whole number between 1 and 65535.
+            </span>
+          )}
+          {smtpDirty && (
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+              <Button
+                data-testid="company-settings-smtp-save"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => smtpMutation.mutate()}
+                disabled={smtpMutation.isPending || !smtpPortValid}
+              >
+                {smtpMutation.isPending ? "Saving..." : "Save email settings"}
+              </Button>
+              {smtpMutation.isSuccess && (
+                <span className="text-xs text-muted-foreground">Saved</span>
+              )}
+              {smtpMutation.isError && (
+                <span className="min-w-0 break-words text-xs text-destructive">
+                  {smtpMutation.error instanceof Error
+                    ? smtpMutation.error.message
+                    : "Failed to save"}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="space-y-2 border-t border-border pt-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                data-testid="company-settings-smtp-test-email"
+                className="min-w-0 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none sm:w-64"
+                type="email"
+                placeholder="Send test to..."
+                value={testEmailTo}
+                onChange={(e) => {
+                  setTestEmailTo(e.target.value);
+                  testEmailMutation.reset();
+                }}
+              />
+              <Button
+                data-testid="company-settings-smtp-test-send"
+                size="sm"
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => testEmailMutation.mutate()}
+                disabled={testEmailMutation.isPending || !testEmailTrimmed || !testEmailValid}
+              >
+                {testEmailMutation.isPending ? "Sending..." : "Send test email"}
+              </Button>
+            </div>
+            {!testEmailValid && (
+              <span className="block text-xs text-destructive">
+                Enter a valid email address before sending a test.
+              </span>
+            )}
+            {testEmailMutation.isSuccess && (
+              <span className="block text-xs text-muted-foreground">
+                Test email sent to {testEmailTrimmed}.
+              </span>
+            )}
+            {testEmailMutation.isError && (
+              <span className="block min-w-0 break-words text-xs text-destructive">
+                {testEmailMutation.error instanceof Error
+                  ? testEmailMutation.error.message
+                  : "Failed to send"}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Email Template */}
+      <div className="space-y-4" data-testid="company-settings-email-template-section">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Email Template
+          </div>
+          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Brand name" hint="Defaults to the company name when empty.">
+              <input
+                data-testid="company-settings-email-template-brand-name"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateBrandName}
+                placeholder={selectedCompany.name}
+                onChange={(e) => setEmailTemplateBrandName(e.target.value)}
+              />
+            </Field>
+            <Field label="Tagline" hint="Short line shown below the brand name. Leave empty to show no tagline.">
+              <input
+                data-testid="company-settings-email-template-tagline"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateTagline}
+                placeholder="AI company control plane"
+                onChange={(e) => setEmailTemplateTagline(e.target.value)}
+              />
+            </Field>
+            <Field label="Website URL" hint="Optional http(s) link shown in the footer.">
+              <input
+                data-testid="company-settings-email-template-website-url"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="url"
+                value={emailTemplateWebsiteUrl}
+                placeholder="https://example.com"
+                onChange={(e) => setEmailTemplateWebsiteUrl(e.target.value)}
+              />
+            </Field>
+            <Field label="Footer text" hint="Defaults to a generic automated-email notice.">
+              <input
+                data-testid="company-settings-email-template-footer-text"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={emailTemplateFooterText}
+                placeholder="This is an automated notification from Paperclip."
+                onChange={(e) => setEmailTemplateFooterText(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            Preview: <span className="font-medium text-foreground">{emailTemplatePreviewBrand}</span>
+            {emailTemplateTagline.trim() ? ` · ${emailTemplateTagline.trim()}` : ""}
+            <span className="block pt-1">{emailTemplatePreviewFooter}</span>
+          </div>
+          {!templateWebsiteUrlValid && (
+            <span className="text-xs text-destructive">
+              Website URL must start with http:// or https://.
+            </span>
+          )}
+          {emailTemplateDirty && (
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+              <Button
+                data-testid="company-settings-email-template-save"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => emailTemplateMutation.mutate()}
+                disabled={emailTemplateMutation.isPending || !templateWebsiteUrlValid}
+              >
+                {emailTemplateMutation.isPending ? "Saving..." : "Save template"}
+              </Button>
+              {emailTemplateMutation.isSuccess && (
+                <span className="text-xs text-muted-foreground">Saved</span>
+              )}
+              {emailTemplateMutation.isError && (
+                <span className="min-w-0 break-words text-xs text-destructive">
+                  {emailTemplateMutation.error instanceof Error
+                    ? emailTemplateMutation.error.message
+                    : "Failed to save"}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Hiring */}
       <div className="space-y-4" data-testid="company-settings-team-section">

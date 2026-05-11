@@ -2609,6 +2609,27 @@ export function issueService(db: Db) {
       };
     },
 
+    findRootCreatorUserId: async (issueId: string): Promise<string | null> => {
+      let currentId: string | null = issueId;
+      const seen = new Set<string>();
+      for (let hops = 0; hops < 10 && currentId; hops++) {
+        if (seen.has(currentId)) return null;
+        seen.add(currentId);
+        const row: { createdByUserId: string | null; parentId: string | null } | null = await db
+          .select({
+            createdByUserId: issues.createdByUserId,
+            parentId: issues.parentId,
+          })
+          .from(issues)
+          .where(eq(issues.id, currentId))
+          .then((rows) => rows[0] ?? null);
+        if (!row) return null;
+        if (row.createdByUserId) return row.createdByUserId;
+        currentId = row.parentId;
+      }
+      return null;
+    },
+
     createChild: async (
       parentIssueId: string,
       data: IssueChildCreateInput,

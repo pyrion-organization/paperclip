@@ -54,10 +54,12 @@ const mockLogActivity = vi.hoisted(() => vi.fn());
 
 vi.mock("../services/index.js", () => ({
   projectService: () => mockProjectService,
+  projectFilesService: () => ({}),
   issueService: () => mockIssueService,
   companyService: () => mockCompanyService,
   environmentService: () => mockEnvironmentService,
   issueReferenceService: () => mockIssueReferenceService,
+  initWorkspaceGit: vi.fn(),
   logActivity: mockLogActivity,
   workspaceOperationService: () => ({}),
   accessService: () => ({
@@ -153,6 +155,7 @@ describe.sequential("execution environment route guards", () => {
   beforeEach(() => {
     mockProjectService.create.mockReset();
     mockProjectService.getById.mockReset();
+    mockProjectService.getById.mockResolvedValue(null);
     mockProjectService.update.mockReset();
     mockProjectService.createWorkspace.mockReset();
     mockProjectService.remove.mockReset();

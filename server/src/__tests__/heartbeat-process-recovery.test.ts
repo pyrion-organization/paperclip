@@ -1025,7 +1025,7 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
   });
 
   it.each(["done", "cancelled"] as const)(
-    "does not re-lock %s issues during deferred promotion",
+    "does not reopen or re-lock %s issues during deferred promotion",
     async (issueStatus) => {
       const { runId, issueId } = await seedDeferredPromotionFixture({ issueStatus });
       const heartbeat = heartbeatService(db);
@@ -1038,10 +1038,10 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
           .from(issues)
           .where(eq(issues.id, issueId))
           .then((rows) => rows[0] ?? null);
-        return row?.status === "todo" && row.executionRunId === null ? row : null;
+        return row?.status === issueStatus && row.executionRunId === null ? row : null;
       });
 
-      expect(issue?.status).toBe("todo");
+      expect(issue?.status).toBe(issueStatus);
       expect(issue?.executionRunId).toBeNull();
       expect(issue?.executionAgentNameKey).toBeNull();
       expect(issue?.executionLockedAt).toBeNull();

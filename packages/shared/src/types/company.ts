@@ -18,6 +18,15 @@ export interface Company {
   feedbackDataSharingConsentByUserId: string | null;
   feedbackDataSharingTermsVersion: string | null;
   brandColor: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpFrom: string | null;
+  smtpPasswordSet: boolean;
+  emailTemplateBrandName: string | null;
+  emailTemplateTagline: string | null;
+  emailTemplateWebsiteUrl: string | null;
+  emailTemplateFooterText: string | null;
   logoAssetId: string | null;
   logoUrl: string | null;
   createdAt: Date;

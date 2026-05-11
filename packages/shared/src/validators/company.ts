@@ -7,11 +7,36 @@ import {
 const logoAssetIdSchema = z.string().uuid().nullable().optional();
 const brandColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional();
 const feedbackDataSharingTermsVersionSchema = z.string().min(1).nullable().optional();
+const emailTemplateTextSchema = z.string().max(500).nullable().optional();
+const emailTemplateWebsiteUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "Website URL must start with http:// or https://")
+  .nullable()
+  .optional();
 const attachmentMaxBytesSchema = z
   .number()
   .int()
   .min(1)
   .max(MAX_COMPANY_ATTACHMENT_MAX_BYTES);
+const smtpHostSchema = z
+  .string()
+  .max(255)
+  .regex(
+    /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/,
+    "Must be a valid hostname",
+  )
+  .nullable()
+  .optional();
+const smtpFromSchema = z.string().email("Must be a valid email address").max(255).nullable().optional();
 
 export const createCompanySchema = z.object({
   name: z.string().min(1),
@@ -35,6 +60,16 @@ export const updateCompanySchema = createCompanySchema
     brandColor: brandColorSchema,
     logoAssetId: logoAssetIdSchema,
     attachmentMaxBytes: attachmentMaxBytesSchema.optional(),
+    smtpHost: smtpHostSchema,
+    smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+    smtpUser: z.string().max(255).nullable().optional(),
+    smtpFrom: smtpFromSchema,
+    // Write-only: empty string clears, undefined leaves unchanged.
+    smtpPassword: z.string().nullable().optional(),
+    emailTemplateBrandName: emailTemplateTextSchema,
+    emailTemplateTagline: emailTemplateTextSchema,
+    emailTemplateWebsiteUrl: emailTemplateWebsiteUrlSchema,
+    emailTemplateFooterText: emailTemplateTextSchema,
   });
 
 export type UpdateCompany = z.infer<typeof updateCompanySchema>;

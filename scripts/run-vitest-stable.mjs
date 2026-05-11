@@ -254,6 +254,7 @@ function runSerializedSuites(routeTests, shardIndex, shardCount) {
         "--project",
         "@paperclipai/server",
         routeTest.repoPath,
+        "--testTimeout=10000",
         "--pool=forks",
         "--poolOptions.forks.isolate=true",
       ],

@@ -25,6 +25,7 @@ import {
   feedbackService,
   logActivity,
 } from "../services/index.js";
+import { sendTestEmail } from "../services/email.js";
 import type { StorageService } from "../storage/types.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 
@@ -338,11 +339,16 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       }
     }
 
-    const company = await svc.update(companyId, body);
+    const company = await svc.update(companyId, body, {
+      userId: req.actor.userId ?? null,
+      agentId: req.actor.agentId ?? null,
+    });
     if (!company) {
       res.status(404).json({ error: "Company not found" });
       return;
     }
+    // Avoid logging the raw smtp password in activity log
+    const { smtpPassword: _omit, ...detailBody } = body as Record<string, unknown>;
     await logActivity(db, {
       companyId,
       actorType: actor.actorType,
@@ -352,7 +358,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       action: "company.updated",
       entityType: "company",
       entityId: companyId,
-      details: body,
+      details: detailBody,
     });
     res.json(company);
   });
@@ -398,6 +404,23 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       entityId: companyId,
     });
     res.json(company);
+  });
+
+  router.post("/:companyId/email/test", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const to = req.body?.to;
+    if (typeof to !== "string" || !to.trim()) {
+      res.status(400).json({ error: "to email address is required" });
+      return;
+    }
+    try {
+      await sendTestEmail({ to: to.trim(), db, companyId });
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send test email";
+      res.status(500).json({ error: message });
+    }
   });
 
   router.delete("/:companyId", async (req, res) => {

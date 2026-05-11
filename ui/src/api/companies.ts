@@ -39,11 +39,21 @@ export const companiesApi = {
         | "feedbackDataSharingEnabled"
         | "brandColor"
         | "logoAssetId"
+        | "smtpHost"
+        | "smtpPort"
+        | "smtpUser"
+        | "smtpFrom"
+        | "emailTemplateBrandName"
+        | "emailTemplateTagline"
+        | "emailTemplateWebsiteUrl"
+        | "emailTemplateFooterText"
       >
-    >,
+    > & { smtpPassword?: string | null },
   ) => api.patch<Company>(`/companies/${companyId}`, data),
   updateBranding: (companyId: string, data: UpdateCompanyBranding) =>
     api.patch<Company>(`/companies/${companyId}/branding`, data),
+  testEmail: (companyId: string, to: string) =>
+    api.post<{ ok: true }>(`/companies/${companyId}/email/test`, { to }),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
   exportBundle: (
