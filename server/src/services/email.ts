@@ -244,8 +244,8 @@ function codeBlock(title: string, content: string, maxLen = 3000): string {
   </div>`;
 }
 
-function quoteBlock(title: string, content: string, accent = "#10b981", maxLen = 4000): string {
-  const trimmed = content.length > maxLen
+function quoteBlock(title: string, content: string, accent = "#10b981", maxLen: number | null = 4000): string {
+  const trimmed = maxLen !== null && content.length > maxLen
     ? content.slice(0, maxLen) + `\n\n… (truncated at ${maxLen} chars)`
     : content;
   return `<div style="margin:20px 0;">
@@ -337,7 +337,7 @@ export async function sendIssueCompletionEmail(params: {
   const trimmedComment = params.agentComment?.trim();
   if (trimmedComment) {
     const commentTitle = params.completedByKind === "agent" ? "Closing comment from agent" : "Closing comment";
-    bodyParts.push(quoteBlock(commentTitle, trimmedComment));
+    bodyParts.push(quoteBlock(commentTitle, trimmedComment, "#10b981", null));
   }
 
   bodyParts.push(metaTable([
@@ -350,7 +350,7 @@ export async function sendIssueCompletionEmail(params: {
 
   const trimmedDescription = params.issueDescription?.trim();
   if (trimmedDescription) {
-    bodyParts.push(quoteBlock("Issue description", trimmedDescription, "#9ca3af", 600));
+    bodyParts.push(quoteBlock("Issue description", trimmedDescription, "#9ca3af", null));
   }
 
   bodyParts.push(`<p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
@@ -378,10 +378,7 @@ export async function sendIssueCompletionEmail(params: {
     textLines.push(``, `--- Closing comment ---`, trimmedComment);
   }
   if (trimmedDescription) {
-    const previewDescription = trimmedDescription.length > 600
-      ? trimmedDescription.slice(0, 600) + "…"
-      : trimmedDescription;
-    textLines.push(``, `--- Issue description ---`, previewDescription);
+    textLines.push(``, `--- Issue description ---`, trimmedDescription);
   }
 
   const subjectIdent = params.issueIdentifier ? `${params.issueIdentifier} ` : "";

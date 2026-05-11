@@ -124,6 +124,43 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.html).not.toContain("AI company control plane");
   });
 
+  it("includes the full issue description and closing comment in issue completion emails", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+    });
+    const longDescription = `${"A".repeat(700)} end-of-description-marker`;
+    const longComment = `${"B".repeat(4_200)} end-of-comment-marker`;
+
+    await sendIssueCompletionEmail({
+      to: "creator@example.com",
+      issueTitle: "Ship report",
+      issueId: randomUUID(),
+      issueIdentifier: "ACME-1",
+      completedByName: "CodexCoder",
+      completedByKind: "agent",
+      agentComment: longComment,
+      issueDescription: longDescription,
+      db,
+      companyId,
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as { html?: string; text?: string } | undefined;
+    expect(message?.html).toContain("end-of-description-marker");
+    expect(message?.html).toContain("end-of-comment-marker");
+    expect(message?.html).not.toContain("truncated at 600 chars");
+    expect(message?.html).not.toContain("truncated at 4000 chars");
+    expect(message?.text).toContain("end-of-description-marker");
+    expect(message?.text).toContain("end-of-comment-marker");
+  });
+
   it("does not send when SMTP host is not configured", async () => {
     const previousHost = process.env.SMTP_HOST;
     delete process.env.SMTP_HOST;
