@@ -125,6 +125,30 @@ Run the browser suites only when your change touches them or when you are explic
 
 For normal issue work, run the smallest relevant verification first. Do not default to repo-wide typecheck/build/test on every heartbeat when a narrower check is enough to prove the change.
 
+### Typecheck Policy
+
+Do not run root `pnpm typecheck` as the default inner-loop check. It is a full workspace check and can be slow.
+
+For normal local/agent work, run the narrowest relevant package check first:
+
+```sh
+pnpm typecheck:ui
+pnpm typecheck:server
+pnpm typecheck:shared
+pnpm typecheck:db
+```
+
+When a change touches multiple layers, check the touched packages plus direct dependents. Common shortcuts:
+
+```sh
+pnpm typecheck:core
+pnpm typecheck:changed
+```
+
+`pnpm typecheck:core` checks shared, db, server, and ui. `pnpm typecheck:changed` checks packages changed since `origin/master` plus dependents, and requires that `origin/master` is available locally.
+
+Use root `pnpm typecheck` only before PR-ready hand-off, broad contract changes, release checks, or when targeted checks are insufficient.
+
 Run this full check before claiming repo work done in a PR-ready hand-off, or when the change scope is broad enough that targeted checks are not sufficient:
 
 ```sh
