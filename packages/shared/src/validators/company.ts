@@ -13,8 +13,12 @@ const emailTemplateWebsiteUrlSchema = z
   .url()
   .max(500)
   .refine((value) => {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
   }, "Website URL must start with http:// or https://")
   .nullable()
   .optional();
