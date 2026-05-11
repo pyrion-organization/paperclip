@@ -18,6 +18,11 @@ export interface Company {
   feedbackDataSharingConsentByUserId: string | null;
   feedbackDataSharingTermsVersion: string | null;
   brandColor: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpFrom: string | null;
+  smtpPasswordSet: boolean;
   logoAssetId: string | null;
   logoUrl: string | null;
   createdAt: Date;

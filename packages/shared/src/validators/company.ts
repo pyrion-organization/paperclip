@@ -35,6 +35,12 @@ export const updateCompanySchema = createCompanySchema
     brandColor: brandColorSchema,
     logoAssetId: logoAssetIdSchema,
     attachmentMaxBytes: attachmentMaxBytesSchema.optional(),
+    smtpHost: z.string().max(255).nullable().optional(),
+    smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+    smtpUser: z.string().max(255).nullable().optional(),
+    smtpFrom: z.string().max(255).nullable().optional(),
+    // Write-only: empty string clears, undefined leaves unchanged.
+    smtpPassword: z.string().nullable().optional(),
   });
 
 export type UpdateCompany = z.infer<typeof updateCompanySchema>;

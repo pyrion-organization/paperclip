@@ -1513,6 +1513,8 @@ export function routineService(
           failureReason,
           scriptOutput: output || null,
           remediationDiff,
+          db,
+          companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
       } else if (!succeeded && routine.notificationEmail) {
         sendRoutineFailureEmail({
@@ -1522,6 +1524,8 @@ export function routineService(
           runId: run.id,
           failureReason,
           scriptOutput: output || null,
+          db,
+          companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
       }
       return finalRun ?? run;
@@ -1548,6 +1552,8 @@ export function routineService(
           failureReason,
           scriptOutput: output || null,
           remediationDiff,
+          db,
+          companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
       } else if (routine.notificationEmail) {
         sendRoutineFailureEmail({
@@ -1557,6 +1563,8 @@ export function routineService(
           runId: run.id,
           failureReason,
           scriptOutput: output || null,
+          db,
+          companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send routine failure email"));
       }
       return finalRun ?? run;

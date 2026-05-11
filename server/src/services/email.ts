@@ -1,14 +1,71 @@
 import nodemailer from "nodemailer";
+import { eq } from "drizzle-orm";
+import type { Db } from "@paperclipai/db";
+import { companies } from "@paperclipai/db";
+import { secretService } from "./secrets.js";
+import { SMTP_PASSWORD_SECRET_NAME } from "./companies.js";
 
-function getTransport() {
-  const host = process.env.SMTP_HOST;
+type SmtpConfig = {
+  host: string;
+  port: number;
+  user: string | null;
+  pass: string | null;
+  from: string;
+};
+
+async function loadSmtpConfig(
+  db: Db | null,
+  companyId: string | null | undefined,
+): Promise<SmtpConfig | null> {
+  let host = process.env.SMTP_HOST ?? null;
+  let port = Number(process.env.SMTP_PORT ?? 587);
+  let user: string | null = process.env.SMTP_USER ?? null;
+  let pass: string | null = process.env.SMTP_PASS ?? null;
+  let from: string = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+
+  if (db && companyId) {
+    try {
+      const row = await db
+        .select({
+          smtpHost: companies.smtpHost,
+          smtpPort: companies.smtpPort,
+          smtpUser: companies.smtpUser,
+          smtpFrom: companies.smtpFrom,
+        })
+        .from(companies)
+        .where(eq(companies.id, companyId))
+        .then((rows) => rows[0] ?? null);
+      if (row?.smtpHost) {
+        host = row.smtpHost;
+        port = row.smtpPort ?? port;
+        user = row.smtpUser ?? null;
+        from = row.smtpFrom ?? from;
+        const secrets = secretService(db);
+        const secret = await secrets.getByName(companyId, SMTP_PASSWORD_SECRET_NAME);
+        if (secret) {
+          try {
+            pass = await secrets.resolveSecretValue(companyId, secret.id, "latest");
+          } catch {
+            pass = null;
+          }
+        } else {
+          pass = null;
+        }
+      }
+    } catch {
+      // fall back to env config
+    }
+  }
+
   if (!host) return null;
+  return { host, port, user, pass, from };
+}
+
+function buildTransport(config: SmtpConfig) {
   return nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-      : undefined,
+    host: config.host,
+    port: config.port,
+    auth: config.user ? { user: config.user, pass: config.pass ?? "" } : undefined,
   });
 }
 
@@ -131,10 +188,13 @@ export async function sendRoutineFailureEmail(params: {
   runId: string;
   failureReason: string | null;
   scriptOutput?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
 }): Promise<void> {
-  const transport = getTransport();
-  if (!transport) return;
-  const from = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
   const now = new Date().toISOString();
 
   const bodyParts: string[] = [];
@@ -199,10 +259,13 @@ export async function sendRemediationResultEmail(params: {
   failureReason: string | null;
   scriptOutput: string | null;
   remediationDiff: string | null;
+  db?: Db | null;
+  companyId?: string | null;
 }): Promise<void> {
-  const transport = getTransport();
-  if (!transport) return;
-  const from = process.env.SMTP_FROM ?? "noreply@paperclip.local";
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
   const now = new Date().toISOString();
 
   const bodyParts: string[] = [];

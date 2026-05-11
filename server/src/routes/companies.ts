@@ -338,11 +338,16 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       }
     }
 
-    const company = await svc.update(companyId, body);
+    const company = await svc.update(companyId, body, {
+      userId: req.actor.userId ?? null,
+      agentId: req.actor.agentId ?? null,
+    });
     if (!company) {
       res.status(404).json({ error: "Company not found" });
       return;
     }
+    // Avoid logging the raw smtp password in activity log
+    const { smtpPassword: _omit, ...detailBody } = body as Record<string, unknown>;
     await logActivity(db, {
       companyId,
       actorType: actor.actorType,
@@ -352,7 +357,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
       action: "company.updated",
       entityType: "company",
       entityId: companyId,
-      details: body,
+      details: detailBody,
     });
     res.json(company);
   });

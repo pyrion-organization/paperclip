@@ -31,8 +31,12 @@ import {
 } from "@paperclipai/db";
 import { notFound, unprocessable } from "../errors.js";
 import { environmentService } from "./environments.js";
+import { secretService } from "./secrets.js";
+
+export const SMTP_PASSWORD_SECRET_NAME = "__smtp_password__";
 
 export function companyService(db: Db) {
+  const secrets = secretService(db);
   const ISSUE_PREFIX_FALLBACK = "CMP";
   const environmentsSvc = environmentService(db);
 
@@ -52,6 +56,11 @@ export function companyService(db: Db) {
     feedbackDataSharingConsentByUserId: companies.feedbackDataSharingConsentByUserId,
     feedbackDataSharingTermsVersion: companies.feedbackDataSharingTermsVersion,
     brandColor: companies.brandColor,
+    smtpHost: companies.smtpHost,
+    smtpPort: companies.smtpPort,
+    smtpUser: companies.smtpUser,
+    smtpFrom: companies.smtpFrom,
+    smtpPasswordSet: sql<boolean>`EXISTS (SELECT 1 FROM ${companySecrets} WHERE ${companySecrets.companyId} = ${companies.id} AND ${companySecrets.name} = ${SMTP_PASSWORD_SECRET_NAME})`,
     logoAssetId: companyLogos.assetId,
     createdAt: companies.createdAt,
     updatedAt: companies.updatedAt,
@@ -183,17 +192,22 @@ export function companyService(db: Db) {
       return enrichCompany(hydrated);
     },
 
-    update: (
+    update: async (
       id: string,
-      data: Partial<typeof companies.$inferInsert> & { logoAssetId?: string | null },
-    ) =>
-      db.transaction(async (tx) => {
+      data: Partial<typeof companies.$inferInsert> & {
+        logoAssetId?: string | null;
+        smtpPassword?: string | null;
+      },
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      const { smtpPassword, ...rest } = data;
+      const result = await db.transaction(async (tx) => {
         const existing = await getCompanyQuery(tx)
           .where(eq(companies.id, id))
           .then((rows) => rows[0] ?? null);
         if (!existing) return null;
 
-        const { logoAssetId, ...companyPatch } = data;
+        const { logoAssetId, ...companyPatch } = rest;
 
         if (logoAssetId !== undefined && logoAssetId !== null) {
           const nextLogoAsset = await tx
@@ -237,13 +251,39 @@ export function companyService(db: Db) {
           await tx.delete(assets).where(eq(assets.id, existing.logoAssetId));
         }
 
-        const [hydrated] = await hydrateCompanySpend([{
-          ...updated,
-          logoAssetId: logoAssetId === undefined ? existing.logoAssetId : logoAssetId,
-        }], tx);
+        const refreshed = await getCompanyQuery(tx)
+          .where(eq(companies.id, id))
+          .then((rows) => rows[0] ?? null);
+        if (!refreshed) return null;
+        const [hydrated] = await hydrateCompanySpend([refreshed], tx);
 
         return enrichCompany(hydrated);
-      }),
+      });
+
+      if (!result) return null;
+      if (smtpPassword !== undefined) {
+        const trimmed = (smtpPassword ?? "").trim();
+        const existingSecret = await secrets.getByName(id, SMTP_PASSWORD_SECRET_NAME);
+        if (trimmed.length === 0) {
+          if (existingSecret) await secrets.remove(existingSecret.id);
+        } else if (existingSecret) {
+          await secrets.rotate(existingSecret.id, { value: trimmed }, actor);
+        } else {
+          await secrets.create(
+            id,
+            { name: SMTP_PASSWORD_SECRET_NAME, provider: "local_encrypted", value: trimmed },
+            actor,
+          );
+        }
+        const refreshed = await getCompanyQuery(db)
+          .where(eq(companies.id, id))
+          .then((rows) => rows[0] ?? null);
+        if (!refreshed) return result;
+        const [hydrated] = await hydrateCompanySpend([refreshed], db);
+        return enrichCompany(hydrated);
+      }
+      return result;
+    },
 
     archive: (id: string) =>
       db.transaction(async (tx) => {

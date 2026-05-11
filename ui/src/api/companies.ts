@@ -39,8 +39,12 @@ export const companiesApi = {
         | "feedbackDataSharingEnabled"
         | "brandColor"
         | "logoAssetId"
+        | "smtpHost"
+        | "smtpPort"
+        | "smtpUser"
+        | "smtpFrom"
       >
-    >,
+    > & { smtpPassword?: string | null },
   ) => api.patch<Company>(`/companies/${companyId}`, data),
   updateBranding: (companyId: string, data: UpdateCompanyBranding) =>
     api.patch<Company>(`/companies/${companyId}/branding`, data),

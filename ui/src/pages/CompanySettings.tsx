@@ -11,7 +11,7 @@ import { accessApi } from "../api/access";
 import { assetsApi } from "../api/assets";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
-import { Settings, Check, Download, Upload } from "lucide-react";
+import { Settings, Check, Download, Upload, Mail } from "lucide-react";
 import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
 import {
   Field,
@@ -45,6 +45,14 @@ export function CompanySettings() {
   const [logoUrl, setLogoUrl] = useState("");
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
+  // Email (SMTP) settings local state
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
+
   // Sync local state from selected company
   useEffect(() => {
     if (!selectedCompany) return;
@@ -53,6 +61,12 @@ export function CompanySettings() {
     setBrandColor(selectedCompany.brandColor ?? "");
     setAttachmentMaxMiB(String(Math.round((selectedCompany.attachmentMaxBytes ?? DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES) / BYTES_PER_MIB)));
     setLogoUrl(selectedCompany.logoUrl ?? "");
+    setSmtpHost(selectedCompany.smtpHost ?? "");
+    setSmtpPort(selectedCompany.smtpPort != null ? String(selectedCompany.smtpPort) : "");
+    setSmtpUser(selectedCompany.smtpUser ?? "");
+    setSmtpFrom(selectedCompany.smtpFrom ?? "");
+    setSmtpPassword("");
+    setSmtpPasswordTouched(false);
   }, [selectedCompany]);
 
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -83,6 +97,38 @@ export function CompanySettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
     }
+  });
+
+  const smtpPortNum = smtpPort.trim() === "" ? null : Number(smtpPort);
+  const smtpPortValid =
+    smtpPort.trim() === "" ||
+    (Number.isInteger(smtpPortNum) && smtpPortNum !== null && smtpPortNum >= 1 && smtpPortNum <= 65535);
+  const smtpDirty =
+    !!selectedCompany &&
+    (smtpHost !== (selectedCompany.smtpHost ?? "") ||
+      (selectedCompany.smtpPort != null ? String(selectedCompany.smtpPort) : "") !== smtpPort ||
+      smtpUser !== (selectedCompany.smtpUser ?? "") ||
+      smtpFrom !== (selectedCompany.smtpFrom ?? "") ||
+      smtpPasswordTouched);
+
+  const smtpMutation = useMutation({
+    mutationFn: () => {
+      const payload: Parameters<typeof companiesApi.update>[1] = {
+        smtpHost: smtpHost.trim() || null,
+        smtpPort: smtpPortNum,
+        smtpUser: smtpUser.trim() || null,
+        smtpFrom: smtpFrom.trim() || null,
+      };
+      if (smtpPasswordTouched) {
+        payload.smtpPassword = smtpPassword;
+      }
+      return companiesApi.update(selectedCompanyId!, payload);
+    },
+    onSuccess: () => {
+      setSmtpPassword("");
+      setSmtpPasswordTouched(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    },
   });
 
   const settingsMutation = useMutation({
@@ -415,6 +461,114 @@ export function CompanySettings() {
           )}
         </div>
       )}
+
+      {/* Email Notifications (SMTP) */}
+      <div className="space-y-4" data-testid="company-settings-smtp-section">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Email Notifications
+          </div>
+          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <p className="text-xs text-muted-foreground">
+            Per-company SMTP credentials used to send routine failure and remediation emails. Leave
+            host empty to fall back to the server's environment variables.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="SMTP host" hint="Hostname of your SMTP server (e.g., smtp.gmail.com).">
+              <input
+                data-testid="company-settings-smtp-host"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpHost}
+                placeholder="smtp.example.com"
+                onChange={(e) => setSmtpHost(e.target.value)}
+              />
+            </Field>
+            <Field label="Port" hint="Typically 587 (STARTTLS) or 465 (TLS).">
+              <input
+                data-testid="company-settings-smtp-port"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="number"
+                min={1}
+                max={65535}
+                value={smtpPort}
+                placeholder="587"
+                onChange={(e) => setSmtpPort(e.target.value)}
+              />
+            </Field>
+            <Field label="From address" hint="The address routine emails are sent from.">
+              <input
+                data-testid="company-settings-smtp-from"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpFrom}
+                placeholder="noreply@example.com"
+                onChange={(e) => setSmtpFrom(e.target.value)}
+              />
+            </Field>
+            <Field label="Username" hint="SMTP auth username (optional).">
+              <input
+                data-testid="company-settings-smtp-user"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={smtpUser}
+                autoComplete="off"
+                onChange={(e) => setSmtpUser(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Password"
+              hint={
+                selectedCompany.smtpPasswordSet
+                  ? "A password is configured. Type to replace it; leave blank to keep unchanged."
+                  : "SMTP auth password. Stored encrypted."
+              }
+            >
+              <input
+                data-testid="company-settings-smtp-password"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="password"
+                value={smtpPassword}
+                autoComplete="new-password"
+                placeholder={selectedCompany.smtpPasswordSet ? "•••••••• (configured)" : ""}
+                onChange={(e) => {
+                  setSmtpPassword(e.target.value);
+                  setSmtpPasswordTouched(true);
+                }}
+              />
+            </Field>
+          </div>
+          {!smtpPortValid && (
+            <span className="text-xs text-destructive">
+              Port must be a whole number between 1 and 65535.
+            </span>
+          )}
+          {smtpDirty && (
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                data-testid="company-settings-smtp-save"
+                size="sm"
+                onClick={() => smtpMutation.mutate()}
+                disabled={smtpMutation.isPending || !smtpPortValid}
+              >
+                {smtpMutation.isPending ? "Saving..." : "Save email settings"}
+              </Button>
+              {smtpMutation.isSuccess && (
+                <span className="text-xs text-muted-foreground">Saved</span>
+              )}
+              {smtpMutation.isError && (
+                <span className="text-xs text-destructive">
+                  {smtpMutation.error instanceof Error
+                    ? smtpMutation.error.message
+                    : "Failed to save"}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Hiring */}
       <div className="space-y-4" data-testid="company-settings-team-section">
