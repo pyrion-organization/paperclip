@@ -118,4 +118,20 @@ describe("ResizableSidebarPane", () => {
     expect(handle()).toBeNull();
     expect(pane().style.width).toBe("240px");
   });
+
+  it("uses an explicit fixed width without replacing the persisted resizable width", () => {
+    window.localStorage.setItem("test.sidebar.width", "320");
+
+    act(() => {
+      root.render(
+        <ResizableSidebarPane open fixedWidth={64} resizable={false} storageKey="test.sidebar.width">
+          <div>Sidebar</div>
+        </ResizableSidebarPane>,
+      );
+    });
+
+    expect(handle()).toBeNull();
+    expect(pane().style.width).toBe("64px");
+    expect(window.localStorage.getItem("test.sidebar.width")).toBe("320");
+  });
 });

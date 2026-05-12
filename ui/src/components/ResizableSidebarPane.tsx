@@ -46,6 +46,7 @@ function writeStoredSidebarWidth(storageKey: string, width: number) {
 type ResizableSidebarPaneProps = {
   children: ReactNode;
   open: boolean;
+  fixedWidth?: number;
   resizable?: boolean;
   storageKey?: string;
   className?: string;
@@ -53,6 +54,7 @@ type ResizableSidebarPaneProps = {
 
 export function ResizableSidebarPane({
   children,
+  fixedWidth,
   open,
   resizable = false,
   storageKey = "paperclip.sidebar.width",
@@ -69,7 +71,7 @@ export function ResizableSidebarPane({
     setWidth(storedWidth);
   }, [storageKey]);
 
-  const visibleWidth = open ? width : 0;
+  const visibleWidth = open ? fixedWidth ?? width : 0;
   const paneStyle = useMemo(
     () => ({ width: `${visibleWidth}px` }),
     [visibleWidth],

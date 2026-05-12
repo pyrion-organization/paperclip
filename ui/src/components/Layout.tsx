@@ -394,13 +394,14 @@ export function Layout() {
             />
           </div>
         ) : (
-          <div className="flex h-full flex-col shrink-0">
-            <div className="flex flex-1 min-h-0">
-              <ResizableSidebarPane
-                open={sidebarOpen}
-                resizable={!isCollapsed}
-                className={cn("h-full shrink-0", isCollapsed && "w-16")}
-              >
+          <ResizableSidebarPane
+            open={sidebarOpen}
+            fixedWidth={isCollapsed ? 64 : undefined}
+            resizable={!isCollapsed}
+            className="h-full shrink-0"
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-hidden">
                 {isInstanceSettingsRoute ? (
                   <InstanceSidebar />
                 ) : isCompanySettingsRoute ? (
@@ -408,14 +409,14 @@ export function Layout() {
                 ) : (
                   companySidebar
                 )}
-              </ResizableSidebarPane>
+              </div>
+              <SidebarAccountMenu
+                deploymentMode={health?.deploymentMode}
+                instanceSettingsTarget={instanceSettingsTarget}
+                version={health?.version}
+              />
             </div>
-            <SidebarAccountMenu
-              deploymentMode={health?.deploymentMode}
-              instanceSettingsTarget={instanceSettingsTarget}
-              version={health?.version}
-            />
-          </div>
+          </ResizableSidebarPane>
         )}
 
         <div className={cn("flex min-w-0 flex-col", isMobile ? "w-full" : "h-full flex-1")}>

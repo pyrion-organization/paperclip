@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,11 @@ const mockInstanceSettingsApi = vi.hoisted(() => ({
 const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSetSelectedCompanyId = vi.hoisted(() => vi.fn());
 const mockSetSidebarOpen = vi.hoisted(() => vi.fn());
+const mockSidebarState = vi.hoisted(() => ({
+  sidebarOpen: true,
+  isCollapsed: false,
+  isMobile: false,
+}));
 const mockCompanyState = vi.hoisted(() => ({
   companies: [{ id: "company-1", issuePrefix: "PAP", name: "Paperclip" }],
   selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
@@ -42,6 +47,22 @@ vi.mock("@/lib/router", () => ({
 
 vi.mock("./Sidebar", () => ({
   Sidebar: () => <div>Main company nav</div>,
+}));
+
+vi.mock("./ResizableSidebarPane", () => ({
+  ResizableSidebarPane: ({
+    children,
+    className,
+    fixedWidth,
+  }: {
+    children: ReactNode;
+    className?: string;
+    fixedWidth?: number;
+  }) => (
+    <div data-testid="resizable-sidebar-pane" className={className} data-fixed-width={fixedWidth ?? ""}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("./InstanceSidebar", () => ({
@@ -161,10 +182,11 @@ vi.mock("../context/CompanyContext", () => ({
 
 vi.mock("../context/SidebarContext", () => ({
   useSidebar: () => ({
-    sidebarOpen: true,
+    sidebarOpen: mockSidebarState.sidebarOpen,
     setSidebarOpen: mockSetSidebarOpen,
     toggleSidebar: vi.fn(),
-    isMobile: false,
+    isCollapsed: mockSidebarState.isCollapsed,
+    isMobile: mockSidebarState.isMobile,
   }),
 }));
 
@@ -229,6 +251,9 @@ describe("Layout", () => {
     });
     mockPluginSlots.slots = [];
     mockPluginSlotContexts.length = 0;
+    mockSidebarState.sidebarOpen = true;
+    mockSidebarState.isCollapsed = false;
+    mockSidebarState.isMobile = false;
   });
 
   afterEach(() => {
@@ -261,6 +286,34 @@ describe("Layout", () => {
     expect(container.textContent).not.toContain(
       "Sign-in is required and this instance is intended for private-network access.",
     );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the account footer inside the collapsed sidebar rail on desktop", async () => {
+    mockSidebarState.isCollapsed = true;
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const sidebarPane = container.querySelector('[data-testid="resizable-sidebar-pane"]');
+    expect(sidebarPane).not.toBeNull();
+    expect(sidebarPane?.getAttribute("data-fixed-width")).toBe("64");
+    expect(sidebarPane?.textContent).toContain("Main company nav");
+    expect(sidebarPane?.textContent).toContain("Account menu");
 
     await act(async () => {
       root.unmount();
