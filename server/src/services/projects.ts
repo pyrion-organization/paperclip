@@ -527,7 +527,8 @@ export function projectService(db: Db) {
 
     const [withGoals] = await attachGoals(db, [row]);
     const [enriched] = withGoals ? await attachWorkspaces(db, [withGoals]) : [];
-    return enriched!;
+    const [withClients] = enriched ? await attachClients(db, [enriched]) : [];
+    return withClients!;
   };
 
   const getProjectById = async (id: string): Promise<ProjectWithGoals | null> => {
@@ -540,7 +541,8 @@ export function projectService(db: Db) {
     const [withGoals] = await attachGoals(db, [row]);
     if (!withGoals) return null;
     const [enriched] = await attachWorkspaces(db, [withGoals]);
-    return enriched ?? null;
+    const [withClients] = enriched ? await attachClients(db, [enriched]) : [];
+    return withClients ?? null;
   };
 
   return {

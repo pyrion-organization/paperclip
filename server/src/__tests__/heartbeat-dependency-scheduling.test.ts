@@ -85,6 +85,37 @@ async function waitForCondition(fn: () => Promise<boolean>, timeoutMs = 3_000) {
   return fn();
 }
 
+async function cleanupTestRows(db: ReturnType<typeof createDb>) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await db.delete(environmentLeases);
+      await db.delete(activityLog);
+      await db.delete(issueComments);
+      await db.delete(issueDocuments);
+      await db.delete(documentRevisions);
+      await db.delete(documents);
+      await db.delete(issueRelations);
+      await db.delete(issueTreeHolds);
+      await db.delete(issues);
+      await db.delete(heartbeatRunEvents);
+      await db.delete(activityLog);
+      await db.delete(heartbeatRuns);
+      await db.delete(agentWakeupRequests);
+      await db.delete(agentRuntimeState);
+      await db.delete(agents);
+      await db.delete(companySkills);
+      await db.delete(environments);
+      await db.delete(companies);
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw lastError;
+}
+
 describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () => {
   let db!: ReturnType<typeof createDb>;
   let heartbeat!: ReturnType<typeof heartbeatService>;
@@ -124,25 +155,7 @@ describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () =
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await db.delete(environmentLeases);
-    await db.delete(activityLog);
-    await db.delete(companySkills);
-    await db.delete(issueComments);
-    await db.delete(issueDocuments);
-    await db.delete(documentRevisions);
-    await db.delete(documents);
-    await db.delete(issueRelations);
-    await db.delete(issueTreeHolds);
-    await db.delete(issues);
-    await db.delete(heartbeatRunEvents);
-    await db.delete(activityLog);
-    await db.delete(heartbeatRuns);
-    await db.delete(agentWakeupRequests);
-    await db.delete(agentRuntimeState);
-    await db.delete(agents);
-    await db.delete(companySkills);
-    await db.delete(environments);
-    await db.delete(companies);
+    await cleanupTestRows(db);
   });
 
   afterAll(async () => {

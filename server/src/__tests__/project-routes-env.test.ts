@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveManagedProjectWorkspaceDir } from "../home-paths.js";
 
 const mockProjectService = vi.hoisted(() => ({
   list: vi.fn(),
@@ -286,11 +287,16 @@ describe("project env routes", () => {
       });
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const expectedWorkspaceCwd = resolveManagedProjectWorkspaceDir({
+      companyId: "company-1",
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+    });
     expect(mockProjectService.updateWorkspace).toHaveBeenCalledWith(
       "project-1",
       "workspace-1",
       expect.objectContaining({
-        cwd: "/home/core/.paperclip/instances/default/projects/company-1/project-1/workspace-1/_default",
+        cwd: expectedWorkspaceCwd,
         name: "paperclip",
       }),
     );

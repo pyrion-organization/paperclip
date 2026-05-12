@@ -1612,8 +1612,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       {},
     );
 
-    expect(updated!.minIntervalSec).toBe(1800);
-    expect(updated!.maxIntervalSec).toBe(3600);
+    expect(updated!.trigger.minIntervalSec).toBe(1800);
+    expect(updated!.trigger.maxIntervalSec).toBe(3600);
   });
 
   it("rejects update when maxIntervalSec < minIntervalSec", async () => {

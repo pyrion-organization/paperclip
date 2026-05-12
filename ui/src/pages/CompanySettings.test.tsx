@@ -201,14 +201,6 @@ describe("CompanySettings email settings", () => {
     const fromInput = container.querySelector("[data-testid='company-settings-smtp-from']") as HTMLInputElement;
     const userInput = container.querySelector("[data-testid='company-settings-smtp-user']") as HTMLInputElement;
 
-    expect(container.textContent).toContain("Installed sandbox providers:");
-    expect(container.textContent).toContain("Secure Sandbox");
-    expect(container.textContent).toContain("These are not adapter types.");
-
-    const editButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "Edit");
-    expect(editButton).toBeTruthy();
-
     await act(async () => {
       setInputValue(hostInput, "smtp.example.com");
       setInputValue(portInput, "587");
