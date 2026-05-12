@@ -2,6 +2,12 @@ import type {
   IssueOriginKind,
   ProjectStatus,
   RoutineTriggerConditionType,
+  IssuePriority,
+  RoutineCatchUpPolicy,
+  RoutineConcurrencyPolicy,
+  RoutineStatus,
+  RoutineTriggerKind,
+  RoutineTriggerSigningMode,
   RoutineVariableType,
 } from "../constants.js";
 
@@ -71,6 +77,8 @@ export interface Routine {
   remediationPrompt: string | null;
   remediationAssigneeAgentId: string | null;
   notificationEmail: string | null;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
   createdByAgentId: string | null;
   createdByUserId: string | null;
   updatedByAgentId: string | null;
@@ -79,6 +87,71 @@ export interface Routine {
   lastEnqueuedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  managedByPlugin?: RoutineManagedByPlugin | null;
+}
+
+export interface RoutineManagedByPlugin {
+  id: string;
+  pluginId: string;
+  pluginKey: string;
+  pluginDisplayName: string;
+  resourceKind: "routine";
+  resourceKey: string;
+  defaultsJson: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RoutineRevisionSnapshotRoutineV1 {
+  id: string;
+  companyId: string;
+  projectId: string | null;
+  goalId: string | null;
+  parentIssueId: string | null;
+  title: string;
+  description: string | null;
+  assigneeAgentId: string | null;
+  priority: IssuePriority;
+  status: RoutineStatus;
+  concurrencyPolicy: RoutineConcurrencyPolicy;
+  catchUpPolicy: RoutineCatchUpPolicy;
+  variables: RoutineVariable[];
+}
+
+export interface RoutineRevisionSnapshotTriggerV1 {
+  id: string;
+  kind: RoutineTriggerKind;
+  label: string | null;
+  enabled: boolean;
+  cronExpression: string | null;
+  timezone: string | null;
+  publicId: string | null;
+  signingMode: RoutineTriggerSigningMode | null;
+  replayWindowSec: number | null;
+}
+
+export interface RoutineRevisionSnapshotV1 {
+  version: 1;
+  routine: RoutineRevisionSnapshotRoutineV1;
+  triggers: RoutineRevisionSnapshotTriggerV1[];
+}
+
+export type RoutineRevisionSnapshot = RoutineRevisionSnapshotV1;
+
+export interface RoutineRevision {
+  id: string;
+  companyId: string;
+  routineId: string;
+  revisionNumber: number;
+  title: string;
+  description: string | null;
+  snapshot: RoutineRevisionSnapshot;
+  changeSummary: string | null;
+  restoredFromRevisionId: string | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdByRunId: string | null;
+  createdAt: Date;
 }
 
 export interface RoutineTrigger {
