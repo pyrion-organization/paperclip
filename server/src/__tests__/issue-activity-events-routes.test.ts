@@ -13,6 +13,7 @@ const mockIssueService = vi.hoisted(() => ({
   getRelationSummaries: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
+  findRootCreatorUserId: vi.fn(),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
@@ -44,6 +45,11 @@ const mockInstanceSettingsService = vi.hoisted(() => ({
 const mockRoutineService = vi.hoisted(() => ({
   syncRunStatusForIssue: vi.fn(async () => undefined),
 }));
+const mockEnqueueIssueCompletionEmailNotification = vi.hoisted(() => vi.fn(async () => ({
+  id: "notification-1",
+  status: "pending",
+  skipReason: null,
+})));
 
 function registerModuleMocks() {
   vi.doMock("../services/access.js", () => ({
@@ -72,6 +78,10 @@ function registerModuleMocks() {
 
   vi.doMock("../services/routines.js", () => ({
     routineService: () => mockRoutineService,
+  }));
+
+  vi.doMock("../services/email-notifications.js", () => ({
+    enqueueIssueCompletionEmailNotification: mockEnqueueIssueCompletionEmailNotification,
   }));
 
   vi.doMock("../services/index.js", () => ({
@@ -154,6 +164,7 @@ describe("issue activity event routes", () => {
     vi.doUnmock("../services/activity-log.js");
     vi.doUnmock("../services/feedback.js");
     vi.doUnmock("../services/heartbeat.js");
+    vi.doUnmock("../services/email-notifications.js");
     vi.doUnmock("../services/index.js");
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issues.js");
@@ -168,6 +179,7 @@ describe("issue activity event routes", () => {
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
     mockIssueService.listWakeableBlockedDependents.mockResolvedValue([]);
     mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue(null);
+    mockIssueService.findRootCreatorUserId.mockResolvedValue("local-board");
     mockAccessService.canUser.mockResolvedValue(false);
     mockAccessService.hasPermission.mockResolvedValue(false);
     mockFeedbackService.listIssueVotesForUser.mockResolvedValue([]);
@@ -190,6 +202,100 @@ describe("issue activity event routes", () => {
     });
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
     mockRoutineService.syncRunStatusForIssue.mockResolvedValue(undefined);
+    mockEnqueueIssueCompletionEmailNotification.mockResolvedValue({
+      id: "notification-1",
+      status: "pending",
+      skipReason: null,
+    });
+  });
+
+  it("enqueues a completion email when an issue is explicitly marked done", async () => {
+    const issue = { ...makeIssue(), status: "todo" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      completedAt: new Date("2026-05-12T00:34:49.321Z"),
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        creatorUserId: "local-board",
+        agentComment: null,
+        previousStatus: "todo",
+        requestedStatus: "done",
+        issue: expect.objectContaining({
+          id: issue.id,
+          title: issue.title,
+        }),
+      }),
+    );
+  });
+
+  it("enqueues a completion email for creator self-close", async () => {
+    const issue = { ...makeIssue(), status: "todo", createdByUserId: "local-board" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.findRootCreatorUserId.mockResolvedValue("local-board");
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("enqueues a completion email for explicit done-to-done updates", async () => {
+    const issue = { ...makeIssue(), status: "done", completedAt: new Date("2026-05-12T00:35:17.617Z") };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        previousStatus: "done",
+        requestedStatus: "done",
+      }),
+    );
+  });
+
+  it("does not enqueue a completion email for updates that omit done status", async () => {
+    const issue = makeIssue();
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ title: "No status change" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).not.toHaveBeenCalled();
   });
 
   it("logs blocker activity with added and removed issue summaries", async () => {

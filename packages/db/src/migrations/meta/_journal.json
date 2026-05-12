@@ -680,6 +680,13 @@
       "when": 1778074536410,
       "tag": "0096_company_secret_provider_configs",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1778547966096,
+      "tag": "0097_exotic_mojo",
+      "breakpoints": true
     }
   ]
 }

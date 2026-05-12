@@ -83,4 +83,17 @@ describe("activity formatting", () => {
       "Run finished without a next step - recovery escalated",
     );
   });
+
+  it("formats completion email notification lifecycle activity", () => {
+    expect(formatActivityVerb("issue.email_notification_queued")).toBe("queued completion email for");
+    expect(formatActivityVerb("issue.email_notification_attempted")).toBe("attempted completion email for");
+    expect(formatActivityVerb("issue.email_notification_sent")).toBe("sent completion email for");
+    expect(formatActivityVerb("issue.email_notification_skipped")).toBe("skipped completion email for");
+    expect(formatActivityVerb("issue.email_notification_failed")).toBe("failed completion email for");
+    expect(formatIssueActivityAction("issue.email_notification_queued")).toBe("Completion email queued");
+    expect(formatIssueActivityAction("issue.email_notification_attempted")).toBe("Completion email attempted");
+    expect(formatIssueActivityAction("issue.email_notification_sent")).toBe("Completion email sent");
+    expect(formatIssueActivityAction("issue.email_notification_skipped")).toBe("Completion email skipped");
+    expect(formatIssueActivityAction("issue.email_notification_failed")).toBe("Completion email failed");
+  });
 });

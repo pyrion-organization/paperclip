@@ -98,7 +98,7 @@ import {
   setIssueExecutionPolicyMonitorScheduledBy,
 } from "../services/issue-execution-policy.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
-import { sendIssueCompletionEmail } from "../services/email.js";
+import { enqueueIssueCompletionEmailNotification } from "../services/email-notifications.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
@@ -3357,51 +3357,29 @@ export function issueRoutes(
           });
         }
 
+      }
+
+      const requestedDone = req.body.status === "done";
+      if (requestedDone && issue.status === "done") {
         try {
           const creatorUserId = await svc.findRootCreatorUserId(issue.id);
-          if (creatorUserId) {
-            const isSelfClose = actor.actorType === "user" && actor.actorId === creatorUserId;
-            if (!isSelfClose) {
-              const recipient = await db
-                .select({ email: authUsers.email, name: authUsers.name })
-                .from(authUsers)
-                .where(eq(authUsers.id, creatorUserId))
-                .then((rows) => rows[0] ?? null);
-              if (recipient?.email) {
-                let completedByName = "Someone";
-                let completedByKind: "agent" | "user" = "user";
-                if (actor.actorType === "agent" && actor.agentId) {
-                  const actorAgent = await agentsSvc.getById(actor.agentId);
-                  if (actorAgent?.name) completedByName = actorAgent.name;
-                  completedByKind = "agent";
-                } else if (actor.actorType === "user" && actor.actorId) {
-                  const actorUser = await db
-                    .select({ name: authUsers.name })
-                    .from(authUsers)
-                    .where(eq(authUsers.id, actor.actorId))
-                    .then((rows) => rows[0] ?? null);
-                  if (actorUser?.name) completedByName = actorUser.name;
-                }
-                sendIssueCompletionEmail({
-                  to: recipient.email,
-                  issueTitle: issue.title,
-                  issueId: issue.id,
-                  issueIdentifier: issue.identifier ?? null,
-                  completedByName,
-                  completedByKind,
-                  agentComment: commentBody ?? null,
-                  issueDescription: issue.description ?? null,
-                  completedAt: issue.completedAt ?? new Date(),
-                  db,
-                  companyId: issue.companyId,
-                }).catch((err: unknown) =>
-                  logger.warn({ err, issueId: issue.id }, "failed to send issue completion email"),
-                );
-              }
-            }
-          }
+          await enqueueIssueCompletionEmailNotification(db, {
+            issue: {
+              id: issue.id,
+              companyId: issue.companyId,
+              title: issue.title,
+              identifier: issue.identifier ?? null,
+              description: issue.description ?? null,
+              completedAt: issue.completedAt ?? new Date(),
+            },
+            creatorUserId,
+            actor,
+            agentComment: commentBody ?? null,
+            previousStatus: existing.status,
+            requestedStatus: "done",
+          });
         } catch (err) {
-          logger.warn({ err, issueId: issue.id }, "failed to resolve issue completion email recipient");
+          logger.warn({ err, issueId: issue.id }, "failed to enqueue issue completion email notification");
         }
       }
 

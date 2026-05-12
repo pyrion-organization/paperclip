@@ -9,6 +9,7 @@ import {
   createDb,
   documents,
   documentRevisions,
+  emailNotifications,
   heartbeatRuns,
   issueComments,
   issueDocuments,
@@ -43,6 +44,7 @@ describeEmbeddedPostgres("cleanup removal services", () => {
 
   afterEach(async () => {
     await db.delete(activityLog);
+    await db.delete(emailNotifications);
     await db.delete(issueReadStates);
     await db.delete(issueComments);
     await db.delete(issueExecutionDecisions);
@@ -128,6 +130,26 @@ describeEmbeddedPostgres("cleanup removal services", () => {
       entityId: issueId,
       runId,
       details: {},
+    });
+
+    await db.insert(emailNotifications).values({
+      id: randomUUID(),
+      companyId,
+      kind: "issue_completion",
+      status: "pending",
+      issueId,
+      recipientUserId: "user-1",
+      recipientEmail: "user@example.com",
+      subject: "Issue done",
+      payload: {
+        issueTitle: "Regression fixture",
+        issueIdentifier: null,
+        completedByName: "CodexCoder",
+        completedByKind: "agent",
+        agentComment: null,
+        issueDescription: null,
+        completedAt: new Date().toISOString(),
+      },
     });
 
     await db.insert(issueExecutionDecisions).values({
@@ -226,6 +248,7 @@ describeEmbeddedPostgres("cleanup removal services", () => {
     await expect(db.select().from(documents).where(eq(documents.id, documentId))).resolves.toHaveLength(0);
     await expect(db.select().from(documentRevisions).where(eq(documentRevisions.id, revisionId))).resolves.toHaveLength(0);
     await expect(db.select().from(issueReadStates).where(eq(issueReadStates.companyId, companyId))).resolves.toHaveLength(0);
+    await expect(db.select().from(emailNotifications).where(eq(emailNotifications.companyId, companyId))).resolves.toHaveLength(0);
     await expect(db.select().from(activityLog).where(eq(activityLog.companyId, companyId))).resolves.toHaveLength(0);
   });
 });
