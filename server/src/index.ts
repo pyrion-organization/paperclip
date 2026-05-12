@@ -37,6 +37,7 @@ import {
   routineService,
 } from "./services/index.js";
 import { createFeedbackTraceShareClientFromConfig } from "./services/feedback-share-client.js";
+import { startEmailNotificationOutboxWorker } from "./services/email-notifications.js";
 import { buildRuntimeApiCandidateUrls, choosePrimaryRuntimeApiUrl } from "./runtime-api.js";
 import { createPluginWorkerManager } from "./services/plugin-worker-manager.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
@@ -669,6 +670,11 @@ export async function startServer(): Promise<StartedServer> {
     .catch((err) => {
       logger.error({ err }, "startup reconciliation of persisted runtime services failed");
     });
+
+  const emailNotificationWorker = startEmailNotificationOutboxWorker(db as any);
+  process.once("exit", () => {
+    emailNotificationWorker.stop();
+  });
   
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any, { pluginWorkerManager });
@@ -688,6 +694,7 @@ export async function startServer(): Promise<StartedServer> {
           reconciled.assignmentDispatched > 0 ||
           reconciled.dispatchRequeued > 0 ||
           reconciled.continuationRequeued > 0 ||
+          reconciled.successfulRunHandoffEscalated > 0 ||
           reconciled.escalated > 0
         ) {
           logger.warn(
@@ -786,6 +793,7 @@ export async function startServer(): Promise<StartedServer> {
             reconciled.assignmentDispatched > 0 ||
             reconciled.dispatchRequeued > 0 ||
             reconciled.continuationRequeued > 0 ||
+            reconciled.successfulRunHandoffEscalated > 0 ||
             reconciled.escalated > 0
           ) {
             logger.warn(

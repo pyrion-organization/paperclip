@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  History as HistoryIcon,
   Play,
   RefreshCw,
   Repeat,
@@ -15,7 +16,12 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
-import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse } from "../api/routines";
+import { ApiError } from "../api/client";
+import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse, type RestoreRoutineRevisionResponse } from "../api/routines";
+import {
+  RoutineHistoryTab,
+  type RoutineHistoryDirtyFieldDescriptor,
+} from "../components/RoutineHistoryTab";
 import { heartbeatsApi } from "../api/heartbeats";
 import { LiveRunWidget } from "../components/LiveRunWidget";
 import { agentsApi } from "../api/agents";
@@ -60,7 +66,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import type { ProjectStatus, RoutineTrigger, RoutineTriggerCondition, RoutineVariable } from "@paperclipai/shared";
+import type { ProjectStatus, RoutineDetail as RoutineDetailType, RoutineTrigger, RoutineTriggerCondition, RoutineVariable } from "@paperclipai/shared";
 
 const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
@@ -85,7 +91,7 @@ const projectStatusOptions = [
 const triggerConditionTypeOptions = [
   { value: "project_status", label: "Project status" },
 ] as const satisfies ReadonlyArray<{ value: RoutineTriggerCondition["type"]; label: string }>;
-const routineTabs = ["triggers", "runs", "activity"] as const;
+const routineTabs = ["triggers", "runs", "activity", "history"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
   coalesce_if_active: "Keep one follow-up run queued while an active run is still working.",
   always_enqueue: "Queue every trigger occurrence, even if several runs stack up.",
@@ -107,8 +113,10 @@ type RoutineTab = (typeof routineTabs)[number];
 
 type SecretMessage = {
   title: string;
-  webhookUrl: string;
-  webhookSecret: string;
+  entries: Array<{
+    webhookUrl: string;
+    webhookSecret: string;
+  }>;
 };
 
 type TriggerConditionDraft = RoutineTriggerCondition & { id: string };
@@ -687,6 +695,7 @@ export function RoutineDetail() {
   const [secretMessage, setSecretMessage] = useState<SecretMessage | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState<0 | 1>(0);
+  const [saveConflict, setSaveConflict] = useState(false);
   const [runVariablesOpen, setRunVariablesOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
     kind: "schedule",
@@ -812,26 +821,55 @@ export function RoutineDetail() {
         : null,
     [routine],
   );
-  const isEditDirty = useMemo(() => {
-    if (!routineDefaults) return false;
-    return (
-      editDraft.title !== routineDefaults.title ||
-      editDraft.description !== routineDefaults.description ||
-      editDraft.projectId !== routineDefaults.projectId ||
-      editDraft.assigneeAgentId !== routineDefaults.assigneeAgentId ||
-      editDraft.priority !== routineDefaults.priority ||
-      editDraft.concurrencyPolicy !== routineDefaults.concurrencyPolicy ||
-      editDraft.catchUpPolicy !== routineDefaults.catchUpPolicy ||
-      JSON.stringify(editDraft.variables) !== JSON.stringify(routineDefaults.variables) ||
-      editDraft.executionMode !== routineDefaults.executionMode ||
-      editDraft.scriptPath !== routineDefaults.scriptPath ||
-      JSON.stringify(editDraft.scriptCommandArgs) !== JSON.stringify(routineDefaults.scriptCommandArgs) ||
-      editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec ||
-      editDraft.remediationEnabled !== routineDefaults.remediationEnabled ||
-      editDraft.remediationAssigneeAgentId !== routineDefaults.remediationAssigneeAgentId ||
-      editDraft.notificationEmail !== routineDefaults.notificationEmail
-    );
+  const dirtyFields = useMemo<RoutineHistoryDirtyFieldDescriptor[]>(() => {
+    if (!routineDefaults) return [];
+    const result: RoutineHistoryDirtyFieldDescriptor[] = [];
+    if (editDraft.title !== routineDefaults.title) result.push({ key: "title", label: "the title" });
+    if (editDraft.description !== routineDefaults.description) {
+      result.push({ key: "description", label: "the description" });
+    }
+    if (editDraft.projectId !== routineDefaults.projectId) {
+      result.push({ key: "projectId", label: "the project" });
+    }
+    if (editDraft.assigneeAgentId !== routineDefaults.assigneeAgentId) {
+      result.push({ key: "assigneeAgentId", label: "the default agent" });
+    }
+    if (editDraft.priority !== routineDefaults.priority) {
+      result.push({ key: "priority", label: "the priority" });
+    }
+    if (editDraft.concurrencyPolicy !== routineDefaults.concurrencyPolicy) {
+      result.push({ key: "concurrencyPolicy", label: "the concurrency policy" });
+    }
+    if (editDraft.catchUpPolicy !== routineDefaults.catchUpPolicy) {
+      result.push({ key: "catchUpPolicy", label: "the catch-up policy" });
+    }
+    if (JSON.stringify(editDraft.variables) !== JSON.stringify(routineDefaults.variables)) {
+      result.push({ key: "variables", label: "the variables" });
+    }
+    if (editDraft.executionMode !== routineDefaults.executionMode) {
+      result.push({ key: "executionMode", label: "the execution mode" });
+    }
+    if (editDraft.scriptPath !== routineDefaults.scriptPath) {
+      result.push({ key: "scriptPath", label: "the script path" });
+    }
+    if (JSON.stringify(editDraft.scriptCommandArgs) !== JSON.stringify(routineDefaults.scriptCommandArgs)) {
+      result.push({ key: "scriptCommandArgs", label: "the script arguments" });
+    }
+    if (editDraft.scriptTimeoutSec !== routineDefaults.scriptTimeoutSec) {
+      result.push({ key: "scriptTimeoutSec", label: "the script timeout" });
+    }
+    if (editDraft.remediationEnabled !== routineDefaults.remediationEnabled) {
+      result.push({ key: "remediationEnabled", label: "the remediation setting" });
+    }
+    if (editDraft.remediationAssigneeAgentId !== routineDefaults.remediationAssigneeAgentId) {
+      result.push({ key: "remediationAssigneeAgentId", label: "the remediation assignee" });
+    }
+    if (editDraft.notificationEmail !== routineDefaults.notificationEmail) {
+      result.push({ key: "notificationEmail", label: "the notification email" });
+    }
+    return result;
   }, [editDraft, routineDefaults]);
+  const isEditDirty = dirtyFields.length > 0;
 
   useEffect(() => {
     if (!routine) return;
@@ -882,16 +920,32 @@ export function RoutineDetail() {
 
   const saveRoutine = useMutation({
     mutationFn: () => {
-      return routinesApi.update(routineId!, buildRoutineMutationPayload(editDraft));
+      const payload = buildRoutineMutationPayload(editDraft);
+      const baseRevisionId = routine?.latestRevisionId ?? null;
+      return routinesApi.update(routineId!, {
+        ...payload,
+        ...(baseRevisionId ? { baseRevisionId } : {}),
+      });
     },
     onSuccess: async () => {
+      setSaveConflict(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.activity(selectedCompanyId!, routineId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.revisions(routineId!) }),
       ]);
     },
     onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        setSaveConflict(true);
+        pushToast({
+          title: "Routine changed",
+          body: "Someone else updated this routine. Reload to see the latest revision.",
+          tone: "warn",
+        });
+        return;
+      }
       pushToast({
         title: "Failed to save routine",
         body: error instanceof Error ? error.message : "Paperclip could not save the routine.",
@@ -995,8 +1049,10 @@ export function RoutineDetail() {
       if (result.secretMaterial) {
         setSecretMessage({
           title: "Webhook trigger created",
-          webhookUrl: result.secretMaterial.webhookUrl,
-          webhookSecret: result.secretMaterial.webhookSecret,
+          entries: [{
+            webhookUrl: result.secretMaterial.webhookUrl,
+            webhookSecret: result.secretMaterial.webhookSecret,
+          }],
         });
       } else {
         pushToast({
@@ -1085,8 +1141,10 @@ export function RoutineDetail() {
     onSuccess: async (result) => {
       setSecretMessage({
         title: "Webhook secret rotated",
-        webhookUrl: result.secretMaterial.webhookUrl,
-        webhookSecret: result.secretMaterial.webhookSecret,
+        entries: [{
+          webhookUrl: result.secretMaterial.webhookUrl,
+          webhookSecret: result.secretMaterial.webhookSecret,
+        }],
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
@@ -1213,36 +1271,44 @@ export function RoutineDetail() {
     <div className="max-w-2xl space-y-6">
       {/* Header: editable title + actions */}
       <div className="flex items-start gap-4">
-        <textarea
-          ref={titleInputRef}
-          className="flex-1 min-w-0 resize-none overflow-hidden bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50"
-          placeholder="Routine title"
-          rows={1}
-          value={editDraft.title}
-          onChange={(event) => {
-            setEditDraft((current) => ({ ...current, title: event.target.value }));
-            autoResizeTextarea(event.target);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              descriptionEditorRef.current?.focus();
-              return;
-            }
-            if (event.key === "Tab" && !event.shiftKey) {
-              event.preventDefault();
-              if (editDraft.assigneeAgentId) {
-                if (editDraft.projectId) {
-                  descriptionEditorRef.current?.focus();
-                } else {
-                  projectSelectorRef.current?.focus();
-                }
-              } else {
-                assigneeSelectorRef.current?.focus();
+        <div className="min-w-0 flex-1 space-y-2">
+          <textarea
+            ref={titleInputRef}
+            className="w-full resize-none overflow-hidden bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50"
+            placeholder="Routine title"
+            rows={1}
+            value={editDraft.title}
+            onChange={(event) => {
+              setEditDraft((current) => ({ ...current, title: event.target.value }));
+              autoResizeTextarea(event.target);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                descriptionEditorRef.current?.focus();
+                return;
               }
-            }
-          }}
-        />
+              if (event.key === "Tab" && !event.shiftKey) {
+                event.preventDefault();
+                if (editDraft.assigneeAgentId) {
+                  if (editDraft.projectId) {
+                    descriptionEditorRef.current?.focus();
+                  } else {
+                    projectSelectorRef.current?.focus();
+                  }
+                } else {
+                  assigneeSelectorRef.current?.focus();
+                }
+              }
+            }}
+          />
+          {routine.managedByPlugin ? (
+            <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+              Managed by {routine.managedByPlugin.pluginDisplayName}
+              <span className="font-mono text-[10px]">{routine.managedByPlugin.resourceKey}</span>
+            </Badge>
+          ) : null}
+        </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
           <RunButton
             onClick={() => {
@@ -1280,19 +1346,58 @@ export function RoutineDetail() {
             <p className="font-medium">{secretMessage.title}</p>
             <p className="text-xs text-muted-foreground">Save this now. Paperclip will not show the secret value again.</p>
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Input value={secretMessage.webhookUrl} readOnly className="flex-1" />
-              <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook URL", secretMessage.webhookUrl)}>
-                <Copy className="h-3.5 w-3.5 mr-1" />
-                URL
-              </Button>
+          <div className="space-y-3">
+            {secretMessage.entries.map((entry, index) => (
+              <div key={`${entry.webhookUrl}-${index}`} className="space-y-2">
+                {secretMessage.entries.length > 1 && (
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Webhook trigger {index + 1} of {secretMessage.entries.length}
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input value={entry.webhookUrl} readOnly className="flex-1" />
+                  <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook URL", entry.webhookUrl)}>
+                    <Copy className="h-3.5 w-3.5 mr-1" />
+                    URL
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input value={entry.webhookSecret} readOnly className="flex-1" />
+                  <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook secret", entry.webhookSecret)}>
+                    <Copy className="h-3.5 w-3.5 mr-1" />
+                    Secret
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Save conflict banner */}
+      {saveConflict && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="font-medium text-amber-200">Out of date</p>
+              <p className="text-xs text-muted-foreground">
+                This routine changed while you were editing. Reload to merge the latest revision before
+                saving again.
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Input value={secretMessage.webhookSecret} readOnly className="flex-1" />
-              <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook secret", secretMessage.webhookSecret)}>
-                <Copy className="h-3.5 w-3.5 mr-1" />
-                Secret
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSaveConflict(false);
+                  if (routineDefaults) {
+                    setEditDraft(routineDefaults);
+                  }
+                  queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) });
+                }}
+              >
+                Reload latest
               </Button>
             </div>
           </div>
@@ -1688,6 +1793,10 @@ export function RoutineDetail() {
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5">
+            <HistoryIcon className="h-3.5 w-3.5" />
+            History
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="triggers" className="space-y-4">
@@ -1999,6 +2108,70 @@ export function RoutineDetail() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="history">
+          <RoutineHistoryTab
+            routine={routine}
+            isEditDirty={isEditDirty}
+            dirtyFields={dirtyFields}
+            onDiscardEdits={() => {
+              if (routineDefaults) setEditDraft(routineDefaults);
+            }}
+            onSaveEdits={() => {
+              if (!saveRoutine.isPending && editDraft.title.trim()) {
+                saveRoutine.mutate();
+              }
+            }}
+            agents={agentById}
+            projects={projectById}
+            onRestoreSecretMaterials={(response: RestoreRoutineRevisionResponse) => {
+              if (response.secretMaterials.length > 0) {
+                setSecretMessage({
+                  title: response.secretMaterials.length === 1
+                    ? "Webhook trigger restored"
+                    : `${response.secretMaterials.length} webhook triggers restored`,
+                  entries: response.secretMaterials.map((recreated) => ({
+                    webhookUrl: recreated.webhookUrl,
+                    webhookSecret: recreated.webhookSecret,
+                  })),
+                });
+              }
+            }}
+            onRestored={(response: RestoreRoutineRevisionResponse) => {
+              setSaveConflict(false);
+              queryClient.setQueryData<RoutineDetailType | undefined>(
+                queryKeys.routines.detail(routineId!),
+                (prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        ...response.routine,
+                        latestRevisionId: response.revision.id,
+                        latestRevisionNumber: response.revision.revisionNumber,
+                      }
+                    : prev,
+              );
+              setEditDraft({
+                title: response.routine.title,
+                description: response.routine.description ?? "",
+                projectId: response.routine.projectId ?? "",
+                assigneeAgentId: response.routine.assigneeAgentId ?? "",
+                priority: response.routine.priority,
+                concurrencyPolicy: response.routine.concurrencyPolicy,
+                catchUpPolicy: response.routine.catchUpPolicy,
+                variables: response.routine.variables,
+                executionMode: response.routine.executionMode ?? "agent",
+                scriptPath: response.routine.scriptPath ?? "",
+                scriptCommandArgs: response.routine.scriptCommandArgs ?? [],
+                scriptTimeoutSec: response.routine.scriptTimeoutSec ?? 60,
+                remediationEnabled: response.routine.remediationEnabled ?? false,
+                remediationAssigneeAgentId: response.routine.remediationAssigneeAgentId ?? "",
+                notificationEmail: response.routine.notificationEmail ?? "",
+              });
+              hydratedRoutineIdRef.current = response.routine.id;
+            }}
+          />
         </TabsContent>
       </Tabs>
 

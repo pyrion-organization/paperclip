@@ -339,8 +339,8 @@ export function RoutineRunVariablesDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !isPending && onOpenChange(next)}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
+      <DialogContent className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[min(calc(100dvh-2rem),42rem)]">
+        <DialogHeader className="shrink-0 border-b border-border/60 px-6 pb-4 pr-12 pt-6">
           {routineName && (
             <p className="text-muted-foreground text-sm">{routineName}</p>
           )}
@@ -350,43 +350,43 @@ export function RoutineRunVariablesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {!isScriptMode && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Agent *</Label>
-                <InlineEntitySelector
-                  value={selection.assigneeAgentId}
-                  options={assigneeOptions}
-                  recentOptionIds={recentAssigneeIds}
-                  placeholder="Agent"
-                  noneLabel="Select an agent"
-                  searchPlaceholder="Search agents..."
-                  emptyMessage="No agents found."
-                  disablePortal
-                  openOnFocus={false}
-                  onChange={(assigneeAgentId) => {
-                    if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
-                    setSelection((current) => ({ ...current, assigneeAgentId }));
-                  }}
-                  renderTriggerValue={(option) =>
-                    option ? (
-                      currentAssignee ? (
-                        <>
-                          <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{option.label}</span>
-                        </>
-                      ) : (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Agent *</Label>
+              <InlineEntitySelector
+                value={selection.assigneeAgentId}
+                options={assigneeOptions}
+                recentOptionIds={recentAssigneeIds}
+                placeholder="Agent"
+                noneLabel="Select an agent"
+                searchPlaceholder="Search agents..."
+                emptyMessage="No agents found."
+                disablePortal
+                openOnFocus={false}
+                onChange={(assigneeAgentId) => {
+                  if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+                  setSelection((current) => ({ ...current, assigneeAgentId }));
+                }}
+                renderTriggerValue={(option) =>
+                  option ? (
+                    currentAssignee ? (
+                      <>
+                        <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate">{option.label}</span>
-                      )
+                      </>
                     ) : (
-                      <span className="text-muted-foreground">Select an agent</span>
+                      <span className="truncate">{option.label}</span>
                     )
-                  }
-                  renderOption={(option) => {
-                    if (!option.id) return <span className="truncate">{option.label}</span>;
-                    const assignee = agents.find((agent) => agent.id === option.id);
-                    return (
+                  ) : (
+                    <span className="text-muted-foreground">Select an agent</span>
+                  )
+                }
+                renderOption={(option) => {
+                  if (!option.id) return <span className="truncate">{option.label}</span>;
+                  const assignee = agents.find((agent) => agent.id === option.id);
+                  return (
                       <>
                         {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
                         <span className="truncate">{option.label}</span>
@@ -526,7 +526,10 @@ export function RoutineRunVariablesDialog({
           ) : null}
         </div>
 
-        <DialogFooter showCloseButton={false}>
+        <DialogFooter
+          showCloseButton={false}
+          className="shrink-0 border-t border-border/60 bg-background px-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4"
+        >
           {!isScriptMode && !selection.assigneeAgentId ? (
             <p className="mr-auto text-xs text-amber-600">Default agent required for this run.</p>
           ) : missingRequired.length > 0 ? (

@@ -33,7 +33,7 @@ export { goals } from "./goals.js";
 export { issues } from "./issues.js";
 export { issueReferenceMentions } from "./issue_reference_mentions.js";
 export { issueRelations } from "./issue_relations.js";
-export { routines, routineTriggers, routineRuns } from "./routines.js";
+export { routines, routineRevisions, routineTriggers, routineRuns } from "./routines.js";
 export { issueWorkProducts } from "./issue_work_products.js";
 export { labels } from "./labels.js";
 export { issueLabels } from "./issue_labels.js";
@@ -53,6 +53,10 @@ export { issueAttachments } from "./issue_attachments.js";
 export { documents } from "./documents.js";
 export { documentRevisions } from "./document_revisions.js";
 export { issueDocuments } from "./issue_documents.js";
+export {
+  emailNotifications,
+  type IssueCompletionEmailNotificationPayload,
+} from "./email_notifications.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
 export { heartbeatRunWatchdogDecisions } from "./heartbeat_run_watchdog_decisions.js";
@@ -61,12 +65,16 @@ export { financeEvents } from "./finance_events.js";
 export { approvals } from "./approvals.js";
 export { approvalComments } from "./approval_comments.js";
 export { activityLog } from "./activity_log.js";
+export { companySecretProviderConfigs } from "./company_secret_provider_configs.js";
 export { companySecrets } from "./company_secrets.js";
 export { companySecretVersions } from "./company_secret_versions.js";
+export { companySecretBindings } from "./company_secret_bindings.js";
+export { secretAccessEvents } from "./secret_access_events.js";
 export { companySkills } from "./company_skills.js";
 export { plugins } from "./plugins.js";
 export { pluginConfig } from "./plugin_config.js";
 export { pluginCompanySettings } from "./plugin_company_settings.js";
+export { pluginManagedResources } from "./plugin_managed_resources.js";
 export { pluginState } from "./plugin_state.js";
 export { pluginEntities } from "./plugin_entities.js";
 export { pluginDatabaseNamespaces, pluginMigrations } from "./plugin_database.js";

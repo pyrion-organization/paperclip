@@ -190,6 +190,17 @@ export interface GitPushResult {
   message: string | null;
 }
 
+export interface ProjectManagedByPlugin {
+  id: string;
+  pluginId: string;
+  pluginKey: string;
+  pluginDisplayName: string;
+  resourceKind: "project";
+  resourceKey: string;
+  defaultsJson: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
 export interface Project {
   id: string;
   companyId: string;
@@ -212,6 +223,7 @@ export interface Project {
   clients: ProjectClientRef[];
   workspaces: ProjectWorkspace[];
   primaryWorkspace: ProjectWorkspace | null;
+  managedByPlugin?: ProjectManagedByPlugin | null;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

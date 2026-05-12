@@ -301,7 +301,7 @@ export async function sendTestEmail(params: {
   });
 }
 
-export async function sendIssueCompletionEmail(params: {
+export type IssueCompletionEmailParams = {
   to: string;
   issueTitle: string;
   issueId: string;
@@ -313,9 +313,17 @@ export async function sendIssueCompletionEmail(params: {
   completedAt?: Date;
   db?: Db | null;
   companyId?: string | null;
-}): Promise<void> {
+};
+
+export type IssueCompletionEmailSendResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "smtp_not_configured" };
+
+export async function sendIssueCompletionEmailWithResult(
+  params: IssueCompletionEmailParams,
+): Promise<IssueCompletionEmailSendResult> {
   const config = await loadSmtpConfig(params.db ?? null, params.companyId);
-  if (!config) return;
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
   const transport = buildTransport(config);
   const from = config.from;
   const completedAt = params.completedAt ?? new Date();
@@ -389,6 +397,11 @@ export async function sendIssueCompletionEmail(params: {
     text: textLines.join("\n"),
     html,
   });
+  return { status: "sent" };
+}
+
+export async function sendIssueCompletionEmail(params: IssueCompletionEmailParams): Promise<void> {
+  await sendIssueCompletionEmailWithResult(params);
 }
 
 export async function sendRoutineFailureEmail(params: {

@@ -74,4 +74,26 @@ describe("activity formatting", () => {
     expect(formatIssueActivityAction("issue.monitor_cleared")).toBe("cleared a monitor");
     expect(formatIssueActivityAction("issue.monitor_recovery_issue_created")).toBe("created a monitor recovery issue");
   });
+
+  it("uses plain next-step copy for successful-run handoff activity", () => {
+    expect(formatActivityVerb("issue.successful_run_handoff_required")).toBe("flagged missing next step on");
+    expect(formatIssueActivityAction("issue.successful_run_handoff_required")).toBe("Run finished without a clear next step");
+    expect(formatIssueActivityAction("issue.successful_run_handoff_resolved")).toBe("Next step chosen");
+    expect(formatIssueActivityAction("issue.successful_run_handoff_escalated")).toBe(
+      "Run finished without a next step - recovery escalated",
+    );
+  });
+
+  it("formats completion email notification lifecycle activity", () => {
+    expect(formatActivityVerb("issue.email_notification_queued")).toBe("queued completion email for");
+    expect(formatActivityVerb("issue.email_notification_attempted")).toBe("attempted completion email for");
+    expect(formatActivityVerb("issue.email_notification_sent")).toBe("sent completion email for");
+    expect(formatActivityVerb("issue.email_notification_skipped")).toBe("skipped completion email for");
+    expect(formatActivityVerb("issue.email_notification_failed")).toBe("failed completion email for");
+    expect(formatIssueActivityAction("issue.email_notification_queued")).toBe("Completion email queued");
+    expect(formatIssueActivityAction("issue.email_notification_attempted")).toBe("Completion email attempted");
+    expect(formatIssueActivityAction("issue.email_notification_sent")).toBe("Completion email sent");
+    expect(formatIssueActivityAction("issue.email_notification_skipped")).toBe("Completion email skipped");
+    expect(formatIssueActivityAction("issue.email_notification_failed")).toBe("Completion email failed");
+  });
 });

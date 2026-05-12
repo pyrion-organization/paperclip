@@ -1,5 +1,6 @@
 import express from "express";
 import request from "supertest";
+import { getTableName } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeIssueExecutionPolicy } from "../services/issue-execution-policy.ts";
 
@@ -12,6 +13,7 @@ const mockIssueService = vi.hoisted(() => ({
   getRelationSummaries: vi.fn(),
   listWakeableBlockedDependents: vi.fn(),
   getWakeableParentAfterChildCompletion: vi.fn(),
+  findRootCreatorUserId: vi.fn(),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
@@ -43,6 +45,11 @@ const mockInstanceSettingsService = vi.hoisted(() => ({
 const mockRoutineService = vi.hoisted(() => ({
   syncRunStatusForIssue: vi.fn(async () => undefined),
 }));
+const mockEnqueueIssueCompletionEmailNotification = vi.hoisted(() => vi.fn(async () => ({
+  id: "notification-1",
+  status: "pending",
+  skipReason: null,
+})));
 
 function registerModuleMocks() {
   vi.doMock("../services/access.js", () => ({
@@ -71,6 +78,10 @@ function registerModuleMocks() {
 
   vi.doMock("../services/routines.js", () => ({
     routineService: () => mockRoutineService,
+  }));
+
+  vi.doMock("../services/email-notifications.js", () => ({
+    enqueueIssueCompletionEmailNotification: mockEnqueueIssueCompletionEmailNotification,
   }));
 
   vi.doMock("../services/index.js", () => ({
@@ -109,7 +120,7 @@ function registerModuleMocks() {
   }));
 }
 
-async function createApp() {
+async function createApp(db: unknown = {}) {
   const [{ issueRoutes }, { errorHandler }] = await Promise.all([
     vi.importActual<typeof import("../routes/issues.js")>("../routes/issues.js"),
     vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
@@ -126,7 +137,7 @@ async function createApp() {
     };
     next();
   });
-  app.use("/api", issueRoutes({} as any, {} as any));
+  app.use("/api", issueRoutes(db as any, {} as any));
   app.use(errorHandler);
   return app;
 }
@@ -153,6 +164,7 @@ describe("issue activity event routes", () => {
     vi.doUnmock("../services/activity-log.js");
     vi.doUnmock("../services/feedback.js");
     vi.doUnmock("../services/heartbeat.js");
+    vi.doUnmock("../services/email-notifications.js");
     vi.doUnmock("../services/index.js");
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issues.js");
@@ -167,6 +179,7 @@ describe("issue activity event routes", () => {
     mockIssueService.getRelationSummaries.mockResolvedValue({ blockedBy: [], blocks: [] });
     mockIssueService.listWakeableBlockedDependents.mockResolvedValue([]);
     mockIssueService.getWakeableParentAfterChildCompletion.mockResolvedValue(null);
+    mockIssueService.findRootCreatorUserId.mockResolvedValue("local-board");
     mockAccessService.canUser.mockResolvedValue(false);
     mockAccessService.hasPermission.mockResolvedValue(false);
     mockFeedbackService.listIssueVotesForUser.mockResolvedValue([]);
@@ -189,6 +202,100 @@ describe("issue activity event routes", () => {
     });
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
     mockRoutineService.syncRunStatusForIssue.mockResolvedValue(undefined);
+    mockEnqueueIssueCompletionEmailNotification.mockResolvedValue({
+      id: "notification-1",
+      status: "pending",
+      skipReason: null,
+    });
+  });
+
+  it("enqueues a completion email when an issue is explicitly marked done", async () => {
+    const issue = { ...makeIssue(), status: "todo" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      completedAt: new Date("2026-05-12T00:34:49.321Z"),
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        creatorUserId: "local-board",
+        agentComment: null,
+        previousStatus: "todo",
+        requestedStatus: "done",
+        issue: expect.objectContaining({
+          id: issue.id,
+          title: issue.title,
+        }),
+      }),
+    );
+  });
+
+  it("enqueues a completion email for creator self-close", async () => {
+    const issue = { ...makeIssue(), status: "todo", createdByUserId: "local-board" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.findRootCreatorUserId.mockResolvedValue("local-board");
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("enqueues a completion email for explicit done-to-done updates", async () => {
+    const issue = { ...makeIssue(), status: "done", completedAt: new Date("2026-05-12T00:35:17.617Z") };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        previousStatus: "done",
+        requestedStatus: "done",
+      }),
+    );
+  });
+
+  it("does not enqueue a completion email for updates that omit done status", async () => {
+    const issue = makeIssue();
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ title: "No status change" });
+
+    expect(res.status).toBe(200);
+    expect(mockEnqueueIssueCompletionEmailNotification).not.toHaveBeenCalled();
   });
 
   it("logs blocker activity with added and removed issue summaries", async () => {
@@ -265,6 +372,158 @@ describe("issue activity event routes", () => {
       );
     });
   }, 15_000);
+
+  it("logs readable workspace change activity details for issue updates", async () => {
+    const previousProjectWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const nextExecutionWorkspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const issue = {
+      ...makeIssue(),
+      projectId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      projectWorkspaceId: previousProjectWorkspaceId,
+      executionWorkspaceId: null,
+      executionWorkspacePreference: "shared_workspace",
+      executionWorkspaceSettings: { mode: "shared_workspace" },
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const dbMock = {
+      select: vi.fn(() => ({
+        from: (table: unknown) => ({
+          where: async () => {
+            const tableName = getTableName(table as Parameters<typeof getTableName>[0]);
+            if (tableName === "project_workspaces") {
+              return [{ id: previousProjectWorkspaceId, name: "Main workspace" }];
+            }
+            if (tableName === "execution_workspaces") {
+              return [{ id: nextExecutionWorkspaceId, name: "Feature workspace" }];
+            }
+            return [];
+          },
+        }),
+      })),
+    };
+
+    const res = await request(await createApp(dbMock))
+      .patch(`/api/issues/${issue.id}`)
+      .send({ executionWorkspaceId: nextExecutionWorkspaceId });
+
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => {
+      expect(mockLogActivity).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: "issue.updated",
+          details: expect.objectContaining({
+            executionWorkspaceId: nextExecutionWorkspaceId,
+            workspaceChange: {
+              from: {
+                label: "Main workspace",
+                projectWorkspaceId: previousProjectWorkspaceId,
+                executionWorkspaceId: null,
+                mode: "shared_workspace",
+              },
+              to: {
+                label: "Feature workspace",
+                projectWorkspaceId: previousProjectWorkspaceId,
+                executionWorkspaceId: nextExecutionWorkspaceId,
+                mode: "shared_workspace",
+              },
+            },
+            _previous: expect.objectContaining({
+              executionWorkspaceId: null,
+            }),
+          }),
+        }),
+      );
+    });
+  });
+
+  it("logs successful_run_handoff_resolved when an in_progress issue transitions to done with a pending required handoff", async () => {
+    const issue = { ...makeIssue(), status: "in_progress" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const handoffActivityRow = {
+      entityId: issue.id,
+      action: "issue.successful_run_handoff_required",
+      agentId: issue.assigneeAgentId,
+      runId: "run-1",
+      details: {
+        sourceRunId: "run-1",
+        correctiveRunId: "run-2",
+      },
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+    };
+    const dbMock = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: async () => [handoffActivityRow],
+          }),
+        }),
+      }),
+    };
+
+    const res = await request(await createApp(dbMock))
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => {
+      expect(mockLogActivity).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: "issue.successful_run_handoff_resolved",
+          entityId: issue.id,
+          details: expect.objectContaining({
+            identifier: "PAP-580",
+            sourceRunId: "run-1",
+            correctiveRunId: "run-2",
+            resolvedByStatus: "done",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("does not log successful_run_handoff_resolved when status stays in_progress", async () => {
+    const issue = { ...makeIssue(), status: "in_progress" };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      updatedAt: new Date(),
+    }));
+
+    const dbMock = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: async () => [],
+          }),
+        }),
+      }),
+    };
+
+    const res = await request(await createApp(dbMock))
+      .patch(`/api/issues/${issue.id}`)
+      .send({ title: "Updated title" });
+
+    expect(res.status).toBe(200);
+    expect(mockLogActivity).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "issue.successful_run_handoff_resolved" }),
+    );
+  });
 
   it("logs explicit reviewer and approver activity when execution policy participants change", async () => {
     const existingPolicy = normalizeIssueExecutionPolicy({
