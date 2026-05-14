@@ -51,17 +51,21 @@ describeEmbeddedPostgres("email service", () => {
     await tempDb?.cleanup();
   });
 
-  it("appends the stored company email signature HTML", async () => {
+  it("renders company email template branding instead of hardcoded signature text", async () => {
     const companyId = randomUUID();
     await db.insert(companies).values({
       id: companyId,
       name: "Acme Operations",
       issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
       requireBoardApprovalForNewAgents: false,
+      brandColor: "#0f766e",
       smtpHost: "smtp.example.com",
       smtpPort: 587,
       smtpFrom: "noreply@acme.example",
-      emailSignatureHtml: "<table><tr><td><strong>Acme Ops</strong></td></tr></table>",
+      emailTemplateBrandName: "Acme Ops",
+      emailTemplateTagline: "Autonomous operations desk",
+      emailTemplateWebsiteUrl: "https://ops.example.com",
+      emailTemplateFooterText: "Do not reply to this automated email.",
     });
 
     await sendIssueCompletionEmail({
@@ -84,11 +88,14 @@ describeEmbeddedPostgres("email service", () => {
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const message = sendMailMock.mock.calls[0]?.[0] as { html?: string; from?: string } | undefined;
     expect(message?.from).toBe("noreply@acme.example");
-    expect(message?.html).toContain("<table><tr><td><strong>Acme Ops</strong></td></tr></table>");
+    expect(message?.html).toContain("Acme Ops");
+    expect(message?.html).toContain("Autonomous operations desk");
+    expect(message?.html).toContain("https://ops.example.com");
+    expect(message?.html).toContain("Do not reply to this automated email.");
     expect(message?.html).not.toContain("Pyrion");
   });
 
-  it("does not render a legacy generated signature when signature HTML is empty", async () => {
+  it("falls back to company name as brand and suppresses tagline when template fields are null", async () => {
     const companyId = randomUUID();
     await db.insert(companies).values({
       id: companyId,
@@ -113,9 +120,8 @@ describeEmbeddedPostgres("email service", () => {
 
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const message = sendMailMock.mock.calls[0]?.[0] as { html?: string } | undefined;
-    expect(message?.html).not.toContain("Acme Operations");
+    expect(message?.html).toContain("Acme Operations");
     expect(message?.html).not.toContain("AI company control plane");
-    expect(message?.html).not.toContain("Automated notifications");
   });
 
   it("includes the full issue description and closing comment in issue completion emails", async () => {
@@ -167,7 +173,7 @@ describeEmbeddedPostgres("email service", () => {
       smtpHost: "smtp.example.com",
       smtpPort: 587,
       smtpFrom: "noreply@acme.example",
-      emailSignatureHtml: "<div>Acme Ops signature</div>",
+      emailTemplateBrandName: "Acme Ops",
     });
 
     await sendRoutineSuccessEmail({
@@ -196,7 +202,7 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.html).toContain("Routine Completed");
     expect(message?.html).toContain("completed successfully without errors");
     expect(message?.html).toContain("Routine script completed successfully.");
-    expect(message?.html).toContain("<div>Acme Ops signature</div>");
+    expect(message?.html).toContain("Acme Ops");
     expect(message?.html).toContain(routineId);
     expect(message?.html).toContain(runId);
     expect(message?.html).toContain("schedule");
@@ -208,38 +214,6 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).toContain("Routine ID");
     expect(message?.text).toContain("Run ID");
     expect(message?.text).toContain("Exit code: 0");
-  });
-
-  it("strips script tags and event handlers from signature HTML before sending", async () => {
-    const companyId = randomUUID();
-    await db.insert(companies).values({
-      id: companyId,
-      name: "Acme Operations",
-      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
-      requireBoardApprovalForNewAgents: false,
-      smtpHost: "smtp.example.com",
-      smtpPort: 587,
-      smtpFrom: "noreply@acme.example",
-      emailSignatureHtml: '<div onclick="alert(1)">Safe text</div><script>evil()</script>',
-    });
-
-    await sendIssueCompletionEmail({
-      to: "creator@example.com",
-      issueTitle: "Ship report",
-      issueId: randomUUID(),
-      issueIdentifier: "ACME-1",
-      completedByName: "CodexCoder",
-      completedByKind: "agent",
-      db,
-      companyId,
-    });
-
-    expect(sendMailMock).toHaveBeenCalledTimes(1);
-    const message = sendMailMock.mock.calls[0]?.[0] as { html?: string } | undefined;
-    expect(message?.html).toContain("Safe text");
-    expect(message?.html).not.toContain("onclick");
-    expect(message?.html).not.toContain("<script>");
-    expect(message?.html).not.toContain("evil()");
   });
 
   it("does not send when SMTP host is not configured", async () => {

@@ -74,7 +74,10 @@ function makeCompany(): Company {
     smtpUser: null,
     smtpFrom: null,
     smtpPasswordSet: false,
-    emailSignatureHtml: null,
+    emailTemplateBrandName: null,
+    emailTemplateTagline: null,
+    emailTemplateWebsiteUrl: null,
+    emailTemplateFooterText: null,
     logoAssetId: null,
     logoUrl: null,
     createdAt: new Date(),
@@ -91,13 +94,6 @@ async function flushReact() {
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-  valueSetter?.call(input, value);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function setTextareaValue(input: HTMLTextAreaElement, value: string) {
-  const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
   valueSetter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -131,7 +127,7 @@ describe("CompanySettings email settings", () => {
     vi.clearAllMocks();
   });
 
-  it("renders SMTP and email signature settings sections", async () => {
+  it("renders SMTP and email template settings sections", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -144,10 +140,10 @@ describe("CompanySettings email settings", () => {
     await flushReact();
 
     expect(container.querySelector("[data-testid='company-settings-smtp-section']")).not.toBeNull();
-    expect(container.querySelector("[data-testid='company-settings-email-signature-section']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='company-settings-email-template-section']")).not.toBeNull();
   });
 
-  it("saves email signature HTML through the company update API", async () => {
+  it("saves email template fields through the company update API", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -159,14 +155,20 @@ describe("CompanySettings email settings", () => {
     });
     await flushReact();
 
-    const signatureInput = container.querySelector("[data-testid='company-settings-email-signature-html']") as HTMLTextAreaElement;
+    const brandInput = container.querySelector("[data-testid='company-settings-email-template-brand-name']") as HTMLInputElement;
+    const taglineInput = container.querySelector("[data-testid='company-settings-email-template-tagline']") as HTMLInputElement;
+    const websiteInput = container.querySelector("[data-testid='company-settings-email-template-website-url']") as HTMLInputElement;
+    const footerInput = container.querySelector("[data-testid='company-settings-email-template-footer-text']") as HTMLInputElement;
 
     await act(async () => {
-      setTextareaValue(signatureInput, "<table><tr><td>Acme signature</td></tr></table>");
+      setInputValue(brandInput, "Acme Ops");
+      setInputValue(taglineInput, "Autonomous operations desk");
+      setInputValue(websiteInput, "https://ops.example.com");
+      setInputValue(footerInput, "Do not reply to this automated email.");
     });
     await flushReact();
 
-    const saveButton = container.querySelector("[data-testid='company-settings-email-signature-save']") as HTMLButtonElement;
+    const saveButton = container.querySelector("[data-testid='company-settings-email-template-save']") as HTMLButtonElement;
     expect(saveButton).not.toBeNull();
 
     await act(async () => {
@@ -175,7 +177,10 @@ describe("CompanySettings email settings", () => {
     await flushReact();
 
     expect(mockCompaniesApi.update).toHaveBeenCalledWith("company-1", {
-      emailSignatureHtml: "<table><tr><td>Acme signature</td></tr></table>",
+      emailTemplateBrandName: "Acme Ops",
+      emailTemplateTagline: "Autonomous operations desk",
+      emailTemplateWebsiteUrl: "https://ops.example.com",
+      emailTemplateFooterText: "Do not reply to this automated email.",
     });
   });
 
@@ -218,6 +223,30 @@ describe("CompanySettings email settings", () => {
       smtpUser: "mailer",
       smtpFrom: "noreply@example.com",
     });
+  });
+
+  it("shows a URL validation error and disables save when the website URL is invalid", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const websiteInput = container.querySelector("[data-testid='company-settings-email-template-website-url']") as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(websiteInput, "not-a-url");
+    });
+    await flushReact();
+
+    expect(container.textContent).toContain("Website URL must start with http:// or https://");
+    const saveButton = container.querySelector("[data-testid='company-settings-email-template-save']") as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
   });
 
   it("omits smtpPassword from the payload when the password field has not been touched", async () => {

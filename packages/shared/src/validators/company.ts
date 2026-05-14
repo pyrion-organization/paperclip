@@ -7,8 +7,21 @@ import {
 const logoAssetIdSchema = z.string().uuid().nullable().optional();
 const brandColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional();
 const feedbackDataSharingTermsVersionSchema = z.string().min(1).nullable().optional();
-// 20 KB is well under typical email client limits and large enough for any reasonable signature.
-const emailSignatureHtmlSchema = z.string().max(20_000).nullable().optional();
+const emailTemplateTextSchema = z.string().max(500).nullable().optional();
+const emailTemplateWebsiteUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "Website URL must start with http:// or https://")
+  .nullable()
+  .optional();
 const attachmentMaxBytesSchema = z
   .number()
   .int()
@@ -53,7 +66,10 @@ export const updateCompanySchema = createCompanySchema
     smtpFrom: smtpFromSchema,
     // Write-only: empty string clears, undefined leaves unchanged.
     smtpPassword: z.string().nullable().optional(),
-    emailSignatureHtml: emailSignatureHtmlSchema,
+    emailTemplateBrandName: emailTemplateTextSchema,
+    emailTemplateTagline: emailTemplateTextSchema,
+    emailTemplateWebsiteUrl: emailTemplateWebsiteUrlSchema,
+    emailTemplateFooterText: emailTemplateTextSchema,
   });
 
 export type UpdateCompany = z.infer<typeof updateCompanySchema>;

@@ -53,7 +53,7 @@ describeEmbeddedPostgres("company email settings", () => {
     return companyId;
   }
 
-  it("stores signature HTML and only exposes password presence", async () => {
+  it("stores template fields and only exposes password presence", async () => {
     const companyId = await seedCompany();
 
     const updated = await svc.update(
@@ -64,7 +64,10 @@ describeEmbeddedPostgres("company email settings", () => {
         smtpUser: "mailer",
         smtpFrom: "noreply@example.com",
         smtpPassword: "super-secret",
-        emailSignatureHtml: "<table><tr><td>Acme Ops</td></tr></table>",
+        emailTemplateBrandName: "Acme Ops",
+        emailTemplateTagline: "Autonomous operations desk",
+        emailTemplateWebsiteUrl: "https://ops.example.com",
+        emailTemplateFooterText: "Do not reply to this automated email.",
       },
       { userId: "user-1" },
     );
@@ -75,7 +78,10 @@ describeEmbeddedPostgres("company email settings", () => {
       smtpUser: "mailer",
       smtpFrom: "noreply@example.com",
       smtpPasswordSet: true,
-      emailSignatureHtml: "<table><tr><td>Acme Ops</td></tr></table>",
+      emailTemplateBrandName: "Acme Ops",
+      emailTemplateTagline: "Autonomous operations desk",
+      emailTemplateWebsiteUrl: "https://ops.example.com",
+      emailTemplateFooterText: "Do not reply to this automated email.",
     });
     expect(updated).not.toHaveProperty("smtpPassword");
   });
