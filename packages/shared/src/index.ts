@@ -1199,4 +1199,5 @@ export type {
   InboundEmailMailbox,
   InboundEmailRule,
   InboundEmailMessage,
+  MailboxView,
 } from "./types/inbound-email.js";

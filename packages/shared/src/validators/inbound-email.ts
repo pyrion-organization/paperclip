@@ -12,13 +12,22 @@ export const inboundEmailMessageStatusSchema = z.enum([
   "duplicate",
 ]);
 
+const DNS_HOSTNAME_RE =
+  /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+const IPV4_RE = /^(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+const IPV6_BRACKETED_RE = /^\[[0-9a-fA-F:]+\]$/;
+
 const hostnameSchema = z
   .string()
   .min(1)
   .max(255)
-  .regex(
-    /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/,
-    "Must be a valid hostname",
+  .refine(
+    (value) =>
+      value === "localhost" ||
+      DNS_HOSTNAME_RE.test(value) ||
+      IPV4_RE.test(value) ||
+      IPV6_BRACKETED_RE.test(value),
+    { message: "Must be a hostname, IPv4 address, [IPv6] literal, or 'localhost'" },
   );
 
 const mailboxNameSchema = z.string().min(1).max(120);

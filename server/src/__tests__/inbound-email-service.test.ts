@@ -133,6 +133,82 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(createdIssue.originId).toBe(storedMessage.id);
   }, 20_000);
 
+  it("collapses concurrent manual poll triggers into a single active job", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Dedupe inbox",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "dedupe@example.com",
+      password: "secret-xyz",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+
+    const results = await Promise.all([
+      svc.enqueueMailboxPoll(companyId, mailbox.id),
+      svc.enqueueMailboxPoll(companyId, mailbox.id),
+      svc.enqueueMailboxPoll(companyId, mailbox.id),
+    ]);
+    const jobIds = new Set(results.map((j) => j.id));
+    expect(jobIds.size).toBe(1);
+    const rows = await db.select().from(backgroundJobs);
+    const active = rows.filter((r) =>
+      r.status === "pending" || r.status === "running" || r.status === "retrying",
+    );
+    expect(active.length).toBe(1);
+  }, 20_000);
+
+  it("rolls back the mailbox secret if mailbox insert fails", async () => {
+    const companyId = await seedCompany();
+    // Create a mailbox using the unique (company_id, name) name first.
+    await svc.createMailbox(companyId, {
+      name: "Duplicate name",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "first@example.com",
+      password: "first-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+    const secretCountBefore = (
+      await db.select().from(companySecrets)
+    ).length;
+
+    await expect(svc.createMailbox(companyId, {
+      name: "Duplicate name",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "second@example.com",
+      password: "second-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    })).rejects.toThrow();
+
+    const secretCountAfter = (
+      await db.select().from(companySecrets)
+    ).length;
+    expect(secretCountAfter).toBe(secretCountBefore);
+  }, 20_000);
+
   it("rejects mailbox project targets from another company", async () => {
     const companyId = await seedCompany("Acme");
     const otherCompanyId = await seedCompany("Other");

@@ -9,6 +9,11 @@ export type InboundEmailMessageStatus =
   | "failed"
   | "duplicate";
 
+/**
+ * View of an inbound email mailbox returned by the API. The persisted row has a
+ * `passwordSecretName` pointer to the secrets store; that field is redacted in
+ * favor of the boolean `passwordSet`.
+ */
 export interface InboundEmailMailbox {
   id: string;
   companyId: string;
@@ -31,6 +36,8 @@ export interface InboundEmailMailbox {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type MailboxView = InboundEmailMailbox;
 
 export interface InboundEmailRule {
   id: string;

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
   createInboundEmailMailboxSchema,
@@ -8,9 +8,23 @@ import {
   updateInboundEmailRuleSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { inboundEmailService } from "../services/inbound-email.js";
+import { inboundEmailService, type ListPageOptions } from "../services/inbound-email.js";
 import type { StorageService } from "../storage/types.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
+
+const SUBMIT_STATUS_CODES = {
+  persisted: 201,
+  duplicate: 200,
+} as const;
+
+function pageOptions(req: Request): ListPageOptions {
+  const rawLimit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined;
+  const cursor = typeof req.query.cursor === "string" && req.query.cursor.length > 0 ? req.query.cursor : null;
+  return {
+    limit: Number.isFinite(rawLimit ?? NaN) ? rawLimit : undefined,
+    cursor,
+  };
+}
 
 export function inboundEmailRoutes(db: Db, storage?: StorageService) {
   const router = Router();
@@ -20,7 +34,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await svc.listMailboxes(companyId));
+    res.json(await svc.listMailboxes(companyId, pageOptions(req)));
   });
 
   router.post(
@@ -77,7 +91,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await svc.listRules(companyId));
+    res.json(await svc.listRules(companyId, pageOptions(req)));
   });
 
   router.post(
@@ -108,14 +122,14 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     assertCompanyAccess(req, companyId);
     assertBoard(req);
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    res.json(await svc.listMessages(companyId, status));
+    res.json(await svc.listMessages(companyId, status, pageOptions(req)));
   });
 
   router.get("/companies/:companyId/inbound-email/jobs", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await svc.listJobs(companyId));
+    res.json(await svc.listJobs(companyId, pageOptions(req)));
   });
 
   router.post(
@@ -132,7 +146,8 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
         rawEmail: req.body.rawEmail,
         processAfterImport: req.body.processAfterImport,
       });
-      res.status(result.status === "duplicate" ? 200 : 201).json(result);
+      const statusCode = SUBMIT_STATUS_CODES[result.status as keyof typeof SUBMIT_STATUS_CODES] ?? 500;
+      res.status(statusCode).json(result);
     },
   );
 

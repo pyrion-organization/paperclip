@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
@@ -14,15 +14,16 @@ import {
 import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
+  InboundEmailMailbox as MailboxView,
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
-import { conflict, notFound, unprocessable } from "../errors.js";
+import { notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
 import { backgroundJobService } from "./background-jobs.js";
-import { BasicImapClient, testImapConnection } from "./inbound-email-imap.js";
-import { parseInboundEmail } from "./inbound-email-parser.js";
+import { fetchUnreadMessages, testImapConnection } from "./inbound-email-imap.js";
+import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
@@ -38,16 +39,52 @@ const INBOUND_EMAIL_ACTOR = {
   actorId: "inbound-email-worker",
 };
 
+export type ListPageOptions = {
+  limit?: number;
+  cursor?: string | null;
+};
+
+export type ListPage<T> = {
+  items: T[];
+  nextCursor: string | null;
+};
+
+const HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      const code = Number.parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&([a-zA-Z]+);/g, (_m, name) => HTML_ENTITIES[name.toLowerCase()] ?? `&${name};`);
+}
+
+function htmlToPlain(html: string): string {
+  return decodeHtmlEntities(html.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
 function secretNameForMailbox(mailboxId: string): string {
   return `${INBOUND_EMAIL_PASSWORD_SECRET_PREFIX}:${mailboxId}`;
 }
 
-function redactMailbox(row: typeof inboundEmailMailboxes.$inferSelect) {
+function redactMailbox(row: typeof inboundEmailMailboxes.$inferSelect): MailboxView {
   const { passwordSecretName, ...safeRow } = row;
   return {
     ...safeRow,
     passwordSet: Boolean(passwordSecretName),
-  };
+  } as MailboxView;
 }
 
 function hashBuffer(buffer: Buffer): string {
@@ -64,10 +101,39 @@ function matchesPattern(value: string | null | undefined, pattern: string | null
   return (value ?? "").toLowerCase().includes(normalizedPattern);
 }
 
+function clampLimit(limit: number | undefined, fallback = 50, max = 200): number {
+  if (!Number.isFinite(limit ?? NaN)) return fallback;
+  const value = Math.floor(limit as number);
+  if (value <= 0) return fallback;
+  return Math.min(value, max);
+}
+
+function encodeCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.toISOString()}|${id}`, "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor: string | null | undefined): { createdAt: Date; id: string } | null {
+  if (!cursor) return null;
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    const [iso, id] = decoded.split("|");
+    if (!iso || !id) return null;
+    const createdAt = new Date(iso);
+    if (Number.isNaN(createdAt.getTime())) return null;
+    return { createdAt, id };
+  } catch {
+    return null;
+  }
+}
+
 function formatIssueDescription(input: {
   message: typeof inboundEmailMessages.$inferSelect;
   attachmentCount: number;
 }): string {
+  const bodyFallback =
+    input.message.bodyText?.trim() ||
+    (input.message.bodyHtml ? htmlToPlain(input.message.bodyHtml) : "") ||
+    "(No body text)";
   const lines = [
     "Created from an inbound email.",
     "",
@@ -78,7 +144,7 @@ function formatIssueDescription(input: {
     `Inbound message: ${input.message.id}`,
     "",
     "Body:",
-    input.message.bodyText?.trim() || input.message.bodyHtml?.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || "(No body text)",
+    bodyFallback,
   ];
   if (input.attachmentCount > 0) {
     lines.push("", `Attachments imported: ${input.attachmentCount}`);
@@ -118,26 +184,27 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return secrets.resolveSecretValue(mailbox.companyId, secret.id, "latest");
   }
 
-  async function writeMailboxPassword(
+  async function writeOrRotateMailboxSecret(
     companyId: string,
-    mailboxId: string,
-    password: string | null | undefined,
+    secretName: string,
+    plaintext: string,
     actor?: { userId?: string | null; agentId?: string | null },
-  ): Promise<string | null | undefined> {
-    if (password === undefined) return undefined;
-    const secretName = secretNameForMailbox(mailboxId);
+  ): Promise<void> {
     const existing = await secrets.getByName(companyId, secretName);
-    const trimmed = password?.trim() ?? "";
-    if (!trimmed) {
-      if (existing) await secrets.remove(existing.id);
-      return null;
-    }
     if (existing) {
-      await secrets.rotate(existing.id, { value: trimmed }, actor);
+      await secrets.rotate(existing.id, { value: plaintext }, actor);
     } else {
-      await secrets.create(companyId, { name: secretName, provider: "local_encrypted", value: trimmed }, actor);
+      await secrets.create(
+        companyId,
+        { name: secretName, provider: "local_encrypted", value: plaintext },
+        actor,
+      );
     }
-    return secretName;
+  }
+
+  async function clearMailboxSecret(companyId: string, secretName: string): Promise<void> {
+    const existing = await secrets.getByName(companyId, secretName);
+    if (existing) await secrets.remove(existing.id);
   }
 
   async function enqueueProcessMessage(companyId: string, messageId: string) {
@@ -288,50 +355,98 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return issue;
   }
 
+  // Cursor-paginated select where rows are ordered by (createdAt asc, id asc).
+  async function paginated<T extends { id: string; createdAt: Date }>(
+    rows: (limit: number, cursor: { createdAt: Date; id: string } | null) => Promise<T[]>,
+    options: ListPageOptions | undefined,
+  ): Promise<ListPage<T>> {
+    const limit = clampLimit(options?.limit);
+    const cursor = decodeCursor(options?.cursor);
+    const fetched = await rows(limit + 1, cursor);
+    const items = fetched.slice(0, limit);
+    const nextCursor =
+      fetched.length > limit
+        ? encodeCursor(items[items.length - 1].createdAt, items[items.length - 1].id)
+        : null;
+    return { items, nextCursor };
+  }
+
   const api = {
-    listMailboxes: async (companyId: string) => {
-      const rows = await db
-        .select()
-        .from(inboundEmailMailboxes)
-        .where(eq(inboundEmailMailboxes.companyId, companyId))
-        .orderBy(asc(inboundEmailMailboxes.createdAt));
-      return rows.map(redactMailbox);
+    listMailboxes: async (companyId: string, options?: ListPageOptions): Promise<ListPage<MailboxView>> => {
+      const page = await paginated(async (limit, cursor) => {
+        return db
+          .select()
+          .from(inboundEmailMailboxes)
+          .where(
+            and(
+              eq(inboundEmailMailboxes.companyId, companyId),
+              cursor
+                ? or(
+                  sql`${inboundEmailMailboxes.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+                  and(
+                    eq(inboundEmailMailboxes.createdAt, cursor.createdAt),
+                    sql`${inboundEmailMailboxes.id} > ${cursor.id}::uuid`,
+                  ),
+                )
+                : undefined,
+            ),
+          )
+          .orderBy(asc(inboundEmailMailboxes.createdAt), asc(inboundEmailMailboxes.id))
+          .limit(limit);
+      }, options);
+      return { items: page.items.map(redactMailbox), nextCursor: page.nextCursor };
     },
 
     createMailbox: async (
       companyId: string,
       input: CreateInboundEmailMailbox,
       actor?: { userId?: string | null; agentId?: string | null },
-    ) => {
+    ): Promise<MailboxView> => {
       await assertProjectBelongsToCompany(companyId, input.targetProjectId);
-      const [mailbox] = await db
-        .insert(inboundEmailMailboxes)
-        .values({
-          companyId,
-          name: input.name,
-          provider: input.provider,
-          enabled: input.enabled,
-          host: input.host,
-          port: input.port,
-          username: input.username,
-          folder: input.folder,
-          tls: input.tls,
-          pollIntervalSeconds: input.pollIntervalSeconds,
-          targetProjectId: input.targetProjectId ?? null,
-          createMode: input.createMode,
-          markSeen: input.markSeen,
-        })
-        .returning();
-      const passwordSecretName = await writeMailboxPassword(companyId, mailbox.id, input.password, actor);
-      if (passwordSecretName !== undefined) {
-        const [updated] = await db
-          .update(inboundEmailMailboxes)
-          .set({ passwordSecretName, updatedAt: new Date() })
-          .where(eq(inboundEmailMailboxes.id, mailbox.id))
-          .returning();
-        return redactMailbox(updated);
+
+      const mailboxId = randomUUID();
+      const trimmedPassword = input.password?.trim() ?? "";
+      let passwordSecretName: string | null = null;
+
+      if (trimmedPassword.length > 0) {
+        const secretName = secretNameForMailbox(mailboxId);
+        await writeOrRotateMailboxSecret(companyId, secretName, trimmedPassword, actor);
+        passwordSecretName = secretName;
       }
-      return redactMailbox(mailbox);
+
+      try {
+        const [mailbox] = await db
+          .insert(inboundEmailMailboxes)
+          .values({
+            id: mailboxId,
+            companyId,
+            name: input.name,
+            provider: input.provider,
+            enabled: input.enabled,
+            host: input.host,
+            port: input.port,
+            username: input.username,
+            folder: input.folder,
+            tls: input.tls,
+            pollIntervalSeconds: input.pollIntervalSeconds,
+            targetProjectId: input.targetProjectId ?? null,
+            createMode: input.createMode,
+            markSeen: input.markSeen,
+            passwordSecretName,
+          })
+          .returning();
+        return redactMailbox(mailbox);
+      } catch (error) {
+        if (passwordSecretName) {
+          await clearMailboxSecret(companyId, passwordSecretName).catch((cleanupError) => {
+            logger.warn(
+              { err: cleanupError, mailboxId, companyId },
+              "failed to roll back orphan mailbox secret",
+            );
+          });
+        }
+        throw error;
+      }
     },
 
     updateMailbox: async (
@@ -339,16 +454,31 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       mailboxId: string,
       input: UpdateInboundEmailMailbox,
       actor?: { userId?: string | null; agentId?: string | null },
-    ) => {
+    ): Promise<MailboxView> => {
       const existing = await loadMailbox(companyId, mailboxId);
       await assertProjectBelongsToCompany(companyId, input.targetProjectId);
-      const passwordSecretName = await writeMailboxPassword(companyId, existing.id, input.password, actor);
+
+      const secretName = secretNameForMailbox(existing.id);
+      let passwordSecretNameUpdate: string | null | undefined = undefined;
+      if (input.password !== undefined) {
+        const trimmed = input.password?.trim() ?? "";
+        if (trimmed.length === 0) {
+          await clearMailboxSecret(companyId, secretName);
+          passwordSecretNameUpdate = null;
+        } else {
+          await writeOrRotateMailboxSecret(companyId, secretName, trimmed, actor);
+          passwordSecretNameUpdate = secretName;
+        }
+      }
+
       const { password: _password, ...patch } = input;
       const [updated] = await db
         .update(inboundEmailMailboxes)
         .set({
           ...patch,
-          ...(passwordSecretName !== undefined ? { passwordSecretName } : {}),
+          ...(passwordSecretNameUpdate !== undefined
+            ? { passwordSecretName: passwordSecretNameUpdate }
+            : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
@@ -356,12 +486,28 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return redactMailbox(updated);
     },
 
-    listRules: async (companyId: string) => {
-      return db
-        .select()
-        .from(inboundEmailRules)
-        .where(eq(inboundEmailRules.companyId, companyId))
-        .orderBy(asc(inboundEmailRules.createdAt));
+    listRules: async (companyId: string, options?: ListPageOptions) => {
+      return paginated(async (limit, cursor) => {
+        return db
+          .select()
+          .from(inboundEmailRules)
+          .where(
+            and(
+              eq(inboundEmailRules.companyId, companyId),
+              cursor
+                ? or(
+                  sql`${inboundEmailRules.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+                  and(
+                    eq(inboundEmailRules.createdAt, cursor.createdAt),
+                    sql`${inboundEmailRules.id} > ${cursor.id}::uuid`,
+                  ),
+                )
+                : undefined,
+            ),
+          )
+          .orderBy(asc(inboundEmailRules.createdAt), asc(inboundEmailRules.id))
+          .limit(limit);
+      }, options);
     },
 
     createRule: async (companyId: string, input: CreateInboundEmailRule) => {
@@ -401,16 +547,39 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return rule;
     },
 
-    listMessages: async (companyId: string, status?: string) => {
-      const conditions = [eq(inboundEmailMessages.companyId, companyId)];
-      if (status) {
-        conditions.push(eq(inboundEmailMessages.status, status as typeof inboundEmailMessages.$inferSelect.status));
-      }
-      return db
-        .select()
-        .from(inboundEmailMessages)
-        .where(and(...conditions))
-        .orderBy(asc(inboundEmailMessages.createdAt));
+    listMessages: async (
+      companyId: string,
+      status?: string,
+      options?: ListPageOptions,
+    ) => {
+      return paginated(async (limit, cursor) => {
+        const conditions = [eq(inboundEmailMessages.companyId, companyId)];
+        if (status) {
+          conditions.push(
+            eq(
+              inboundEmailMessages.status,
+              status as typeof inboundEmailMessages.$inferSelect.status,
+            ),
+          );
+        }
+        if (cursor) {
+          conditions.push(
+            or(
+              sql`${inboundEmailMessages.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+              and(
+                eq(inboundEmailMessages.createdAt, cursor.createdAt),
+                sql`${inboundEmailMessages.id} > ${cursor.id}::uuid`,
+              ),
+            )!,
+          );
+        }
+        return db
+          .select()
+          .from(inboundEmailMessages)
+          .where(and(...conditions))
+          .orderBy(asc(inboundEmailMessages.createdAt), asc(inboundEmailMessages.id))
+          .limit(limit);
+      }, options);
     },
 
     enqueueDueMailboxPollJobs: async (now = new Date()) => {
@@ -440,7 +609,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         companyId,
         kind: EMAIL_POLL_MAILBOX_JOB_KIND,
         payload: { mailboxId },
-        dedupeKey: `${mailboxId}:manual:${Date.now()}`,
+        dedupeKey: `${mailboxId}:manual`,
         maxAttempts: 3,
       });
     },
@@ -463,24 +632,28 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const mailbox = await loadMailbox(companyId, mailboxId);
       const password = await resolveMailboxPassword(mailbox);
       if (!password) throw unprocessable("Inbound mailbox password is not configured");
-      const client = new BasicImapClient({
-        host: mailbox.host,
-        port: mailbox.port,
-        username: mailbox.username,
-        password,
-        folder: mailbox.folder,
-        tls: mailbox.tls,
-      });
+
       const now = new Date();
       await db
         .update(inboundEmailMailboxes)
         .set({ lastPollAt: now, lastError: null, updatedAt: now })
         .where(eq(inboundEmailMailboxes.id, mailbox.id));
+
       let imported = 0;
+      let session: Awaited<ReturnType<typeof fetchUnreadMessages>> | null = null;
       try {
-        await client.connect();
-        const messages = await client.fetchUnread(options?.fetchLimit ?? DEFAULT_EMAIL_FETCH_LIMIT);
-        for (const message of messages) {
+        session = await fetchUnreadMessages(
+          {
+            host: mailbox.host,
+            port: mailbox.port,
+            username: mailbox.username,
+            password,
+            folder: mailbox.folder,
+            tls: mailbox.tls,
+          },
+          options?.fetchLimit ?? DEFAULT_EMAIL_FETCH_LIMIT,
+        );
+        for (const message of session.messages) {
           const result = await api.submitRawMessage({
             companyId,
             mailboxId: mailbox.id,
@@ -489,7 +662,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             processAfterImport: true,
           });
           if (result.status !== "duplicate") imported += 1;
-          if (mailbox.markSeen) await message.markSeen();
+          if (mailbox.markSeen) {
+            try {
+              await message.markSeen();
+            } catch (flagError) {
+              logger.warn(
+                { err: flagError, mailboxId: mailbox.id, uid: message.providerUid },
+                "failed to mark IMAP message seen",
+              );
+            }
+          }
         }
         await db
           .update(inboundEmailMailboxes)
@@ -502,7 +684,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .where(eq(inboundEmailMailboxes.id, mailbox.id));
         throw error;
       } finally {
-        await client.close();
+        if (session) await session.close();
       }
       return { imported };
     },
@@ -516,7 +698,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }) => {
       await loadMailbox(input.companyId, input.mailboxId);
       const raw = Buffer.isBuffer(input.rawEmail) ? input.rawEmail : Buffer.from(input.rawEmail, "utf8");
-      const parsed = parseInboundEmail(raw);
+      const parsed = await parseInboundEmail(raw);
       const duplicate = await findDuplicate({
         companyId: input.companyId,
         mailboxId: input.mailboxId,
@@ -644,9 +826,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }
     },
 
-    runEmailWorkerOnce: async (workerId: string, batchSize = DEFAULT_EMAIL_WORKER_BATCH_SIZE) => {
+    runEmailWorkerOnce: async (
+      workerId: string,
+      batchSize = DEFAULT_EMAIL_WORKER_BATCH_SIZE,
+      options?: { runScheduler?: boolean },
+    ) => {
       await jobs.requeueStaleRunning(5 * 60_000);
-      await api.enqueueDueMailboxPollJobs();
+      if (options?.runScheduler !== false) {
+        await api.enqueueDueMailboxPollJobs();
+      }
       let processed = 0;
       for (let i = 0; i < batchSize; i += 1) {
         const result = await api.runNextEmailJob(workerId);
@@ -656,16 +844,40 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return processed;
     },
 
-    listJobs: async (companyId: string) => {
-      return db
-        .select()
-        .from(backgroundJobs)
-        .where(and(eq(backgroundJobs.companyId, companyId), inArray(backgroundJobs.kind, [
-          EMAIL_POLL_MAILBOX_JOB_KIND,
-          EMAIL_PROCESS_MESSAGE_JOB_KIND,
-        ])))
-        .orderBy(asc(backgroundJobs.createdAt));
+    listJobs: async (companyId: string, options?: ListPageOptions) => {
+      return paginated(async (limit, cursor) => {
+        const conditions = [
+          eq(backgroundJobs.companyId, companyId),
+          inArray(backgroundJobs.kind, [
+            EMAIL_POLL_MAILBOX_JOB_KIND,
+            EMAIL_PROCESS_MESSAGE_JOB_KIND,
+          ]),
+        ];
+        if (cursor) {
+          conditions.push(
+            or(
+              sql`${backgroundJobs.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+              and(
+                eq(backgroundJobs.createdAt, cursor.createdAt),
+                sql`${backgroundJobs.id} > ${cursor.id}::uuid`,
+              ),
+            )!,
+          );
+        }
+        return db
+          .select()
+          .from(backgroundJobs)
+          .where(and(...conditions))
+          .orderBy(asc(backgroundJobs.createdAt), asc(backgroundJobs.id))
+          .limit(limit);
+      }, options);
     },
+
+    // Exposed for tests.
+    _selectRule: selectRule,
   };
   return api;
 }
+
+// Re-export the rule matcher for unit tests.
+export { matchesPattern };
