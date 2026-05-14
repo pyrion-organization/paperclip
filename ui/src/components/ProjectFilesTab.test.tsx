@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +17,27 @@ const projectsApiMock = vi.hoisted(() => ({
   fileContent: vi.fn(),
   saveFileContent: vi.fn(),
   gitStatus: vi.fn(),
+  fileDiff: vi.fn(),
+  switchBranch: vi.fn(),
+  createBranch: vi.fn(),
+  syncFiles: vi.fn(),
+  deleteBranch: vi.fn(),
+  syncBranches: vi.fn(),
+  pushBranch: vi.fn(),
+  publishToRemote: vi.fn(),
+  discardFiles: vi.fn(),
+  stageFiles: vi.fn(),
+  unstageFiles: vi.fn(),
+  commitStaged: vi.fn(),
+  pushFiles: vi.fn(),
+  createFile: vi.fn(),
+  createFolder: vi.fn(),
+  renamePath: vi.fn(),
+  deletePath: vi.fn(),
 }));
+
+const markdownBodyMock = vi.hoisted(() => vi.fn());
+
 const RAW_JSON = '{"id":9007199254740993123,"dup":1,"dup":2,"enabled":true}\n';
 const EDITED_RAW_JSON = '{"id":9007199254740993123,"dup":1,"dup":2,"enabled":false}\n';
 
@@ -26,6 +47,38 @@ vi.mock("../api/projects", () => ({
 
 vi.mock("../context/ToastContext", () => ({
   useToast: () => ({ pushToast: pushToastMock }),
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("./MarkdownBody", () => ({
+  MarkdownBody: ({ children, linkIssueReferences }: ComponentProps<"div"> & { linkIssueReferences?: boolean }) => {
+    markdownBodyMock({ children, linkIssueReferences });
+    return <div data-testid="markdown-preview">{children}</div>;
+  },
+}));
+
+vi.mock("./PackageFileTree", () => ({
+  PackageFileTree: ({
+    nodes,
+    onSelectFile,
+  }: {
+    nodes: Array<{ name: string; path: string; kind: "file" | "dir" }>;
+    onSelectFile: (path: string) => void;
+  }) => (
+    <div>
+      {nodes.map((node) => (
+        <button key={node.path} type="button" onClick={() => onSelectFile(node.path)}>
+          {node.name}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("./ProjectCodeEditor", () => ({
@@ -109,7 +162,21 @@ describe("ProjectFilesTab", () => {
       },
     });
     pushToastMock.mockReset();
+    markdownBodyMock.mockReset();
     projectsApiMock.filesSummary.mockResolvedValue(projectSummary());
+    projectsApiMock.gitStatus.mockResolvedValue({ entries: [] });
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    queryClient.clear();
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  it("allows JSON project files to be edited and saved", async () => {
     projectsApiMock.filesTree.mockResolvedValue({
       path: "",
       entries: [
@@ -124,19 +191,7 @@ describe("ProjectFilesTab", () => {
     });
     projectsApiMock.fileContent.mockResolvedValue(jsonFileDetail(RAW_JSON));
     projectsApiMock.saveFileContent.mockImplementation((_projectId, input) => Promise.resolve(jsonFileDetail(input.content)));
-    projectsApiMock.gitStatus.mockResolvedValue({ entries: [] });
-  });
 
-  afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
-    queryClient.clear();
-    container.remove();
-    vi.clearAllMocks();
-  });
-
-  it("allows JSON project files to be edited and saved", async () => {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -177,6 +232,48 @@ describe("ProjectFilesTab", () => {
         { path: "config.json", content: EDITED_RAW_JSON },
         "company-1",
       );
+    });
+  });
+
+  it("renders project markdown file previews without auto-linking issue references", async () => {
+    projectsApiMock.filesTree.mockResolvedValue({
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          hiddenByDefault: false,
+          fileType: "text",
+        },
+      ],
+    });
+    projectsApiMock.fileContent.mockResolvedValue({
+      path: "README.md",
+      name: "README.md",
+      fileType: "text",
+      previewType: "markdown",
+      size: 42,
+      language: "markdown",
+      textContent: "Models: GPT-5, UTF-8, OPUS-4.",
+      base64Content: null,
+      mimeType: "text/markdown",
+      updatedAt: new Date("2026-05-14T00:00:00.000Z"),
+    });
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ProjectFilesTab projectId="project-1" companyId="company-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(markdownBodyMock).toHaveBeenCalledWith({
+        children: "Models: GPT-5, UTF-8, OPUS-4.",
+        linkIssueReferences: false,
+      });
     });
   });
 });
