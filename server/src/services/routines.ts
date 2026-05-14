@@ -577,6 +577,13 @@ function routineRevisionSnapshotRoutine(routine: RoutineRow): RoutineRevisionSna
     concurrencyPolicy: routine.concurrencyPolicy as RoutineRevisionSnapshotV1["routine"]["concurrencyPolicy"],
     catchUpPolicy: routine.catchUpPolicy as RoutineRevisionSnapshotV1["routine"]["catchUpPolicy"],
     variables: routine.variables ?? [],
+    executionMode: routine.executionMode,
+    scriptPath: routine.scriptPath,
+    scriptCommandArgs: routine.scriptCommandArgs,
+    scriptTimeoutSec: routine.scriptTimeoutSec,
+    remediationEnabled: routine.remediationEnabled,
+    remediationAssigneeAgentId: routine.remediationAssigneeAgentId,
+    notificationEmail: routine.notificationEmail,
   };
 }
 
@@ -2815,6 +2822,17 @@ export function routineService(
             concurrencyPolicy: routineSnapshot.concurrencyPolicy,
             catchUpPolicy: routineSnapshot.catchUpPolicy,
             variables: routineSnapshot.variables,
+            executionMode: routineSnapshot.executionMode ?? locked.executionMode,
+            scriptPath: routineSnapshot.scriptPath === undefined ? locked.scriptPath : routineSnapshot.scriptPath,
+            scriptCommandArgs: routineSnapshot.scriptCommandArgs === undefined ? locked.scriptCommandArgs : routineSnapshot.scriptCommandArgs,
+            scriptTimeoutSec: routineSnapshot.scriptTimeoutSec ?? locked.scriptTimeoutSec,
+            remediationEnabled: routineSnapshot.remediationEnabled ?? locked.remediationEnabled,
+            remediationAssigneeAgentId: routineSnapshot.remediationEnabled === undefined
+              ? locked.remediationAssigneeAgentId
+              : routineSnapshot.remediationEnabled
+                ? (routineSnapshot.remediationAssigneeAgentId ?? null)
+                : null,
+            notificationEmail: routineSnapshot.notificationEmail === undefined ? locked.notificationEmail : routineSnapshot.notificationEmail,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: now,

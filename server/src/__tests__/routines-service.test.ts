@@ -484,6 +484,62 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     await expect(db.select().from(routineRuns).where(eq(routineRuns.id, run.id))).resolves.toHaveLength(1);
   });
 
+  it("restores execution settings from routine revision snapshots", async () => {
+    const { agentId, companyId, projectId, svc } = await seedFixture();
+    const created = await svc.create(
+      companyId,
+      {
+        projectId,
+        goalId: null,
+        parentIssueId: null,
+        title: "script routine",
+        description: "Run a script",
+        assigneeAgentId: agentId,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+        executionMode: "script_nodejs",
+        scriptPath: "scripts/report.js",
+        scriptCommandArgs: ["--format", "json"],
+        scriptTimeoutSec: 120,
+        remediationEnabled: true,
+        remediationAssigneeAgentId: agentId,
+        notificationEmail: "ops@example.com",
+      },
+      {},
+    );
+    const revision1Id = created.latestRevisionId!;
+
+    const updated = await svc.update(
+      created.id,
+      {
+        executionMode: "bash_command",
+        scriptPath: "echo done",
+        scriptCommandArgs: [],
+        scriptTimeoutSec: 30,
+        remediationEnabled: false,
+        remediationAssigneeAgentId: null,
+        notificationEmail: "alerts@example.com",
+      },
+      {},
+    );
+    expect(updated?.latestRevisionNumber).toBe(2);
+
+    const restored = await svc.restoreRevision(created.id, revision1Id, {});
+
+    expect(restored.routine.latestRevisionNumber).toBe(3);
+    expect(restored.routine.executionMode).toBe("script_nodejs");
+    expect(restored.routine.scriptPath).toBe("scripts/report.js");
+    expect(restored.routine.scriptCommandArgs).toEqual(["--format", "json"]);
+    expect(restored.routine.scriptTimeoutSec).toBe(120);
+    expect(restored.routine.remediationEnabled).toBe(true);
+    expect(restored.routine.remediationAssigneeAgentId).toBe(agentId);
+    expect(restored.routine.notificationEmail).toBe("ops@example.com");
+    expect(restored.revision.snapshot.routine.executionMode).toBe("script_nodejs");
+    expect(restored.revision.snapshot.routine.notificationEmail).toBe("ops@example.com");
+  });
+
   it("rejects restoring the current latest routine revision", async () => {
     const { routine, svc } = await seedFixture();
 

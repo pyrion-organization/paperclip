@@ -117,6 +117,13 @@ export const routineRevisionSnapshotRoutineV1Schema = z.object({
   concurrencyPolicy: z.enum(ROUTINE_CONCURRENCY_POLICIES),
   catchUpPolicy: z.enum(ROUTINE_CATCH_UP_POLICIES),
   variables: z.array(routineVariableSchema),
+  executionMode: z.enum(ROUTINE_EXECUTION_MODES).optional(),
+  scriptPath: z.string().max(500).nullable().optional(),
+  scriptCommandArgs: z.array(z.string().max(500)).max(100).nullable().optional(),
+  scriptTimeoutSec: z.number().int().min(1).max(3600).optional(),
+  remediationEnabled: z.boolean().optional(),
+  remediationAssigneeAgentId: z.string().uuid().nullable().optional(),
+  notificationEmail: z.string().email().nullable().optional(),
 }).strict();
 
 export const routineRevisionSnapshotTriggerV1Schema = z.object({
