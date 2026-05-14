@@ -1175,3 +1175,28 @@ export type {
   EnvironmentProviderCapability,
   EnvironmentSupportStatus,
 } from "./environment-support.js";
+
+export {
+  inboundEmailCreateModeSchema,
+  inboundEmailProviderSchema,
+  inboundEmailMessageStatusSchema,
+  createInboundEmailMailboxSchema,
+  updateInboundEmailMailboxSchema,
+  createInboundEmailRuleSchema,
+  updateInboundEmailRuleSchema,
+  importInboundEmailMessageSchema,
+  type CreateInboundEmailMailbox,
+  type UpdateInboundEmailMailbox,
+  type CreateInboundEmailRule,
+  type UpdateInboundEmailRule,
+  type ImportInboundEmailMessage,
+} from "./validators/inbound-email.js";
+
+export type {
+  InboundEmailProvider,
+  InboundEmailCreateMode,
+  InboundEmailMessageStatus,
+  InboundEmailMailbox,
+  InboundEmailRule,
+  InboundEmailMessage,
+} from "./types/inbound-email.js";

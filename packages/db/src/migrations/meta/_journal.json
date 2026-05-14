@@ -708,6 +708,13 @@
       "when": 1778766900000,
       "tag": "0100_email_signature_html",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1778800000000,
+      "tag": "0101_inbound_email_worker",
+      "breakpoints": true
     }
   ]
 }

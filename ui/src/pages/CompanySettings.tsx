@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES,
   MAX_COMPANY_ATTACHMENT_MAX_BYTES,
@@ -53,6 +53,27 @@ export function CompanySettings() {
   const [smtpPassword, setSmtpPassword] = useState("");
   const [smtpPasswordTouched, setSmtpPasswordTouched] = useState(false);
   const [emailSignatureHtml, setEmailSignatureHtml] = useState("");
+  const [inboundName, setInboundName] = useState("Support inbox");
+  const [inboundEnabled, setInboundEnabled] = useState(false);
+  const [inboundHost, setInboundHost] = useState("");
+  const [inboundPort, setInboundPort] = useState("993");
+  const [inboundUsername, setInboundUsername] = useState("");
+  const [inboundPassword, setInboundPassword] = useState("");
+  const [inboundPasswordTouched, setInboundPasswordTouched] = useState(false);
+  const [inboundFolder, setInboundFolder] = useState("INBOX");
+  const [inboundTls, setInboundTls] = useState(true);
+  const [inboundPollIntervalSeconds, setInboundPollIntervalSeconds] = useState("60");
+
+  const inboundMailboxesQuery = useQuery({
+    queryKey: ["companies", selectedCompanyId, "inbound-email", "mailboxes"],
+    queryFn: () => companiesApi.listInboundEmailMailboxes(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+  const inboundMessagesQuery = useQuery({
+    queryKey: ["companies", selectedCompanyId, "inbound-email", "messages"],
+    queryFn: () => companiesApi.listInboundEmailMessages(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
 
   // Sync local state from selected company
   useEffect(() => {
@@ -70,6 +91,34 @@ export function CompanySettings() {
     setSmtpPasswordTouched(false);
     setEmailSignatureHtml(selectedCompany.emailSignatureHtml ?? "");
   }, [selectedCompany]);
+
+  const primaryInboundMailbox = inboundMailboxesQuery.data?.[0] ?? null;
+
+  useEffect(() => {
+    if (!primaryInboundMailbox) {
+      setInboundName("Support inbox");
+      setInboundEnabled(false);
+      setInboundHost("");
+      setInboundPort("993");
+      setInboundUsername("");
+      setInboundPassword("");
+      setInboundPasswordTouched(false);
+      setInboundFolder("INBOX");
+      setInboundTls(true);
+      setInboundPollIntervalSeconds("60");
+      return;
+    }
+    setInboundName(primaryInboundMailbox.name);
+    setInboundEnabled(primaryInboundMailbox.enabled);
+    setInboundHost(primaryInboundMailbox.host);
+    setInboundPort(String(primaryInboundMailbox.port));
+    setInboundUsername(primaryInboundMailbox.username);
+    setInboundPassword("");
+    setInboundPasswordTouched(false);
+    setInboundFolder(primaryInboundMailbox.folder);
+    setInboundTls(primaryInboundMailbox.tls);
+    setInboundPollIntervalSeconds(String(primaryInboundMailbox.pollIntervalSeconds));
+  }, [primaryInboundMailbox?.id]);
 
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSnippet, setInviteSnippet] = useState<string | null>(null);
@@ -140,6 +189,65 @@ export function CompanySettings() {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmailTrimmed);
   const testEmailMutation = useMutation({
     mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTrimmed),
+  });
+
+  const inboundPortNum = Number(inboundPort);
+  const inboundPollIntervalNum = Number(inboundPollIntervalSeconds);
+  const inboundValid =
+    inboundName.trim().length > 0 &&
+    inboundHost.trim().length > 0 &&
+    inboundUsername.trim().length > 0 &&
+    inboundFolder.trim().length > 0 &&
+    Number.isInteger(inboundPortNum) &&
+    inboundPortNum >= 1 &&
+    inboundPortNum <= 65535 &&
+    Number.isInteger(inboundPollIntervalNum) &&
+    inboundPollIntervalNum >= 30 &&
+    inboundPollIntervalNum <= 3600;
+  const inboundDirty =
+    !primaryInboundMailbox ||
+    inboundName !== primaryInboundMailbox.name ||
+    inboundEnabled !== primaryInboundMailbox.enabled ||
+    inboundHost !== primaryInboundMailbox.host ||
+    inboundPort !== String(primaryInboundMailbox.port) ||
+    inboundUsername !== primaryInboundMailbox.username ||
+    inboundFolder !== primaryInboundMailbox.folder ||
+    inboundTls !== primaryInboundMailbox.tls ||
+    inboundPollIntervalSeconds !== String(primaryInboundMailbox.pollIntervalSeconds) ||
+    (inboundPasswordTouched && inboundPassword.trim().length > 0);
+  const inboundSaveMutation = useMutation({
+    mutationFn: () => {
+      const payload = {
+        name: inboundName.trim(),
+        provider: "imap" as const,
+        enabled: inboundEnabled,
+        host: inboundHost.trim(),
+        port: inboundPortNum,
+        username: inboundUsername.trim(),
+        folder: inboundFolder.trim(),
+        tls: inboundTls,
+        pollIntervalSeconds: inboundPollIntervalNum,
+        targetProjectId: primaryInboundMailbox?.targetProjectId ?? null,
+        createMode: primaryInboundMailbox?.createMode ?? ("issue" as const),
+        markSeen: primaryInboundMailbox?.markSeen ?? true,
+        ...(inboundPasswordTouched && inboundPassword.trim().length > 0 ? { password: inboundPassword } : {}),
+      };
+      return companiesApi.saveInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox?.id ?? null, payload);
+    },
+    onSuccess: () => {
+      setInboundPassword("");
+      setInboundPasswordTouched(false);
+      queryClient.invalidateQueries({ queryKey: ["companies", selectedCompanyId, "inbound-email", "mailboxes"] });
+    },
+  });
+  const inboundTestMutation = useMutation({
+    mutationFn: () => companiesApi.testInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
+  });
+  const inboundPollMutation = useMutation({
+    mutationFn: () => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companies", selectedCompanyId, "inbound-email", "messages"] });
+    },
   });
 
   const emailSignatureDirty =
@@ -634,6 +742,179 @@ export function CompanySettings() {
                   : "Failed to send"}
               </span>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Inbound Email */}
+      <div className="space-y-4" data-testid="company-settings-inbound-email-section">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Inbound Email
+          </div>
+          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Mailbox name" hint="Local label for this inbound mailbox.">
+              <input
+                data-testid="company-settings-inbound-name"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={inboundName}
+                onChange={(e) => setInboundName(e.target.value)}
+              />
+            </Field>
+            <Field label="IMAP host" hint="Mailbox server used for inbound polling.">
+              <input
+                data-testid="company-settings-inbound-host"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={inboundHost}
+                placeholder="imap.example.com"
+                onChange={(e) => setInboundHost(e.target.value)}
+              />
+            </Field>
+            <Field label="Port" hint="Usually 993 for TLS IMAP.">
+              <input
+                data-testid="company-settings-inbound-port"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="number"
+                min={1}
+                max={65535}
+                value={inboundPort}
+                onChange={(e) => setInboundPort(e.target.value)}
+              />
+            </Field>
+            <Field label="Username" hint="Mailbox username or email address.">
+              <input
+                data-testid="company-settings-inbound-username"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={inboundUsername}
+                autoComplete="off"
+                onChange={(e) => setInboundUsername(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Password"
+              hint={
+                primaryInboundMailbox?.passwordSet
+                  ? "A password is configured. Type to replace it; leave blank to keep unchanged."
+                  : "Mailbox password or app password. Stored encrypted."
+              }
+            >
+              <input
+                data-testid="company-settings-inbound-password"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="password"
+                value={inboundPassword}
+                autoComplete="new-password"
+                placeholder={primaryInboundMailbox?.passwordSet ? "•••••••• (configured)" : ""}
+                onChange={(e) => {
+                  setInboundPassword(e.target.value);
+                  setInboundPasswordTouched(true);
+                }}
+              />
+            </Field>
+            <Field label="Folder" hint="Mailbox folder to poll.">
+              <input
+                data-testid="company-settings-inbound-folder"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="text"
+                value={inboundFolder}
+                onChange={(e) => setInboundFolder(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+              <input
+                data-testid="company-settings-inbound-enabled"
+                type="checkbox"
+                checked={inboundEnabled}
+                onChange={(e) => setInboundEnabled(e.target.checked)}
+              />
+              Poll mailbox
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+              <input
+                data-testid="company-settings-inbound-tls"
+                type="checkbox"
+                checked={inboundTls}
+                onChange={(e) => setInboundTls(e.target.checked)}
+              />
+              Use TLS
+            </label>
+            <Field label="Poll interval" hint="Seconds between mailbox polls.">
+              <input
+                data-testid="company-settings-inbound-poll-interval"
+                className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                type="number"
+                min={30}
+                max={3600}
+                value={inboundPollIntervalSeconds}
+                onChange={(e) => setInboundPollIntervalSeconds(e.target.value)}
+              />
+            </Field>
+          </div>
+          {!inboundValid && (
+            <span className="text-xs text-destructive">
+              Enter a mailbox name, host, username, folder, a valid port, and a poll interval from 30 to 3600 seconds.
+            </span>
+          )}
+          <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+            <Button
+              data-testid="company-settings-inbound-save"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => inboundSaveMutation.mutate()}
+              disabled={inboundSaveMutation.isPending || !inboundDirty || !inboundValid}
+            >
+              {inboundSaveMutation.isPending ? "Saving..." : "Save inbound mailbox"}
+            </Button>
+            <Button
+              data-testid="company-settings-inbound-test"
+              size="sm"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => inboundTestMutation.mutate()}
+              disabled={!primaryInboundMailbox || inboundTestMutation.isPending}
+            >
+              {inboundTestMutation.isPending ? "Testing..." : "Test connection"}
+            </Button>
+            <Button
+              data-testid="company-settings-inbound-poll"
+              size="sm"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => inboundPollMutation.mutate()}
+              disabled={!primaryInboundMailbox || inboundPollMutation.isPending}
+            >
+              {inboundPollMutation.isPending ? "Queued..." : "Queue poll"}
+            </Button>
+          </div>
+          {inboundSaveMutation.isSuccess && (
+            <span className="block text-xs text-muted-foreground">Inbound mailbox saved.</span>
+          )}
+          {inboundTestMutation.isSuccess && (
+            <span className="block text-xs text-muted-foreground">Mailbox connection succeeded.</span>
+          )}
+          {inboundPollMutation.isSuccess && (
+            <span className="block text-xs text-muted-foreground">Mailbox poll queued.</span>
+          )}
+          {(inboundSaveMutation.isError || inboundTestMutation.isError || inboundPollMutation.isError) && (
+            <span className="block min-w-0 break-words text-xs text-destructive">
+              {(inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error) instanceof Error
+                ? (inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error)?.message
+                : "Inbound email action failed"}
+            </span>
+          )}
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            Imported messages: <span className="font-medium text-foreground">{inboundMessagesQuery.data?.length ?? 0}</span>
+            {primaryInboundMailbox?.lastError ? (
+              <span className="block min-w-0 break-words pt-1 text-destructive">{primaryInboundMailbox.lastError}</span>
+            ) : null}
           </div>
         </div>
       </div>

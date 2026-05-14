@@ -117,6 +117,16 @@ These browser suites are intended for targeted local verification and CI, not th
 
 For normal issue work, start with the smallest targeted check that proves the change. Reserve repo-wide typecheck/build/test runs for PR-ready handoff or changes broad enough that narrow checks do not cover the risk.
 
+## Inbound Email Worker
+
+Inbound email ingestion runs as a dedicated worker process backed by the primary PostgreSQL database queue:
+
+```sh
+pnpm worker:email
+```
+
+Run the API server separately. The worker reads enabled company mailboxes, claims `email.*` jobs from `background_jobs`, imports raw messages, deduplicates by `Message-ID` and raw SHA-256, and creates Paperclip issues from accepted messages. If `DATABASE_URL` is unset, the worker connects to the configured embedded PostgreSQL port; in local dev that means the API server should already be running and owning the embedded database process.
+
 ## One-Command Local Run
 
 For a first-time local install, you can bootstrap and run in one command:

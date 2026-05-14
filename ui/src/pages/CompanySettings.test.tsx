@@ -11,6 +11,11 @@ import { CompanySettings } from "./CompanySettings";
 const mockCompaniesApi = vi.hoisted(() => ({
   update: vi.fn(),
   archive: vi.fn(),
+  listInboundEmailMailboxes: vi.fn(),
+  saveInboundEmailMailbox: vi.fn(),
+  testInboundEmailMailbox: vi.fn(),
+  pollInboundEmailMailbox: vi.fn(),
+  listInboundEmailMessages: vi.fn(),
 }));
 
 const mockAccessApi = vi.hoisted(() => ({
@@ -119,6 +124,22 @@ describe("CompanySettings email settings", () => {
       ...selectedCompany,
       ...payload,
     }));
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue([]);
+    mockCompaniesApi.saveInboundEmailMailbox.mockImplementation(async (_companyId: string, mailboxId: string | null, payload: Record<string, unknown>) => ({
+      id: mailboxId ?? "mailbox-1",
+      companyId: "company-1",
+      provider: "imap",
+      passwordSet: Boolean(payload.password),
+      lastPollAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...payload,
+    }));
+    mockCompaniesApi.testInboundEmailMailbox.mockResolvedValue({ ok: true });
+    mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "job-1", status: "pending" });
+    mockCompaniesApi.listInboundEmailMessages.mockResolvedValue([]);
   });
 
   afterEach(async () => {
@@ -144,7 +165,118 @@ describe("CompanySettings email settings", () => {
     await flushReact();
 
     expect(container.querySelector("[data-testid='company-settings-smtp-section']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='company-settings-inbound-email-section']")).not.toBeNull();
     expect(container.querySelector("[data-testid='company-settings-email-signature-section']")).not.toBeNull();
+  });
+
+  it("saves inbound mailbox settings through the inbound email API", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const hostInput = container.querySelector("[data-testid='company-settings-inbound-host']") as HTMLInputElement;
+    const usernameInput = container.querySelector("[data-testid='company-settings-inbound-username']") as HTMLInputElement;
+    const passwordInput = container.querySelector("[data-testid='company-settings-inbound-password']") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(hostInput, "imap.example.com");
+      setInputValue(usernameInput, "support@example.com");
+      setInputValue(passwordInput, "mailbox-secret");
+    });
+    await flushReact();
+
+    const saveButton = container.querySelector("[data-testid='company-settings-inbound-save']") as HTMLButtonElement;
+    expect(saveButton).not.toBeNull();
+
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.saveInboundEmailMailbox).toHaveBeenCalledWith("company-1", null, {
+      name: "Support inbox",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "support@example.com",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+      password: "mailbox-secret",
+    });
+  });
+
+  it("preserves existing inbound mailbox routing and configured password when saving", async () => {
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue([
+      {
+        id: "mailbox-1",
+        companyId: "company-1",
+        name: "Existing inbox",
+        provider: "imap",
+        enabled: true,
+        host: "imap.example.com",
+        port: 993,
+        username: "support@example.com",
+        passwordSet: true,
+        folder: "INBOX",
+        tls: true,
+        pollIntervalSeconds: 60,
+        targetProjectId: "project-1",
+        createMode: "issue",
+        markSeen: false,
+        lastPollAt: null,
+        lastSuccessAt: null,
+        lastError: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <CompanySettings />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+
+    const nameInput = container.querySelector("[data-testid='company-settings-inbound-name']") as HTMLInputElement;
+    const passwordInput = container.querySelector("[data-testid='company-settings-inbound-password']") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(nameInput, "Updated inbox");
+      setInputValue(passwordInput, "temporary-password");
+      setInputValue(passwordInput, "");
+    });
+    await flushReact();
+
+    const saveButton = container.querySelector("[data-testid='company-settings-inbound-save']") as HTMLButtonElement;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const payload = mockCompaniesApi.saveInboundEmailMailbox.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(mockCompaniesApi.saveInboundEmailMailbox).toHaveBeenCalledWith("company-1", "mailbox-1", expect.any(Object));
+    expect(payload).toMatchObject({
+      name: "Updated inbox",
+      targetProjectId: "project-1",
+      createMode: "issue",
+      markSeen: false,
+    });
+    expect(payload).not.toHaveProperty("password");
   });
 
   it("saves email signature HTML through the company update API", async () => {

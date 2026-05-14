@@ -9,7 +9,11 @@ import type {
   CompanyPortabilityImportResult,
   CompanyPortabilityPreviewRequest,
   CompanyPortabilityPreviewResult,
+  CreateInboundEmailMailbox,
+  InboundEmailMailbox,
+  InboundEmailMessage,
   UpdateCompanyBranding,
+  UpdateInboundEmailMailbox,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -51,6 +55,22 @@ export const companiesApi = {
     api.patch<Company>(`/companies/${companyId}/branding`, data),
   testEmail: (companyId: string, to: string) =>
     api.post<{ ok: true }>(`/companies/${companyId}/email/test`, { to }),
+  listInboundEmailMailboxes: (companyId: string) =>
+    api.get<InboundEmailMailbox[]>(`/companies/${companyId}/inbound-email/mailboxes`),
+  saveInboundEmailMailbox: (
+    companyId: string,
+    mailboxId: string | null,
+    data: CreateInboundEmailMailbox | UpdateInboundEmailMailbox,
+  ) =>
+    mailboxId
+      ? api.patch<InboundEmailMailbox>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}`, data)
+      : api.post<InboundEmailMailbox>(`/companies/${companyId}/inbound-email/mailboxes`, data),
+  testInboundEmailMailbox: (companyId: string, mailboxId: string) =>
+    api.post<{ ok: true }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/test`, {}),
+  pollInboundEmailMailbox: (companyId: string, mailboxId: string) =>
+    api.post<{ id: string; status: string }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/poll`, {}),
+  listInboundEmailMessages: (companyId: string) =>
+    api.get<InboundEmailMessage[]>(`/companies/${companyId}/inbound-email/messages`),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
   exportBundle: (

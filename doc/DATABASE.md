@@ -201,3 +201,7 @@ pnpm secrets:migrate-inline-env --apply
 ```
 
 Hosted AWS provider notes live in [SECRETS-AWS-PROVIDER.md](./SECRETS-AWS-PROVIDER.md).
+
+## Inbound email ingestion
+
+Inbound email uses PostgreSQL as its first queue backend. `background_jobs` stores leaseable worker jobs such as `email.poll_mailbox` and `email.process_message`. `inbound_email_mailboxes`, `inbound_email_rules`, `inbound_email_messages`, and `inbound_email_attachments` store company-scoped mailbox configuration, routing rules, dedupe/status metadata, and attachment metadata. Mailbox passwords are not stored inline; they use the existing `company_secrets` / `company_secret_versions` encrypted secret path.

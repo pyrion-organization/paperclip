@@ -60,6 +60,20 @@ export {
   emailNotifications,
   type IssueCompletionEmailNotificationPayload,
 } from "./email_notifications.js";
+export {
+  backgroundJobs,
+  type BackgroundJobStatus,
+} from "./background_jobs.js";
+export {
+  inboundEmailMailboxes,
+  inboundEmailRules,
+  inboundEmailMessages,
+  inboundEmailAttachments,
+  type InboundMailboxProvider,
+  type InboundEmailCreateMode,
+  type InboundEmailMessageStatus,
+  type InboundEmailAttachmentStatus,
+} from "./inbound_email.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
 export { heartbeatRunWatchdogDecisions } from "./heartbeat_run_watchdog_decisions.js";
