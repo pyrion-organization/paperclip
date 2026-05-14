@@ -331,6 +331,7 @@ export function ClientDetail() {
     queryKey: queryKeys.clients.employees(clientId!),
     queryFn: () => clientsApi.listEmployees(clientId!),
     enabled: !!clientId && activeTab === "employees",
+    retry: false,
   });
 
   const {
@@ -340,6 +341,7 @@ export function ClientDetail() {
     queryKey: queryKeys.clients.emailDomains(clientId!),
     queryFn: () => clientsApi.listEmailDomains(clientId!),
     enabled: !!clientId && activeTab === "identity",
+    retry: false,
   });
 
   const {
