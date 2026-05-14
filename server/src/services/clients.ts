@@ -487,6 +487,52 @@ export function clientService(db: Db) {
 
     async removeProject(id: string, companyId: string) {
       return db.transaction(async (tx) => {
+        const selectedEmployeeLinks = await tx
+          .select({
+            employeeId: clientEmployeeProjectLinks.employeeId,
+          })
+          .from(clientEmployeeProjectLinks)
+          .innerJoin(
+            clientEmployees,
+            and(
+              eq(clientEmployeeProjectLinks.employeeId, clientEmployees.id),
+              eq(clientEmployeeProjectLinks.companyId, clientEmployees.companyId),
+            ),
+          )
+          .where(
+            and(
+              eq(clientEmployeeProjectLinks.clientProjectId, id),
+              eq(clientEmployeeProjectLinks.companyId, companyId),
+              eq(clientEmployees.projectScope, "selected_projects"),
+            ),
+          );
+
+        if (selectedEmployeeLinks.length > 0) {
+          const affectedEmployeeIds = Array.from(new Set(selectedEmployeeLinks.map((link) => link.employeeId)));
+          const remainingSelectedLinks = await tx
+            .select({
+              employeeId: clientEmployeeProjectLinks.employeeId,
+            })
+            .from(clientEmployeeProjectLinks)
+            .where(
+              and(
+                eq(clientEmployeeProjectLinks.companyId, companyId),
+                inArray(clientEmployeeProjectLinks.employeeId, affectedEmployeeIds),
+                sql`${clientEmployeeProjectLinks.clientProjectId} <> ${id}`,
+              ),
+            );
+          const employeesWithRemainingLinks = new Set(remainingSelectedLinks.map((link) => link.employeeId));
+          const employeesWithoutRemainingLinks = affectedEmployeeIds.filter(
+            (employeeId) => !employeesWithRemainingLinks.has(employeeId),
+          );
+
+          if (employeesWithoutRemainingLinks.length > 0) {
+            throw conflict("Cannot remove client project while it is the only selected project for one or more client employees", {
+              employeeIds: employeesWithoutRemainingLinks,
+            });
+          }
+        }
+
         await tx
           .delete(clientEmployeeProjectLinks)
           .where(and(eq(clientEmployeeProjectLinks.clientProjectId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));

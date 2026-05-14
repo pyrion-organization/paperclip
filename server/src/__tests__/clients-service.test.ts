@@ -33,6 +33,7 @@ describeEmbeddedPostgres("clientService", () => {
   const companyId = randomUUID();
   const otherCompanyId = randomUUID();
   const projectId = randomUUID();
+  const secondProjectId = randomUUID();
   const otherProjectId = randomUUID();
 
   beforeAll(async () => {
@@ -60,6 +61,12 @@ describeEmbeddedPostgres("clientService", () => {
         id: projectId,
         companyId,
         name: "Relationship Project",
+        status: "planned",
+      },
+      {
+        id: secondProjectId,
+        companyId,
+        name: "Second Relationship Project",
         status: "planned",
       },
       {
@@ -395,7 +402,7 @@ describeEmbeddedPostgres("clientService", () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
-  it("removes selected employee project links when a client project is removed", async () => {
+  it("rejects removing the only selected project for a client employee", async () => {
     const client = await svc.create(companyId, { name: "Employee Client" });
     const linkedProject = await svc.createProject(companyId, {
       clientId: client!.id,
@@ -409,11 +416,40 @@ describeEmbeddedPostgres("clientService", () => {
       clientProjectIds: [linkedProject!.id],
     });
 
-    await svc.removeProject(linkedProject!.id, companyId);
+    await expect(svc.removeProject(linkedProject!.id, companyId)).rejects.toMatchObject({ status: 409 });
 
     const found = await svc.getEmployeeById(employee!.id, companyId);
     expect(found).toBeDefined();
-    expect(found!.projectLinks).toEqual([]);
+    expect(found!.projectScope).toBe("selected_projects");
+    expect(found!.projectLinks).toHaveLength(1);
+    expect(found!.projectLinks[0]!.clientProjectId).toBe(linkedProject!.id);
+  });
+
+  it("removes selected employee project links when another selected project remains", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    const firstProject = await svc.createProject(companyId, {
+      clientId: client!.id,
+      projectId,
+    });
+    const secondProject = await svc.createProject(companyId, {
+      clientId: client!.id,
+      projectId: secondProjectId,
+    });
+    const employee = await svc.createEmployee(companyId, client!.id, {
+      name: "Scoped User",
+      role: "User",
+      email: "scoped@client.com",
+      projectScope: "selected_projects",
+      clientProjectIds: [firstProject!.id, secondProject!.id],
+    });
+
+    await svc.removeProject(firstProject!.id, companyId);
+
+    const found = await svc.getEmployeeById(employee!.id, companyId);
+    expect(found).toBeDefined();
+    expect(found!.projectScope).toBe("selected_projects");
+    expect(found!.projectLinks).toHaveLength(1);
+    expect(found!.projectLinks[0]!.clientProjectId).toBe(secondProject!.id);
   });
 
   it("removes client employees when a client is removed", async () => {
