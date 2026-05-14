@@ -1123,7 +1123,7 @@ export function ProjectFilesTab({
             />
           ) : selectedFile?.previewType === "markdown" && markdownViewMode === "preview" ? (
             <div className="rounded-lg border border-border p-4">
-              <MarkdownBody>{editorValue}</MarkdownBody>
+              <MarkdownBody linkIssueReferences={false}>{editorValue}</MarkdownBody>
             </div>
           ) : selectedFile?.previewType === "binary" ? (
             <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
