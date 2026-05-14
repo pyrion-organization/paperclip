@@ -701,6 +701,13 @@
       "when": 1778722660213,
       "tag": "0099_supreme_hairball",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1778766900000,
+      "tag": "0100_email_signature_html",
+      "breakpoints": true
     }
   ]
 }
