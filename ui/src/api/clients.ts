@@ -1,5 +1,6 @@
 import type {
   Client,
+  ClientEmailDomain,
   ClientInstructionsBundle,
   ClientInstructionsFileDetail,
   ClientProject,
@@ -39,6 +40,11 @@ export const clientsApi = {
     api.delete<ClientInstructionsBundle>(
       `/clients/${clientId}/instructions-bundle/file?path=${encodeURIComponent(relativePath)}`,
     ),
+  listEmailDomains: (clientId: string) =>
+    api.get<ClientEmailDomain[]>(`/clients/${clientId}/email-domains`),
+  createEmailDomain: (clientId: string, domain: string) =>
+    api.post<ClientEmailDomain>(`/clients/${clientId}/email-domains`, { domain }),
+  removeEmailDomain: (id: string) => api.delete<{ ok: true }>(`/client-email-domains/${id}`),
   listProjects: (clientId: string) =>
     api.get<ClientProject[]>(`/clients/${clientId}/projects`),
   createProject: (clientId: string, data: Record<string, unknown>) =>

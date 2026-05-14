@@ -20,6 +20,7 @@ export { agentRuntimeState } from "./agent_runtime_state.js";
 export { agentTaskSessions } from "./agent_task_sessions.js";
 export { agentWakeupRequests } from "./agent_wakeup_requests.js";
 export { clients } from "./clients.js";
+export { clientEmailDomains } from "./client_email_domains.js";
 export { clientProjects } from "./client_projects.js";
 export { projects } from "./projects.js";
 export { projectWorkspaces } from "./project_workspaces.js";

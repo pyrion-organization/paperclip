@@ -22,11 +22,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
+import { FolderOpen, Mail, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 
-type ClientDetailTab = "overview" | "projects" | "instructions";
+type ClientDetailTab = "overview" | "identity" | "projects" | "instructions";
 
 function PropertyRow({
   label,
@@ -101,6 +102,7 @@ export function ClientDetail() {
   const [editingProject, setEditingProject] = useState<ClientProject | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedInstructionsFile, setSelectedInstructionsFile] = useState("CLIENT.md");
+  const [emailDomainInput, setEmailDomainInput] = useState("");
 
   useEffect(() => {
     setSelectedInstructionsFile("CLIENT.md");
@@ -119,6 +121,15 @@ export function ClientDetail() {
     queryKey: queryKeys.clients.projects(clientId!),
     queryFn: () => clientsApi.listProjects(clientId!),
     enabled: !!clientId && activeTab === "projects",
+  });
+
+  const {
+    data: emailDomains,
+    isLoading: emailDomainsLoading,
+  } = useQuery({
+    queryKey: queryKeys.clients.emailDomains(clientId!),
+    queryFn: () => clientsApi.listEmailDomains(clientId!),
+    enabled: !!clientId && activeTab === "identity",
   });
 
   const {
@@ -171,6 +182,21 @@ export function ClientDetail() {
     },
   });
 
+  const createEmailDomain = useMutation({
+    mutationFn: (domain: string) => clientsApi.createEmailDomain(clientId!, domain),
+    onSuccess: () => {
+      setEmailDomainInput("");
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.emailDomains(clientId!) });
+    },
+  });
+
+  const deleteEmailDomain = useMutation({
+    mutationFn: (id: string) => clientsApi.removeEmailDomain(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.emailDomains(clientId!) });
+    },
+  });
+
   const saveInstructionsFile = useMutation({
     mutationFn: (data: { path: string; content: string }) =>
       clientsApi.saveInstructionsFile(clientId!, data),
@@ -197,6 +223,11 @@ export function ClientDetail() {
   const commit = (data: Record<string, unknown>) => updateClient.mutate(data);
   const commitMeta = (patch: Record<string, unknown>) =>
     commit({ metadata: { ...(currentClient.metadata ?? {}), ...patch } });
+  const addEmailDomain = () => {
+    const value = emailDomainInput.trim();
+    if (!value) return;
+    createEmailDomain.mutate(value);
+  };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -217,6 +248,7 @@ export function ClientDetail() {
         <PageTabBar
           items={[
             { value: "overview", label: "Overview" },
+            { value: "identity", label: "Identity" },
             { value: "projects", label: "Projects" },
             { value: "instructions", label: "Instructions" },
           ]}
@@ -278,6 +310,73 @@ export function ClientDetail() {
               />
             </PropertyRow>
           </div>
+        </TabsContent>
+
+        {/* Identity tab */}
+        <TabsContent value="identity" className="space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Accepted Email Domains</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={emailDomainInput}
+                  onChange={(event) => setEmailDomainInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addEmailDomain();
+                    }
+                  }}
+                  placeholder="X@client.com or client.com"
+                />
+                <Button
+                  size="sm"
+                  onClick={addEmailDomain}
+                  disabled={!emailDomainInput.trim() || createEmailDomain.isPending}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+              {createEmailDomain.isError ? (
+                <p className="text-xs text-destructive">
+                  {(createEmailDomain.error as Error).message || "Failed to add email domain."}
+                </p>
+              ) : null}
+
+              {emailDomainsLoading ? <PageSkeleton variant="list" /> : null}
+
+              {!emailDomainsLoading && (emailDomains ?? []).length === 0 ? (
+                <EmptyState
+                  icon={Mail}
+                  message="No accepted email domains registered for this client."
+                />
+              ) : null}
+
+              {!emailDomainsLoading && (emailDomains ?? []).length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {emailDomains!.map((entry) => (
+                    <span
+                      key={entry.id}
+                      className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 text-xs font-mono"
+                    >
+                      {entry.domain}
+                      <button
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteEmailDomain.mutate(entry.id)}
+                        disabled={deleteEmailDomain.isPending}
+                        aria-label={`Remove ${entry.domain}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Projects tab */}
@@ -344,6 +443,18 @@ export function ClientDetail() {
                                 className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono"
                               >
                                 {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {(project.projectAliases ?? []).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {project.projectAliases.map((alias) => (
+                              <span
+                                key={alias}
+                                className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                              >
+                                {alias}
                               </span>
                             ))}
                           </div>

@@ -65,6 +65,7 @@ export interface ProjectClientRef {
   metadata: ClientMetadata | null;
   relationshipDescription: string | null;
   relationshipTags: string[];
+  projectAliases: string[];
   linkedAt: Date;
 }
 

@@ -93,6 +93,7 @@ export const queryKeys = {
   clients: {
     list: (companyId: string) => ["clients", companyId] as const,
     detail: (id: string) => ["clients", "detail", id] as const,
+    emailDomains: (id: string) => ["clients", "email-domains", id] as const,
     projects: (clientId: string) => ["clients", "projects", clientId] as const,
     instructionsBundle: (clientId: string) => ["clients", "instructions-bundle", clientId] as const,
     instructionsFile: (clientId: string, relativePath: string) =>

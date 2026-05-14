@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   clients,
+  clientEmailDomains,
   clientProjects,
   companies,
   createDb,
@@ -69,6 +70,7 @@ describeEmbeddedPostgres("clientService", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(clientEmailDomains);
     await db.delete(clientProjects);
     await db.delete(clients);
   });
@@ -187,6 +189,7 @@ describeEmbeddedPostgres("clientService", () => {
         legacyProjectType: "consultoria",
       },
       tags: ["python", "sql"],
+      projectAliases: ["ABC", "DFG", "abc"],
     });
 
     const linked = await svc.listProjects(client!.id, companyId);
@@ -195,6 +198,7 @@ describeEmbeddedPostgres("clientService", () => {
     expect(linked[0]!.status).toBe("planned");
     expect(linked[0]!.metadata).toEqual({ legacyProjectType: "consultoria" });
     expect(linked[0]!.tags).toEqual(["python", "sql"]);
+    expect(linked[0]!.projectAliases).toEqual(["ABC", "DFG"]);
   });
 
   it("rejects duplicate client project links", async () => {
@@ -235,10 +239,12 @@ describeEmbeddedPostgres("clientService", () => {
     const updated = await svc.updateProject(cp!.id, companyId, {
       status: "active",
       description: "Updated relationship",
+      projectAliases: ["Internal Alpha", "internal alpha", "DFG"],
     });
     expect(updated).toBeDefined();
     expect(updated!.status).toBe("planned");
     expect(updated!.description).toBe("Updated relationship");
+    expect(updated!.projectAliases).toEqual(["Internal Alpha", "DFG"]);
 
     await expect(
       svc.updateProject(cp!.id, companyId, { clientId: otherClient!.id }),
@@ -255,5 +261,44 @@ describeEmbeddedPostgres("clientService", () => {
     await svc.removeProject(cp!.id, companyId);
     const linked = await svc.listProjects(client!.id, companyId);
     expect(linked).toHaveLength(0);
+  });
+
+  it("normalizes client email examples to unique company domains", async () => {
+    const client = await svc.create(companyId, { name: "Domain Client" });
+
+    const created = await svc.createEmailDomain(companyId, client!.id, "X@Client.COM");
+
+    expect(created).toBeDefined();
+    expect(created!.domain).toBe("client.com");
+
+    const domains = await svc.listEmailDomains(client!.id, companyId);
+    expect(domains).toHaveLength(1);
+    expect(domains[0]!.domain).toBe("client.com");
+
+    await expect(
+      svc.createEmailDomain(companyId, client!.id, "client.com"),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("rejects invalid and cross-company client email domains", async () => {
+    const client = await svc.create(companyId, { name: "Domain Client" });
+
+    await expect(
+      svc.createEmailDomain(companyId, client!.id, "not-a-domain"),
+    ).rejects.toMatchObject({ status: 422 });
+
+    await expect(
+      svc.createEmailDomain(otherCompanyId, client!.id, "client.com"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("removes client email domains", async () => {
+    const client = await svc.create(companyId, { name: "Domain Client" });
+    const created = await svc.createEmailDomain(companyId, client!.id, "client.com");
+
+    await svc.removeEmailDomain(created!.id, companyId);
+
+    const domains = await svc.listEmailDomains(client!.id, companyId);
+    expect(domains).toHaveLength(0);
   });
 });

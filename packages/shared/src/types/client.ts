@@ -13,6 +13,15 @@ export interface ClientProjectMetadata {
   [key: string]: unknown;
 }
 
+export interface ClientEmailDomain {
+  id: string;
+  companyId: string;
+  clientId: string;
+  domain: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Client {
   id: string;
   companyId: string;
@@ -40,6 +49,7 @@ export interface ClientProject {
   startDate: string | null;
   endDate: string | null;
   tags: string[];
+  projectAliases: string[];
   metadata: ClientProjectMetadata | null;
   createdAt: string;
   updatedAt: string;

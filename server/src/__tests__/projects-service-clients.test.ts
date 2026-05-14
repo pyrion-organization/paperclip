@@ -83,6 +83,7 @@ describeEmbeddedPostgres("projectService linked clients", () => {
         status: "active",
         description: "Primary delivery contact",
         tags: ["react", "api"],
+        projectAliases: ["ABC", "DFG"],
       },
       {
         id: randomUUID(),
@@ -102,6 +103,7 @@ describeEmbeddedPostgres("projectService linked clients", () => {
       name: "Acme",
       relationshipDescription: "Primary delivery contact",
       relationshipTags: ["react", "api"],
+      projectAliases: ["ABC", "DFG"],
     });
 
     expect(list[0]?.clients).toHaveLength(1);

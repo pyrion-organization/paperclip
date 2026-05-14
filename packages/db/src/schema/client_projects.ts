@@ -16,6 +16,7 @@ export const clientProjects = pgTable(
     startDate: date("start_date"),
     endDate: date("end_date"),
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    projectAliases: jsonb("project_aliases").$type<string[]>().notNull().default([]),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

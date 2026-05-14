@@ -289,10 +289,12 @@ export {
   updateClientSchema,
   createClientProjectSchema,
   updateClientProjectSchema,
+  createClientEmailDomainSchema,
   type CreateClient,
   type UpdateClient,
   type CreateClientProject,
   type UpdateClientProject,
+  type CreateClientEmailDomain,
 } from "./client.js";
 
 export {

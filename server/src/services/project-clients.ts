@@ -16,6 +16,7 @@ export interface ActiveProjectClientLinkRow {
   relationshipDescription: string | null;
   relationshipTags: string[] | null;
   projectNameOverride: string | null;
+  projectAliases: string[] | null;
   projectMetadata: unknown;
   linkedAt: Date;
   updatedAt: Date;
@@ -42,6 +43,7 @@ export async function listActiveProjectClientLinks(
       relationshipDescription: clientProjects.description,
       relationshipTags: clientProjects.tags,
       projectNameOverride: clientProjects.projectNameOverride,
+      projectAliases: clientProjects.projectAliases,
       projectMetadata: clientProjects.metadata,
       linkedAt: clientProjects.createdAt,
       updatedAt: clientProjects.updatedAt,

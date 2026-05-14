@@ -50,6 +50,11 @@ export function ProjectClientList({
                     {client.relationshipTags.join(", ")}
                   </span>
                 ) : null}
+                {client.projectAliases.length > 0 ? (
+                  <span className={cn("truncate text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>
+                    aliases: {client.projectAliases.join(", ")}
+                  </span>
+                ) : null}
               </div>
               {projectStatus ? (
                 <div className={cn("shrink-0", compact && "ml-1")}>

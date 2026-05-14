@@ -5,6 +5,7 @@ import {
   updateClientSchema,
   createClientProjectSchema,
   updateClientProjectSchema,
+  createClientEmailDomainSchema,
   upsertClientInstructionsFileSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
@@ -92,6 +93,57 @@ export function clientRoutes(db: Db) {
       entityType: "client",
       entityId: id,
       details: { name: existing.name },
+    });
+    res.json({ ok: true });
+  });
+
+  // ── Client Email Domains ─────────────────────────────────────
+
+  router.get("/clients/:id/email-domains", async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    res.json(await svc.listEmailDomains(id, client.companyId));
+  });
+
+  router.post("/clients/:id/email-domains", validate(createClientEmailDomainSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    const emailDomain = await svc.createEmailDomain(client.companyId, id, req.body.domain);
+    if (!emailDomain) throw notFound("Client email domain not found");
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: client.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "client_email_domain.created",
+      entityType: "client_email_domain",
+      entityId: emailDomain.id,
+      details: { clientId: id, domain: emailDomain.domain },
+    });
+    res.status(201).json(emailDomain);
+  });
+
+  router.delete("/client-email-domains/:id", async (req, res) => {
+    const id = req.params.id as string;
+    const existing = await svc.getEmailDomainById(id);
+    if (!existing) throw notFound("Client email domain not found");
+    assertCompanyAccess(req, existing.companyId);
+    await svc.removeEmailDomain(id, existing.companyId);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "client_email_domain.deleted",
+      entityType: "client_email_domain",
+      entityId: id,
+      details: { clientId: existing.clientId, domain: existing.domain },
     });
     res.json({ ok: true });
   });

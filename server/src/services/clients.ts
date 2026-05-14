@@ -1,7 +1,7 @@
 import type { Db } from "@paperclipai/db";
-import { clients, clientProjects, projects } from "@paperclipai/db";
+import { clients, clientEmailDomains, clientProjects, projects } from "@paperclipai/db";
 import { eq, and, asc, sql, countDistinct } from "drizzle-orm";
-import { conflict, notFound } from "../errors.js";
+import { conflict, notFound, unprocessable } from "../errors.js";
 
 type ClientMetadata = Record<string, unknown> | null | undefined;
 type ClientProjectMetadata = Record<string, unknown> | null | undefined;
@@ -22,13 +22,40 @@ function enrichClientProject<
   T extends {
     metadata: ClientProjectMetadata;
     tags: string[] | null;
+    projectAliases: string[] | null;
   },
 >(clientProject: T) {
   return {
     ...clientProject,
     tags: clientProject.tags ?? [],
+    projectAliases: clientProject.projectAliases ?? [],
     metadata: normalizeMetadata(clientProject.metadata ?? null),
   };
+}
+
+function normalizeStringList(values: unknown) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim();
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function normalizeEmailDomain(input: string) {
+  const trimmed = input.trim().toLowerCase();
+  const domain = trimmed.includes("@") ? trimmed.split("@").pop() ?? "" : trimmed;
+  const normalized = domain.replace(/^\.+|\.+$/g, "");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(normalized)) {
+    throw unprocessable("Client email domain must be a valid domain or email example");
+  }
+  return normalized;
 }
 
 function listProjectsSelection() {
@@ -43,6 +70,7 @@ function listProjectsSelection() {
     startDate: clientProjects.startDate,
     endDate: clientProjects.endDate,
     tags: clientProjects.tags,
+    projectAliases: clientProjects.projectAliases,
     metadata: clientProjects.metadata,
     createdAt: clientProjects.createdAt,
     updatedAt: clientProjects.updatedAt,
@@ -174,6 +202,7 @@ export function clientService(db: Db) {
     },
 
     async remove(id: string, companyId: string) {
+      await db.delete(clientEmailDomains).where(and(eq(clientEmailDomains.clientId, id), eq(clientEmailDomains.companyId, companyId)));
       await db.delete(clientProjects).where(and(eq(clientProjects.clientId, id), eq(clientProjects.companyId, companyId)));
       return db
         .delete(clients)
@@ -222,6 +251,7 @@ export function clientService(db: Db) {
       startDate?: string | null;
       endDate?: string | null;
       tags?: string[];
+      projectAliases?: string[];
       metadata?: Record<string, unknown> | null;
     }) {
       const [client, project, existingLink] = await Promise.all([
@@ -257,7 +287,8 @@ export function clientService(db: Db) {
         .values({
           ...data,
           companyId,
-          tags: data.tags ?? [],
+          tags: normalizeStringList(data.tags ?? []),
+          projectAliases: normalizeStringList(data.projectAliases ?? []),
           metadata: normalizeMetadata(data.metadata ?? null),
         })
         .returning()
@@ -284,6 +315,8 @@ export function clientService(db: Db) {
         .update(clientProjects)
         .set({
           ...data,
+          tags: "tags" in data ? normalizeStringList(data.tags) : undefined,
+          projectAliases: "projectAliases" in data ? normalizeStringList(data.projectAliases) : undefined,
           metadata:
             "metadata" in data
               ? normalizeMetadata((data.metadata as Record<string, unknown> | null | undefined) ?? null)
@@ -315,6 +348,61 @@ export function clientService(db: Db) {
           const clientProject = rows[0] ?? null;
           return clientProject ? enrichClientProject(clientProject) : null;
         });
+    },
+
+    async listEmailDomains(clientId: string, companyId?: string) {
+      const where = companyId
+        ? and(eq(clientEmailDomains.clientId, clientId), eq(clientEmailDomains.companyId, companyId))
+        : eq(clientEmailDomains.clientId, clientId);
+      return await db
+        .select()
+        .from(clientEmailDomains)
+        .where(where)
+        .orderBy(asc(clientEmailDomains.domain));
+    },
+
+    async getEmailDomainById(id: string, companyId?: string) {
+      const where = companyId
+        ? and(eq(clientEmailDomains.id, id), eq(clientEmailDomains.companyId, companyId))
+        : eq(clientEmailDomains.id, id);
+      return await db
+        .select()
+        .from(clientEmailDomains)
+        .where(where)
+        .then((rows) => rows[0] ?? null);
+    },
+
+    async createEmailDomain(companyId: string, clientId: string, input: string) {
+      const domain = normalizeEmailDomain(input);
+      const [client, existingDomain] = await Promise.all([
+        db
+          .select({ id: clients.id })
+          .from(clients)
+          .where(and(eq(clients.id, clientId), eq(clients.companyId, companyId)))
+          .then((rows) => rows[0] ?? null),
+        db
+          .select({ id: clientEmailDomains.id, clientId: clientEmailDomains.clientId })
+          .from(clientEmailDomains)
+          .where(and(eq(clientEmailDomains.companyId, companyId), eq(clientEmailDomains.domain, domain)))
+          .then((rows) => rows[0] ?? null),
+      ]);
+
+      if (!client) throw notFound("Client not found");
+      if (existingDomain) throw conflict("Email domain is already registered for a client in this company");
+
+      return await db
+        .insert(clientEmailDomains)
+        .values({ companyId, clientId, domain })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    },
+
+    async removeEmailDomain(id: string, companyId: string) {
+      return await db
+        .delete(clientEmailDomains)
+        .where(and(eq(clientEmailDomains.id, id), eq(clientEmailDomains.companyId, companyId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
     },
   };
 }
