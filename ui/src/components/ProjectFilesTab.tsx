@@ -1132,6 +1132,7 @@ export function ProjectFilesTab({
           ) : selectedFile?.textContent != null ? (
             <ProjectCodeEditor
               value={editorValue}
+              readOnly={false}
               language={selectedFile.language}
               onChange={setEditorValue}
             />
