@@ -129,6 +129,39 @@ describeEmbeddedPostgres("projectFilesService", () => {
     expect(remoteBranch).toBe(localBranch);
   });
 
+  it("returns raw JSON text for editable project files", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const localDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-project-files-json-"));
+    tempDirs.add(localDir);
+    const rawJson = '{"id":9007199254740993123,"dup":1,"dup":2,"enabled":true}\n';
+    await fs.writeFile(path.join(localDir, "config.json"), rawJson, "utf8");
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localDir });
+
+    const detail = await svc.readFile(projectId, "config.json");
+
+    expect(detail.previewType).toBe("json");
+    expect(detail.language).toBe("json");
+    expect(detail.textContent).toBe(rawJson);
+  });
+
+  it("returns raw text for malformed JSON files", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const localDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-project-files-json-"));
+    tempDirs.add(localDir);
+    const malformedJson = '{"key": "value"\n';
+    await fs.writeFile(path.join(localDir, "broken.json"), malformedJson, "utf8");
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localDir });
+
+    const detail = await svc.readFile(projectId, "broken.json");
+
+    expect(detail.previewType).toBe("json");
+    expect(detail.textContent).toBe(malformedJson);
+  });
+
   it("pushes an existing local branch to origin without switching branches", async () => {
     const companyId = randomUUID();
     const projectId = randomUUID();
