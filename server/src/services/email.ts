@@ -404,6 +404,98 @@ export async function sendIssueCompletionEmail(params: IssueCompletionEmailParam
   await sendIssueCompletionEmailWithResult(params);
 }
 
+function formatDurationMs(startedAt: Date, completedAt: Date): string {
+  const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
+  if (durationMs < 1_000) return `${durationMs}ms`;
+  const totalSeconds = Math.round(durationMs / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+export async function sendRoutineSuccessEmail(params: {
+  to: string;
+  routineTitle: string;
+  routineId: string;
+  runId: string;
+  source: string;
+  triggeredAt: Date;
+  completedAt: Date;
+  scriptExitCode: number | null;
+  scriptOutput?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<void> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return;
+  const transport = buildTransport(config);
+  const from = config.from;
+  const triggeredAtIso = params.triggeredAt.toISOString();
+  const completedAtIso = params.completedAt.toISOString();
+  const duration = formatDurationMs(params.triggeredAt, params.completedAt);
+
+  const bodyParts: string[] = [];
+
+  bodyParts.push(`<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    The routine <strong>${escapeHtml(params.routineTitle)}</strong> completed successfully without errors.
+    The details below describe the stored run record.
+  </p>`);
+
+  bodyParts.push(alertBox("#075985", "#f0f9ff", "#0ea5e9", "Routine script completed successfully."));
+
+  bodyParts.push(metaTable([
+    ["Routine", params.routineTitle],
+    ["Routine ID", params.routineId],
+    ["Run ID", params.runId],
+    ["Source", params.source],
+    ["Triggered at", triggeredAtIso],
+    ["Completed at", completedAtIso],
+    ["Duration", duration],
+    ["Exit code", params.scriptExitCode == null ? "—" : String(params.scriptExitCode)],
+  ]));
+
+  if (params.scriptOutput) {
+    bodyParts.push(codeBlock("Script Output", params.scriptOutput));
+  }
+
+  bodyParts.push(`<p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    This is an automated notification sent because a script or bash routine completed successfully.
+  </p>`);
+
+  const html = buildEmailWrapper({
+    headerColor: "#0891b2",
+    headerIcon: "✅",
+    headerTitle: "Routine Completed",
+    headerSubtitle: params.routineTitle,
+    body: bodyParts.join("\n"),
+    template: config.template,
+  });
+
+  const textLines: string[] = [
+    `Routine "${params.routineTitle}" completed successfully.`,
+    ``,
+    `Routine ID: ${params.routineId}`,
+    `Run ID: ${params.runId}`,
+    `Source: ${params.source}`,
+    `Triggered at: ${triggeredAtIso}`,
+    `Completed at: ${completedAtIso}`,
+    `Duration: ${duration}`,
+    `Exit code: ${params.scriptExitCode == null ? "—" : String(params.scriptExitCode)}`,
+  ];
+  if (params.scriptOutput) {
+    textLines.push(``, `--- Script output ---`, params.scriptOutput.slice(0, 3000));
+  }
+
+  await transport.sendMail({
+    from,
+    to: params.to,
+    subject: `✅ Routine completed: ${params.routineTitle}`.slice(0, 200),
+    text: textLines.join("\n"),
+    html,
+  });
+}
+
 export async function sendRoutineFailureEmail(params: {
   to: string;
   routineTitle: string;

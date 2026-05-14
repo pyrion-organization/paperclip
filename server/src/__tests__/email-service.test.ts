@@ -5,7 +5,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
-import { sendIssueCompletionEmail } from "../services/email.ts";
+import { sendIssueCompletionEmail, sendRoutineSuccessEmail } from "../services/email.ts";
 import { secretService } from "../services/secrets.ts";
 import { SMTP_PASSWORD_SECRET_NAME } from "../services/companies.ts";
 
@@ -161,6 +161,61 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).toContain("end-of-comment-marker");
   });
 
+  it("renders routine success emails with stored run information and distinct copy", async () => {
+    const companyId = randomUUID();
+    const routineId = randomUUID();
+    const runId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+      emailTemplateBrandName: "Acme Ops",
+    });
+
+    await sendRoutineSuccessEmail({
+      to: "ops@example.com",
+      routineTitle: "Nightly import",
+      routineId,
+      runId,
+      source: "schedule",
+      triggeredAt: new Date("2026-05-14T10:00:00.000Z"),
+      completedAt: new Date("2026-05-14T10:01:03.000Z"),
+      scriptExitCode: 0,
+      scriptOutput: "processed 42 rows",
+      db,
+      companyId,
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as {
+      html?: string;
+      text?: string;
+      subject?: string;
+      from?: string;
+    } | undefined;
+    expect(message?.from).toBe("noreply@acme.example");
+    expect(message?.subject).toBe("✅ Routine completed: Nightly import");
+    expect(message?.html).toContain("Routine Completed");
+    expect(message?.html).toContain("completed successfully without errors");
+    expect(message?.html).toContain("Routine script completed successfully.");
+    expect(message?.html).toContain("Acme Ops");
+    expect(message?.html).toContain(routineId);
+    expect(message?.html).toContain(runId);
+    expect(message?.html).toContain("schedule");
+    expect(message?.html).toContain("2026-05-14T10:00:00.000Z");
+    expect(message?.html).toContain("2026-05-14T10:01:03.000Z");
+    expect(message?.html).toContain("1m 3s");
+    expect(message?.html).toContain("processed 42 rows");
+    expect(message?.html).not.toContain("Issue Done");
+    expect(message?.text).toContain("Routine ID");
+    expect(message?.text).toContain("Run ID");
+    expect(message?.text).toContain("Exit code: 0");
+  });
+
   it("does not send when SMTP host is not configured", async () => {
     const previousHost = process.env.SMTP_HOST;
     delete process.env.SMTP_HOST;
@@ -180,6 +235,38 @@ describeEmbeddedPostgres("email service", () => {
         issueIdentifier: "ACME-1",
         completedByName: "CodexCoder",
         completedByKind: "agent",
+        db,
+        companyId,
+      });
+
+      expect(createTransportMock).not.toHaveBeenCalled();
+      expect(sendMailMock).not.toHaveBeenCalled();
+    } finally {
+      if (previousHost !== undefined) process.env.SMTP_HOST = previousHost;
+    }
+  });
+
+  it("does not send routine success emails when SMTP host is not configured", async () => {
+    const previousHost = process.env.SMTP_HOST;
+    delete process.env.SMTP_HOST;
+    try {
+      const companyId = randomUUID();
+      await db.insert(companies).values({
+        id: companyId,
+        name: "Acme Operations",
+        issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+        requireBoardApprovalForNewAgents: false,
+      });
+
+      await sendRoutineSuccessEmail({
+        to: "ops@example.com",
+        routineTitle: "Nightly import",
+        routineId: randomUUID(),
+        runId: randomUUID(),
+        source: "manual",
+        triggeredAt: new Date("2026-05-14T10:00:00.000Z"),
+        completedAt: new Date("2026-05-14T10:00:00.050Z"),
+        scriptExitCode: 0,
         db,
         companyId,
       });

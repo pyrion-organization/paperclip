@@ -68,7 +68,7 @@ import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
-import { sendRemediationResultEmail, sendRoutineFailureEmail } from "./email.js";
+import { sendRemediationResultEmail, sendRoutineFailureEmail, sendRoutineSuccessEmail } from "./email.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
@@ -1813,6 +1813,20 @@ export function routineService(
           db,
           companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (succeeded && routine.notificationEmail) {
+        sendRoutineSuccessEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          source: run.source,
+          triggeredAt: run.triggeredAt,
+          completedAt: finalRun?.completedAt ?? new Date(),
+          scriptExitCode: exitCode,
+          scriptOutput: output || null,
+          db,
+          companyId: routine.companyId,
+        }).catch((err) => logger.warn({ err }, "failed to send routine success email"));
       } else if (!succeeded && routine.notificationEmail) {
         sendRoutineFailureEmail({
           to: routine.notificationEmail,

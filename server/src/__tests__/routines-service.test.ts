@@ -29,6 +29,15 @@ import { instanceSettingsService } from "../services/instance-settings.ts";
 import * as providerRegistry from "../secrets/provider-registry.ts";
 import { routineService } from "../services/routines.ts";
 
+const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
+const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
+
+vi.mock("nodemailer", () => ({
+  default: {
+    createTransport: createTransportMock,
+  },
+}));
+
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 const originalSecretsProviderEnv = process.env.PAPERCLIP_SECRETS_PROVIDER;
@@ -49,6 +58,8 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
   }, 20_000);
 
   afterEach(async () => {
+    createTransportMock.mockClear();
+    sendMailMock.mockClear();
     if (originalSecretsProviderEnv === undefined) {
       delete process.env.PAPERCLIP_SECRETS_PROVIDER;
     } else {
@@ -214,6 +225,49 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       .from(routines)
       .where(eq(routines.id, created.id));
     expect(stored?.notificationEmail).toBe("ops@example.com");
+  });
+
+  it("sends a success email after a bash routine completes without errors", async () => {
+    const { companyId, svc } = await seedFixture();
+    await db
+      .update(companies)
+      .set({
+        smtpHost: "smtp.example.com",
+        smtpPort: 587,
+        smtpFrom: "noreply@example.com",
+      })
+      .where(eq(companies.id, companyId));
+    const created = await svc.create(
+      companyId,
+      {
+        projectId: null,
+        goalId: null,
+        parentIssueId: null,
+        title: "success email routine",
+        description: "Send a completion email",
+        assigneeAgentId: null,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+        executionMode: "bash_command",
+        scriptPath: "echo routine-ok",
+        notificationEmail: "ops@example.com",
+      },
+      {},
+    );
+
+    const run = await svc.runRoutine(created.id, { source: "manual" });
+    await vi.waitFor(() => expect(sendMailMock).toHaveBeenCalledTimes(1));
+
+    expect(run.status).toBe("completed");
+    const message = sendMailMock.mock.calls[0]?.[0] as { to?: string; subject?: string; text?: string } | undefined;
+    expect(message?.to).toBe("ops@example.com");
+    expect(message?.subject).toBe("✅ Routine completed: success email routine");
+    expect(message?.text).toContain(`Run ID: ${run.id}`);
+    expect(message?.text).toContain("Source: manual");
+    expect(message?.text).toContain("Exit code: 0");
+    expect(message?.text).toContain("routine-ok");
   });
 
   it("filters listed routines by project", async () => {
