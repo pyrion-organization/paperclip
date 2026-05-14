@@ -7,6 +7,7 @@ import {
 const logoAssetIdSchema = z.string().uuid().nullable().optional();
 const brandColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional();
 const feedbackDataSharingTermsVersionSchema = z.string().min(1).nullable().optional();
+// 20 KB is well under typical email client limits and large enough for any reasonable signature.
 const emailSignatureHtmlSchema = z.string().max(20_000).nullable().optional();
 const attachmentMaxBytesSchema = z
   .number()

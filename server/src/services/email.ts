@@ -1,5 +1,7 @@
 import nodemailer from "nodemailer";
 import { eq } from "drizzle-orm";
+import createDOMPurify from "dompurify";
+import { JSDOM } from "jsdom";
 import type { Db } from "@paperclipai/db";
 import { companies } from "@paperclipai/db";
 import { secretService } from "./secrets.js";
@@ -83,6 +85,12 @@ function buildTransport(config: SmtpConfig) {
   });
 }
 
+function sanitizeSignatureHtml(html: string): string {
+  const dom = new JSDOM("");
+  const purify = createDOMPurify(dom.window as unknown as Parameters<typeof createDOMPurify>[0]);
+  return purify.sanitize(html, { FORCE_BODY: true });
+}
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -130,7 +138,7 @@ function buildEmailWrapper(params: {
         <tr>
           <td style="background:#ffffff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;border-top:none;">
             ${params.body}
-            ${params.signatureHtml ?? ""}
+            ${params.signatureHtml ? sanitizeSignatureHtml(params.signatureHtml) : ""}
           </td>
         </tr>
 

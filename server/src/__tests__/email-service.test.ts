@@ -210,6 +210,38 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).toContain("Exit code: 0");
   });
 
+  it("strips script tags and event handlers from signature HTML before sending", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+      emailSignatureHtml: '<div onclick="alert(1)">Safe text</div><script>evil()</script>',
+    });
+
+    await sendIssueCompletionEmail({
+      to: "creator@example.com",
+      issueTitle: "Ship report",
+      issueId: randomUUID(),
+      issueIdentifier: "ACME-1",
+      completedByName: "CodexCoder",
+      completedByKind: "agent",
+      db,
+      companyId,
+    });
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as { html?: string } | undefined;
+    expect(message?.html).toContain("Safe text");
+    expect(message?.html).not.toContain("onclick");
+    expect(message?.html).not.toContain("<script>");
+    expect(message?.html).not.toContain("evil()");
+  });
+
   it("does not send when SMTP host is not configured", async () => {
     const previousHost = process.env.SMTP_HOST;
     delete process.env.SMTP_HOST;
