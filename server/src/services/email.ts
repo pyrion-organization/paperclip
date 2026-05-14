@@ -12,53 +12,12 @@ type SmtpConfig = {
   user: string | null;
   pass: string | null;
   from: string;
-  template: EmailTemplateConfig;
-};
-
-type EmailTemplateConfig = {
-  brandName: string;
-  tagline: string | null;
-  websiteUrl: string | null;
-  footerText: string;
-  brandColor: string;
-};
-
-const DEFAULT_EMAIL_TEMPLATE: EmailTemplateConfig = {
-  brandName: "Paperclip",
-  tagline: "AI company control plane",
-  websiteUrl: null,
-  footerText: "This is an automated notification from Paperclip.",
-  brandColor: "#111827",
+  signatureHtml: string | null;
 };
 
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function normalizeBrandColor(value: string | null | undefined): string {
-  const trimmed = value?.trim();
-  return trimmed && /^#[0-9a-fA-F]{6}$/.test(trimmed)
-    ? trimmed
-    : DEFAULT_EMAIL_TEMPLATE.brandColor;
-}
-
-function buildEmailTemplateConfig(row?: {
-  name?: string | null;
-  brandColor?: string | null;
-  emailTemplateBrandName?: string | null;
-  emailTemplateTagline?: string | null;
-  emailTemplateWebsiteUrl?: string | null;
-  emailTemplateFooterText?: string | null;
-} | null): EmailTemplateConfig {
-  const brandName = nonEmpty(row?.emailTemplateBrandName) ?? nonEmpty(row?.name) ?? DEFAULT_EMAIL_TEMPLATE.brandName;
-  return {
-    brandName,
-    tagline: nonEmpty(row?.emailTemplateTagline),
-    websiteUrl: nonEmpty(row?.emailTemplateWebsiteUrl),
-    footerText: nonEmpty(row?.emailTemplateFooterText) ?? DEFAULT_EMAIL_TEMPLATE.footerText,
-    brandColor: normalizeBrandColor(row?.brandColor),
-  };
 }
 
 async function loadSmtpConfig(
@@ -70,27 +29,22 @@ async function loadSmtpConfig(
   let user: string | null = process.env.SMTP_USER ?? null;
   let pass: string | null = process.env.SMTP_PASS ?? null;
   let from: string = process.env.SMTP_FROM ?? "noreply@paperclip.local";
-  let template = DEFAULT_EMAIL_TEMPLATE;
+  let signatureHtml: string | null = null;
 
   if (db && companyId) {
     try {
       const row = await db
         .select({
-          name: companies.name,
-          brandColor: companies.brandColor,
           smtpHost: companies.smtpHost,
           smtpPort: companies.smtpPort,
           smtpUser: companies.smtpUser,
           smtpFrom: companies.smtpFrom,
-          emailTemplateBrandName: companies.emailTemplateBrandName,
-          emailTemplateTagline: companies.emailTemplateTagline,
-          emailTemplateWebsiteUrl: companies.emailTemplateWebsiteUrl,
-          emailTemplateFooterText: companies.emailTemplateFooterText,
+          emailSignatureHtml: companies.emailSignatureHtml,
         })
         .from(companies)
         .where(eq(companies.id, companyId))
         .then((rows) => rows[0] ?? null);
-      template = buildEmailTemplateConfig(row);
+      signatureHtml = nonEmpty(row?.emailSignatureHtml);
       if (row?.smtpHost) {
         host = row.smtpHost;
         port = row.smtpPort ?? port;
@@ -115,7 +69,7 @@ async function loadSmtpConfig(
   }
 
   if (!host) return null;
-  return { host, port, user, pass, from, template };
+  return { host, port, user, pass, from, signatureHtml };
 }
 
 function buildTransport(config: SmtpConfig) {
@@ -137,47 +91,13 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildSignatureHtml(template: EmailTemplateConfig): string {
-  const tagline = template.tagline
-    ? `<span style="display:block;font-weight:400;color:rgb(229,231,235);letter-spacing:0.01em;line-height:1.4;white-space:nowrap;font-size:9px;margin-top:4px;">${escapeHtml(template.tagline)}</span>`
-    : "";
-  const website = template.websiteUrl
-    ? `<div style="margin-bottom:4px;"><a href="${escapeHtml(template.websiteUrl)}" style="color:#ffffff;text-decoration:none;">${escapeHtml(template.websiteUrl)}</a></div>`
-    : "";
-
-  return `
-<table cellpadding="0" cellspacing="0" border="0" style="margin-top:32px;">
-  <tr>
-    <td>
-      <table cellpadding="0" cellspacing="0" border="0"
-        style="background:hsl(210,8%,7%);padding:14px 22px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-        <tr valign="middle">
-          <td style="padding-right:0;">
-            <span style="display:block;color:${template.brandColor};letter-spacing:-0.025em;line-height:1;white-space:nowrap;font-size:28px;font-weight:700;">${escapeHtml(template.brandName)}</span>
-            ${tagline}
-          </td>
-          <td style="width:1px;background:rgba(255,255,255,0.2);padding:0 16px;">
-            <div style="width:1px;height:41px;background:rgba(255,255,255,0.2);"></div>
-          </td>
-          <td style="font-size:10px;text-align:left;">
-            <div style="font-weight:700;color:#ffffff;margin-bottom:4px;">Automated notifications</div>
-            ${website}
-            <div style="color:rgb(180,180,180);font-size:8px;">${escapeHtml(template.footerText)}</div>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>`;
-}
-
 function buildEmailWrapper(params: {
   headerColor: string;
   headerIcon: string;
   headerTitle: string;
   headerSubtitle: string;
   body: string;
-  template: EmailTemplateConfig;
+  signatureHtml: string | null;
 }): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -210,7 +130,7 @@ function buildEmailWrapper(params: {
         <tr>
           <td style="background:#ffffff;padding:32px;border-radius:0 0 8px 8px;border:1px solid #e5e7eb;border-top:none;">
             ${params.body}
-            ${buildSignatureHtml(params.template)}
+            ${params.signatureHtml ?? ""}
           </td>
         </tr>
 
@@ -289,7 +209,7 @@ export async function sendTestEmail(params: {
     headerTitle: "Test Email",
     headerSubtitle: "Email configuration test",
     body,
-    template: config.template,
+    signatureHtml: config.signatureHtml,
   });
 
   await transport.sendMail({
@@ -371,7 +291,7 @@ export async function sendIssueCompletionEmailWithResult(
     headerTitle: "Issue Done",
     headerSubtitle,
     body: bodyParts.join("\n"),
-    template: config.template,
+    signatureHtml: config.signatureHtml,
   });
 
   const textLines: string[] = [
@@ -469,7 +389,7 @@ export async function sendRoutineSuccessEmail(params: {
     headerTitle: "Routine Completed",
     headerSubtitle: params.routineTitle,
     body: bodyParts.join("\n"),
-    template: config.template,
+    signatureHtml: config.signatureHtml,
   });
 
   const textLines: string[] = [
@@ -544,7 +464,7 @@ export async function sendRoutineFailureEmail(params: {
     headerTitle: "Routine Script Failed",
     headerSubtitle: params.routineTitle,
     body: bodyParts.join("\n"),
-    template: config.template,
+    signatureHtml: config.signatureHtml,
   });
 
   const text = [
@@ -624,7 +544,7 @@ export async function sendRemediationResultEmail(params: {
     headerTitle: params.succeeded ? "Routine Fixed & Re-run Successful" : "Routine Still Failing After Remediation",
     headerSubtitle: params.routineTitle,
     body: bodyParts.join("\n"),
-    template: config.template,
+    signatureHtml: config.signatureHtml,
   });
 
   const textLines: string[] = [

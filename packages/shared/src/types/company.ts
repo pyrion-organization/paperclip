@@ -23,10 +23,7 @@ export interface Company {
   smtpUser: string | null;
   smtpFrom: string | null;
   smtpPasswordSet: boolean;
-  emailTemplateBrandName: string | null;
-  emailTemplateTagline: string | null;
-  emailTemplateWebsiteUrl: string | null;
-  emailTemplateFooterText: string | null;
+  emailSignatureHtml: string | null;
   logoAssetId: string | null;
   logoUrl: string | null;
   createdAt: Date;
