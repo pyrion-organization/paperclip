@@ -487,13 +487,30 @@ export function clientService(db: Db) {
 
     async removeProject(id: string, companyId: string) {
       return db.transaction(async (tx) => {
-        const selectedEmployeeLinks = await tx
-          .select({
-            employeeId: clientEmployeeProjectLinks.employeeId,
-          })
-          .from(clientEmployeeProjectLinks)
+        // Lock `selected_projects` employees that have a link to this project,
+        // so a concurrent updateEmployee can't slip in a new link between this
+        // check and the delete below. (FOR UPDATE can't be combined with the
+        // GROUP BY orphan-detection below, so we acquire the lock here first.)
+        await tx
+          .select({ id: clientEmployees.id })
+          .from(clientEmployees)
+          .where(
+            and(
+              eq(clientEmployees.companyId, companyId),
+              eq(clientEmployees.projectScope, "selected_projects"),
+              sql`EXISTS (SELECT 1 FROM ${clientEmployeeProjectLinks} l WHERE l.employee_id = ${clientEmployees.id} AND l.client_project_id = ${id})`,
+            ),
+          )
+          .for("update");
+
+        // Identify any `selected_projects` employees whose ONLY link is to this
+        // client project — removing it would violate the "≥1 selected project"
+        // invariant.
+        const orphanedEmployees = await tx
+          .select({ employeeId: clientEmployees.id })
+          .from(clientEmployees)
           .innerJoin(
-            clientEmployees,
+            clientEmployeeProjectLinks,
             and(
               eq(clientEmployeeProjectLinks.employeeId, clientEmployees.id),
               eq(clientEmployeeProjectLinks.companyId, clientEmployees.companyId),
@@ -501,36 +518,20 @@ export function clientService(db: Db) {
           )
           .where(
             and(
-              eq(clientEmployeeProjectLinks.clientProjectId, id),
-              eq(clientEmployeeProjectLinks.companyId, companyId),
+              eq(clientEmployees.companyId, companyId),
               eq(clientEmployees.projectScope, "selected_projects"),
             ),
+          )
+          .groupBy(clientEmployees.id)
+          .having(
+            sql`bool_or(${clientEmployeeProjectLinks.clientProjectId} = ${id}) AND count(*) FILTER (WHERE ${clientEmployeeProjectLinks.clientProjectId} <> ${id}) = 0`,
           );
 
-        if (selectedEmployeeLinks.length > 0) {
-          const affectedEmployeeIds = Array.from(new Set(selectedEmployeeLinks.map((link) => link.employeeId)));
-          const remainingSelectedLinks = await tx
-            .select({
-              employeeId: clientEmployeeProjectLinks.employeeId,
-            })
-            .from(clientEmployeeProjectLinks)
-            .where(
-              and(
-                eq(clientEmployeeProjectLinks.companyId, companyId),
-                inArray(clientEmployeeProjectLinks.employeeId, affectedEmployeeIds),
-                sql`${clientEmployeeProjectLinks.clientProjectId} <> ${id}`,
-              ),
-            );
-          const employeesWithRemainingLinks = new Set(remainingSelectedLinks.map((link) => link.employeeId));
-          const employeesWithoutRemainingLinks = affectedEmployeeIds.filter(
-            (employeeId) => !employeesWithRemainingLinks.has(employeeId),
+        if (orphanedEmployees.length > 0) {
+          throw conflict(
+            "Cannot remove client project while it is the only selected project for one or more client employees",
+            { employeeIds: orphanedEmployees.map((row) => row.employeeId) },
           );
-
-          if (employeesWithoutRemainingLinks.length > 0) {
-            throw conflict("Cannot remove client project while it is the only selected project for one or more client employees", {
-              employeeIds: employeesWithoutRemainingLinks,
-            });
-          }
         }
 
         await tx

@@ -6,6 +6,7 @@ import { CLIENT_STATUSES } from "@paperclipai/shared";
 import { clientsApi } from "../api/clients";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { projectUrl } from "../lib/utils";
 import { statusBadge, statusBadgeDefault } from "../lib/status-colors";
@@ -293,6 +294,7 @@ export function ClientDetail() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { pushToast } = useToastActions();
 
   const [activeTab, setActiveTab] = useState<ClientDetailTab>("overview");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -387,6 +389,14 @@ export function ClientDetail() {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(clientId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(clientId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.list(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.employees(clientId!) });
+    },
+    onError: (error: Error) => {
+      pushToast({
+        tone: "error",
+        title: "Cannot unlink project",
+        body: error.message || "An employee still has this as their only selected project. Update employee scopes first.",
+      });
     },
   });
 
