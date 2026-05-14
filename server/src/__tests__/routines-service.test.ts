@@ -227,6 +227,37 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(stored?.notificationEmail).toBe("ops@example.com");
   });
 
+  it("persists notification-only routine updates", async () => {
+    const { agentId, companyId, projectId, svc } = await seedFixture();
+    const created = await svc.create(
+      companyId,
+      {
+        projectId,
+        goalId: null,
+        parentIssueId: null,
+        title: "update notification email",
+        description: "Notify operations",
+        assigneeAgentId: agentId,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "coalesce_if_active",
+        catchUpPolicy: "skip_missed",
+        executionMode: "script_nodejs",
+        scriptPath: "scripts/report.js",
+      },
+      {},
+    );
+
+    const updated = await svc.update(created.id, { notificationEmail: "ops@example.com" }, {});
+
+    expect(updated?.notificationEmail).toBe("ops@example.com");
+    const [stored] = await db
+      .select({ notificationEmail: routines.notificationEmail })
+      .from(routines)
+      .where(eq(routines.id, created.id));
+    expect(stored?.notificationEmail).toBe("ops@example.com");
+  });
+
   it("sends a success email after a bash routine completes without errors", async () => {
     const { companyId, svc } = await seedFixture();
     await db

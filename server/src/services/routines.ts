@@ -626,6 +626,16 @@ function routineCurrentFieldsMatch(left: RoutineRow, right: RoutineRow) {
   );
 }
 
+function routineExecutionFieldsMatch(left: RoutineRow, right: RoutineRow) {
+  return left.executionMode === right.executionMode
+    && left.scriptPath === right.scriptPath
+    && left.scriptTimeoutSec === right.scriptTimeoutSec
+    && JSON.stringify(left.scriptCommandArgs ?? null) === JSON.stringify(right.scriptCommandArgs ?? null)
+    && left.remediationEnabled === right.remediationEnabled
+    && left.remediationAssigneeAgentId === right.remediationAssigneeAgentId
+    && left.notificationEmail === right.notificationEmail;
+}
+
 function mapRoutineRevision(row: typeof routineRevisions.$inferSelect): RoutineRevision {
   return {
     ...row,
@@ -2299,7 +2309,8 @@ export function routineService(
           updatedByUserId: actor.userId ?? null,
         };
 
-        if (locked.latestRevisionId && routineCurrentFieldsMatch(locked, candidate)) {
+        const executionFieldsMatch = routineExecutionFieldsMatch(locked, candidate);
+        if (locked.latestRevisionId && routineCurrentFieldsMatch(locked, candidate) && executionFieldsMatch) {
           return locked;
         }
 
@@ -2316,7 +2327,7 @@ export function routineService(
               ),
             )
             .then((rows) => rows[0] ?? null);
-          if (latestRevision && snapshotsMatch(nextSnapshot, latestRevision.snapshot as RoutineRevisionSnapshotV1)) {
+          if (latestRevision && snapshotsMatch(nextSnapshot, latestRevision.snapshot as RoutineRevisionSnapshotV1) && executionFieldsMatch) {
             return locked;
           }
         }
@@ -2335,6 +2346,13 @@ export function routineService(
             concurrencyPolicy: candidate.concurrencyPolicy,
             catchUpPolicy: candidate.catchUpPolicy,
             variables: candidate.variables,
+            executionMode: candidate.executionMode,
+            scriptPath: candidate.scriptPath,
+            scriptTimeoutSec: candidate.scriptTimeoutSec,
+            scriptCommandArgs: candidate.scriptCommandArgs,
+            remediationEnabled: candidate.remediationEnabled,
+            remediationAssigneeAgentId: candidate.remediationAssigneeAgentId,
+            notificationEmail: candidate.notificationEmail,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: new Date(),
