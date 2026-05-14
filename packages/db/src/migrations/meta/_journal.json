@@ -687,6 +687,20 @@
       "when": 1778547966096,
       "tag": "0097_exotic_mojo",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1778721055537,
+      "tag": "0098_client_identity_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1778722660213,
+      "tag": "0099_supreme_hairball",
+      "breakpoints": true
     }
   ]
 }

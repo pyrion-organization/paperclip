@@ -241,7 +241,7 @@ export type {
   IssueAttachment,
   IssueLabel,
 } from "./issue.js";
-export type { Client, ClientProject } from "./client.js";
+export type { Client, ClientEmailDomain, ClientEmployee, ClientEmployeeProjectRef, ClientProject } from "./client.js";
 export type {
   ClientInstructionsFileSummary,
   ClientInstructionsFileDetail,

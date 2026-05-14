@@ -1,4 +1,4 @@
-import type { ClientStatus, ProjectStatus } from "../constants.js";
+import type { ClientEmployeeProjectScope, ClientStatus, ProjectStatus } from "../constants.js";
 
 export interface ClientMetadata {
   cnpj?: string;
@@ -11,6 +11,36 @@ export interface ClientProjectMetadata {
   legacyAmountCents?: number;
   legacyLastPaymentAt?: string;
   [key: string]: unknown;
+}
+
+export interface ClientEmailDomain {
+  id: string;
+  companyId: string;
+  clientId: string;
+  domain: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientEmployeeProjectRef {
+  linkId: string;
+  clientProjectId: string;
+  projectId: string;
+  projectName: string | null;
+  projectNameOverride: string | null;
+}
+
+export interface ClientEmployee {
+  id: string;
+  companyId: string;
+  clientId: string;
+  name: string;
+  role: string;
+  email: string;
+  projectScope: ClientEmployeeProjectScope;
+  projectLinks: ClientEmployeeProjectRef[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Client {
@@ -40,6 +70,7 @@ export interface ClientProject {
   startDate: string | null;
   endDate: string | null;
   tags: string[];
+  projectAliases: string[];
   metadata: ClientProjectMetadata | null;
   createdAt: string;
   updatedAt: string;

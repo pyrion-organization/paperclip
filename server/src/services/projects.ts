@@ -339,6 +339,7 @@ async function attachClients(db: Db, rows: ProjectWithGoals[]): Promise<ProjectW
         metadata: (link.clientMetadata as ProjectClientRef["metadata"]) ?? null,
         relationshipDescription: link.relationshipDescription,
         relationshipTags: link.relationshipTags ?? [],
+        projectAliases: link.projectAliases ?? [],
         linkedAt: link.linkedAt,
       })),
     );

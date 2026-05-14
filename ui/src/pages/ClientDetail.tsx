@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ClientProject } from "@paperclipai/shared";
+import type { ClientEmployee, ClientProject } from "@paperclipai/shared";
 import { CLIENT_STATUSES } from "@paperclipai/shared";
 import { clientsApi } from "../api/clients";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { projectUrl } from "../lib/utils";
 import { statusBadge, statusBadgeDefault } from "../lib/status-colors";
@@ -18,15 +19,19 @@ import { InlineEditor } from "../components/InlineEditor";
 import { DraftInput } from "../components/agent-config-primitives";
 import { StatusBadge } from "../components/StatusBadge";
 import { Card, CardHeader, CardTitle, CardContent, CardAction } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
+import { FolderOpen, Mail, Pencil, Plus, Trash2, UserRound, X } from "lucide-react";
 import type { ReactNode } from "react";
 
-type ClientDetailTab = "overview" | "projects" | "instructions";
+type ClientDetailTab = "overview" | "identity" | "employees" | "projects" | "instructions";
 
 function PropertyRow({
   label,
@@ -89,18 +94,216 @@ function ClientStatusPicker({
   );
 }
 
+function displayClientProjectName(project: ClientProject) {
+  return project.projectNameOverride || project.projectName || "Unnamed project";
+}
+
+interface ClientEmployeeDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  linkedProjects: ClientProject[];
+  editingEmployee?: ClientEmployee | null;
+  pending: boolean;
+  error: Error | null;
+  onSubmit: (data: Record<string, unknown>) => Promise<void>;
+}
+
+function ClientEmployeeDialog({
+  open,
+  onOpenChange,
+  linkedProjects,
+  editingEmployee,
+  pending,
+  error,
+  onSubmit,
+}: ClientEmployeeDialogProps) {
+  const mode = editingEmployee ? "edit" : "create";
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [email, setEmail] = useState("");
+  const [projectScope, setProjectScope] = useState<"all_linked_projects" | "selected_projects">("all_linked_projects");
+  const [selectedClientProjectIds, setSelectedClientProjectIds] = useState<string[]>([]);
+
+  function reset() {
+    setName("");
+    setRole("");
+    setEmail("");
+    setProjectScope("all_linked_projects");
+    setSelectedClientProjectIds([]);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    if (!editingEmployee) {
+      reset();
+      return;
+    }
+    setName(editingEmployee.name);
+    setRole(editingEmployee.role);
+    setEmail(editingEmployee.email);
+    setProjectScope(editingEmployee.projectScope);
+    setSelectedClientProjectIds(editingEmployee.projectLinks.map((link) => link.clientProjectId));
+  }, [open, editingEmployee]);
+
+  function toggleClientProject(clientProjectId: string) {
+    setSelectedClientProjectIds((current) =>
+      current.includes(clientProjectId)
+        ? current.filter((id) => id !== clientProjectId)
+        : [...current, clientProjectId],
+    );
+  }
+
+  async function handleSubmit() {
+    const trimmedName = name.trim();
+    const trimmedRole = role.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedName || !trimmedRole || !trimmedEmail) return;
+    if (projectScope === "selected_projects" && selectedClientProjectIds.length === 0) return;
+    await onSubmit({
+      name: trimmedName,
+      role: trimmedRole,
+      email: trimmedEmail,
+      projectScope,
+      clientProjectIds: projectScope === "selected_projects" ? selectedClientProjectIds : [],
+    });
+    reset();
+    onOpenChange(false);
+  }
+
+  const selectedScopeDisabled = linkedProjects.length === 0;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) reset();
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogContent showCloseButton={false} className="p-0 gap-0 sm:max-w-lg">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <span className="text-sm text-muted-foreground">
+            {mode === "edit" ? "Edit Employee" : "Add Employee"}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground"
+            aria-label="Close"
+            onClick={() => {
+              reset();
+              onOpenChange(false);
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+        <div className="space-y-4 px-4 py-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Name *</Label>
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ana Silva" />
+            </div>
+            <div className="space-y-2">
+              <Label>Role *</Label>
+              <Input value={role} onChange={(event) => setRole(event.target.value)} placeholder="TI, User, Director" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Dedicated email *</Label>
+            <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ana@client.com" />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Project relation</Label>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                  projectScope === "all_linked_projects" ? "border-primary bg-primary/10" : "border-border hover:bg-accent/50",
+                )}
+                onClick={() => setProjectScope("all_linked_projects")}
+              >
+                All linked projects
+              </button>
+              <button
+                type="button"
+                disabled={selectedScopeDisabled}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  projectScope === "selected_projects" ? "border-primary bg-primary/10" : "border-border hover:bg-accent/50",
+                )}
+                onClick={() => {
+                  if (!selectedScopeDisabled) setProjectScope("selected_projects");
+                }}
+              >
+                Selected projects
+              </button>
+            </div>
+          </div>
+
+          {projectScope === "selected_projects" ? (
+            <div className="space-y-2 rounded-md border border-border p-3">
+              {linkedProjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Link projects before selecting employee projects.</p>
+              ) : (
+                linkedProjects.map((project) => (
+                  <label key={project.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={selectedClientProjectIds.includes(project.id)}
+                      onCheckedChange={() => toggleClientProject(project.id)}
+                    />
+                    <span className="min-w-0 truncate">{displayClientProjectName(project)}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+          {error ? (
+            <p className="text-xs text-destructive">{error.message || "Failed to save employee."}</p>
+          ) : (
+            <span />
+          )}
+          <Button
+            size="sm"
+            disabled={
+              pending
+              || !name.trim()
+              || !role.trim()
+              || !email.trim()
+              || (projectScope === "selected_projects" && selectedClientProjectIds.length === 0)
+            }
+            onClick={() => void handleSubmit()}
+          >
+            {pending ? "Saving..." : mode === "edit" ? "Save Changes" : "Add Employee"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>();
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { pushToast } = useToastActions();
 
   const [activeTab, setActiveTab] = useState<ClientDetailTab>("overview");
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ClientProject | null>(null);
+  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<ClientEmployee | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedInstructionsFile, setSelectedInstructionsFile] = useState("CLIENT.md");
+  const [emailDomainInput, setEmailDomainInput] = useState("");
 
   useEffect(() => {
     setSelectedInstructionsFile("CLIENT.md");
@@ -118,7 +321,25 @@ export function ClientDetail() {
   } = useQuery({
     queryKey: queryKeys.clients.projects(clientId!),
     queryFn: () => clientsApi.listProjects(clientId!),
-    enabled: !!clientId && activeTab === "projects",
+    enabled: !!clientId && (activeTab === "projects" || activeTab === "employees" || employeeDialogOpen),
+  });
+
+  const {
+    data: clientEmployees,
+    isLoading: employeesLoading,
+  } = useQuery({
+    queryKey: queryKeys.clients.employees(clientId!),
+    queryFn: () => clientsApi.listEmployees(clientId!),
+    enabled: !!clientId && activeTab === "employees",
+  });
+
+  const {
+    data: emailDomains,
+    isLoading: emailDomainsLoading,
+  } = useQuery({
+    queryKey: queryKeys.clients.emailDomains(clientId!),
+    queryFn: () => clientsApi.listEmailDomains(clientId!),
+    enabled: !!clientId && activeTab === "identity",
   });
 
   const {
@@ -168,6 +389,51 @@ export function ClientDetail() {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(clientId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(clientId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.list(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.employees(clientId!) });
+    },
+    onError: (error: Error) => {
+      pushToast({
+        tone: "error",
+        title: "Cannot unlink project",
+        body: error.message || "An employee still has this as their only selected project. Update employee scopes first.",
+      });
+    },
+  });
+
+  const createEmailDomain = useMutation({
+    mutationFn: (domain: string) => clientsApi.createEmailDomain(clientId!, domain),
+    onSuccess: () => {
+      setEmailDomainInput("");
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.emailDomains(clientId!) });
+    },
+  });
+
+  const deleteEmailDomain = useMutation({
+    mutationFn: (id: string) => clientsApi.removeEmailDomain(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.emailDomains(clientId!) });
+    },
+  });
+
+  const createEmployee = useMutation({
+    mutationFn: (data: Record<string, unknown>) => clientsApi.createEmployee(clientId!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.employees(clientId!) });
+    },
+  });
+
+  const updateEmployee = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      clientsApi.updateEmployee(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.employees(clientId!) });
+    },
+  });
+
+  const deleteEmployee = useMutation({
+    mutationFn: (id: string) => clientsApi.removeEmployee(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clients.employees(clientId!) });
     },
   });
 
@@ -197,6 +463,11 @@ export function ClientDetail() {
   const commit = (data: Record<string, unknown>) => updateClient.mutate(data);
   const commitMeta = (patch: Record<string, unknown>) =>
     commit({ metadata: { ...(currentClient.metadata ?? {}), ...patch } });
+  const addEmailDomain = () => {
+    const value = emailDomainInput.trim();
+    if (!value) return;
+    createEmailDomain.mutate(value);
+  };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -217,6 +488,8 @@ export function ClientDetail() {
         <PageTabBar
           items={[
             { value: "overview", label: "Overview" },
+            { value: "identity", label: "Identity" },
+            { value: "employees", label: "Employees" },
             { value: "projects", label: "Projects" },
             { value: "instructions", label: "Instructions" },
           ]}
@@ -278,6 +551,155 @@ export function ClientDetail() {
               />
             </PropertyRow>
           </div>
+        </TabsContent>
+
+        {/* Identity tab */}
+        <TabsContent value="identity" className="space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Accepted Email Domains</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={emailDomainInput}
+                  onChange={(event) => setEmailDomainInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addEmailDomain();
+                    }
+                  }}
+                  placeholder="X@client.com or client.com"
+                />
+                <Button
+                  size="sm"
+                  onClick={addEmailDomain}
+                  disabled={!emailDomainInput.trim() || createEmailDomain.isPending}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+              {createEmailDomain.isError ? (
+                <p className="text-xs text-destructive">
+                  {(createEmailDomain.error as Error).message || "Failed to add email domain."}
+                </p>
+              ) : null}
+
+              {emailDomainsLoading ? <PageSkeleton variant="list" /> : null}
+
+              {!emailDomainsLoading && (emailDomains ?? []).length === 0 ? (
+                <EmptyState
+                  icon={Mail}
+                  message="No accepted email domains registered for this client."
+                />
+              ) : null}
+
+              {!emailDomainsLoading && (emailDomains ?? []).length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {emailDomains!.map((entry) => (
+                    <span
+                      key={entry.id}
+                      className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 text-xs font-mono"
+                    >
+                      {entry.domain}
+                      <button
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteEmailDomain.mutate(entry.id)}
+                        disabled={deleteEmailDomain.isPending}
+                        aria-label={`Remove ${entry.domain}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Employees tab */}
+        <TabsContent value="employees" className="space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Client Employees</CardTitle>
+              <CardAction>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingEmployee(null);
+                    setEmployeeDialogOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Employee
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              {employeesLoading ? <PageSkeleton variant="list" /> : null}
+
+              {!employeesLoading && (clientEmployees ?? []).length === 0 ? (
+                <EmptyState
+                  icon={UserRound}
+                  message="No client employees registered."
+                  action="Add Employee"
+                  onAction={() => {
+                    setEditingEmployee(null);
+                    setEmployeeDialogOpen(true);
+                  }}
+                />
+              ) : null}
+
+              {!employeesLoading && (clientEmployees ?? []).length > 0 ? (
+                <div className="rounded-lg border border-border divide-y divide-border">
+                  {clientEmployees!.map((employee) => (
+                    <div key={employee.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{employee.name}</span>
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">{employee.role}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>{employee.email}</span>
+                          <span>
+                            {employee.projectScope === "all_linked_projects"
+                              ? "All linked projects"
+                              : employee.projectLinks.map((link) => link.projectNameOverride || link.projectName || "Unnamed project").join(", ")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setEditingEmployee(employee);
+                            setEmployeeDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteEmployee.mutate(employee.id)}
+                          disabled={deleteEmployee.isPending}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Projects tab */}
@@ -344,6 +766,18 @@ export function ClientDetail() {
                                 className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono"
                               >
                                 {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {(project.projectAliases ?? []).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {project.projectAliases.map((alias) => (
+                              <span
+                                key={alias}
+                                className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+                              >
+                                {alias}
                               </span>
                             ))}
                           </div>
@@ -459,6 +893,24 @@ export function ClientDetail() {
         clientId={clientId!}
         companyId={selectedCompanyId!}
         editingProject={editingProject ?? undefined}
+      />
+      <ClientEmployeeDialog
+        open={employeeDialogOpen}
+        onOpenChange={(open) => {
+          setEmployeeDialogOpen(open);
+          if (!open) setEditingEmployee(null);
+        }}
+        linkedProjects={clientProjects ?? []}
+        editingEmployee={editingEmployee}
+        pending={createEmployee.isPending || updateEmployee.isPending}
+        error={(createEmployee.error ?? updateEmployee.error) as Error | null}
+        onSubmit={async (data) => {
+          if (editingEmployee) {
+            await updateEmployee.mutateAsync({ id: editingEmployee.id, data });
+          } else {
+            await createEmployee.mutateAsync(data);
+          }
+        }}
       />
     </div>
   );

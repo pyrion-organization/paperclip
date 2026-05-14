@@ -37,6 +37,8 @@ export function LinkClientProjectDialog({
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [aliasInput, setAliasInput] = useState("");
+  const [projectAliases, setProjectAliases] = useState<string[]>([]);
 
   const { data: projects } = useQuery({
     queryKey: queryKeys.projects.list(companyId),
@@ -62,6 +64,8 @@ export function LinkClientProjectDialog({
     setDescription("");
     setTagsInput("");
     setTags([]);
+    setAliasInput("");
+    setProjectAliases([]);
   }
 
   useEffect(() => {
@@ -77,20 +81,38 @@ export function LinkClientProjectDialog({
     setDescription(editingProject.description ?? "");
     setTags(editingProject.tags ?? []);
     setTagsInput("");
+    setProjectAliases(editingProject.projectAliases ?? []);
+    setAliasInput("");
   }, [open, editingProject]);
 
-  function addTag() {
-    const tag = tagsInput.trim().toLowerCase();
-    if (tag && !tags.includes(tag)) {
-      setTags([...tags, tag]);
+  function addUniqueValue(input: string, values: string[], setValues: (values: string[]) => void, normalize = false) {
+    const value = normalize ? input.trim().toLowerCase() : input.trim();
+    if (value && !values.some((current) => current.toLowerCase() === value.toLowerCase())) {
+      setValues([...values, value]);
     }
+  }
+
+  function addTag() {
+    addUniqueValue(tagsInput, tags, setTags, true);
     setTagsInput("");
+  }
+
+  function addAlias() {
+    addUniqueValue(aliasInput, projectAliases, setProjectAliases);
+    setAliasInput("");
   }
 
   function handleTagKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       addTag();
+    }
+  }
+
+  function handleAliasKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addAlias();
     }
   }
 
@@ -104,6 +126,7 @@ export function LinkClientProjectDialog({
       data.endDate = endDate || null;
       data.description = description.trim() || null;
       data.tags = tags;
+      data.projectAliases = projectAliases;
 
       await activeMutation.mutateAsync(data);
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(clientId) });
@@ -178,6 +201,35 @@ export function LinkClientProjectDialog({
               <Label>End date</Label>
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Client project aliases</Label>
+            <Input
+              placeholder="ABC, DFG..."
+              value={aliasInput}
+              onChange={(e) => setAliasInput(e.target.value)}
+              onKeyDown={handleAliasKeyDown}
+              onBlur={addAlias}
+            />
+            {projectAliases.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {projectAliases.map((alias) => (
+                  <span
+                    key={alias}
+                    className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono"
+                  >
+                    {alias}
+                    <button
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setProjectAliases(projectAliases.filter((currentAlias) => currentAlias !== alias))}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-2">

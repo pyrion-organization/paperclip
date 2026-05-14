@@ -1,5 +1,7 @@
 import type {
   Client,
+  ClientEmailDomain,
+  ClientEmployee,
   ClientInstructionsBundle,
   ClientInstructionsFileDetail,
   ClientProject,
@@ -39,6 +41,18 @@ export const clientsApi = {
     api.delete<ClientInstructionsBundle>(
       `/clients/${clientId}/instructions-bundle/file?path=${encodeURIComponent(relativePath)}`,
     ),
+  listEmailDomains: (clientId: string) =>
+    api.get<ClientEmailDomain[]>(`/clients/${clientId}/email-domains`),
+  createEmailDomain: (clientId: string, domain: string) =>
+    api.post<ClientEmailDomain>(`/clients/${clientId}/email-domains`, { domain }),
+  removeEmailDomain: (id: string) => api.delete<{ ok: true }>(`/client-email-domains/${id}`),
+  listEmployees: (clientId: string) =>
+    api.get<ClientEmployee[]>(`/clients/${clientId}/employees`),
+  createEmployee: (clientId: string, data: Record<string, unknown>) =>
+    api.post<ClientEmployee>(`/clients/${clientId}/employees`, data),
+  updateEmployee: (id: string, data: Record<string, unknown>) =>
+    api.patch<ClientEmployee>(`/client-employees/${id}`, data),
+  removeEmployee: (id: string) => api.delete<{ ok: true }>(`/client-employees/${id}`),
   listProjects: (clientId: string) =>
     api.get<ClientProject[]>(`/clients/${clientId}/projects`),
   createProject: (clientId: string, data: Record<string, unknown>) =>
