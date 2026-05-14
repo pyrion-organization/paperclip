@@ -209,6 +209,97 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(secretCountAfter).toBe(secretCountBefore);
   }, 20_000);
 
+  it("re-enqueues the process job when a retry sees a persisted orphan", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Retry inbox",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "retry@example.com",
+      password: "secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+
+    const raw = rawEmail({ messageId: "<orphan@example.com>" });
+    await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "200",
+    });
+    // Simulate the worker losing the process job after persistence (e.g. crash
+    // before enqueueProcessMessage). Drop all queued jobs so the duplicate
+    // branch is what reschedules processing.
+    await db.delete(backgroundJobs);
+
+    const retry = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "200",
+    });
+    expect(retry.status).toBe("duplicate");
+
+    const queued = await db.select().from(backgroundJobs);
+    expect(queued.some((j) => j.kind === "email.process_message")).toBe(true);
+  }, 20_000);
+
+  it("does not mutate the stored secret when a mailbox update fails", async () => {
+    const companyId = await seedCompany();
+    const first = await svc.createMailbox(companyId, {
+      name: "First inbox",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "first@example.com",
+      password: "first-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+    await svc.createMailbox(companyId, {
+      name: "Second inbox",
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "second@example.com",
+      password: "second-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+
+    const secretsBefore = await db.select().from(companySecretVersions);
+    // Try to rename "First inbox" to "Second inbox" with a fresh password —
+    // the unique (company_id, name) index rejects the row update; the secret
+    // value must remain untouched.
+    await expect(
+      svc.updateMailbox(companyId, first.id, {
+        name: "Second inbox",
+        password: "rotated-secret",
+      }),
+    ).rejects.toThrow();
+    const secretsAfter = await db.select().from(companySecretVersions);
+    expect(secretsAfter.map((v) => v.id).sort()).toEqual(
+      secretsBefore.map((v) => v.id).sort(),
+    );
+  }, 20_000);
+
   it("rejects mailbox project targets from another company", async () => {
     const companyId = await seedCompany("Acme");
     const otherCompanyId = await seedCompany("Other");

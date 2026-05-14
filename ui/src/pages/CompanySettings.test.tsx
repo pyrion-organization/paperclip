@@ -124,7 +124,7 @@ describe("CompanySettings email settings", () => {
       ...selectedCompany,
       ...payload,
     }));
-    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue([]);
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue({ items: [], nextCursor: null });
     mockCompaniesApi.saveInboundEmailMailbox.mockImplementation(async (_companyId: string, mailboxId: string | null, payload: Record<string, unknown>) => ({
       id: mailboxId ?? "mailbox-1",
       companyId: "company-1",
@@ -139,7 +139,7 @@ describe("CompanySettings email settings", () => {
     }));
     mockCompaniesApi.testInboundEmailMailbox.mockResolvedValue({ ok: true });
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "job-1", status: "pending" });
-    mockCompaniesApi.listInboundEmailMessages.mockResolvedValue([]);
+    mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({ items: [], nextCursor: null });
   });
 
   afterEach(async () => {
@@ -217,30 +217,33 @@ describe("CompanySettings email settings", () => {
   });
 
   it("preserves existing inbound mailbox routing and configured password when saving", async () => {
-    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue([
-      {
-        id: "mailbox-1",
-        companyId: "company-1",
-        name: "Existing inbox",
-        provider: "imap",
-        enabled: true,
-        host: "imap.example.com",
-        port: 993,
-        username: "support@example.com",
-        passwordSet: true,
-        folder: "INBOX",
-        tls: true,
-        pollIntervalSeconds: 60,
-        targetProjectId: "project-1",
-        createMode: "issue",
-        markSeen: false,
-        lastPollAt: null,
-        lastSuccessAt: null,
-        lastError: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ]);
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue({
+      items: [
+        {
+          id: "mailbox-1",
+          companyId: "company-1",
+          name: "Existing inbox",
+          provider: "imap",
+          enabled: true,
+          host: "imap.example.com",
+          port: 993,
+          username: "support@example.com",
+          passwordSet: true,
+          folder: "INBOX",
+          tls: true,
+          pollIntervalSeconds: 60,
+          targetProjectId: "project-1",
+          createMode: "issue",
+          markSeen: false,
+          lastPollAt: null,
+          lastSuccessAt: null,
+          lastError: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      nextCursor: null,
+    });
 
     await act(async () => {
       root.render(

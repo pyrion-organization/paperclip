@@ -458,32 +458,44 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const existing = await loadMailbox(companyId, mailboxId);
       await assertProjectBelongsToCompany(companyId, input.targetProjectId);
 
-      const secretName = secretNameForMailbox(existing.id);
-      let passwordSecretNameUpdate: string | null | undefined = undefined;
-      if (input.password !== undefined) {
-        const trimmed = input.password?.trim() ?? "";
-        if (trimmed.length === 0) {
-          await clearMailboxSecret(companyId, secretName);
-          passwordSecretNameUpdate = null;
-        } else {
-          await writeOrRotateMailboxSecret(companyId, secretName, trimmed, actor);
-          passwordSecretNameUpdate = secretName;
-        }
-      }
-
+      // Update the row first so a validation failure (unique name, FK, etc.)
+      // surfaces before we mutate the stored secret. The password field is
+      // applied in a follow-up write below.
       const { password: _password, ...patch } = input;
       const [updated] = await db
         .update(inboundEmailMailboxes)
         .set({
           ...patch,
-          ...(passwordSecretNameUpdate !== undefined
-            ? { passwordSecretName: passwordSecretNameUpdate }
-            : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
         .returning();
-      return redactMailbox(updated);
+      if (!updated) throw notFound("Inbound email mailbox not found");
+
+      if (input.password === undefined) {
+        return redactMailbox(updated);
+      }
+
+      const secretName = secretNameForMailbox(existing.id);
+      const trimmed = input.password?.trim() ?? "";
+      let passwordSecretNameUpdate: string | null;
+      if (trimmed.length === 0) {
+        await clearMailboxSecret(companyId, secretName);
+        passwordSecretNameUpdate = null;
+      } else {
+        await writeOrRotateMailboxSecret(companyId, secretName, trimmed, actor);
+        passwordSecretNameUpdate = secretName;
+      }
+
+      if (passwordSecretNameUpdate === updated.passwordSecretName) {
+        return redactMailbox(updated);
+      }
+      const [reflected] = await db
+        .update(inboundEmailMailboxes)
+        .set({ passwordSecretName: passwordSecretNameUpdate, updatedAt: new Date() })
+        .where(eq(inboundEmailMailboxes.id, mailboxId))
+        .returning();
+      return redactMailbox(reflected);
     },
 
     listRules: async (companyId: string, options?: ListPageOptions) => {
@@ -707,6 +719,19 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         messageId: parsed.messageId,
       });
       if (duplicate) {
+        // A message row already exists but never reached "processed". This
+        // happens when a prior import insert succeeded but a later step
+        // (attachment storage, activity log, or job enqueue) failed before
+        // the process job was scheduled. Re-enqueue so the worker retry
+        // doesn't strand the message.
+        if (
+          input.processAfterImport !== false &&
+          duplicate.status !== "processed" &&
+          duplicate.status !== "duplicate" &&
+          !duplicate.createdIssueId
+        ) {
+          await enqueueProcessMessage(duplicate.companyId, duplicate.id);
+        }
         return { message: duplicate, status: "duplicate" as const };
       }
       const rawStorageKey = await storeRawEmail(input.companyId, raw, parsed.messageId);

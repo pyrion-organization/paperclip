@@ -92,7 +92,7 @@ export function CompanySettings() {
     setEmailSignatureHtml(selectedCompany.emailSignatureHtml ?? "");
   }, [selectedCompany]);
 
-  const primaryInboundMailbox = inboundMailboxesQuery.data?.[0] ?? null;
+  const primaryInboundMailbox = inboundMailboxesQuery.data?.items?.[0] ?? null;
 
   useEffect(() => {
     if (!primaryInboundMailbox) {
@@ -911,7 +911,7 @@ export function CompanySettings() {
             </span>
           )}
           <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-            Imported messages: <span className="font-medium text-foreground">{inboundMessagesQuery.data?.length ?? 0}</span>
+            Imported messages: <span className="font-medium text-foreground">{inboundMessagesQuery.data?.items?.length ?? 0}</span>
             {primaryInboundMailbox?.lastError ? (
               <span className="block min-w-0 break-words pt-1 text-destructive">{primaryInboundMailbox.lastError}</span>
             ) : null}

@@ -19,6 +19,11 @@ import { api } from "./client";
 
 export type CompanyStats = Record<string, { agentCount: number; issueCount: number }>;
 
+export interface InboundEmailListPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 export const companiesApi = {
   list: () => api.get<Company[]>("/companies"),
   get: (companyId: string) => api.get<Company>(`/companies/${companyId}`),
@@ -56,7 +61,9 @@ export const companiesApi = {
   testEmail: (companyId: string, to: string) =>
     api.post<{ ok: true }>(`/companies/${companyId}/email/test`, { to }),
   listInboundEmailMailboxes: (companyId: string) =>
-    api.get<InboundEmailMailbox[]>(`/companies/${companyId}/inbound-email/mailboxes`),
+    api.get<InboundEmailListPage<InboundEmailMailbox>>(
+      `/companies/${companyId}/inbound-email/mailboxes`,
+    ),
   saveInboundEmailMailbox: (
     companyId: string,
     mailboxId: string | null,
@@ -70,7 +77,9 @@ export const companiesApi = {
   pollInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.post<{ id: string; status: string }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/poll`, {}),
   listInboundEmailMessages: (companyId: string) =>
-    api.get<InboundEmailMessage[]>(`/companies/${companyId}/inbound-email/messages`),
+    api.get<InboundEmailListPage<InboundEmailMessage>>(
+      `/companies/${companyId}/inbound-email/messages`,
+    ),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
   exportBundle: (
