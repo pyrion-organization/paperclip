@@ -2334,7 +2334,7 @@ export function routineService(
               ),
             )
             .then((rows) => rows[0] ?? null);
-          if (latestRevision && snapshotsMatch(nextSnapshot, latestRevision.snapshot as RoutineRevisionSnapshotV1) && executionFieldsMatch) {
+          if (latestRevision && snapshotsMatch(nextSnapshot, latestRevision.snapshot as RoutineRevisionSnapshotV1)) {
             return locked;
           }
         }
@@ -2822,11 +2822,11 @@ export function routineService(
             concurrencyPolicy: routineSnapshot.concurrencyPolicy,
             catchUpPolicy: routineSnapshot.catchUpPolicy,
             variables: routineSnapshot.variables,
-            executionMode: routineSnapshot.executionMode ?? locked.executionMode,
+            executionMode: routineSnapshot.executionMode === undefined ? locked.executionMode : routineSnapshot.executionMode,
             scriptPath: routineSnapshot.scriptPath === undefined ? locked.scriptPath : routineSnapshot.scriptPath,
             scriptCommandArgs: routineSnapshot.scriptCommandArgs === undefined ? locked.scriptCommandArgs : routineSnapshot.scriptCommandArgs,
-            scriptTimeoutSec: routineSnapshot.scriptTimeoutSec ?? locked.scriptTimeoutSec,
-            remediationEnabled: routineSnapshot.remediationEnabled ?? locked.remediationEnabled,
+            scriptTimeoutSec: routineSnapshot.scriptTimeoutSec === undefined ? locked.scriptTimeoutSec : routineSnapshot.scriptTimeoutSec,
+            remediationEnabled: routineSnapshot.remediationEnabled === undefined ? locked.remediationEnabled : routineSnapshot.remediationEnabled,
             remediationAssigneeAgentId: routineSnapshot.remediationEnabled === undefined
               ? locked.remediationAssigneeAgentId
               : routineSnapshot.remediationEnabled
