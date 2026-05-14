@@ -1744,14 +1744,14 @@ export function RoutineDetail() {
                   </div>
                 )}
                 <div className="space-y-1.5 border-t border-border pt-3">
-                  <Label className="text-xs">Failure notification email</Label>
+                  <Label className="text-xs">Routine notification email</Label>
                   <Input
                     type="email"
                     placeholder="you@example.com"
                     value={editDraft.notificationEmail}
                     onChange={(e) => setEditDraft((current) => ({ ...current, notificationEmail: e.target.value }))}
                   />
-                  <p className="text-xs text-muted-foreground">Receives an email when this routine fails.</p>
+                  <p className="text-xs text-muted-foreground">Receives emails when script and bash routines complete or fail.</p>
                 </div>
               </div>
             )}

@@ -116,6 +116,13 @@ export interface RoutineRevisionSnapshotRoutineV1 {
   concurrencyPolicy: RoutineConcurrencyPolicy;
   catchUpPolicy: RoutineCatchUpPolicy;
   variables: RoutineVariable[];
+  executionMode?: string;
+  scriptPath?: string | null;
+  scriptCommandArgs?: string[] | null;
+  scriptTimeoutSec?: number;
+  remediationEnabled?: boolean;
+  remediationAssigneeAgentId?: string | null;
+  notificationEmail?: string | null;
 }
 
 export interface RoutineRevisionSnapshotTriggerV1 {

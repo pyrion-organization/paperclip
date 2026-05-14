@@ -27,6 +27,13 @@ describe("routine validators", () => {
         concurrencyPolicy: "coalesce_if_active",
         catchUpPolicy: "skip_missed",
         variables: [],
+        executionMode: "script_nodejs",
+        scriptPath: "scripts/daily-triage.js",
+        scriptCommandArgs: ["--since", "24h"],
+        scriptTimeoutSec: 120,
+        remediationEnabled: true,
+        remediationAssigneeAgentId: null,
+        notificationEmail: "ops@example.com",
       },
       triggers: [{
         id: triggerId,
@@ -42,6 +49,8 @@ describe("routine validators", () => {
     });
 
     expect(parsed.triggers[0]?.publicId).toBe("routine_webhook_123");
+    expect(parsed.routine.scriptCommandArgs).toEqual(["--since", "24h"]);
+    expect(parsed.routine.notificationEmail).toBe("ops@example.com");
   });
 
   it("rejects secret-bearing trigger fields in routine revision snapshots", () => {

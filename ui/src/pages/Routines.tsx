@@ -943,14 +943,14 @@ export function Routines() {
                     </div>
                     {draft.executionMode !== "agent" && (
                       <div className="space-y-1.5 md:col-span-2">
-                        <Label className="text-xs">Failure notification email</Label>
+                        <Label className="text-xs">Routine notification email</Label>
                         <Input
                           type="email"
                           placeholder="you@example.com"
                           value={draft.notificationEmail}
                           onChange={(e) => setDraft((current) => ({ ...current, notificationEmail: e.target.value }))}
                         />
-                        <p className="text-xs text-muted-foreground">Receives an email when this routine fails.</p>
+                        <p className="text-xs text-muted-foreground">Receives emails when script and bash routines complete or fail.</p>
                       </div>
                     )}
                   </div>

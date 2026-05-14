@@ -68,7 +68,7 @@ import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
-import { sendRemediationResultEmail, sendRoutineFailureEmail } from "./email.js";
+import { sendRemediationResultEmail, sendRoutineFailureEmail, sendRoutineSuccessEmail } from "./email.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
@@ -577,6 +577,13 @@ function routineRevisionSnapshotRoutine(routine: RoutineRow): RoutineRevisionSna
     concurrencyPolicy: routine.concurrencyPolicy as RoutineRevisionSnapshotV1["routine"]["concurrencyPolicy"],
     catchUpPolicy: routine.catchUpPolicy as RoutineRevisionSnapshotV1["routine"]["catchUpPolicy"],
     variables: routine.variables ?? [],
+    executionMode: routine.executionMode,
+    scriptPath: routine.scriptPath,
+    scriptCommandArgs: routine.scriptCommandArgs,
+    scriptTimeoutSec: routine.scriptTimeoutSec,
+    remediationEnabled: routine.remediationEnabled,
+    remediationAssigneeAgentId: routine.remediationAssigneeAgentId,
+    notificationEmail: routine.notificationEmail,
   };
 }
 
@@ -624,6 +631,16 @@ function routineCurrentFieldsMatch(left: RoutineRow, right: RoutineRow) {
     { version: 1, routine: routineRevisionSnapshotRoutine(left), triggers: [] },
     { version: 1, routine: routineRevisionSnapshotRoutine(right), triggers: [] },
   );
+}
+
+function routineExecutionFieldsMatch(left: RoutineRow, right: RoutineRow) {
+  return left.executionMode === right.executionMode
+    && left.scriptPath === right.scriptPath
+    && left.scriptTimeoutSec === right.scriptTimeoutSec
+    && JSON.stringify(left.scriptCommandArgs ?? null) === JSON.stringify(right.scriptCommandArgs ?? null)
+    && left.remediationEnabled === right.remediationEnabled
+    && left.remediationAssigneeAgentId === right.remediationAssigneeAgentId
+    && left.notificationEmail === right.notificationEmail;
 }
 
 function mapRoutineRevision(row: typeof routineRevisions.$inferSelect): RoutineRevision {
@@ -1813,6 +1830,20 @@ export function routineService(
           db,
           companyId: routine.companyId,
         }).catch((err) => logger.warn({ err }, "failed to send remediation result email"));
+      } else if (succeeded && routine.notificationEmail) {
+        sendRoutineSuccessEmail({
+          to: routine.notificationEmail,
+          routineTitle: routine.title,
+          routineId: routine.id,
+          runId: run.id,
+          source: run.source,
+          triggeredAt: run.triggeredAt,
+          completedAt: finalRun?.completedAt ?? new Date(),
+          scriptExitCode: exitCode,
+          scriptOutput: output || null,
+          db,
+          companyId: routine.companyId,
+        }).catch((err) => logger.warn({ err }, "failed to send routine success email"));
       } else if (!succeeded && routine.notificationEmail) {
         sendRoutineFailureEmail({
           to: routine.notificationEmail,
@@ -2285,7 +2316,8 @@ export function routineService(
           updatedByUserId: actor.userId ?? null,
         };
 
-        if (locked.latestRevisionId && routineCurrentFieldsMatch(locked, candidate)) {
+        const executionFieldsMatch = routineExecutionFieldsMatch(locked, candidate);
+        if (locked.latestRevisionId && routineCurrentFieldsMatch(locked, candidate) && executionFieldsMatch) {
           return locked;
         }
 
@@ -2321,6 +2353,13 @@ export function routineService(
             concurrencyPolicy: candidate.concurrencyPolicy,
             catchUpPolicy: candidate.catchUpPolicy,
             variables: candidate.variables,
+            executionMode: candidate.executionMode,
+            scriptPath: candidate.scriptPath,
+            scriptTimeoutSec: candidate.scriptTimeoutSec,
+            scriptCommandArgs: candidate.scriptCommandArgs,
+            remediationEnabled: candidate.remediationEnabled,
+            remediationAssigneeAgentId: candidate.remediationAssigneeAgentId,
+            notificationEmail: candidate.notificationEmail,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: new Date(),
@@ -2783,6 +2822,17 @@ export function routineService(
             concurrencyPolicy: routineSnapshot.concurrencyPolicy,
             catchUpPolicy: routineSnapshot.catchUpPolicy,
             variables: routineSnapshot.variables,
+            executionMode: routineSnapshot.executionMode === undefined ? locked.executionMode : routineSnapshot.executionMode,
+            scriptPath: routineSnapshot.scriptPath === undefined ? locked.scriptPath : routineSnapshot.scriptPath,
+            scriptCommandArgs: routineSnapshot.scriptCommandArgs === undefined ? locked.scriptCommandArgs : routineSnapshot.scriptCommandArgs,
+            scriptTimeoutSec: routineSnapshot.scriptTimeoutSec === undefined ? locked.scriptTimeoutSec : routineSnapshot.scriptTimeoutSec,
+            remediationEnabled: routineSnapshot.remediationEnabled === undefined ? locked.remediationEnabled : routineSnapshot.remediationEnabled,
+            remediationAssigneeAgentId: routineSnapshot.remediationEnabled === undefined
+              ? locked.remediationAssigneeAgentId
+              : routineSnapshot.remediationEnabled
+                ? (routineSnapshot.remediationAssigneeAgentId ?? null)
+                : null,
+            notificationEmail: routineSnapshot.notificationEmail === undefined ? locked.notificationEmail : routineSnapshot.notificationEmail,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: now,
