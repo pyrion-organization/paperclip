@@ -139,30 +139,37 @@ export function clientService(db: Db) {
     projectScope: ClientEmployeeProjectScope,
     clientProjectIds: string[],
   ) {
-    await db
-      .delete(clientEmployeeProjectLinks)
-      .where(
-        and(
-          eq(clientEmployeeProjectLinks.companyId, companyId),
-          eq(clientEmployeeProjectLinks.employeeId, employeeId),
-        ),
-      );
-
-    if (projectScope !== "selected_projects") return;
-
-    const rows = await assertClientProjectIds(companyId, clientId, clientProjectIds);
-    if (rows.length === 0) {
-      throw unprocessable("Selected project scope requires at least one linked project");
+    // For selected_projects we validate before opening the transaction so we
+    // don't hold a write lock while round-tripping for the assertion query.
+    let rows: { id: string }[] = [];
+    if (projectScope === "selected_projects") {
+      rows = await assertClientProjectIds(companyId, clientId, clientProjectIds);
+      if (rows.length === 0) {
+        throw unprocessable("Selected project scope requires at least one linked project");
+      }
     }
 
-    await db.insert(clientEmployeeProjectLinks).values(
-      rows.map((row) => ({
-        companyId,
-        clientId,
-        employeeId,
-        clientProjectId: row.id,
-      })),
-    );
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(clientEmployeeProjectLinks)
+        .where(
+          and(
+            eq(clientEmployeeProjectLinks.companyId, companyId),
+            eq(clientEmployeeProjectLinks.employeeId, employeeId),
+          ),
+        );
+
+      if (rows.length === 0) return;
+
+      await tx.insert(clientEmployeeProjectLinks).values(
+        rows.map((row) => ({
+          companyId,
+          clientId,
+          employeeId,
+          clientProjectId: row.id,
+        })),
+      );
+    });
   }
 
   async function attachEmployeeProjectLinks<T extends { id: string; companyId: string; clientId: string }>(rows: T[]) {
@@ -339,18 +346,18 @@ export function clientService(db: Db) {
     },
 
     async remove(id: string, companyId: string) {
-      await db.delete(clientEmployeeProjectLinks).where(and(eq(clientEmployeeProjectLinks.clientId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
-      await db.delete(clientEmployees).where(and(eq(clientEmployees.clientId, id), eq(clientEmployees.companyId, companyId)));
-      await db.delete(clientEmailDomains).where(and(eq(clientEmailDomains.clientId, id), eq(clientEmailDomains.companyId, companyId)));
-      await db.delete(clientProjects).where(and(eq(clientProjects.clientId, id), eq(clientProjects.companyId, companyId)));
-      return db
-        .delete(clients)
-        .where(and(eq(clients.id, id), eq(clients.companyId, companyId)))
-        .returning()
-        .then((rows) => {
-          const client = rows[0] ?? null;
-          return client ? enrichClient(client) : null;
-        });
+      return db.transaction(async (tx) => {
+        await tx.delete(clientEmployeeProjectLinks).where(and(eq(clientEmployeeProjectLinks.clientId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
+        await tx.delete(clientEmployees).where(and(eq(clientEmployees.clientId, id), eq(clientEmployees.companyId, companyId)));
+        await tx.delete(clientEmailDomains).where(and(eq(clientEmailDomains.clientId, id), eq(clientEmailDomains.companyId, companyId)));
+        await tx.delete(clientProjects).where(and(eq(clientProjects.clientId, id), eq(clientProjects.companyId, companyId)));
+        const rows = await tx
+          .delete(clients)
+          .where(and(eq(clients.id, id), eq(clients.companyId, companyId)))
+          .returning();
+        const client = rows[0] ?? null;
+        return client ? enrichClient(client) : null;
+      });
     },
 
     async listProjects(clientId: string, companyId?: string) {
@@ -479,17 +486,17 @@ export function clientService(db: Db) {
     },
 
     async removeProject(id: string, companyId: string) {
-      await db
-        .delete(clientEmployeeProjectLinks)
-        .where(and(eq(clientEmployeeProjectLinks.clientProjectId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
-      return db
-        .delete(clientProjects)
-        .where(and(eq(clientProjects.id, id), eq(clientProjects.companyId, companyId)))
-        .returning()
-        .then((rows) => {
-          const clientProject = rows[0] ?? null;
-          return clientProject ? enrichClientProject(clientProject) : null;
-        });
+      return db.transaction(async (tx) => {
+        await tx
+          .delete(clientEmployeeProjectLinks)
+          .where(and(eq(clientEmployeeProjectLinks.clientProjectId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
+        const rows = await tx
+          .delete(clientProjects)
+          .where(and(eq(clientProjects.id, id), eq(clientProjects.companyId, companyId)))
+          .returning();
+        const clientProject = rows[0] ?? null;
+        return clientProject ? enrichClientProject(clientProject) : null;
+      });
     },
 
     async listEmailDomains(clientId: string, companyId?: string) {
@@ -621,10 +628,6 @@ export function clientService(db: Db) {
     },
 
     async updateEmployee(id: string, companyId: string, data: Record<string, unknown>) {
-      if ("clientId" in data || "companyId" in data) {
-        throw conflict("Client employees cannot change clientId or companyId after creation");
-      }
-
       const existing = await this.getEmployeeById(id, companyId);
       if (!existing) return null;
 
@@ -678,14 +681,16 @@ export function clientService(db: Db) {
     },
 
     async removeEmployee(id: string, companyId: string) {
-      await db
-        .delete(clientEmployeeProjectLinks)
-        .where(and(eq(clientEmployeeProjectLinks.employeeId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
-      return await db
-        .delete(clientEmployees)
-        .where(and(eq(clientEmployees.id, id), eq(clientEmployees.companyId, companyId)))
-        .returning()
-        .then((rows) => rows[0] ?? null);
+      return db.transaction(async (tx) => {
+        await tx
+          .delete(clientEmployeeProjectLinks)
+          .where(and(eq(clientEmployeeProjectLinks.employeeId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
+        const rows = await tx
+          .delete(clientEmployees)
+          .where(and(eq(clientEmployees.id, id), eq(clientEmployees.companyId, companyId)))
+          .returning();
+        return rows[0] ?? null;
+      });
     },
   };
 }

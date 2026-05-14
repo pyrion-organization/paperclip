@@ -188,12 +188,13 @@ function ClientEmployeeDialog({
             variant="ghost"
             size="icon-xs"
             className="text-muted-foreground"
+            aria-label="Close"
             onClick={() => {
               reset();
               onOpenChange(false);
             }}
           >
-            <span className="text-lg leading-none">&times;</span>
+            <X className="h-3.5 w-3.5" />
           </Button>
         </div>
 

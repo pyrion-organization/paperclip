@@ -49,9 +49,21 @@ const clientProjectUpdateFields = {
 export const updateClientProjectSchema = z.object(clientProjectUpdateFields).partial();
 export type UpdateClientProject = z.infer<typeof updateClientProjectSchema>;
 
-export const createClientEmailDomainSchema = z.object({
-  domain: z.string().trim().min(1).max(253),
-});
+// Accepts either a bare domain ("client.com") or an email-shaped example
+// ("x@client.com") — anything past the @ is treated as the domain.
+const emailDomainPattern =
+  /^(?:[^@\s]+@)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
+export const createClientEmailDomainSchema = z
+  .object({
+    domain: z
+      .string()
+      .trim()
+      .min(1)
+      .max(253)
+      .regex(emailDomainPattern, "must be a valid domain or email example"),
+  })
+  .strict();
 export type CreateClientEmailDomain = z.infer<typeof createClientEmailDomainSchema>;
 
 const clientEmployeeFields = {
@@ -62,14 +74,16 @@ const clientEmployeeFields = {
   clientProjectIds: z.array(z.string().uuid()).max(200).optional().default([]),
 };
 
-export const createClientEmployeeSchema = z.object(clientEmployeeFields);
+export const createClientEmployeeSchema = z.object(clientEmployeeFields).strict();
 export type CreateClientEmployee = z.infer<typeof createClientEmployeeSchema>;
 
-export const updateClientEmployeeSchema = z.object({
-  name: clientEmployeeFields.name.optional(),
-  role: clientEmployeeFields.role.optional(),
-  email: clientEmployeeFields.email.optional(),
-  projectScope: z.enum(CLIENT_EMPLOYEE_PROJECT_SCOPES).optional(),
-  clientProjectIds: z.array(z.string().uuid()).max(200).optional(),
-});
+export const updateClientEmployeeSchema = z
+  .object({
+    name: clientEmployeeFields.name.optional(),
+    role: clientEmployeeFields.role.optional(),
+    email: clientEmployeeFields.email.optional(),
+    projectScope: z.enum(CLIENT_EMPLOYEE_PROJECT_SCOPES).optional(),
+    clientProjectIds: z.array(z.string().uuid()).max(200).optional(),
+  })
+  .strict();
 export type UpdateClientEmployee = z.infer<typeof updateClientEmployeeSchema>;
