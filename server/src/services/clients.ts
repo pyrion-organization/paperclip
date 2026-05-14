@@ -1,10 +1,11 @@
 import type { Db } from "@paperclipai/db";
-import { clients, clientEmailDomains, clientProjects, projects } from "@paperclipai/db";
-import { eq, and, asc, sql, countDistinct } from "drizzle-orm";
+import { clientEmployeeProjectLinks, clientEmployees, clients, clientEmailDomains, clientProjects, projects } from "@paperclipai/db";
+import { eq, and, asc, sql, countDistinct, inArray } from "drizzle-orm";
 import { conflict, notFound, unprocessable } from "../errors.js";
 
 type ClientMetadata = Record<string, unknown> | null | undefined;
 type ClientProjectMetadata = Record<string, unknown> | null | undefined;
+type ClientEmployeeProjectScope = "all_linked_projects" | "selected_projects";
 
 function normalizeMetadata(value: Record<string, unknown> | null | undefined) {
   if (!value) return null;
@@ -58,6 +59,14 @@ function normalizeEmailDomain(input: string) {
   return normalized;
 }
 
+function normalizeEmail(input: string) {
+  return input.trim().toLowerCase();
+}
+
+function normalizeProjectScope(input: unknown): ClientEmployeeProjectScope {
+  return input === "selected_projects" ? "selected_projects" : "all_linked_projects";
+}
+
 function listProjectsSelection() {
   return {
     id: clientProjects.id,
@@ -78,7 +87,135 @@ function listProjectsSelection() {
   };
 }
 
+function listEmployeeSelection() {
+  return {
+    id: clientEmployees.id,
+    companyId: clientEmployees.companyId,
+    clientId: clientEmployees.clientId,
+    name: clientEmployees.name,
+    role: clientEmployees.role,
+    email: clientEmployees.email,
+    projectScope: clientEmployees.projectScope,
+    createdAt: clientEmployees.createdAt,
+    updatedAt: clientEmployees.updatedAt,
+  };
+}
+
 export function clientService(db: Db) {
+  async function getClientProjectRows(companyId: string, clientId: string, ids: string[]) {
+    const uniqueIds = normalizeStringList(ids);
+    if (uniqueIds.length === 0) return [];
+    return await db
+      .select({
+        id: clientProjects.id,
+        companyId: clientProjects.companyId,
+        clientId: clientProjects.clientId,
+        projectId: clientProjects.projectId,
+      })
+      .from(clientProjects)
+      .where(
+        and(
+          eq(clientProjects.companyId, companyId),
+          eq(clientProjects.clientId, clientId),
+          inArray(clientProjects.id, uniqueIds),
+        ),
+      );
+  }
+
+  async function assertClientProjectIds(companyId: string, clientId: string, ids: string[]) {
+    const uniqueIds = normalizeStringList(ids);
+    if (uniqueIds.length === 0) return [];
+    const rows = await getClientProjectRows(companyId, clientId, uniqueIds);
+    if (rows.length !== uniqueIds.length) {
+      throw unprocessable("Employee projects must be linked to this client");
+    }
+    return rows;
+  }
+
+  async function syncEmployeeProjectLinks(
+    companyId: string,
+    clientId: string,
+    employeeId: string,
+    projectScope: ClientEmployeeProjectScope,
+    clientProjectIds: string[],
+  ) {
+    await db
+      .delete(clientEmployeeProjectLinks)
+      .where(
+        and(
+          eq(clientEmployeeProjectLinks.companyId, companyId),
+          eq(clientEmployeeProjectLinks.employeeId, employeeId),
+        ),
+      );
+
+    if (projectScope !== "selected_projects") return;
+
+    const rows = await assertClientProjectIds(companyId, clientId, clientProjectIds);
+    if (rows.length === 0) {
+      throw unprocessable("Selected project scope requires at least one linked project");
+    }
+
+    await db.insert(clientEmployeeProjectLinks).values(
+      rows.map((row) => ({
+        companyId,
+        clientId,
+        employeeId,
+        clientProjectId: row.id,
+      })),
+    );
+  }
+
+  async function attachEmployeeProjectLinks<T extends { id: string; companyId: string; clientId: string }>(rows: T[]) {
+    if (rows.length === 0) return [];
+
+    const links = await db
+      .select({
+        linkId: clientEmployeeProjectLinks.id,
+        employeeId: clientEmployeeProjectLinks.employeeId,
+        clientProjectId: clientEmployeeProjectLinks.clientProjectId,
+        projectId: clientProjects.projectId,
+        projectName: projects.name,
+        projectNameOverride: clientProjects.projectNameOverride,
+      })
+      .from(clientEmployeeProjectLinks)
+      .innerJoin(
+        clientProjects,
+        and(
+          eq(clientEmployeeProjectLinks.clientProjectId, clientProjects.id),
+          eq(clientEmployeeProjectLinks.companyId, clientProjects.companyId),
+        ),
+      )
+      .leftJoin(projects, eq(clientProjects.projectId, projects.id))
+      .where(inArray(clientEmployeeProjectLinks.employeeId, rows.map((row) => row.id)))
+      .orderBy(asc(projects.name));
+
+    const linksByEmployeeId = new Map<string, Array<{
+      linkId: string;
+      clientProjectId: string;
+      projectId: string;
+      projectName: string | null;
+      projectNameOverride: string | null;
+    }>>();
+
+    for (const link of links) {
+      const current = linksByEmployeeId.get(link.employeeId) ?? [];
+      current.push({
+        linkId: link.linkId,
+        clientProjectId: link.clientProjectId,
+        projectId: link.projectId,
+        projectName: link.projectName ?? null,
+        projectNameOverride: link.projectNameOverride ?? null,
+      });
+      linksByEmployeeId.set(link.employeeId, current);
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      projectScope: normalizeProjectScope((row as { projectScope?: unknown }).projectScope),
+      projectLinks: linksByEmployeeId.get(row.id) ?? [],
+    }));
+  }
+
   return {
     async list(companyId: string, opts?: { limit?: number; offset?: number }) {
       const where = eq(clients.companyId, companyId);
@@ -202,6 +339,8 @@ export function clientService(db: Db) {
     },
 
     async remove(id: string, companyId: string) {
+      await db.delete(clientEmployeeProjectLinks).where(and(eq(clientEmployeeProjectLinks.clientId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
+      await db.delete(clientEmployees).where(and(eq(clientEmployees.clientId, id), eq(clientEmployees.companyId, companyId)));
       await db.delete(clientEmailDomains).where(and(eq(clientEmailDomains.clientId, id), eq(clientEmailDomains.companyId, companyId)));
       await db.delete(clientProjects).where(and(eq(clientProjects.clientId, id), eq(clientProjects.companyId, companyId)));
       return db
@@ -340,6 +479,9 @@ export function clientService(db: Db) {
     },
 
     async removeProject(id: string, companyId: string) {
+      await db
+        .delete(clientEmployeeProjectLinks)
+        .where(and(eq(clientEmployeeProjectLinks.clientProjectId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
       return db
         .delete(clientProjects)
         .where(and(eq(clientProjects.id, id), eq(clientProjects.companyId, companyId)))
@@ -401,6 +543,147 @@ export function clientService(db: Db) {
       return await db
         .delete(clientEmailDomains)
         .where(and(eq(clientEmailDomains.id, id), eq(clientEmailDomains.companyId, companyId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    },
+
+    async listEmployees(clientId: string, companyId?: string) {
+      const where = companyId
+        ? and(eq(clientEmployees.clientId, clientId), eq(clientEmployees.companyId, companyId))
+        : eq(clientEmployees.clientId, clientId);
+      const rows = await db
+        .select(listEmployeeSelection())
+        .from(clientEmployees)
+        .where(where)
+        .orderBy(asc(clientEmployees.name));
+      return await attachEmployeeProjectLinks(rows);
+    },
+
+    async getEmployeeById(id: string, companyId?: string) {
+      const where = companyId
+        ? and(eq(clientEmployees.id, id), eq(clientEmployees.companyId, companyId))
+        : eq(clientEmployees.id, id);
+      const rows = await db
+        .select(listEmployeeSelection())
+        .from(clientEmployees)
+        .where(where);
+      const enriched = await attachEmployeeProjectLinks(rows);
+      return enriched[0] ?? null;
+    },
+
+    async createEmployee(companyId: string, clientId: string, data: {
+      name: string;
+      role: string;
+      email: string;
+      projectScope?: string;
+      clientProjectIds?: string[];
+    }) {
+      const projectScope = normalizeProjectScope(data.projectScope);
+      const clientProjectIds = normalizeStringList(data.clientProjectIds ?? []);
+      const email = normalizeEmail(data.email);
+
+      const [client, existingEmployee] = await Promise.all([
+        db
+          .select({ id: clients.id })
+          .from(clients)
+          .where(and(eq(clients.id, clientId), eq(clients.companyId, companyId)))
+          .then((rows) => rows[0] ?? null),
+        db
+          .select({ id: clientEmployees.id })
+          .from(clientEmployees)
+          .where(and(eq(clientEmployees.companyId, companyId), eq(clientEmployees.clientId, clientId), eq(clientEmployees.email, email)))
+          .then((rows) => rows[0] ?? null),
+      ]);
+
+      if (!client) throw notFound("Client not found");
+      if (existingEmployee) throw conflict("Client employee email is already registered for this client");
+      if (projectScope === "selected_projects") {
+        await assertClientProjectIds(companyId, clientId, clientProjectIds);
+        if (clientProjectIds.length === 0) throw unprocessable("Selected project scope requires at least one linked project");
+      }
+
+      const created = await db
+        .insert(clientEmployees)
+        .values({
+          companyId,
+          clientId,
+          name: data.name.trim(),
+          role: data.role.trim(),
+          email,
+          projectScope,
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+
+      if (!created) return null;
+      await syncEmployeeProjectLinks(companyId, clientId, created.id, projectScope, clientProjectIds);
+      return await this.getEmployeeById(created.id, companyId);
+    },
+
+    async updateEmployee(id: string, companyId: string, data: Record<string, unknown>) {
+      if ("clientId" in data || "companyId" in data) {
+        throw conflict("Client employees cannot change clientId or companyId after creation");
+      }
+
+      const existing = await this.getEmployeeById(id, companyId);
+      if (!existing) return null;
+
+      const nextProjectScope = normalizeProjectScope(data.projectScope ?? existing.projectScope);
+      const hasClientProjectIds = "clientProjectIds" in data;
+      const nextClientProjectIds = hasClientProjectIds
+        ? normalizeStringList(data.clientProjectIds)
+        : existing.projectLinks.map((link) => link.clientProjectId);
+      const nextEmail = typeof data.email === "string" ? normalizeEmail(data.email) : existing.email;
+
+      if (nextProjectScope === "selected_projects") {
+        await assertClientProjectIds(companyId, existing.clientId, nextClientProjectIds);
+        if (nextClientProjectIds.length === 0) {
+          throw unprocessable("Selected project scope requires at least one linked project");
+        }
+      }
+
+      if (nextEmail !== existing.email) {
+        const duplicate = await db
+          .select({ id: clientEmployees.id })
+          .from(clientEmployees)
+          .where(
+            and(
+              eq(clientEmployees.companyId, companyId),
+              eq(clientEmployees.clientId, existing.clientId),
+              eq(clientEmployees.email, nextEmail),
+            ),
+          )
+          .then((rows) => rows.find((row) => row.id !== id) ?? null);
+        if (duplicate) throw conflict("Client employee email is already registered for this client");
+      }
+
+      const updated = await db
+        .update(clientEmployees)
+        .set({
+          name: typeof data.name === "string" ? data.name.trim() : undefined,
+          role: typeof data.role === "string" ? data.role.trim() : undefined,
+          email: typeof data.email === "string" ? nextEmail : undefined,
+          projectScope: "projectScope" in data ? nextProjectScope : undefined,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(clientEmployees.id, id), eq(clientEmployees.companyId, companyId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+
+      if (!updated) return null;
+      if ("projectScope" in data || hasClientProjectIds) {
+        await syncEmployeeProjectLinks(companyId, existing.clientId, id, nextProjectScope, nextClientProjectIds);
+      }
+      return await this.getEmployeeById(id, companyId);
+    },
+
+    async removeEmployee(id: string, companyId: string) {
+      await db
+        .delete(clientEmployeeProjectLinks)
+        .where(and(eq(clientEmployeeProjectLinks.employeeId, id), eq(clientEmployeeProjectLinks.companyId, companyId)));
+      return await db
+        .delete(clientEmployees)
+        .where(and(eq(clientEmployees.id, id), eq(clientEmployees.companyId, companyId)))
         .returning()
         .then((rows) => rows[0] ?? null);
     },

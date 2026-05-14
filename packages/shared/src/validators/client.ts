@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CLIENT_STATUSES, CLIENT_PROJECT_STATUSES } from "../constants.js";
+import { CLIENT_EMPLOYEE_PROJECT_SCOPES, CLIENT_STATUSES, CLIENT_PROJECT_STATUSES } from "../constants.js";
 
 const metadataSchema = z.record(z.string(), z.unknown());
 const stringListSchema = z.array(z.string().trim().min(1).max(160)).max(100);
@@ -53,3 +53,23 @@ export const createClientEmailDomainSchema = z.object({
   domain: z.string().trim().min(1).max(253),
 });
 export type CreateClientEmailDomain = z.infer<typeof createClientEmailDomainSchema>;
+
+const clientEmployeeFields = {
+  name: z.string().trim().min(1).max(160),
+  role: z.string().trim().min(1).max(120),
+  email: z.string().trim().toLowerCase().email().max(320),
+  projectScope: z.enum(CLIENT_EMPLOYEE_PROJECT_SCOPES).optional().default("all_linked_projects"),
+  clientProjectIds: z.array(z.string().uuid()).max(200).optional().default([]),
+};
+
+export const createClientEmployeeSchema = z.object(clientEmployeeFields);
+export type CreateClientEmployee = z.infer<typeof createClientEmployeeSchema>;
+
+export const updateClientEmployeeSchema = z.object({
+  name: clientEmployeeFields.name.optional(),
+  role: clientEmployeeFields.role.optional(),
+  email: clientEmployeeFields.email.optional(),
+  projectScope: z.enum(CLIENT_EMPLOYEE_PROJECT_SCOPES).optional(),
+  clientProjectIds: z.array(z.string().uuid()).max(200).optional(),
+});
+export type UpdateClientEmployee = z.infer<typeof updateClientEmployeeSchema>;

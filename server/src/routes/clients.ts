@@ -6,6 +6,8 @@ import {
   createClientProjectSchema,
   updateClientProjectSchema,
   createClientEmailDomainSchema,
+  createClientEmployeeSchema,
+  updateClientEmployeeSchema,
   upsertClientInstructionsFileSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
@@ -144,6 +146,78 @@ export function clientRoutes(db: Db) {
       entityType: "client_email_domain",
       entityId: id,
       details: { clientId: existing.clientId, domain: existing.domain },
+    });
+    res.json({ ok: true });
+  });
+
+  // ── Client Employees ─────────────────────────────────────────
+
+  router.get("/clients/:id/employees", async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    res.json(await svc.listEmployees(id, client.companyId));
+  });
+
+  router.post("/clients/:id/employees", validate(createClientEmployeeSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const client = await svc.getById(id);
+    if (!client) throw notFound("Client not found");
+    assertCompanyAccess(req, client.companyId);
+    const employee = await svc.createEmployee(client.companyId, id, req.body);
+    if (!employee) throw notFound("Client employee not found");
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: client.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "client_employee.created",
+      entityType: "client_employee",
+      entityId: employee.id,
+      details: { clientId: id, role: employee.role, email: employee.email },
+    });
+    res.status(201).json(employee);
+  });
+
+  router.patch("/client-employees/:id", validate(updateClientEmployeeSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const existing = await svc.getEmployeeById(id);
+    if (!existing) throw notFound("Client employee not found");
+    assertCompanyAccess(req, existing.companyId);
+    const updated = await svc.updateEmployee(id, existing.companyId, req.body);
+    if (!updated) throw notFound("Client employee not found");
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "client_employee.updated",
+      entityType: "client_employee",
+      entityId: id,
+      details: { clientId: existing.clientId, changedKeys: Object.keys(req.body) },
+    });
+    res.json(updated);
+  });
+
+  router.delete("/client-employees/:id", async (req, res) => {
+    const id = req.params.id as string;
+    const existing = await svc.getEmployeeById(id);
+    if (!existing) throw notFound("Client employee not found");
+    assertCompanyAccess(req, existing.companyId);
+    await svc.removeEmployee(id, existing.companyId);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "client_employee.deleted",
+      entityType: "client_employee",
+      entityId: id,
+      details: { clientId: existing.clientId, role: existing.role, email: existing.email },
     });
     res.json({ ok: true });
   });

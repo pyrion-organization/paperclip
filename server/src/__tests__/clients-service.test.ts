@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  clientEmployeeProjectLinks,
+  clientEmployees,
   clients,
   clientEmailDomains,
   clientProjects,
@@ -70,6 +72,8 @@ describeEmbeddedPostgres("clientService", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(clientEmployeeProjectLinks);
+    await db.delete(clientEmployees);
     await db.delete(clientEmailDomains);
     await db.delete(clientProjects);
     await db.delete(clients);
@@ -300,5 +304,129 @@ describeEmbeddedPostgres("clientService", () => {
 
     const domains = await svc.listEmailDomains(client!.id, companyId);
     expect(domains).toHaveLength(0);
+  });
+
+  it("creates client employees scoped to all linked projects", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    const employee = await svc.createEmployee(companyId, client!.id, {
+      name: "Ana Silva",
+      role: "TI",
+      email: "Ana@Client.com",
+      projectScope: "all_linked_projects",
+    });
+
+    expect(employee).toBeDefined();
+    expect(employee!.name).toBe("Ana Silva");
+    expect(employee!.role).toBe("TI");
+    expect(employee!.email).toBe("ana@client.com");
+    expect(employee!.projectScope).toBe("all_linked_projects");
+    expect(employee!.projectLinks).toEqual([]);
+
+    const employees = await svc.listEmployees(client!.id, companyId);
+    expect(employees).toHaveLength(1);
+    expect(employees[0]!.email).toBe("ana@client.com");
+  });
+
+  it("creates and updates client employees scoped to selected linked projects", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    const linkedProject = await svc.createProject(companyId, {
+      clientId: client!.id,
+      projectId,
+      projectNameOverride: "Internal Portal",
+    });
+
+    const employee = await svc.createEmployee(companyId, client!.id, {
+      name: "Bruno User",
+      role: "User",
+      email: "bruno@client.com",
+      projectScope: "selected_projects",
+      clientProjectIds: [linkedProject!.id],
+    });
+
+    expect(employee).toBeDefined();
+    expect(employee!.projectScope).toBe("selected_projects");
+    expect(employee!.projectLinks).toHaveLength(1);
+    expect(employee!.projectLinks[0]).toMatchObject({
+      clientProjectId: linkedProject!.id,
+      projectId,
+      projectNameOverride: "Internal Portal",
+    });
+
+    const updated = await svc.updateEmployee(employee!.id, companyId, {
+      role: "Director",
+      projectScope: "all_linked_projects",
+      clientProjectIds: [],
+    });
+
+    expect(updated).toBeDefined();
+    expect(updated!.role).toBe("Director");
+    expect(updated!.projectScope).toBe("all_linked_projects");
+    expect(updated!.projectLinks).toEqual([]);
+  });
+
+  it("rejects selected employee projects that are not linked to the client", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+
+    await expect(
+      svc.createEmployee(companyId, client!.id, {
+        name: "Bad Link",
+        role: "User",
+        email: "bad@client.com",
+        projectScope: "selected_projects",
+        clientProjectIds: [projectId],
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("rejects duplicate client employee emails within one client", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    await svc.createEmployee(companyId, client!.id, {
+      name: "First",
+      role: "User",
+      email: "person@client.com",
+    });
+
+    await expect(
+      svc.createEmployee(companyId, client!.id, {
+        name: "Second",
+        role: "Director",
+        email: "PERSON@client.com",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("removes selected employee project links when a client project is removed", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    const linkedProject = await svc.createProject(companyId, {
+      clientId: client!.id,
+      projectId,
+    });
+    const employee = await svc.createEmployee(companyId, client!.id, {
+      name: "Scoped User",
+      role: "User",
+      email: "scoped@client.com",
+      projectScope: "selected_projects",
+      clientProjectIds: [linkedProject!.id],
+    });
+
+    await svc.removeProject(linkedProject!.id, companyId);
+
+    const found = await svc.getEmployeeById(employee!.id, companyId);
+    expect(found).toBeDefined();
+    expect(found!.projectLinks).toEqual([]);
+  });
+
+  it("removes client employees when a client is removed", async () => {
+    const client = await svc.create(companyId, { name: "Employee Client" });
+    const employee = await svc.createEmployee(companyId, client!.id, {
+      name: "Remove Me",
+      role: "User",
+      email: "remove@client.com",
+    });
+
+    await svc.remove(client!.id, companyId);
+
+    const found = await svc.getEmployeeById(employee!.id, companyId);
+    expect(found).toBeNull();
   });
 });

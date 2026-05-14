@@ -311,6 +311,9 @@ export type ClientStatus = (typeof CLIENT_STATUSES)[number];
 export const CLIENT_PROJECT_STATUSES = ["active", "paused", "completed", "cancelled"] as const;
 export type ClientProjectStatus = (typeof CLIENT_PROJECT_STATUSES)[number];
 
+export const CLIENT_EMPLOYEE_PROJECT_SCOPES = ["all_linked_projects", "selected_projects"] as const;
+export type ClientEmployeeProjectScope = (typeof CLIENT_EMPLOYEE_PROJECT_SCOPES)[number];
+
 export const ENVIRONMENT_DRIVERS = ["local", "ssh", "sandbox", "plugin"] as const;
 export type EnvironmentDriver = (typeof ENVIRONMENT_DRIVERS)[number];
 
