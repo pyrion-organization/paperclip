@@ -10,10 +10,13 @@ import type {
   CompanyPortabilityPreviewRequest,
   CompanyPortabilityPreviewResult,
   CreateInboundEmailMailbox,
+  CreateInboundEmailRule,
   InboundEmailMailbox,
   InboundEmailMessage,
+  InboundEmailRule,
   UpdateCompanyBranding,
   UpdateInboundEmailMailbox,
+  UpdateInboundEmailRule,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -76,6 +79,18 @@ export const companiesApi = {
     api.post<{ ok: true }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/test`, {}),
   pollInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.post<{ id: string; status: string }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/poll`, {}),
+  listInboundEmailRules: (companyId: string) =>
+    api.get<InboundEmailListPage<InboundEmailRule>>(
+      `/companies/${companyId}/inbound-email/rules`,
+    ),
+  saveInboundEmailRule: (
+    companyId: string,
+    ruleId: string | null,
+    data: CreateInboundEmailRule | UpdateInboundEmailRule,
+  ) =>
+    ruleId
+      ? api.patch<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules/${ruleId}`, data)
+      : api.post<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules`, data),
   listInboundEmailMessages: (companyId: string) =>
     api.get<InboundEmailListPage<InboundEmailMessage>>(
       `/companies/${companyId}/inbound-email/messages`,

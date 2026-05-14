@@ -58,6 +58,8 @@ describe("CompanySettingsNav", () => {
   it("maps company settings routes to the expected shared tab value", () => {
     expect(getCompanySettingsTab("/company/settings")).toBe("general");
     expect(getCompanySettingsTab("/PAP/company/settings")).toBe("general");
+    expect(getCompanySettingsTab("/company/settings/email")).toBe("email");
+    expect(getCompanySettingsTab("/PAP/company/settings/email")).toBe("email");
     expect(getCompanySettingsTab("/company/settings/environments")).toBe("environments");
     expect(getCompanySettingsTab("/PAP/company/settings/environments")).toBe("environments");
     expect(getCompanySettingsTab("/company/settings/access")).toBe("access");
@@ -79,6 +81,7 @@ describe("CompanySettingsNav", () => {
         value: "access",
         items: [
           { value: "general", label: "General" },
+          { value: "email", label: "Email" },
           { value: "environments", label: "Environments" },
           { value: "access", label: "Access" },
           { value: "invites", label: "Invites" },
