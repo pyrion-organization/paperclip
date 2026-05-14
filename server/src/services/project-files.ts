@@ -380,6 +380,9 @@ export function projectFilesService(db: Db) {
       previewType = "markdown";
     } else if (normalizedPath.toLowerCase().endsWith(".json")) {
       previewType = "json";
+      try {
+        textContent = `${JSON.stringify(JSON.parse(text), null, 2)}\n`;
+      } catch {}
     }
 
     return {

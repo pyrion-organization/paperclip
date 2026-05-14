@@ -654,7 +654,7 @@ export function ProjectFilesTab({
 
   const selectedFile = selectedFileQuery.data ?? null;
   const fileDirty = selectedFile?.textContent != null && editorValue !== selectedFile.textContent;
-  const canEditSelectedFile = selectedFile?.textContent != null;
+  const canEditSelectedFile = selectedFile?.textContent != null && selectedFile.previewType !== "json";
   const treePaneColumns = compactTreePane
     ? "lg:grid-cols-[128px_minmax(0,1fr)]"
     : "lg:grid-cols-[320px_minmax(0,1fr)]";
@@ -1132,6 +1132,7 @@ export function ProjectFilesTab({
           ) : selectedFile?.textContent != null ? (
             <ProjectCodeEditor
               value={editorValue}
+              readOnly={selectedFile.previewType === "json"}
               language={selectedFile.language}
               onChange={setEditorValue}
             />
