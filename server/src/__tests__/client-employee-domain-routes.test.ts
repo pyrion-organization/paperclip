@@ -53,6 +53,130 @@ describe("client employee and email-domain routes", () => {
     vi.clearAllMocks();
   });
 
+  it("returns an empty email-domain list for an existing client", async () => {
+    mockClientService.getById.mockResolvedValue({
+      id: "client-1",
+      companyId: "company-1",
+      name: "Acme",
+    });
+    mockClientService.listEmailDomains.mockResolvedValue([]);
+
+    const res = await request(createApp()).get("/api/clients/client-1/email-domains");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(mockClientService.listEmailDomains).toHaveBeenCalledWith("client-1", "company-1");
+  });
+
+  it("returns an empty employee list for an existing client", async () => {
+    mockClientService.getById.mockResolvedValue({
+      id: "client-1",
+      companyId: "company-1",
+      name: "Acme",
+    });
+    mockClientService.listEmployees.mockResolvedValue([]);
+
+    const res = await request(createApp()).get("/api/clients/client-1/employees");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(mockClientService.listEmployees).toHaveBeenCalledWith("client-1", "company-1");
+  });
+
+  it("creates an email domain for an existing client", async () => {
+    mockClientService.getById.mockResolvedValue({
+      id: "client-1",
+      companyId: "company-1",
+      name: "Acme",
+    });
+    mockClientService.createEmailDomain.mockResolvedValue({
+      id: "domain-1",
+      companyId: "company-1",
+      clientId: "client-1",
+      domain: "zaraplast.com.br",
+      createdAt: "2026-05-14T14:50:03.000Z",
+      updatedAt: "2026-05-14T14:50:03.000Z",
+    });
+
+    const res = await request(createApp())
+      .post("/api/clients/client-1/email-domains")
+      .send({ domain: "zaraplast.com.br" });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      id: "domain-1",
+      clientId: "client-1",
+      domain: "zaraplast.com.br",
+    });
+    expect(mockClientService.createEmailDomain).toHaveBeenCalledWith(
+      "company-1",
+      "client-1",
+      "zaraplast.com.br",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "client_email_domain.created",
+        companyId: "company-1",
+        entityId: "domain-1",
+      }),
+    );
+  });
+
+  it("creates an employee for an existing client", async () => {
+    mockClientService.getById.mockResolvedValue({
+      id: "client-1",
+      companyId: "company-1",
+      name: "Acme",
+    });
+    mockClientService.createEmployee.mockResolvedValue({
+      id: "employee-1",
+      companyId: "company-1",
+      clientId: "client-1",
+      name: "Ana Silva",
+      role: "TI",
+      email: "ana@zaraplast.com.br",
+      projectScope: "all_linked_projects",
+      projectLinks: [],
+      createdAt: "2026-05-14T14:50:03.000Z",
+      updatedAt: "2026-05-14T14:50:03.000Z",
+    });
+
+    const payload = {
+      name: "Ana Silva",
+      role: "TI",
+      email: "ana@zaraplast.com.br",
+      projectScope: "all_linked_projects",
+      clientProjectIds: [],
+    };
+    const res = await request(createApp())
+      .post("/api/clients/client-1/employees")
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      id: "employee-1",
+      clientId: "client-1",
+      name: "Ana Silva",
+      role: "TI",
+      email: "ana@zaraplast.com.br",
+      projectLinks: [],
+    });
+    expect(mockClientService.createEmployee).toHaveBeenCalledWith(
+      "company-1",
+      "client-1",
+      payload,
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "client_employee.created",
+        companyId: "company-1",
+        entityId: "employee-1",
+      }),
+    );
+  });
+
   it("rejects cross-company access on /clients/:id/employees", async () => {
     mockClientService.getById.mockResolvedValue({
       id: "client-1",
