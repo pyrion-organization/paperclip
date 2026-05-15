@@ -4,6 +4,11 @@ import type { Db } from "@paperclipai/db";
 import {
   assets,
   backgroundJobs,
+  clientEmailDomains,
+  clientEmployeeProjectLinks,
+  clientEmployees,
+  clientProjects,
+  clients,
   inboundEmailAttachments,
   inboundEmailMailboxes,
   inboundEmailMessages,
@@ -27,6 +32,7 @@ import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
+import { sendInboundEmailAuthorizationReply, type InboundEmailAuthorizationReplyReason } from "./email.js";
 
 export const INBOUND_EMAIL_PASSWORD_SECRET_PREFIX = "__inbound_email_password__";
 export const EMAIL_POLL_MAILBOX_JOB_KIND = "email.poll_mailbox";
@@ -38,6 +44,14 @@ const INBOUND_EMAIL_ACTOR = {
   actorType: "system" as const,
   actorId: "inbound-email-worker",
 };
+const REPLY_REQUIRED_SKIP_REASONS: ReadonlySet<InboundEmailAuthorizationReplyReason> = new Set([
+  "employee_not_registered",
+  "project_not_authorized",
+]);
+
+function isReplyRequiredSkipReason(reason: string): reason is InboundEmailAuthorizationReplyReason {
+  return REPLY_REQUIRED_SKIP_REASONS.has(reason as InboundEmailAuthorizationReplyReason);
+}
 
 export type ListPageOptions = {
   limit?: number;
@@ -93,6 +107,19 @@ function hashBuffer(buffer: Buffer): string {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeEmailAddress(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !normalized.includes("@")) return null;
+  return normalized;
+}
+
+function domainFromEmail(value: string | null | undefined): string | null {
+  const email = normalizeEmailAddress(value);
+  if (!email) return null;
+  const domain = email.split("@").pop()?.replace(/^\.+|\.+$/g, "");
+  return domain || null;
 }
 
 function matchesPattern(value: string | null | undefined, pattern: string | null | undefined): boolean {
@@ -323,21 +350,33 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     ) ?? null;
   }
 
-  async function createIssueFromMessage(message: typeof inboundEmailMessages.$inferSelect) {
-    const mailbox = await loadMailbox(message.companyId, message.mailboxId);
-    const rule = await selectRule(message);
+  async function resolveProcessingContext(message: typeof inboundEmailMessages.$inferSelect) {
+    const [mailbox, rule] = await Promise.all([
+      loadMailbox(message.companyId, message.mailboxId),
+      selectRule(message),
+    ]);
+    return {
+      mailbox,
+      rule,
+      targetProjectId: rule?.targetProjectId ?? mailbox.targetProjectId ?? null,
+    };
+  }
+
+  async function createIssueFromMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+    context: Awaited<ReturnType<typeof resolveProcessingContext>>,
+  ) {
     const attachmentRows = await db
       .select()
       .from(inboundEmailAttachments)
       .where(eq(inboundEmailAttachments.messageId, message.id));
-    const targetProjectId = rule?.targetProjectId ?? mailbox.targetProjectId ?? null;
     const issue = await issues.create(message.companyId, {
       title: (message.subject?.trim() || `Inbound email from ${message.fromAddress ?? "unknown sender"}`).slice(0, 300),
       description: formatIssueDescription({ message, attachmentCount: attachmentRows.length }),
       status: "backlog",
-      priority: rule?.priority ?? "medium",
-      projectId: targetProjectId,
-      labelIds: rule?.labelIds ?? [],
+      priority: context.rule?.priority ?? "medium",
+      projectId: context.targetProjectId,
+      labelIds: context.rule?.labelIds ?? [],
       originKind: "inbound_email",
       originId: message.id,
       originFingerprint: message.rawSha256,
@@ -353,6 +392,167 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       );
     }
     return issue;
+  }
+
+  async function resolveSenderAuthorization(
+    message: typeof inboundEmailMessages.$inferSelect,
+    context: Awaited<ReturnType<typeof resolveProcessingContext>>,
+  ): Promise<{
+    allowed: boolean;
+    reason?: "unknown_sender_domain" | "employee_not_registered" | "project_not_authorized";
+    senderEmail: string | null;
+    client?: { id: string; name: string };
+    employee?: { id: string; projectScope: string };
+    project?: { id: string; name: string };
+  }> {
+    const senderEmail = normalizeEmailAddress(message.fromAddress);
+    const senderDomain = domainFromEmail(senderEmail);
+    if (!senderEmail || !senderDomain) {
+      return { allowed: false, reason: "unknown_sender_domain", senderEmail };
+    }
+
+    const match = await db
+      .select({
+        clientId: clients.id,
+        clientName: clients.name,
+      })
+      .from(clientEmailDomains)
+      .innerJoin(
+        clients,
+        and(
+          eq(clientEmailDomains.clientId, clients.id),
+          eq(clientEmailDomains.companyId, clients.companyId),
+        ),
+      )
+      .where(
+        and(
+          eq(clientEmailDomains.companyId, message.companyId),
+          sql`lower(${clientEmailDomains.domain}) = ${senderDomain}`,
+          eq(clients.status, "active"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (!match) {
+      return { allowed: false, reason: "unknown_sender_domain", senderEmail };
+    }
+
+    const client = { id: match.clientId, name: match.clientName };
+    const employee = await db
+      .select({
+        id: clientEmployees.id,
+        projectScope: clientEmployees.projectScope,
+      })
+      .from(clientEmployees)
+      .where(
+        and(
+          eq(clientEmployees.companyId, message.companyId),
+          eq(clientEmployees.clientId, client.id),
+          sql`lower(${clientEmployees.email}) = ${senderEmail}`,
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (!employee) {
+      return { allowed: false, reason: "employee_not_registered", senderEmail, client };
+    }
+
+    if (!context.targetProjectId) {
+      return { allowed: true, senderEmail, client, employee };
+    }
+
+    const clientProject = await db
+      .select({
+        id: clientProjects.id,
+        projectId: clientProjects.projectId,
+        projectName: projects.name,
+      })
+      .from(clientProjects)
+      .innerJoin(projects, eq(clientProjects.projectId, projects.id))
+      .where(
+        and(
+          eq(clientProjects.companyId, message.companyId),
+          eq(clientProjects.clientId, client.id),
+          eq(clientProjects.projectId, context.targetProjectId),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (!clientProject) {
+      const project = await db
+        .select({ id: projects.id, name: projects.name })
+        .from(projects)
+        .where(and(eq(projects.companyId, message.companyId), eq(projects.id, context.targetProjectId)))
+        .then((rows) => rows[0] ?? null);
+      return {
+        allowed: false,
+        reason: "project_not_authorized",
+        senderEmail,
+        client,
+        employee,
+        project: project ? { id: project.id, name: project.name } : undefined,
+      };
+    }
+
+    if (employee.projectScope === "selected_projects") {
+      const selected = await db
+        .select({ id: clientEmployeeProjectLinks.id })
+        .from(clientEmployeeProjectLinks)
+        .where(
+          and(
+            eq(clientEmployeeProjectLinks.companyId, message.companyId),
+            eq(clientEmployeeProjectLinks.clientId, client.id),
+            eq(clientEmployeeProjectLinks.employeeId, employee.id),
+            eq(clientEmployeeProjectLinks.clientProjectId, clientProject.id),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      if (!selected) {
+        return {
+          allowed: false,
+          reason: "project_not_authorized",
+          senderEmail,
+          client,
+          employee,
+          project: { id: clientProject.projectId, name: clientProject.projectName },
+        };
+      }
+    }
+
+    return {
+      allowed: true,
+      senderEmail,
+      client,
+      employee,
+      project: { id: clientProject.projectId, name: clientProject.projectName },
+    };
+  }
+
+  async function markMessageSkipped(input: {
+    message: typeof inboundEmailMessages.$inferSelect;
+    reason: string;
+    details?: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({ status: "skipped", skipReason: input.reason, error: null, updatedAt: now })
+      .where(eq(inboundEmailMessages.id, input.message.id))
+      .returning();
+    await logActivity(db, {
+      companyId: input.message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.message_skipped",
+      entityType: "inbound_email_message",
+      entityId: input.message.id,
+      details: {
+        reason: input.reason,
+        fromAddress: input.message.fromAddress,
+        subject: input.message.subject,
+        ...input.details,
+      },
+    });
+    return updated ?? { ...input.message, status: "skipped" as const, skipReason: input.reason, error: null, updatedAt: now };
   }
 
   // Cursor-paginated select where rows are ordered by (createdAt asc, id asc).
@@ -728,6 +928,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           input.processAfterImport !== false &&
           duplicate.status !== "processed" &&
           duplicate.status !== "duplicate" &&
+          duplicate.status !== "skipped" &&
           !duplicate.createdIssueId
         ) {
           await enqueueProcessMessage(duplicate.companyId, duplicate.id);
@@ -788,13 +989,44 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .where(and(eq(inboundEmailMessages.id, messageId), eq(inboundEmailMessages.companyId, companyId)))
         .then((rows) => rows[0] ?? null);
       if (!message) throw notFound("Inbound email message not found");
-      if (message.status === "processed" || message.status === "duplicate") return message;
+      if (message.status === "processed" || message.status === "duplicate" || message.status === "skipped") {
+        return message;
+      }
       await db
         .update(inboundEmailMessages)
         .set({ status: "processing", error: null, updatedAt: new Date() })
         .where(eq(inboundEmailMessages.id, message.id));
       try {
-        const issue = await createIssueFromMessage(message);
+        const context = await resolveProcessingContext(message);
+        const authorization = await resolveSenderAuthorization(message, context);
+        if (!authorization.allowed) {
+          const reason = authorization.reason ?? "sender_not_authorized";
+          if (authorization.senderEmail && isReplyRequiredSkipReason(reason)) {
+            const reply = await sendInboundEmailAuthorizationReply({
+              to: authorization.senderEmail,
+              reason,
+              originalSubject: message.subject,
+              clientName: authorization.client?.name ?? null,
+              db,
+              companyId: message.companyId,
+            });
+            if (reply.status === "skipped") {
+              throw new Error(`Could not send inbound authorization reply: ${reply.reason}`);
+            }
+          }
+          return await markMessageSkipped({
+            message,
+            reason,
+            details: {
+              senderEmail: authorization.senderEmail,
+              clientId: authorization.client?.id,
+              employeeId: authorization.employee?.id,
+              targetProjectId: context.targetProjectId,
+            },
+          });
+        }
+
+        const issue = await createIssueFromMessage(message, context);
         await db
           .update(inboundEmailMessages)
           .set({

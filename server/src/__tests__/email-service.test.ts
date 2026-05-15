@@ -5,7 +5,11 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
-import { sendIssueCompletionEmail, sendRoutineSuccessEmail } from "../services/email.ts";
+import {
+  sendInboundEmailAuthorizationReply,
+  sendIssueCompletionEmail,
+  sendRoutineSuccessEmail,
+} from "../services/email.ts";
 import { secretService } from "../services/secrets.ts";
 import { SMTP_PASSWORD_SECRET_NAME } from "../services/companies.ts";
 
@@ -208,6 +212,44 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).toContain("Routine ID");
     expect(message?.text).toContain("Run ID");
     expect(message?.text).toContain("Exit code: 0");
+  });
+
+  it("sends Portuguese inbound authorization replies with correct accents", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+      emailSignatureHtml: "<div>Assinatura Acme</div>",
+    });
+
+    const result = await sendInboundEmailAuthorizationReply({
+      to: "novo.usuario@example.com",
+      reason: "employee_not_registered",
+      originalSubject: "Preciso de ajuda",
+      clientName: "Cliente Alfa",
+      db,
+      companyId,
+    });
+
+    expect(result.status).toBe("sent");
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as {
+      subject?: string;
+      text?: string;
+      html?: string;
+      to?: string;
+    } | undefined;
+    expect(message?.to).toBe("novo.usuario@example.com");
+    expect(message?.subject).toBe("Re: Preciso de ajuda");
+    expect(message?.text).toContain("não está cadastrado");
+    expect(message?.text).toContain("Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro.");
+    expect(message?.html).toContain("Solicitação não processada");
+    expect(message?.html).toContain("Assinatura Acme");
   });
 
   it("strips script tags and event handlers from signature HTML before sending", async () => {

@@ -103,6 +103,7 @@ export const inboundEmailMessages = pgTable(
     rawContentType: text("raw_content_type").notNull().default("message/rfc822"),
     createdIssueId: uuid("created_issue_id").references(() => issues.id, { onDelete: "set null" }),
     error: text("error"),
+    skipReason: text("skip_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

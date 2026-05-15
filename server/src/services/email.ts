@@ -332,6 +332,73 @@ export async function sendIssueCompletionEmail(params: IssueCompletionEmailParam
   await sendIssueCompletionEmailWithResult(params);
 }
 
+export type InboundEmailAuthorizationReplyReason =
+  | "employee_not_registered"
+  | "project_not_authorized";
+
+export type InboundEmailAuthorizationReplyResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "smtp_not_configured" };
+
+export async function sendInboundEmailAuthorizationReply(params: {
+  to: string;
+  reason: InboundEmailAuthorizationReplyReason;
+  originalSubject?: string | null;
+  clientName?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<InboundEmailAuthorizationReplyResult> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
+  const transport = buildTransport(config);
+
+  const originalSubject = nonEmpty(params.originalSubject);
+  const subject = originalSubject
+    ? `Re: ${originalSubject}`.slice(0, 200)
+    : "Cadastro necessário para envio de solicitações";
+  const clientLabel = nonEmpty(params.clientName) ?? "sua empresa";
+  const bodyMessage = params.reason === "employee_not_registered"
+    ? `Recebemos sua mensagem, mas o endereço ${params.to} não está cadastrado como funcionário autorizado de ${clientLabel}. Por isso, sua solicitação não pôde ser processada.`
+    : `Recebemos sua mensagem, mas o endereço ${params.to} não tem autorização para abrir solicitações para este projeto. Por isso, sua solicitação não pôde ser processada.`;
+  const actionMessage = params.reason === "employee_not_registered"
+    ? "Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro. Depois que o cadastro for concluído, você poderá enviar novas solicitações por e-mail."
+    : "Peça para um usuário autorizado solicitar a atualização do seu cadastro ou enviar a solicitação em seu nome.";
+
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(bodyMessage)}
+  </p>
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(actionMessage)}
+  </p>
+  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    Esta é uma resposta automática do Paperclip.
+  </p>`;
+
+  const html = buildEmailWrapper({
+    headerColor: "#b45309",
+    headerIcon: "⚠️",
+    headerTitle: "Cadastro necessário",
+    headerSubtitle: "Solicitação não processada",
+    body,
+    signatureHtml: config.signatureHtml,
+  });
+
+  await transport.sendMail({
+    from: config.from,
+    to: params.to,
+    subject,
+    text: [
+      bodyMessage,
+      "",
+      actionMessage,
+      "",
+      "Esta é uma resposta automática do Paperclip.",
+    ].join("\n"),
+    html,
+  });
+  return { status: "sent" };
+}
+
 function formatDurationMs(startedAt: Date, completedAt: Date): string {
   const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
   if (durationMs < 1_000) return `${durationMs}ms`;
