@@ -119,6 +119,7 @@ async function logNotificationActivity(db: Db, input: {
 export async function enqueueIssueCompletionEmailNotification(db: Db, input: {
   issue: IssueCompletionNotificationIssue;
   creatorUserId: string | null;
+  recipientEmail?: string | null;
   actor: NotificationActor;
   agentComment?: string | null;
   previousStatus?: string | null;
@@ -128,13 +129,15 @@ export async function enqueueIssueCompletionEmailNotification(db: Db, input: {
   const now = new Date();
   const completedAt = input.issue.completedAt ? new Date(input.issue.completedAt) : now;
   const completedAtIso = Number.isNaN(completedAt.getTime()) ? now.toISOString() : completedAt.toISOString();
-  const recipient = input.creatorUserId
+  const explicitRecipientEmail = input.recipientEmail?.trim() || null;
+  const creatorRecipient = !explicitRecipientEmail && input.creatorUserId
     ? await db
       .select({ email: authUsers.email, name: authUsers.name })
       .from(authUsers)
       .where(eq(authUsers.id, input.creatorUserId))
       .then((rows) => rows[0] ?? null)
     : null;
+  const recipientEmail = explicitRecipientEmail ?? creatorRecipient?.email ?? null;
   const completedBy = await resolveCompletedByName(db, input.actor);
   const payload: IssueCompletionEmailNotificationPayload = {
     issueTitle: input.issue.title,
@@ -145,7 +148,7 @@ export async function enqueueIssueCompletionEmailNotification(db: Db, input: {
     issueDescription: input.issue.description?.trim() ? input.issue.description : null,
     completedAt: completedAtIso,
   };
-  const skipReason = recipient?.email ? null : "recipient_missing";
+  const skipReason = recipientEmail ? null : "recipient_missing";
   const status = skipReason ? "skipped" : "pending";
   const [notification] = await db
     .insert(emailNotifications)
@@ -155,7 +158,7 @@ export async function enqueueIssueCompletionEmailNotification(db: Db, input: {
       status,
       issueId: input.issue.id,
       recipientUserId: input.creatorUserId,
-      recipientEmail: recipient?.email ?? null,
+      recipientEmail,
       subject: buildSubject(input.issue),
       payload,
       requestedByActorType: input.actor.actorType,
@@ -180,7 +183,7 @@ export async function enqueueIssueCompletionEmailNotification(db: Db, input: {
     notificationId: notification.id,
     status,
     recipientUserId: input.creatorUserId,
-    recipientEmailMasked: maskEmail(recipient?.email),
+    recipientEmailMasked: maskEmail(recipientEmail),
     previousStatus: input.previousStatus ?? null,
     requestedStatus: input.requestedStatus ?? null,
   };

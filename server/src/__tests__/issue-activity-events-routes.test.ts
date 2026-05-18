@@ -44,6 +44,7 @@ const mockInstanceSettingsService = vi.hoisted(() => ({
 }));
 const mockRoutineService = vi.hoisted(() => ({
   syncRunStatusForIssue: vi.fn(async () => undefined),
+  getDetail: vi.fn(async () => null),
 }));
 const mockEnqueueIssueCompletionEmailNotification = vi.hoisted(() => vi.fn(async () => ({
   id: "notification-1",
@@ -202,6 +203,7 @@ describe("issue activity event routes", () => {
     });
     mockInstanceSettingsService.listCompanyIds.mockResolvedValue(["company-1"]);
     mockRoutineService.syncRunStatusForIssue.mockResolvedValue(undefined);
+    mockRoutineService.getDetail.mockResolvedValue(null);
     mockEnqueueIssueCompletionEmailNotification.mockResolvedValue({
       id: "notification-1",
       status: "pending",
@@ -256,6 +258,44 @@ describe("issue activity event routes", () => {
 
     expect(res.status).toBe(200);
     expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the routine notification email for routine-created completion emails", async () => {
+    const issue = {
+      ...makeIssue(),
+      status: "todo",
+      createdByUserId: null,
+      originKind: "routine_execution",
+      originId: "33333333-3333-4333-8333-333333333333",
+    };
+    mockIssueService.getById.mockResolvedValue(issue);
+    mockIssueService.findRootCreatorUserId.mockResolvedValue(null);
+    mockRoutineService.getDetail.mockResolvedValue({
+      id: issue.originId,
+      companyId: issue.companyId,
+      notificationEmail: "routine-owner@example.com",
+    });
+    mockIssueService.update.mockImplementation(async (_id: string, patch: Record<string, unknown>) => ({
+      ...issue,
+      ...patch,
+      completedAt: new Date("2026-05-12T00:34:49.321Z"),
+      updatedAt: new Date(),
+    }));
+
+    const res = await request(await createApp())
+      .patch(`/api/issues/${issue.id}`)
+      .send({ status: "done" });
+
+    expect(res.status).toBe(200);
+    expect(mockRoutineService.getDetail).toHaveBeenCalledWith(issue.originId);
+    expect(mockEnqueueIssueCompletionEmailNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        creatorUserId: null,
+        recipientEmail: "routine-owner@example.com",
+        requestedStatus: "done",
+      }),
+    );
   });
 
   it("enqueues a completion email for explicit done-to-done updates", async () => {
