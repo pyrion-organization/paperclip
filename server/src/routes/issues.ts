@@ -3363,6 +3363,21 @@ export function issueRoutes(
       if (requestedDone && issue.status === "done") {
         try {
           const creatorUserId = await svc.findRootCreatorUserId(issue.id);
+          const routineRecipientEmail = issue.originKind === "routine_execution" && issue.originId
+            ? await routinesSvc.getDetail(issue.originId)
+              .then((routine) =>
+                routine?.companyId === issue.companyId
+                  ? routine.notificationEmail?.trim() || null
+                  : null,
+              )
+              .catch((err) => {
+                logger.warn(
+                  { err, issueId: issue.id, routineId: issue.originId },
+                  "failed to resolve routine completion email recipient",
+                );
+                return null;
+              })
+            : null;
           await enqueueIssueCompletionEmailNotification(db, {
             issue: {
               id: issue.id,
@@ -3373,6 +3388,7 @@ export function issueRoutes(
               completedAt: issue.completedAt ?? new Date(),
             },
             creatorUserId,
+            recipientEmail: routineRecipientEmail,
             actor,
             agentComment: commentBody ?? null,
             previousStatus: existing.status,

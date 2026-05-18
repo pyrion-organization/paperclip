@@ -162,6 +162,31 @@ describeEmbeddedPostgres("email notification outbox", () => {
     ]);
   });
 
+  it("uses an explicit recipient email when no creator recipient exists", async () => {
+    const seeded = await seedIssue(db, { companySmtp: true });
+
+    const notification = await enqueueIssueCompletionEmailNotification(db, {
+      issue: {
+        id: seeded.issueId,
+        companyId: seeded.companyId,
+        title: "Ship report",
+        identifier: "ACME-1",
+        description: null,
+        completedAt: seeded.now,
+      },
+      creatorUserId: null,
+      recipientEmail: "routine-owner@example.com",
+      actor: { actorType: "agent", actorId: "agent-1" },
+      processAfterEnqueue: false,
+    });
+
+    expect(notification.status).toBe("pending");
+    expect(notification.skipReason).toBeNull();
+    const [row] = await db.select().from(emailNotifications).where(eq(emailNotifications.id, notification.id));
+    expect(row?.recipientUserId).toBeNull();
+    expect(row?.recipientEmail).toBe("routine-owner@example.com");
+  });
+
   it("sends pending notifications and records sent activity", async () => {
     const seeded = await seedIssue(db, { companySmtp: true });
     const notification = await enqueueIssueCompletionEmailNotification(db, {
