@@ -1011,6 +1011,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       let imported = 0;
       let session: Awaited<ReturnType<typeof fetchUnreadMessages>> | null = null;
       try {
+        const startedAt = new Date();
+        await db
+          .update(inboundEmailMailboxes)
+          .set({ lastPollAt: startedAt, updatedAt: startedAt })
+          .where(eq(inboundEmailMailboxes.id, mailbox.id));
         session = await fetchUnreadMessages(
           {
             host: mailbox.host,
@@ -1280,6 +1285,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           lastError: null,
           lockedBy: null,
           lockedAt: null,
+          attempts: 0,
           runAfter: now,
           updatedAt: now,
         })

@@ -31,11 +31,19 @@ import { inboundEmailRoutes } from "../routes/inbound-email.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
+const fetchUnreadMessagesMock = vi.hoisted(() =>
+  vi.fn(async () => ({ messages: [], close: vi.fn(async () => undefined) })),
+);
+const testImapConnectionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("nodemailer", () => ({
   default: {
     createTransport: createTransportMock,
   },
+}));
+vi.mock("../services/inbound-email-imap.js", () => ({
+  fetchUnreadMessages: fetchUnreadMessagesMock,
+  testImapConnection: testImapConnectionMock,
 }));
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
@@ -74,6 +82,8 @@ describeEmbeddedPostgres("inbound email service", () => {
   beforeEach(() => {
     createTransportMock.mockClear();
     sendMailMock.mockClear();
+    fetchUnreadMessagesMock.mockClear();
+    testImapConnectionMock.mockClear();
   });
 
   afterEach(async () => {
@@ -944,18 +954,26 @@ describeEmbeddedPostgres("inbound email service", () => {
     await expect(svc.retryMessage(companyId, imported.message.id)).rejects.toThrow(/Only failed messages/);
   }, 20_000);
 
-  it("retries a dead background job by resetting it to pending", async () => {
+  it("retries a dead background job by resetting it to pending with a fresh attempt budget", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
     const job = await svc.enqueueMailboxPoll(companyId, mailbox.id);
     await db
       .update(backgroundJobs)
-      .set({ status: "dead", lastError: "max attempts", lockedBy: "old", lockedAt: new Date() })
+      .set({
+        status: "dead",
+        attempts: 3,
+        maxAttempts: 3,
+        lastError: "max attempts",
+        lockedBy: "old",
+        lockedAt: new Date(),
+      })
       .where(eq(backgroundJobs.id, job.id));
 
     const updated = await svc.retryJob(companyId, job.id);
 
     expect(updated.status).toBe("pending");
+    expect(updated.attempts).toBe(0);
     expect(updated.lastError).toBeNull();
     expect(updated.lockedBy).toBeNull();
     expect(updated.lockedAt).toBeNull();
@@ -998,6 +1016,38 @@ describeEmbeddedPostgres("inbound email service", () => {
     const activeRows = await db.select().from(backgroundJobs);
     const active = activeRows.filter((r) => r.kind === "email.poll_mailbox" && (r.status === "pending" || r.status === "running" || r.status === "retrying"));
     expect(active.length).toBe(1);
+  }, 20_000);
+
+  it("marks a mailbox as polled before fetching unread messages", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const close = vi.fn(async () => undefined);
+    let resolveFetch!: (session: { messages: never[]; close: typeof close }) => void;
+    let resolveStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const fetchResult = new Promise<{ messages: never[]; close: typeof close }>((resolve) => {
+      resolveFetch = resolve;
+    });
+    fetchUnreadMessagesMock.mockImplementationOnce(() => {
+      resolveStarted();
+      return fetchResult;
+    });
+
+    const pollPromise = svc.pollMailbox(companyId, mailbox.id);
+    await fetchStarted;
+
+    const [duringFetch] = await db
+      .select()
+      .from(inboundEmailMailboxes)
+      .where(eq(inboundEmailMailboxes.id, mailbox.id));
+    expect(duringFetch.lastPollAt).toBeInstanceOf(Date);
+    expect(duringFetch.lastSuccessAt).toBeNull();
+
+    resolveFetch({ messages: [], close });
+    await expect(pollPromise).resolves.toEqual({ imported: 0 });
+    expect(close).toHaveBeenCalledOnce();
   }, 20_000);
 
   it("aggregates orphan jobs in the ops dashboard payload", async () => {
