@@ -418,6 +418,117 @@ export async function sendInboundEmailAuthorizationReply(params: {
   return { status: "sent" };
 }
 
+export type InboundEmailRegistrationReplyReason =
+  | "missing_info"
+  | "invalid_email"
+  | "invalid_domain"
+  | "created"
+  | "updated"
+  | "already_registered";
+
+export type InboundEmailRegistrationReplyResult = InboundEmailAuthorizationReplyResult;
+
+export async function sendInboundEmailRegistrationReply(params: {
+  to: string;
+  reason: InboundEmailRegistrationReplyReason;
+  originalSubject?: string | null;
+  missingFields?: string[];
+  requestedName?: string | null;
+  requestedEmail?: string | null;
+  clientName?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<InboundEmailRegistrationReplyResult> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
+  const transport = buildTransport(config);
+
+  const originalSubject = nonEmpty(params.originalSubject);
+  const subject = originalSubject
+    ? `Re: ${originalSubject}`.slice(0, 200)
+    : "Cadastro de usuário";
+  const clientLabel = nonEmpty(params.clientName) ?? "sua empresa";
+  const requestedEmail = nonEmpty(params.requestedEmail) ?? "não informado";
+  const requestedName = nonEmpty(params.requestedName) ?? "não informado";
+  const missingFields = (params.missingFields ?? []).filter(Boolean);
+  const missingLabel = missingFields.length > 0 ? missingFields.join(" e ") : "informações obrigatórias";
+  const template = [
+    "Cadastro de usuário",
+    "Nome: Maria Silva",
+    "Email: maria@empresa.com",
+  ].join("\n");
+
+  const bodyMessageByReason: Record<InboundEmailRegistrationReplyReason, string> = {
+    missing_info: `Recebemos sua solicitação de cadastro, mas faltou informar ${missingLabel}.`,
+    invalid_email: `Recebemos sua solicitação de cadastro, mas o e-mail informado (${requestedEmail}) não é válido.`,
+    invalid_domain: `Recebemos sua solicitação de cadastro, mas o domínio do e-mail informado (${requestedEmail}) não está autorizado para ${clientLabel}.`,
+    created: `O usuário ${requestedName} (${requestedEmail}) foi cadastrado com sucesso.`,
+    updated: `O cadastro de ${requestedEmail} foi atualizado com as suas permissões atuais.`,
+    already_registered: `O usuário ${requestedEmail} já está cadastrado com as mesmas permissões.`,
+  };
+  const actionMessageByReason: Record<InboundEmailRegistrationReplyReason, string> = {
+    missing_info: "Envie uma nova solicitação usando o modelo abaixo.",
+    invalid_email: "Confira o endereço de e-mail e envie uma nova solicitação usando o modelo abaixo.",
+    invalid_domain: "Use um e-mail de um domínio aceito para este cliente e envie uma nova solicitação.",
+    created: "Nenhuma ação adicional é necessária.",
+    updated: "Nenhuma ação adicional é necessária.",
+    already_registered: "Nenhuma ação adicional é necessária.",
+  };
+  const bodyMessage = bodyMessageByReason[params.reason];
+  const actionMessage = actionMessageByReason[params.reason];
+  const includeTemplate = params.reason === "missing_info" || params.reason === "invalid_email" || params.reason === "invalid_domain";
+  const templateHtml = includeTemplate
+    ? `<pre style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;color:#374151;font-size:13px;line-height:1.5;margin:0 0 16px;padding:12px;white-space:pre-wrap;">${escapeHtml(template)}</pre>`
+    : "";
+
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(bodyMessage)}
+  </p>
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(actionMessage)}
+  </p>
+  ${templateHtml}
+  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    Esta é uma resposta automática do Paperclip.
+  </p>`;
+
+  const html = buildEmailWrapper({
+    headerColor: params.reason === "created" || params.reason === "updated" || params.reason === "already_registered"
+      ? "#047857"
+      : "#b45309",
+    headerIcon: params.reason === "created" || params.reason === "updated" || params.reason === "already_registered"
+      ? "✓"
+      : "⚠️",
+    headerTitle: params.reason === "created" || params.reason === "updated" || params.reason === "already_registered"
+      ? "Cadastro processado"
+      : "Cadastro incompleto",
+    headerSubtitle: "Solicitação de cadastro por e-mail",
+    body,
+    signatureHtml: config.signatureHtml,
+  });
+
+  try {
+    await transport.sendMail({
+      from: config.from,
+      to: params.to,
+      subject,
+      text: [
+        bodyMessage,
+        "",
+        actionMessage,
+        ...(includeTemplate ? ["", template] : []),
+        "",
+        "Esta é uma resposta automática do Paperclip.",
+      ].join("\n"),
+      html,
+    });
+  } catch (err) {
+    logger.warn({ err, to: params.to, reason: params.reason }, "inbound registration reply send failed");
+    return { status: "skipped", reason: "send_failed" };
+  }
+  return { status: "sent" };
+}
+
 function formatDurationMs(startedAt: Date, completedAt: Date): string {
   const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
   if (durationMs < 1_000) return `${durationMs}ms`;

@@ -66,16 +66,29 @@ Runs in its own job, so retries don't repeat IMAP I/O:
 
 1. Re-read message; if already `processed`/`duplicate`/`skipped`, return (idempotent).
 2. Flip `status: "processing"`.
-3. `resolveProcessingContext` → `{mailbox, rule}` for mailbox settings plus optional priority/labels from matching rules.
-4. `resolveSenderAuthorization` — domain → client → employee → fuzzy project detection → optional employee project-link checks.
-5. **If unauthorized**:
-   - For `employee_not_registered`, `project_not_authorized`, `project_not_identified`, and `project_match_ambiguous`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). If SMTP isn't configured, the reply step throws → job retries (intentional: don't skip-silently when SMTP is just misconfigured).
+3. Resolve sender identity — domain → active client → registered employee.
+4. If the registered sender sent a registration command, handle the client employee registration path and do not create an issue.
+5. Otherwise, `resolveProcessingContext` → `{mailbox, rule}` for mailbox settings plus optional priority/labels from matching rules, then `resolveSenderAuthorization` performs fuzzy project detection and optional employee project-link checks.
+6. **If unauthorized**:
+   - For `employee_not_registered`, `project_not_authorized`, `project_not_identified`, and `project_match_ambiguous`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). Authorization replies are best-effort and SMTP failures are logged.
    - Otherwise mark `status: "skipped"`, store `error: <reason>`, log `inbound_email.message_skipped`.
-6. **If authorized**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
-7. Flip the message to `status: "processed"`, write `createdIssueId`, log `inbound_email.issue_created`.
-8. Delete the source IMAP message after a successful issue creation, or after a required Portuguese authorization/registration reply is sent and the message is marked `skipped`. `project_not_identified` keeps the source email in the mailbox and marks it seen after the reply. Unknown-domain skips are not deleted, but they are marked seen so the poller does not keep fetching them.
-9. On exception before terminal status → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
-10. If source deletion fails after terminal status, keep the terminal status, store `source_delete_error`, rethrow, and let the job retry deletion without recreating the issue or resending the reply.
+7. **If authorized for a support request**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
+8. Flip support messages to `status: "processed"`, write `createdIssueId`, log `inbound_email.issue_created`.
+9. Delete the source IMAP message after a successful issue creation, or after a required Portuguese authorization/registration reply is sent and the message is marked `skipped`. `project_not_identified` keeps the source email in the mailbox and marks it seen after the reply. Unknown-domain skips are not deleted, but they are marked seen so the poller does not keep fetching them.
+10. On exception before terminal status → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
+11. If source deletion fails after terminal status, keep the terminal status, store `source_delete_error`, rethrow, and let the job retry deletion without recreating the issue or resending the reply.
+
+## Email employee registration
+
+Registered client employees can register another employee by email without creating a Paperclip issue.
+
+- The command is detected before project matching. Accepted phrases are token-aware and accent-insensitive: `cadastro de usuário`, `cadastrar usuário`, `novo usuário`, and `registrar usuário`.
+- The email must include labeled fields: `Nome: Maria Silva` and `Email: maria@empresa.com`.
+- The requested email must belong to one of the same client's accepted email domains.
+- New employees copy the requester's `role`, `projectScope`, and selected project links. Existing employees keep their name; if role or project permissions differ, those permissions are updated to match the requester. Both writes (employee row + project-link replacement) run inside a single DB transaction so retries never observe a partial update.
+- **Privilege model**: any registered employee can grant another address on an accepted client domain the same role/scope they hold themselves — there is no admin approval step and no "max role you can grant" gate. If `role` grants meaningful authority elsewhere, treat email-based registration as equivalent to letting any current employee create peers.
+- Registration parsing only reads the subject and the new body content above quoted history (`Em … escreveu:`, `On … wrote:`, `>` lines, `-----Original Message-----`, etc.), so replies to old registration threads don't re-trigger the flow.
+- Registration outcomes are terminal `skipped` messages with `employee_registration_*` skip reasons. They send a Portuguese reply and delete the source IMAP message after the reply succeeds. They never call `createIssueFromMessage`.
 
 ## Project resolution
 

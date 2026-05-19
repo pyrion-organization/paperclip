@@ -7,6 +7,7 @@ import {
 } from "./helpers/embedded-postgres.js";
 import {
   sendInboundEmailAuthorizationReply,
+  sendInboundEmailRegistrationReply,
   sendIssueCompletionEmail,
   sendRoutineSuccessEmail,
 } from "../services/email.ts";
@@ -250,6 +251,66 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).not.toContain("Cliente Alfa");
     expect(message?.html).toContain("Solicitação não processada");
     expect(message?.html).toContain("Assinatura Acme");
+  });
+
+  it("sends Portuguese registration template replies when registration info is missing", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+      emailSignatureHtml: "<div>Assinatura Acme</div>",
+    });
+
+    const result = await sendInboundEmailRegistrationReply({
+      to: "requester@example.com",
+      reason: "missing_info",
+      originalSubject: "Cadastro de usuário",
+      missingFields: ["Nome", "Email"],
+      db,
+      companyId,
+    });
+
+    expect(result.status).toBe("sent");
+    const message = sendMailMock.mock.calls[0]?.[0] as { subject?: string; text?: string; html?: string } | undefined;
+    expect(message?.subject).toBe("Re: Cadastro de usuário");
+    expect(message?.text).toContain("faltou informar Nome e Email");
+    expect(message?.text).toContain("Nome: Maria Silva");
+    expect(message?.text).toContain("Email: maria@empresa.com");
+    expect(message?.html).toContain("Cadastro incompleto");
+    expect(message?.html).toContain("Assinatura Acme");
+  });
+
+  it("sends Portuguese registration success replies", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+    });
+
+    const result = await sendInboundEmailRegistrationReply({
+      to: "requester@example.com",
+      reason: "created",
+      requestedName: "Maria Silva",
+      requestedEmail: "maria@example.com",
+      db,
+      companyId,
+    });
+
+    expect(result.status).toBe("sent");
+    const message = sendMailMock.mock.calls[0]?.[0] as { text?: string; html?: string } | undefined;
+    expect(message?.text).toContain("Maria Silva (maria@example.com) foi cadastrado com sucesso");
+    expect(message?.text).toContain("Nenhuma ação adicional é necessária.");
+    expect(message?.html).toContain("Cadastro processado");
   });
 
   it("strips script tags and event handlers from signature HTML before sending", async () => {

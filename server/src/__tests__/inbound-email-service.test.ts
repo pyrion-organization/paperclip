@@ -398,6 +398,377 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
+  it("registers a new client employee from a registered employee email without creating an issue", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({
+      companyId,
+      employeeEmail: "requester@example.com",
+      projectScope: "selected_projects",
+      clientProjectIds: [],
+    });
+    const project = await seedProject(companyId, "Billing");
+    const clientProject = await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const [requester] = await db.select().from(clientEmployees).where(eq(clientEmployees.email, "requester@example.com"));
+    await db
+      .update(clientEmployees)
+      .set({ role: "Manager", projectScope: "selected_projects" })
+      .where(eq(clientEmployees.id, requester.id));
+    await db.insert(clientEmployeeProjectLinks).values({
+      companyId,
+      clientId: client.id,
+      employeeId: requester.id,
+      clientProjectId: clientProject.id,
+    });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-new@example.com>",
+        from: "requester@example.com",
+        subject: "Cadastro de usuário",
+        body: "Nome: Maria Silva\nEmail: maria@example.com",
+      }),
+      providerUid: "register-new",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_created");
+    expect(storedMessage.createdIssueId).toBeNull();
+    expect(await db.select().from(issues)).toEqual([]);
+    const [createdEmployee] = await db
+      .select()
+      .from(clientEmployees)
+      .where(eq(clientEmployees.email, "maria@example.com"));
+    expect(createdEmployee.name).toBe("Maria Silva");
+    expect(createdEmployee.role).toBe("Manager");
+    expect(createdEmployee.projectScope).toBe("selected_projects");
+    const links = await db
+      .select()
+      .from(clientEmployeeProjectLinks)
+      .where(eq(clientEmployeeProjectLinks.employeeId, createdEmployee.id));
+    expect(links.map((link) => link.clientProjectId)).toEqual([clientProject.id]);
+    const email = sendMailMock.mock.calls[0]?.[0] as { to?: string; text?: string } | undefined;
+    expect(email?.to).toBe("requester@example.com");
+    expect(email?.text).toContain("foi cadastrado com sucesso");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "register-new",
+    );
+  }, 20_000);
+
+  it("preserves a created registration outcome when the success reply is retried", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-created-retry@example.com>",
+        from: "requester@example.com",
+        subject: "Cadastro de usuário",
+        body: "Nome: Maria Silva\nEmail: maria@example.com",
+      }),
+      providerUid: "register-created-retry",
+    });
+    sendMailMock.mockRejectedValueOnce(new Error("smtp temporarily down"));
+
+    await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow(
+      "Could not send inbound registration reply: send_failed",
+    );
+
+    let [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("failed");
+    expect(storedMessage.skipReason).toBe("employee_registration_created");
+    expect((await db.select().from(clientEmployees)).map((row) => row.email)).toContain("maria@example.com");
+    expect(await db.select().from(issues)).toEqual([]);
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_created");
+    expect(sendMailMock).toHaveBeenCalledTimes(2);
+    const retryEmail = sendMailMock.mock.calls[1]?.[0] as { text?: string } | undefined;
+    expect(retryEmail?.text).toContain("foi cadastrado com sucesso");
+    expect(retryEmail?.text).not.toContain("já está cadastrado");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "register-created-retry",
+    );
+  }, 20_000);
+
+  it("replies with the registration template when required employee fields are missing", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-missing@example.com>",
+        from: "requester@example.com",
+        subject: "Cadastrar usuário",
+        body: "Nome: Maria Silva",
+      }),
+      providerUid: "register-missing",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_missing_info");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect((await db.select().from(clientEmployees)).map((row) => row.email)).not.toContain("maria@example.com");
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("faltou informar Email");
+    expect(email?.text).toContain("Nome: Maria Silva");
+    expect(email?.text).toContain("Email: maria@empresa.com");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "register-missing",
+    );
+  }, 20_000);
+
+  it("rejects registration for an email outside the same client accepted domains", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-domain@example.com>",
+        from: "requester@example.com",
+        subject: "Novo usuário",
+        body: "Nome: Externo\nEmail: externo@outside.test",
+      }),
+      providerUid: "register-domain",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_invalid_domain");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect((await db.select().from(clientEmployees)).map((row) => row.email)).not.toContain("externo@outside.test");
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("não está autorizado");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "register-domain",
+    );
+  }, 20_000);
+
+  it("updates an existing employee permissions from a registration request", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const project = await seedProject(companyId, "Billing");
+    const clientProject = await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const [requester] = await db.select().from(clientEmployees).where(eq(clientEmployees.email, "requester@example.com"));
+    await db
+      .update(clientEmployees)
+      .set({ role: "Approver", projectScope: "selected_projects" })
+      .where(eq(clientEmployees.id, requester.id));
+    await db.insert(clientEmployeeProjectLinks).values({
+      companyId,
+      clientId: client.id,
+      employeeId: requester.id,
+      clientProjectId: clientProject.id,
+    });
+    await db.insert(clientEmployees).values({
+      companyId,
+      clientId: client.id,
+      name: "Existing Name",
+      role: "Viewer",
+      email: "existing@example.com",
+      projectScope: "all_linked_projects",
+    });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-update@example.com>",
+        from: "requester@example.com",
+        subject: "Registrar usuário",
+        body: "Nome: Different Name\nEmail: existing@example.com",
+      }),
+      providerUid: "register-update",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.skipReason).toBe("employee_registration_updated");
+    expect(await db.select().from(issues)).toEqual([]);
+    const [updatedEmployee] = await db
+      .select()
+      .from(clientEmployees)
+      .where(eq(clientEmployees.email, "existing@example.com"));
+    expect(updatedEmployee.name).toBe("Existing Name");
+    expect(updatedEmployee.role).toBe("Approver");
+    expect(updatedEmployee.projectScope).toBe("selected_projects");
+    const links = await db
+      .select()
+      .from(clientEmployeeProjectLinks)
+      .where(eq(clientEmployeeProjectLinks.employeeId, updatedEmployee.id));
+    expect(links.map((link) => link.clientProjectId)).toEqual([clientProject.id]);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("foi atualizado");
+  }, 20_000);
+
+  it("preserves an updated registration outcome when the success reply is retried", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const [requester] = await db.select().from(clientEmployees).where(eq(clientEmployees.email, "requester@example.com"));
+    await db.update(clientEmployees).set({ role: "Approver" }).where(eq(clientEmployees.id, requester.id));
+    await db.insert(clientEmployees).values({
+      companyId,
+      clientId: client.id,
+      name: "Existing Name",
+      role: "Viewer",
+      email: "existing@example.com",
+      projectScope: requester.projectScope,
+    });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-updated-retry@example.com>",
+        from: "requester@example.com",
+        subject: "Registrar usuário",
+        body: "Nome: Existing Name\nEmail: existing@example.com",
+      }),
+      providerUid: "register-updated-retry",
+    });
+    sendMailMock.mockRejectedValueOnce(new Error("smtp temporarily down"));
+
+    await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow(
+      "Could not send inbound registration reply: send_failed",
+    );
+
+    let [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("failed");
+    expect(storedMessage.skipReason).toBe("employee_registration_updated");
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_updated");
+    expect(sendMailMock).toHaveBeenCalledTimes(2);
+    const retryEmail = sendMailMock.mock.calls[1]?.[0] as { text?: string } | undefined;
+    expect(retryEmail?.text).toContain("foi atualizado");
+    expect(retryEmail?.text).not.toContain("já está cadastrado");
+  }, 20_000);
+
+  it("replies already registered when an existing employee permissions are unchanged", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const [requester] = await db.select().from(clientEmployees).where(eq(clientEmployees.email, "requester@example.com"));
+    await db.insert(clientEmployees).values({
+      companyId,
+      clientId: client.id,
+      name: "Existing Name",
+      role: requester.role,
+      email: "existing@example.com",
+      projectScope: requester.projectScope,
+    });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-already@example.com>",
+        from: "requester@example.com",
+        subject: "Cadastro de usuário",
+        body: "Nome: Existing Name\nEmail: existing@example.com",
+      }),
+      providerUid: "register-already",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.skipReason).toBe("employee_registration_already_registered");
+    expect(await db.select().from(issues)).toEqual([]);
+    const [existingEmployee] = await db
+      .select()
+      .from(clientEmployees)
+      .where(eq(clientEmployees.email, "existing@example.com"));
+    expect(existingEmployee.name).toBe("Existing Name");
+    expect(existingEmployee.role).toBe(requester.role);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("já está cadastrado");
+  }, 20_000);
+
+  it("does not let unregistered senders register employees", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, skipEmployee: true });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-unregistered@example.com>",
+        from: "unknown@example.com",
+        subject: "Cadastro de usuário",
+        body: "Nome: Maria Silva\nEmail: maria@example.com",
+      }),
+      providerUid: "register-unregistered",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.skipReason).toBe("employee_not_registered");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect((await db.select().from(clientEmployees)).map((row) => row.email)).not.toContain("maria@example.com");
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("não está cadastrado");
+  }, 20_000);
+
   it("creates an issue when a registered employee mentions an allowed project", async () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });

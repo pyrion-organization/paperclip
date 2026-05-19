@@ -44,7 +44,12 @@ import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
-import { sendInboundEmailAuthorizationReply, type InboundEmailAuthorizationReplyReason } from "./email.js";
+import {
+  sendInboundEmailAuthorizationReply,
+  sendInboundEmailRegistrationReply,
+  type InboundEmailAuthorizationReplyReason,
+  type InboundEmailRegistrationReplyReason,
+} from "./email.js";
 
 export const INBOUND_EMAIL_PASSWORD_SECRET_PREFIX = "__inbound_email_password__";
 export const EMAIL_POLL_MAILBOX_JOB_KIND = "email.poll_mailbox";
@@ -75,6 +80,19 @@ const MARK_SEEN_SKIP_REASONS: ReadonlySet<string> = new Set([
   "project_not_identified",
   "project_match_ambiguous",
 ]);
+const DELETE_AFTER_REGISTRATION_REPLY_REASONS: ReadonlySet<string> = new Set([
+  "employee_registration_missing_info",
+  "employee_registration_invalid_email",
+  "employee_registration_invalid_domain",
+  "employee_registration_created",
+  "employee_registration_updated",
+  "employee_registration_already_registered",
+]);
+const DURABLE_REGISTRATION_REPLY_REASONS: ReadonlySet<InboundEmailRegistrationReplyReason> = new Set([
+  "created",
+  "updated",
+  "already_registered",
+]);
 const MAX_SOURCE_DELETE_ERROR_LENGTH = 2_000;
 
 function isReplyRequiredSkipReason(reason: string): reason is InboundEmailAuthorizationReplyReason {
@@ -82,7 +100,13 @@ function isReplyRequiredSkipReason(reason: string): reason is InboundEmailAuthor
 }
 
 function shouldDeleteAfterReply(reason: string | null): boolean {
-  return Boolean(reason && DELETE_AFTER_REPLY_REASONS.has(reason as InboundEmailAuthorizationReplyReason));
+  return Boolean(
+    reason &&
+    (
+      DELETE_AFTER_REPLY_REASONS.has(reason as InboundEmailAuthorizationReplyReason) ||
+      DELETE_AFTER_REGISTRATION_REPLY_REASONS.has(reason)
+    ),
+  );
 }
 
 function shouldMarkSeenForSkip(reason: string | null): boolean {
@@ -144,6 +168,21 @@ type RawMailboxRow = typeof inboundEmailMailboxes.$inferSelect;
 type RedactedMailbox =
   & Omit<RawMailboxRow, "passwordSecretName">
   & { passwordSet: boolean };
+type SenderClient = { id: string; name: string };
+type SenderEmployee = { id: string; name: string; role: string; email: string; projectScope: string };
+type SenderIdentity =
+  | {
+    allowed: true;
+    senderEmail: string;
+    client: SenderClient;
+    employee: SenderEmployee;
+  }
+  | {
+    allowed: false;
+    reason: "unknown_sender_domain" | "employee_not_registered";
+    senderEmail: string | null;
+    client?: SenderClient;
+  };
 
 function redactMailbox(row: RawMailboxRow): RedactedMailbox {
   const { passwordSecretName, ...safeRow } = row;
@@ -374,6 +413,87 @@ function matchesProjectName(
     tokenCount: candidateTokens.length,
     score: candidateCompact.length,
   };
+}
+
+const REGISTRATION_COMMAND_PHRASES = [
+  ["cadastro", "de", "usuario"],
+  ["cadastrar", "usuario"],
+  ["novo", "usuario"],
+  ["registrar", "usuario"],
+];
+
+const EMAIL_LINE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Lines after these markers belong to a quoted prior message — we must not
+// detect registration commands or parse Nome:/Email: fields from quoted text,
+// or replies to old registration threads would silently mutate employees.
+const QUOTED_REPLY_MARKERS: RegExp[] = [
+  /^\s*-{2,}\s*original message\s*-{2,}\s*$/i,
+  /^\s*-{2,}\s*mensagem original\s*-{2,}\s*$/i,
+  /^\s*_{5,}\s*$/,
+  /escreveu\s*:\s*$/i, // "Em <data>, <fulano> escreveu:"
+  /\bwrote\s*:\s*$/i, // "On <date>, <foo> wrote:"
+  /^\s*(from|de)\s*:\s.+/i, // Outlook-style "From: ..." header start
+];
+
+function stripQuotedReply(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const cutIndex = lines.findIndex((line) => QUOTED_REPLY_MARKERS.some((re) => re.test(line)));
+  const kept = cutIndex >= 0 ? lines.slice(0, cutIndex) : lines;
+  return kept.filter((line) => !/^\s*>/.test(line)).join("\n");
+}
+
+function registrationContent(message: typeof inboundEmailMessages.$inferSelect): {
+  subject: string;
+  body: string;
+} {
+  const rawBody = message.bodyText?.trim() || (message.bodyHtml ? htmlToPlain(message.bodyHtml) : "");
+  return { subject: message.subject ?? "", body: stripQuotedReply(rawBody) };
+}
+
+function isRegistrationCommand(message: typeof inboundEmailMessages.$inferSelect): boolean {
+  const { subject, body } = registrationContent(message);
+  const searchTokens = projectMatchTokens(`${subject} ${body}`);
+  return REGISTRATION_COMMAND_PHRASES.some((phrase) => hasContiguousTokenMatch(searchTokens, phrase));
+}
+
+function parseRegistrationRequest(message: typeof inboundEmailMessages.$inferSelect): {
+  name: string | null;
+  email: string | null;
+  missingFields: string[];
+} {
+  const { subject, body } = registrationContent(message);
+  const lines = `${subject}\n${body}`.split(/\r?\n/);
+  let name: string | null = null;
+  let email: string | null = null;
+
+  for (const line of lines) {
+    const nameMatch = line.match(/^\s*nome\s*:\s*(.+?)\s*$/i);
+    if (nameMatch && !name) name = nameMatch[1]?.trim() || null;
+
+    const emailMatch = line.match(/^\s*(?:e-?mail|email)\s*:\s*(.+?)\s*$/i);
+    if (emailMatch && !email) email = normalizeEmailAddress(emailMatch[1] ?? "");
+  }
+
+  const missingFields = [
+    ...(name ? [] : ["Nome"]),
+    ...(email ? [] : ["Email"]),
+  ];
+  return { name, email, missingFields };
+}
+
+function isValidRegistrationEmail(value: string): boolean {
+  return EMAIL_LINE_PATTERN.test(value);
+}
+
+function registrationSkipReason(reason: InboundEmailRegistrationReplyReason): string {
+  return `employee_registration_${reason}`;
+}
+
+function registrationReplyReasonFromSkipReason(reason: string | null): InboundEmailRegistrationReplyReason | null {
+  if (!reason?.startsWith("employee_registration_")) return null;
+  const replyReason = reason.slice("employee_registration_".length) as InboundEmailRegistrationReplyReason;
+  return DURABLE_REGISTRATION_REPLY_REASONS.has(replyReason) ? replyReason : null;
 }
 
 function clampLimit(limit: number | undefined, fallback = 50, max = 200): number {
@@ -732,16 +852,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return issue;
   }
 
-  async function resolveSenderAuthorization(
+  async function resolveSenderIdentity(
     message: typeof inboundEmailMessages.$inferSelect,
-  ): Promise<{
-    allowed: boolean;
-    reason?: "unknown_sender_domain" | InboundEmailAuthorizationReplyReason;
-    senderEmail: string | null;
-    client?: { id: string; name: string };
-    employee?: { id: string; projectScope: string };
-    project?: { id: string; name: string };
-  }> {
+  ): Promise<SenderIdentity> {
     const senderEmail = normalizeEmailAddress(message.fromAddress);
     const senderDomain = domainFromEmail(senderEmail);
     if (!senderEmail || !senderDomain) {
@@ -778,6 +891,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     const employee = await db
       .select({
         id: clientEmployees.id,
+        name: clientEmployees.name,
+        role: clientEmployees.role,
+        email: clientEmployees.email,
         projectScope: clientEmployees.projectScope,
       })
       .from(clientEmployees)
@@ -794,6 +910,24 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return { allowed: false, reason: "employee_not_registered", senderEmail, client };
     }
 
+    return { allowed: true, senderEmail, client, employee };
+  }
+
+  async function resolveSenderAuthorization(
+    message: typeof inboundEmailMessages.$inferSelect,
+    preResolvedIdentity?: SenderIdentity,
+  ): Promise<{
+    allowed: boolean;
+    reason?: "unknown_sender_domain" | InboundEmailAuthorizationReplyReason;
+    senderEmail: string | null;
+    client?: { id: string; name: string };
+    employee?: { id: string; name: string; role: string; email: string; projectScope: string };
+    project?: { id: string; name: string };
+  }> {
+    const identity = preResolvedIdentity ?? await resolveSenderIdentity(message);
+    if (!identity.allowed) return identity;
+
+    const { senderEmail, client, employee } = identity;
     const matchedProject = await resolveClientProjectFromMessage(message, client.id);
     if (matchedProject.status === "not_identified") {
       return { allowed: false, reason: "project_not_identified", senderEmail, client, employee };
@@ -834,6 +968,298 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       employee,
       project: { id: matchedProject.projectId, name: matchedProject.projectName },
     };
+  }
+
+  async function sendRegistrationReplyOrThrow(input: {
+    to: string;
+    reason: InboundEmailRegistrationReplyReason;
+    message: typeof inboundEmailMessages.$inferSelect;
+    clientName?: string | null;
+    missingFields?: string[];
+    requestedName?: string | null;
+    requestedEmail?: string | null;
+  }) {
+    const reply = await sendInboundEmailRegistrationReply({
+      to: input.to,
+      reason: input.reason,
+      originalSubject: input.message.subject,
+      clientName: input.clientName ?? null,
+      missingFields: input.missingFields,
+      requestedName: input.requestedName,
+      requestedEmail: input.requestedEmail,
+      db,
+      companyId: input.message.companyId,
+    });
+    if (reply.status === "skipped") {
+      throw new Error(`Could not send inbound registration reply: ${reply.reason}`);
+    }
+  }
+
+  async function clientAcceptsEmailDomain(companyId: string, clientId: string, email: string): Promise<boolean> {
+    const domain = domainFromEmail(email);
+    if (!domain) return false;
+    const row = await db
+      .select({ id: clientEmailDomains.id })
+      .from(clientEmailDomains)
+      .where(
+        and(
+          eq(clientEmailDomains.companyId, companyId),
+          eq(clientEmailDomains.clientId, clientId),
+          sql`lower(${clientEmailDomains.domain}) = ${domain}`,
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    return Boolean(row);
+  }
+
+  async function getEmployeeProjectLinkIds(companyId: string, employeeId: string): Promise<string[]> {
+    const rows = await db
+      .select({ clientProjectId: clientEmployeeProjectLinks.clientProjectId })
+      .from(clientEmployeeProjectLinks)
+      .where(
+        and(
+          eq(clientEmployeeProjectLinks.companyId, companyId),
+          eq(clientEmployeeProjectLinks.employeeId, employeeId),
+        ),
+      );
+    return rows.map((row) => row.clientProjectId).sort();
+  }
+
+  function sameStringList(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    return left.every((value, index) => value === right[index]);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function replaceEmployeeProjectLinks(
+    tx: any,
+    input: {
+      companyId: string;
+      clientId: string;
+      employeeId: string;
+      clientProjectIds: string[];
+    },
+  ) {
+    await tx
+      .delete(clientEmployeeProjectLinks)
+      .where(
+        and(
+          eq(clientEmployeeProjectLinks.companyId, input.companyId),
+          eq(clientEmployeeProjectLinks.employeeId, input.employeeId),
+        ),
+      );
+    if (input.clientProjectIds.length === 0) return;
+    await tx.insert(clientEmployeeProjectLinks).values(
+      input.clientProjectIds.map((clientProjectId) => ({
+        companyId: input.companyId,
+        clientId: input.clientId,
+        employeeId: input.employeeId,
+        clientProjectId,
+      })),
+    );
+  }
+
+  async function handleRegistrationCommand(input: {
+    message: typeof inboundEmailMessages.$inferSelect;
+    senderEmail: string;
+    client: { id: string; name: string };
+    requester: { id: string; name: string; role: string; email: string; projectScope: string };
+  }) {
+    const parsed = parseRegistrationRequest(input.message);
+    if (parsed.missingFields.length > 0) {
+      await sendRegistrationReplyOrThrow({
+        to: input.senderEmail,
+        reason: "missing_info",
+        message: input.message,
+        clientName: input.client.name,
+        missingFields: parsed.missingFields,
+        requestedName: parsed.name,
+        requestedEmail: parsed.email,
+      });
+      return markMessageSkipped({
+        message: input.message,
+        reason: registrationSkipReason("missing_info"),
+        details: {
+          senderEmail: input.senderEmail,
+          clientId: input.client.id,
+          employeeId: input.requester.id,
+          missingFields: parsed.missingFields,
+        },
+      });
+    }
+
+    const requestedName = parsed.name!;
+    const requestedEmail = parsed.email!;
+    if (!isValidRegistrationEmail(requestedEmail)) {
+      await sendRegistrationReplyOrThrow({
+        to: input.senderEmail,
+        reason: "invalid_email",
+        message: input.message,
+        clientName: input.client.name,
+        requestedName,
+        requestedEmail,
+      });
+      return markMessageSkipped({
+        message: input.message,
+        reason: registrationSkipReason("invalid_email"),
+        details: {
+          senderEmail: input.senderEmail,
+          clientId: input.client.id,
+          employeeId: input.requester.id,
+          requestedEmail,
+        },
+      });
+    }
+
+    const domainAccepted = await clientAcceptsEmailDomain(input.message.companyId, input.client.id, requestedEmail);
+    if (!domainAccepted) {
+      await sendRegistrationReplyOrThrow({
+        to: input.senderEmail,
+        reason: "invalid_domain",
+        message: input.message,
+        clientName: input.client.name,
+        requestedName,
+        requestedEmail,
+      });
+      return markMessageSkipped({
+        message: input.message,
+        reason: registrationSkipReason("invalid_domain"),
+        details: {
+          senderEmail: input.senderEmail,
+          clientId: input.client.id,
+          employeeId: input.requester.id,
+          requestedEmail,
+        },
+      });
+    }
+
+    const requesterProjectLinkIds = input.requester.projectScope === "selected_projects"
+      ? await getEmployeeProjectLinkIds(input.message.companyId, input.requester.id)
+      : [];
+    const previousReplyReason = registrationReplyReasonFromSkipReason(input.message.skipReason);
+    const existing = await db
+      .select({
+        id: clientEmployees.id,
+        name: clientEmployees.name,
+        role: clientEmployees.role,
+        email: clientEmployees.email,
+        projectScope: clientEmployees.projectScope,
+      })
+      .from(clientEmployees)
+      .where(
+        and(
+          eq(clientEmployees.companyId, input.message.companyId),
+          eq(clientEmployees.clientId, input.client.id),
+          sql`lower(${clientEmployees.email}) = ${requestedEmail}`,
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    let replyReason: InboundEmailRegistrationReplyReason = "created";
+    let targetEmployeeId: string | null = null;
+    if (previousReplyReason) {
+      replyReason = previousReplyReason;
+      targetEmployeeId = existing?.id ?? null;
+    } else if (!existing) {
+      // Employee insert + project-link writes must be atomic: a partial commit
+      // would leave the new employee with no links until the retry caught up.
+      targetEmployeeId = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(clientEmployees)
+          .values({
+            companyId: input.message.companyId,
+            clientId: input.client.id,
+            name: requestedName,
+            role: input.requester.role,
+            email: requestedEmail,
+            projectScope: input.requester.projectScope,
+          })
+          .returning({ id: clientEmployees.id });
+        const newId = created?.id ?? null;
+        if (newId) {
+          await replaceEmployeeProjectLinks(tx, {
+            companyId: input.message.companyId,
+            clientId: input.client.id,
+            employeeId: newId,
+            clientProjectIds: requesterProjectLinkIds,
+          });
+        }
+        return newId;
+      });
+    } else {
+      targetEmployeeId = existing.id;
+      const existingProjectLinkIds = existing.projectScope === "selected_projects"
+        ? await getEmployeeProjectLinkIds(input.message.companyId, existing.id)
+        : [];
+      const permissionsChanged =
+        existing.role !== input.requester.role ||
+        existing.projectScope !== input.requester.projectScope ||
+        !sameStringList(existingProjectLinkIds, requesterProjectLinkIds);
+
+      if (permissionsChanged) {
+        // Same atomicity concern: delete-then-insert on links without the role
+        // update in the same tx could leave permissions in an in-between state.
+        await db.transaction(async (tx) => {
+          await tx
+            .update(clientEmployees)
+            .set({
+              role: input.requester.role,
+              projectScope: input.requester.projectScope,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(clientEmployees.id, existing.id), eq(clientEmployees.companyId, input.message.companyId)));
+          await replaceEmployeeProjectLinks(tx, {
+            companyId: input.message.companyId,
+            clientId: input.client.id,
+            employeeId: existing.id,
+            clientProjectIds: requesterProjectLinkIds,
+          });
+        });
+        replyReason = "updated";
+      } else {
+        replyReason = "already_registered";
+      }
+    }
+
+    const durableSkipReason = registrationSkipReason(replyReason);
+    await db
+      .update(inboundEmailMessages)
+      .set({ skipReason: durableSkipReason, error: null, updatedAt: new Date() })
+      .where(eq(inboundEmailMessages.id, input.message.id));
+
+    await sendRegistrationReplyOrThrow({
+      to: input.senderEmail,
+      reason: replyReason,
+      message: input.message,
+      clientName: input.client.name,
+      requestedName,
+      requestedEmail,
+    });
+    await logActivity(db, {
+      companyId: input.message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.registration_request_handled",
+      entityType: "client_employee",
+      entityId: targetEmployeeId ?? input.requester.id,
+      details: {
+        clientId: input.client.id,
+        requesterEmployeeId: input.requester.id,
+        requestedEmail,
+        outcome: replyReason,
+        messageId: input.message.id,
+      },
+    });
+    return markMessageSkipped({
+      message: input.message,
+      reason: durableSkipReason,
+      details: {
+        senderEmail: input.senderEmail,
+        clientId: input.client.id,
+        employeeId: input.requester.id,
+        targetEmployeeId,
+        requestedEmail,
+      },
+    });
   }
 
   async function markMessageSkipped(input: {
@@ -1498,74 +1924,106 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .set({ status: "processing", error: null, updatedAt: new Date() })
         .where(eq(inboundEmailMessages.id, message.id));
       let completedMessage: typeof inboundEmailMessages.$inferSelect | null = null;
+      const trySendAuthReply = async (
+        toEmail: string,
+        replyReason: InboundEmailAuthorizationReplyReason,
+        clientName: string | null,
+      ) => {
+        // Auth replies are best-effort: a failure to notify the sender must
+        // never re-fail the message (would retry-storm against SMTP).
+        try {
+          const reply = await sendInboundEmailAuthorizationReply({
+            to: toEmail,
+            reason: replyReason,
+            originalSubject: message.subject,
+            clientName,
+            db,
+            companyId: message.companyId,
+          });
+          if (reply.status === "skipped") {
+            logger.warn(
+              { messageId: message.id, reason: reply.reason, skipReason: replyReason },
+              "inbound auth reply skipped",
+            );
+          }
+        } catch (replyError) {
+          logger.warn(
+            { err: replyError, messageId: message.id, skipReason: replyReason },
+            "inbound auth reply threw",
+          );
+        }
+      };
+
       try {
-        const context = await resolveProcessingContext(message);
-        const authorization = await resolveSenderAuthorization(message);
-        if (!authorization.allowed) {
-          const reason = authorization.reason ?? "sender_not_authorized";
-          if (authorization.senderEmail && isReplyRequiredSkipReason(reason)) {
-            // Auth replies are best-effort: a failure to notify the sender must
-            // never re-fail the message (would retry-storm against SMTP).
-            try {
-              const reply = await sendInboundEmailAuthorizationReply({
-                to: authorization.senderEmail,
-                reason,
-                originalSubject: message.subject,
-                clientName: authorization.client?.name ?? null,
-                db,
-                companyId: message.companyId,
-              });
-              if (reply.status === "skipped") {
-                logger.warn(
-                  { messageId: message.id, reason: reply.reason, skipReason: reason },
-                  "inbound auth reply skipped",
-                );
-              }
-            } catch (replyError) {
-              logger.warn(
-                { err: replyError, messageId: message.id, skipReason: reason },
-                "inbound auth reply threw",
-              );
-            }
+        const identity = await resolveSenderIdentity(message);
+        if (!identity.allowed) {
+          const reason = identity.reason ?? "sender_not_authorized";
+          if (identity.senderEmail && isReplyRequiredSkipReason(reason)) {
+            await trySendAuthReply(identity.senderEmail, reason, identity.client?.name ?? null);
           }
           completedMessage = await markMessageSkipped({
             message,
             reason,
             details: {
-              senderEmail: authorization.senderEmail,
-              clientId: authorization.client?.id,
-              employeeId: authorization.employee?.id,
-              targetProjectId: authorization.project?.id ?? null,
+              senderEmail: identity.senderEmail,
+              clientId: identity.client?.id,
+              targetProjectId: null,
             },
+          });
+        } else if (isRegistrationCommand(message)) {
+          completedMessage = await handleRegistrationCommand({
+            message,
+            senderEmail: identity.senderEmail,
+            client: identity.client,
+            requester: identity.employee,
           });
         } else {
-          const issue = await createIssueFromMessage(message, {
-            ...context,
-            targetProjectId: authorization.project?.id ?? null,
-          });
-          const [updated] = await db
-            .update(inboundEmailMessages)
-            .set({
-              status: "processed",
-              createdIssueId: issue.id,
-              error: null,
-              updatedAt: new Date(),
-            })
-            .where(eq(inboundEmailMessages.id, message.id))
-            .returning();
-          await logActivity(db, {
-            companyId: message.companyId,
-            ...INBOUND_EMAIL_ACTOR,
-            action: "inbound_email.issue_created",
-            entityType: "issue",
-            entityId: issue.id,
-            details: {
-              messageId: message.id,
-              identifier: issue.identifier,
-              subject: message.subject,
-            },
-          });
-          completedMessage = updated ?? { ...message, status: "processed" as const, createdIssueId: issue.id };
+          const context = await resolveProcessingContext(message);
+          const authorization = await resolveSenderAuthorization(message, identity);
+          if (!authorization.allowed) {
+            const reason = authorization.reason ?? "sender_not_authorized";
+            if (authorization.senderEmail && isReplyRequiredSkipReason(reason)) {
+              await trySendAuthReply(authorization.senderEmail, reason, authorization.client?.name ?? null);
+            }
+            completedMessage = await markMessageSkipped({
+              message,
+              reason,
+              details: {
+                senderEmail: authorization.senderEmail,
+                clientId: authorization.client?.id,
+                employeeId: authorization.employee?.id,
+                targetProjectId: authorization.project?.id ?? null,
+              },
+            });
+          } else {
+            const issue = await createIssueFromMessage(message, {
+              ...context,
+              targetProjectId: authorization.project?.id ?? null,
+            });
+            const [updated] = await db
+              .update(inboundEmailMessages)
+              .set({
+                status: "processed",
+                createdIssueId: issue.id,
+                error: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(inboundEmailMessages.id, message.id))
+              .returning();
+            await logActivity(db, {
+              companyId: message.companyId,
+              ...INBOUND_EMAIL_ACTOR,
+              action: "inbound_email.issue_created",
+              entityType: "issue",
+              entityId: issue.id,
+              details: {
+                messageId: message.id,
+                identifier: issue.identifier,
+                subject: message.subject,
+              },
+            });
+            completedMessage = updated ?? { ...message, status: "processed" as const, createdIssueId: issue.id };
+          }
         }
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
