@@ -101,6 +101,8 @@ export function backgroundJobService(db: Db) {
   ): Promise<typeof backgroundJobs.$inferSelect | null> {
     const now = options.now ?? new Date();
     const nowIso = now.toISOString();
+    // kindPrefix is concatenated with `%` and used as a LIKE pattern.
+    // Callers must pass a literal prefix (no `%` / `_` / `\`).
     const kindLike = options.kindPrefix ? `${options.kindPrefix}%` : null;
     const result = await executor.execute(sql`
       with next_job as (
@@ -137,7 +139,13 @@ export function backgroundJobService(db: Db) {
         created_at as "createdAt",
         updated_at as "updatedAt"
     `);
-    return Array.isArray(result) ? (result[0] as typeof backgroundJobs.$inferSelect | undefined) ?? null : null;
+    // postgres-js returns a Result that extends Array, so iteration works
+    // either way; this normalises and avoids relying on the Array.isArray
+    // check holding across driver upgrades.
+    const rows = (result as unknown as { rows?: unknown[] }).rows
+      ?? (result as unknown as unknown[]);
+    const claimed = Array.isArray(rows) ? rows[0] : undefined;
+    return (claimed as typeof backgroundJobs.$inferSelect | undefined) ?? null;
   }
 
   async function complete(jobId: string, executor: Db = db): Promise<void> {
@@ -177,11 +185,34 @@ export function backgroundJobService(db: Db) {
   }
 
   async function requeueStaleRunning(
-    staleAfterMs: number,
+    staleAfterMs: number | { default: number; byKind?: Record<string, number> },
     now = new Date(),
     executor: Db = db,
   ): Promise<number> {
-    const cutoff = new Date(now.getTime() - staleAfterMs);
+    const defaultMs = typeof staleAfterMs === "number" ? staleAfterMs : staleAfterMs.default;
+    const byKind = typeof staleAfterMs === "number" ? {} : (staleAfterMs.byKind ?? {});
+    // Cheapest threshold determines the prefilter — anything younger than that
+    // can't be stale under any per-kind rule. Per-kind values are then applied
+    // in memory.
+    const shortestMs = Math.min(defaultMs, ...Object.values(byKind));
+    const cutoff = new Date(now.getTime() - shortestMs);
+    const candidates = await executor
+      .select({
+        id: backgroundJobs.id,
+        kind: backgroundJobs.kind,
+        lockedAt: backgroundJobs.lockedAt,
+      })
+      .from(backgroundJobs)
+      .where(and(eq(backgroundJobs.status, "running"), lte(backgroundJobs.lockedAt, cutoff)));
+
+    const staleIds: string[] = [];
+    for (const row of candidates) {
+      const threshold = byKind[row.kind] ?? defaultMs;
+      if (row.lockedAt && now.getTime() - row.lockedAt.getTime() >= threshold) {
+        staleIds.push(row.id);
+      }
+    }
+    if (staleIds.length === 0) return 0;
     const rows = await executor
       .update(backgroundJobs)
       .set({
@@ -192,7 +223,7 @@ export function backgroundJobService(db: Db) {
         lastError: "Requeued after stale running lock",
         updatedAt: now,
       })
-      .where(and(eq(backgroundJobs.status, "running"), lte(backgroundJobs.lockedAt, cutoff)))
+      .where(and(inArray(backgroundJobs.id, staleIds), eq(backgroundJobs.status, "running")))
       .returning({ id: backgroundJobs.id });
     return rows.length;
   }

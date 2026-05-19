@@ -15,7 +15,9 @@ import {
   createDb,
   inboundEmailMailboxes,
   inboundEmailMessages,
+  inboundEmailRules,
   issues,
+  labels,
   projects,
 } from "@paperclipai/db";
 import {
@@ -89,9 +91,11 @@ describeEmbeddedPostgres("inbound email service", () => {
   afterEach(async () => {
     await db.delete(backgroundJobs);
     await db.delete(activityLog);
+    await db.delete(inboundEmailRules);
     await db.delete(inboundEmailMessages);
     await db.delete(inboundEmailMailboxes);
     await db.delete(issues);
+    await db.delete(labels);
     await db.delete(clientEmployeeProjectLinks);
     await db.delete(clientEmployees);
     await db.delete(clientEmailDomains);
@@ -470,13 +474,14 @@ describeEmbeddedPostgres("inbound email service", () => {
   it("matches short project aliases as whole tokens", async () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });
-    const project = await seedProject(companyId, "AI");
-    await linkClientProject({ companyId, clientId: client.id, projectId: project.id, projectAliases: ["AI"] });
+    // ERP is 3 chars: the minimum single-token alias length we accept.
+    const project = await seedProject(companyId, "ERP");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id, projectAliases: ["ERP"] });
     const mailbox = await createMailbox(companyId);
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
-      rawEmail: rawEmail({ messageId: "<short-alias-token@example.com>", subject: "AI outage" }),
+      rawEmail: rawEmail({ messageId: "<short-alias-token@example.com>", subject: "ERP outage" }),
       providerUid: "short-alias-token",
     });
 
@@ -518,11 +523,14 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(await db.select().from(issues)).toEqual([]);
     const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
     expect(email?.text).toContain("mais de um projeto possível");
-    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+    // Ambiguous-project replies are a clarification request, so we keep the
+    // source message visible (mark seen) instead of deleting it. The user's
+    // reply then threads against the original.
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
       expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
       "ambiguous-project",
     );
-    expect(markMessageSeenInMailboxMock).not.toHaveBeenCalled();
   }, 20_000);
 
   it("retries source deletion without recreating an already-created issue", async () => {
@@ -934,5 +942,209 @@ describeEmbeddedPostgres("inbound email service", () => {
       createMode: "issue",
       markSeen: true,
     })).rejects.toThrow("targetProjectId must belong to the same company");
+  });
+
+  it("reuses one IMAP session for in-poll disposition instead of reconnecting per message", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production Deploy");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+
+    const sessionMarkSeen = vi.fn(async () => undefined);
+    const sessionDelete = vi.fn(async () => undefined);
+    const sessionClose = vi.fn(async () => undefined);
+    fetchUnreadMessagesMock.mockResolvedValueOnce({
+      messages: [
+        {
+          providerUid: "uid-1",
+          raw: Buffer.from(rawEmail({ messageId: "<poll-one@example.com>", subject: "ProductionDeploy alert one" })),
+        },
+        {
+          providerUid: "uid-2",
+          raw: Buffer.from(rawEmail({ messageId: "<poll-two@example.com>", from: "user@unknown.example", subject: "stray" })),
+        },
+      ],
+      markSeen: sessionMarkSeen,
+      deleteMessage: sessionDelete,
+      close: sessionClose,
+    });
+
+    await svc.pollMailbox(companyId, mailbox.id);
+
+    expect(fetchUnreadMessagesMock).toHaveBeenCalledTimes(1);
+    // In-session disposition: standalone helpers MUST NOT be called.
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).not.toHaveBeenCalled();
+    // First message is processed (delete); second is unknown sender (mark seen).
+    expect(sessionDelete).toHaveBeenCalledWith("uid-1");
+    expect(sessionMarkSeen).toHaveBeenCalledWith("uid-2");
+    expect(sessionClose).toHaveBeenCalledTimes(1);
+
+    const storedMessages = await db.select().from(inboundEmailMessages);
+    expect(storedMessages).toHaveLength(2);
+    const processedRow = storedMessages.find((m) => m.providerUid === "uid-1")!;
+    expect(processedRow.status).toBe("processed");
+    expect(processedRow.sourceDeletedAt).toBeTruthy();
+    const seenRow = storedMessages.find((m) => m.providerUid === "uid-2")!;
+    expect(seenRow.status).toBe("skipped");
+    expect(seenRow.skipReason).toBe("unknown_sender_domain");
+    expect(seenRow.sourceSeenAt).toBeTruthy();
+  }, 20_000);
+
+  it("does not use in-session disposition for a duplicate row with a different provider UID", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production Deploy");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const raw = rawEmail({ messageId: "<poll-duplicate@example.com>", subject: "ProductionDeploy failure" });
+    const original = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      providerUid: "old-uid",
+      rawEmail: raw,
+      processAfterImport: false,
+    });
+    await svc.processMessage(companyId, original.message.id);
+
+    // Simulate an older processed row that still needs source cleanup. The
+    // next poll fetches the same email content under a different live IMAP UID.
+    await db
+      .update(inboundEmailMessages)
+      .set({ sourceDeletedAt: null })
+      .where(eq(inboundEmailMessages.id, original.message.id));
+    deleteMessageFromMailboxMock.mockClear();
+
+    const sessionMarkSeen = vi.fn(async () => undefined);
+    const sessionDelete = vi.fn(async () => undefined);
+    const sessionClose = vi.fn(async () => undefined);
+    fetchUnreadMessagesMock.mockResolvedValueOnce({
+      messages: [
+        {
+          providerUid: "new-uid",
+          raw: Buffer.from(raw),
+        },
+      ],
+      markSeen: sessionMarkSeen,
+      deleteMessage: sessionDelete,
+      close: sessionClose,
+    });
+
+    await svc.pollMailbox(companyId, mailbox.id);
+
+    expect(sessionDelete).not.toHaveBeenCalled();
+    expect(sessionMarkSeen).not.toHaveBeenCalled();
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(sessionClose).toHaveBeenCalledTimes(1);
+    const queued = await db.select().from(backgroundJobs);
+    expect(queued.some((job) => job.kind === "email.process_message" && job.dedupeKey === original.message.id)).toBe(true);
+  }, 20_000);
+
+  it("does not leak <script> or <style> content into the issue description or project matching", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const matchingProject = await seedProject(companyId, "Deploy Pipeline");
+    const otherProject = await seedProject(companyId, "Alert Pipeline");
+    await linkClientProject({ companyId, clientId: client.id, projectId: matchingProject.id });
+    await linkClientProject({ companyId, clientId: client.id, projectId: otherProject.id });
+    const mailbox = await createMailbox(companyId);
+
+    const htmlBody = [
+      "MIME-Version: 1.0",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      "<html><head><style>.alert { color: red; }</style></head>",
+      "<body><p>The Deploy Pipeline is down.</p>",
+      "<script>console.log('Alert Pipeline phishing payload');</script>",
+      "<!-- Alert Pipeline secret comment -->",
+      "</body></html>",
+    ].join("\r\n");
+    const raw = [
+      `Message-ID: <html-sanitise@example.com>`,
+      "From: Customer <customer@example.com>",
+      "To: intake@example.com",
+      "Subject: Site down",
+      "Date: Tue, 12 May 2026 10:00:00 +0000",
+      htmlBody,
+    ].join("\r\n");
+
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "html-sanitise",
+      processAfterImport: false,
+    });
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.projectId).toBe(matchingProject.id);
+    expect(createdIssue.description).not.toContain("phishing payload");
+    expect(createdIssue.description).not.toContain("color: red");
+    expect(createdIssue.description).not.toContain("secret comment");
+  }, 20_000);
+
+  it("omits the inbound message UUID and Message-ID from the issue description", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production Deploy");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<no-uuid@example.com>", subject: "ProductionDeploy failure" }),
+      providerUid: "no-uuid",
+      processAfterImport: false,
+    });
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.description).not.toContain(imported.message.id);
+    expect(createdIssue.description).not.toContain("Message-ID:");
+    expect(createdIssue.description).not.toContain("Inbound message:");
+    // originId carries the structured pointer back to the inbound message.
+    expect(createdIssue.originId).toBe(imported.message.id);
+  }, 20_000);
+
+  it("rejects rules with labelIds that do not belong to the company", async () => {
+    const companyId = await seedCompany();
+    const foreignCompanyId = await seedCompany("Other Co");
+    const [foreignLabel] = await db
+      .insert(labels)
+      .values({ companyId: foreignCompanyId, name: "Foreign", color: "#ff0000" })
+      .returning();
+
+    await expect(
+      svc.createRule(companyId, {
+        enabled: true,
+        senderPattern: null,
+        subjectPattern: null,
+        targetProjectId: null,
+        createMode: "issue",
+        priority: "medium",
+        labelIds: [foreignLabel.id],
+      }),
+    ).rejects.toThrow("labels are invalid");
+  });
+
+  it("accepts rules whose labelIds all belong to the company", async () => {
+    const companyId = await seedCompany();
+    const [ownLabel] = await db
+      .insert(labels)
+      .values({ companyId, name: "Triage", color: "#00ff00" })
+      .returning();
+
+    const rule = await svc.createRule(companyId, {
+      enabled: true,
+      senderPattern: null,
+      subjectPattern: null,
+      targetProjectId: null,
+      createMode: "issue",
+      priority: "medium",
+      labelIds: [ownLabel.id],
+    });
+    expect(rule.labelIds).toEqual([ownLabel.id]);
   });
 });

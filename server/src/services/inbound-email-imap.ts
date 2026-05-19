@@ -48,6 +48,10 @@ export async function testImapConnection(config: ImapMailboxConfig): Promise<voi
 
 export type FetchUnreadResult = {
   messages: FetchedImapMessage[];
+  /** Mark a message seen reusing the open lock — much faster than reconnecting. */
+  markSeen: (providerUid: string) => Promise<void>;
+  /** Delete a message reusing the open lock. */
+  deleteMessage: (providerUid: string) => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -71,6 +75,12 @@ export async function fetchUnreadMessages(
       // ignore
     }
   };
+  const markSeen = async (providerUid: string): Promise<void> => {
+    await client.messageFlagsAdd(providerUid, ["\\Seen"], { uid: true });
+  };
+  const deleteMessage = async (providerUid: string): Promise<void> => {
+    await client.messageDelete(providerUid, { uid: true });
+  };
   try {
     const uids = (await client.search({ seen: false }, { uid: true })) || [];
     const selected = uids.slice(0, limit);
@@ -85,9 +95,13 @@ export async function fetchUnreadMessages(
     await close();
     throw error;
   }
-  return { messages, close };
+  return { messages, markSeen, deleteMessage, close };
 }
 
+/**
+ * Slow path: open a fresh IMAP session just to delete one message. Prefer
+ * `FetchUnreadResult.deleteMessage` when you already hold a poll-cycle session.
+ */
 export async function deleteMessageFromMailbox(config: ImapMailboxConfig, providerUid: string): Promise<void> {
   const client = buildClient(config);
   try {
@@ -107,6 +121,10 @@ export async function deleteMessageFromMailbox(config: ImapMailboxConfig, provid
   }
 }
 
+/**
+ * Slow path: open a fresh IMAP session just to mark one message seen. Prefer
+ * `FetchUnreadResult.markSeen` when you already hold a poll-cycle session.
+ */
 export async function markMessageSeenInMailbox(config: ImapMailboxConfig, providerUid: string): Promise<void> {
   const client = buildClient(config);
   try {

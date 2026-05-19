@@ -14,6 +14,7 @@ import {
   inboundEmailMessages,
   inboundEmailRules,
   issueAttachments,
+  labels,
   projects,
 } from "@paperclipai/db";
 import type {
@@ -55,14 +56,17 @@ const REPLY_REQUIRED_SKIP_REASONS: ReadonlySet<InboundEmailAuthorizationReplyRea
   "project_not_identified",
   "project_match_ambiguous",
 ]);
+// Terminal rejections: delete the source so it doesn't clutter the inbox.
 const DELETE_AFTER_REPLY_REASONS: ReadonlySet<InboundEmailAuthorizationReplyReason> = new Set([
   "employee_not_registered",
   "project_not_authorized",
-  "project_match_ambiguous",
 ]);
+// Clarification requests + unknown senders: keep the source but mark seen so
+// the user's reply lands in the visible thread and we don't re-poll it.
 const MARK_SEEN_SKIP_REASONS: ReadonlySet<string> = new Set([
   "unknown_sender_domain",
   "project_not_identified",
+  "project_match_ambiguous",
 ]);
 const MAX_SOURCE_DELETE_ERROR_LENGTH = 2_000;
 
@@ -118,19 +122,28 @@ function decodeHtmlEntities(value: string): string {
 }
 
 function htmlToPlain(html: string): string {
-  return decodeHtmlEntities(html.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+  const withoutNoise = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  return decodeHtmlEntities(withoutNoise.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 function secretNameForMailbox(mailboxId: string): string {
   return `${INBOUND_EMAIL_PASSWORD_SECRET_PREFIX}:${mailboxId}`;
 }
 
-function redactMailbox(row: typeof inboundEmailMailboxes.$inferSelect): MailboxView {
+type RawMailboxRow = typeof inboundEmailMailboxes.$inferSelect;
+type RedactedMailbox =
+  & Omit<RawMailboxRow, "passwordSecretName">
+  & { passwordSet: boolean };
+
+function redactMailbox(row: RawMailboxRow): RedactedMailbox {
   const { passwordSecretName, ...safeRow } = row;
   return {
     ...safeRow,
     passwordSet: Boolean(passwordSecretName),
-  } as MailboxView;
+  };
 }
 
 function hashBuffer(buffer: Buffer): string {
@@ -189,18 +202,33 @@ function hasContiguousTokenMatch(searchTokens: string[], candidateTokens: string
   return false;
 }
 
-function matchesProjectName(searchTokens: string[], name: string | null | undefined): { matched: boolean; score: number } {
+const MIN_SINGLE_TOKEN_MATCH_LENGTH = 3;
+
+function matchesProjectName(
+  searchTokens: string[],
+  name: string | null | undefined,
+): { matched: boolean; tokenCount: number; score: number } {
   const candidateTokens = projectMatchTokens(name);
-  if (candidateTokens.length === 0) return { matched: false, score: 0 };
+  if (candidateTokens.length === 0) return { matched: false, tokenCount: 0, score: 0 };
 
   const candidateCompact = candidateTokens.join("");
   if (candidateTokens.length === 1) {
-    return { matched: searchTokens.includes(candidateCompact), score: candidateCompact.length };
+    // Single-token names match only when the token is long enough to avoid
+    // false positives ("API", "X") against arbitrary words in the body.
+    if (candidateCompact.length < MIN_SINGLE_TOKEN_MATCH_LENGTH) {
+      return { matched: false, tokenCount: 1, score: candidateCompact.length };
+    }
+    return {
+      matched: searchTokens.includes(candidateCompact),
+      tokenCount: 1,
+      score: candidateCompact.length,
+    };
   }
 
   const compactTokenMatch = searchTokens.includes(candidateCompact);
   return {
     matched: compactTokenMatch || hasContiguousTokenMatch(searchTokens, candidateTokens),
+    tokenCount: candidateTokens.length,
     score: candidateCompact.length,
   };
 }
@@ -244,8 +272,6 @@ function formatIssueDescription(input: {
     `From: ${input.message.fromAddress ?? "unknown"}`,
     `To: ${input.message.toAddresses.length > 0 ? input.message.toAddresses.join(", ") : "unknown"}`,
     `Received: ${input.message.receivedAt?.toISOString() ?? "unknown"}`,
-    `Message-ID: ${input.message.messageId ?? "none"}`,
-    `Inbound message: ${input.message.id}`,
     "",
     "Body:",
     bodyFallback,
@@ -269,6 +295,18 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       .where(and(eq(projects.id, projectId), eq(projects.companyId, companyId)))
       .then((rows) => rows[0] ?? null);
     if (!row) throw unprocessable("targetProjectId must belong to the same company");
+  }
+
+  async function assertLabelsBelongToCompany(companyId: string, labelIds: string[] | undefined) {
+    if (!labelIds || labelIds.length === 0) return;
+    const deduped = [...new Set(labelIds)];
+    const existing = await db
+      .select({ id: labels.id })
+      .from(labels)
+      .where(and(eq(labels.companyId, companyId), inArray(labels.id, deduped)));
+    if (existing.length !== deduped.length) {
+      throw unprocessable("One or more labels are invalid for this company");
+    }
   }
 
   async function loadMailbox(companyId: string, mailboxId: string) {
@@ -469,7 +507,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         ),
       );
 
-    const matches = new Map<string, { clientProjectId: string; projectId: string; projectName: string; score: number }>();
+    const matches = new Map<
+      string,
+      { clientProjectId: string; projectId: string; projectName: string; tokenCount: number; score: number }
+    >();
     for (const row of rows) {
       const names = [
         row.projectName,
@@ -480,11 +521,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         const match = matchesProjectName(searchTokens, name);
         if (!match.matched) continue;
         const existing = matches.get(row.projectId);
-        if (!existing || match.score > existing.score) {
+        const isStronger =
+          !existing ||
+          match.tokenCount > existing.tokenCount ||
+          (match.tokenCount === existing.tokenCount && match.score > existing.score);
+        if (isStronger) {
           matches.set(row.projectId, {
             clientProjectId: row.clientProjectId,
             projectId: row.projectId,
             projectName: row.projectName,
+            tokenCount: match.tokenCount,
             score: match.score,
           });
         }
@@ -492,16 +538,22 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
 
     if (matches.size === 0) return { status: "not_identified" };
-    const ranked = [...matches.values()].sort((a, b) => b.score - a.score || a.projectName.localeCompare(b.projectName));
-    const bestScore = ranked[0]!.score;
-    const tied = ranked.filter((match) => match.score === bestScore);
+    const ranked = [...matches.values()].sort(
+      (a, b) =>
+        b.tokenCount - a.tokenCount ||
+        b.score - a.score ||
+        a.projectName.localeCompare(b.projectName),
+    );
+    const best = ranked[0]!;
+    const tied = ranked.filter(
+      (match) => match.tokenCount === best.tokenCount && match.score === best.score,
+    );
     if (tied.length > 1) return { status: "ambiguous", projectIds: tied.map((match) => match.projectId) };
-    const match = ranked[0]!;
     return {
       status: "matched",
-      clientProjectId: match.clientProjectId,
-      projectId: match.projectId,
-      projectName: match.projectName,
+      clientProjectId: best.clientProjectId,
+      projectId: best.projectId,
+      projectName: best.projectName,
     };
   }
 
@@ -685,31 +737,46 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return shouldDeleteSourceMessage(message) || shouldMarkSourceSeen(message);
   }
 
-  async function deleteSourceMessageIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
-    if (!shouldDeleteSourceMessage(message)) return message;
+  type SessionImapOps = {
+    markSeen: (providerUid: string) => Promise<void>;
+    deleteMessage: (providerUid: string) => Promise<void>;
+  };
+
+  async function performDispositionAction(
+    message: typeof inboundEmailMessages.$inferSelect,
+    action: "delete" | "seen",
+    ops?: SessionImapOps,
+  ): Promise<void> {
+    if (ops) {
+      if (action === "delete") await ops.deleteMessage(message.providerUid!);
+      else await ops.markSeen(message.providerUid!);
+      return;
+    }
+    // Fallback: open a fresh IMAP session for this single op. Only used when
+    // disposition runs outside of pollMailbox (e.g., a retry of a stuck row).
     const mailbox = await loadMailbox(message.companyId, message.mailboxId);
     const password = await resolveMailboxPassword(mailbox);
-    if (!password) {
-      const error = "Inbound mailbox password is not configured";
-      await db
-        .update(inboundEmailMessages)
-        .set({ sourceDeleteError: error, updatedAt: new Date() })
-        .where(eq(inboundEmailMessages.id, message.id));
-      throw new Error(error);
-    }
+    if (!password) throw new Error("Inbound mailbox password is not configured");
+    const config = {
+      host: mailbox.host,
+      port: mailbox.port,
+      username: mailbox.username,
+      password,
+      folder: mailbox.folder,
+      tls: mailbox.tls,
+    };
+    if (action === "delete") await deleteMessageFromMailbox(config, message.providerUid!);
+    else await markMessageSeenInMailbox(config, message.providerUid!);
+  }
+
+  async function deleteSourceMessageIfEligible(
+    message: typeof inboundEmailMessages.$inferSelect,
+    ops?: SessionImapOps,
+  ) {
+    if (!shouldDeleteSourceMessage(message)) return message;
 
     try {
-      await deleteMessageFromMailbox(
-        {
-          host: mailbox.host,
-          port: mailbox.port,
-          username: mailbox.username,
-          password,
-          folder: mailbox.folder,
-          tls: mailbox.tls,
-        },
-        message.providerUid!,
-      );
+      await performDispositionAction(message, "delete", ops);
     } catch (error) {
       const sourceDeleteError = truncateSourceDeleteError(error);
       await db
@@ -741,31 +808,14 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return updated ?? { ...message, sourceDeletedAt: now, sourceDeleteError: null, updatedAt: now };
   }
 
-  async function markSourceMessageSeenIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
+  async function markSourceMessageSeenIfEligible(
+    message: typeof inboundEmailMessages.$inferSelect,
+    ops?: SessionImapOps,
+  ) {
     if (!shouldMarkSourceSeen(message)) return message;
-    const mailbox = await loadMailbox(message.companyId, message.mailboxId);
-    const password = await resolveMailboxPassword(mailbox);
-    if (!password) {
-      const error = "Inbound mailbox password is not configured";
-      await db
-        .update(inboundEmailMessages)
-        .set({ sourceSeenError: error, updatedAt: new Date() })
-        .where(eq(inboundEmailMessages.id, message.id));
-      throw new Error(error);
-    }
 
     try {
-      await markMessageSeenInMailbox(
-        {
-          host: mailbox.host,
-          port: mailbox.port,
-          username: mailbox.username,
-          password,
-          folder: mailbox.folder,
-          tls: mailbox.tls,
-        },
-        message.providerUid!,
-      );
+      await performDispositionAction(message, "seen", ops);
     } catch (error) {
       const sourceSeenError = truncateSourceDeleteError(error);
       await db
@@ -797,9 +847,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return updated ?? { ...message, sourceSeenAt: now, sourceSeenError: null, updatedAt: now };
   }
 
-  async function applySourceDispositionIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
-    if (shouldDeleteSourceMessage(message)) return deleteSourceMessageIfEligible(message);
-    if (shouldMarkSourceSeen(message)) return markSourceMessageSeenIfEligible(message);
+  async function applySourceDispositionIfEligible(
+    message: typeof inboundEmailMessages.$inferSelect,
+    ops?: SessionImapOps,
+  ) {
+    if (shouldDeleteSourceMessage(message)) return deleteSourceMessageIfEligible(message, ops);
+    if (shouldMarkSourceSeen(message)) return markSourceMessageSeenIfEligible(message, ops);
     return message;
   }
 
@@ -973,6 +1026,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     createRule: async (companyId: string, input: CreateInboundEmailRule) => {
       if (input.mailboxId) await loadMailbox(companyId, input.mailboxId);
       await assertProjectBelongsToCompany(companyId, input.targetProjectId);
+      await assertLabelsBelongToCompany(companyId, input.labelIds);
       const [rule] = await db
         .insert(inboundEmailRules)
         .values({
@@ -993,6 +1047,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     updateRule: async (companyId: string, ruleId: string, input: UpdateInboundEmailRule) => {
       if (input.mailboxId) await loadMailbox(companyId, input.mailboxId);
       await assertProjectBelongsToCompany(companyId, input.targetProjectId);
+      await assertLabelsBelongToCompany(companyId, input.labelIds);
       const [rule] = await db
         .update(inboundEmailRules)
         .set({
@@ -1094,6 +1149,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       if (!password) throw unprocessable("Inbound mailbox password is not configured");
 
       const now = new Date();
+      // lastPollAt is bumped before the fetch on purpose: a flapping mailbox
+      // still consumes one `pollIntervalSeconds` window between retries, so
+      // a broken connection doesn't pin the worker in a tight reconnect loop.
       await db
         .update(inboundEmailMailboxes)
         .set({ lastPollAt: now, lastError: null, updatedAt: now })
@@ -1113,15 +1171,50 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           },
           options?.fetchLimit ?? DEFAULT_EMAIL_FETCH_LIMIT,
         );
+        const sessionOps: SessionImapOps = {
+          markSeen: session.markSeen,
+          deleteMessage: session.deleteMessage,
+        };
         for (const message of session.messages) {
+          // Import without enqueueing — we process inline below using the live
+          // IMAP session so source-disposition (delete/mark-seen) reuses the
+          // already-held lock instead of opening a fresh connection per message.
           const result = await api.submitRawMessage({
             companyId,
             mailboxId: mailbox.id,
             providerUid: message.providerUid,
             rawEmail: message.raw,
-            processAfterImport: true,
+            processAfterImport: false,
           });
           if (result.status !== "duplicate") imported += 1;
+          const sameSourceMessage =
+            result.message.mailboxId === mailbox.id && result.message.providerUid === message.providerUid;
+          if (result.status === "duplicate" && !sameSourceMessage) {
+            if (
+              (
+                result.message.status !== "processed" &&
+                result.message.status !== "duplicate" &&
+                result.message.status !== "skipped" &&
+                !result.message.createdIssueId
+              ) ||
+              shouldFinalizeSourceDisposition(result.message)
+            ) {
+              await enqueueProcessMessage(companyId, result.message.id);
+            }
+            continue;
+          }
+          try {
+            await api.processMessage(companyId, result.message.id, sessionOps);
+          } catch (processError) {
+            // Inline processing failed — fall back to the job queue so the
+            // worker can retry with backoff. The session is still open for
+            // remaining messages in this batch.
+            logger.warn(
+              { err: processError, mailboxId: mailbox.id, messageId: result.message.id },
+              "inline processMessage failed, falling back to job queue",
+            );
+            await enqueueProcessMessage(companyId, result.message.id);
+          }
         }
         await db
           .update(inboundEmailMailboxes)
@@ -1225,7 +1318,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return { message, status: "persisted" as const };
     },
 
-    processMessage: async (companyId: string, messageId: string) => {
+    processMessage: async (companyId: string, messageId: string, ops?: SessionImapOps) => {
       const message = await db
         .select()
         .from(inboundEmailMessages)
@@ -1233,7 +1326,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .then((rows) => rows[0] ?? null);
       if (!message) throw notFound("Inbound email message not found");
       if (message.status === "processed" || message.status === "duplicate" || message.status === "skipped") {
-        return applySourceDispositionIfEligible(message);
+        return applySourceDispositionIfEligible(message, ops);
       }
       await db
         .update(inboundEmailMessages)
@@ -1305,7 +1398,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .where(eq(inboundEmailMessages.id, message.id));
         throw error;
       }
-      return applySourceDispositionIfEligible(completedMessage);
+      return applySourceDispositionIfEligible(completedMessage, ops);
     },
 
     runNextEmailJob: async (workerId: string) => {
@@ -1337,7 +1430,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       batchSize = DEFAULT_EMAIL_WORKER_BATCH_SIZE,
       options?: { runScheduler?: boolean },
     ) => {
-      await jobs.requeueStaleRunning(5 * 60_000);
+      await jobs.requeueStaleRunning({
+        default: 5 * 60_000,
+        byKind: {
+          // Polls may legitimately hold the lock for the IMAP socket timeout
+          // (60s) plus a batch of in-session processMessage calls. Give them
+          // more headroom before we declare the worker dead and re-fire.
+          [EMAIL_POLL_MAILBOX_JOB_KIND]: 10 * 60_000,
+        },
+      });
       if (options?.runScheduler !== false) {
         await api.enqueueDueMailboxPollJobs();
       }
