@@ -69,6 +69,11 @@ export interface InboundEmailMessage {
   rawStorageKey: string | null;
   createdIssueId: string | null;
   error: string | null;
+  skipReason: string | null;
+  sourceDeletedAt: Date | null;
+  sourceDeleteError: string | null;
+  sourceSeenAt: Date | null;
+  sourceSeenError: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

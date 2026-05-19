@@ -26,11 +26,22 @@ import { inboundEmailService } from "../services/inbound-email.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
+const deleteMessageFromMailboxMock = vi.hoisted(() => vi.fn(async () => undefined));
+const markMessageSeenInMailboxMock = vi.hoisted(() => vi.fn(async () => undefined));
+const fetchUnreadMessagesMock = vi.hoisted(() => vi.fn());
+const testImapConnectionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("nodemailer", () => ({
   default: {
     createTransport: createTransportMock,
   },
+}));
+
+vi.mock("../services/inbound-email-imap.js", () => ({
+  deleteMessageFromMailbox: deleteMessageFromMailboxMock,
+  fetchUnreadMessages: fetchUnreadMessagesMock,
+  markMessageSeenInMailbox: markMessageSeenInMailboxMock,
+  testImapConnection: testImapConnectionMock,
 }));
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
@@ -42,7 +53,7 @@ if (!embeddedPostgresSupport.supported) {
   );
 }
 
-function rawEmail(input?: { subject?: string; messageId?: string; from?: string }) {
+function rawEmail(input?: { subject?: string; messageId?: string; from?: string; body?: string }) {
   return [
     `Message-ID: ${input?.messageId ?? `<${randomUUID()}@example.com>`}`,
     `From: Customer <${input?.from ?? "customer@example.com"}>`,
@@ -51,7 +62,7 @@ function rawEmail(input?: { subject?: string; messageId?: string; from?: string 
     "Date: Tue, 12 May 2026 10:00:00 +0000",
     "Content-Type: text/plain; charset=utf-8",
     "",
-    "Please investigate the production deploy failure.",
+    input?.body ?? "Please investigate the production deploy failure.",
   ].join("\r\n");
 }
 
@@ -69,6 +80,10 @@ describeEmbeddedPostgres("inbound email service", () => {
   beforeEach(() => {
     createTransportMock.mockClear();
     sendMailMock.mockClear();
+    deleteMessageFromMailboxMock.mockClear();
+    markMessageSeenInMailboxMock.mockClear();
+    fetchUnreadMessagesMock.mockReset();
+    testImapConnectionMock.mockClear();
   });
 
   afterEach(async () => {
@@ -164,13 +179,21 @@ describeEmbeddedPostgres("inbound email service", () => {
     return project;
   }
 
-  async function linkClientProject(input: { companyId: string; clientId: string; projectId: string }) {
+  async function linkClientProject(input: {
+    companyId: string;
+    clientId: string;
+    projectId: string;
+    projectNameOverride?: string | null;
+    projectAliases?: string[];
+  }) {
     const [clientProject] = await db
       .insert(clientProjects)
       .values({
         companyId: input.companyId,
         clientId: input.clientId,
         projectId: input.projectId,
+        projectNameOverride: input.projectNameOverride ?? null,
+        projectAliases: input.projectAliases ?? [],
         status: "active",
       })
       .returning();
@@ -197,7 +220,9 @@ describeEmbeddedPostgres("inbound email service", () => {
 
   it("imports a raw inbound email, deduplicates it, and creates an issue through the queue", async () => {
     const companyId = await seedCompany();
-    await seedClientIdentity({ companyId });
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production Deploy");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
     const mailbox = await svc.createMailbox(
       companyId,
       {
@@ -221,7 +246,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(mailbox.passwordSet).toBe(true);
     expect(mailbox).not.toHaveProperty("passwordSecretName");
 
-    const message = rawEmail({ messageId: "<deploy-failure@example.com>" });
+    const message = rawEmail({ messageId: "<deploy-failure@example.com>", subject: "ProductionDeploy failure" });
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
@@ -244,11 +269,18 @@ describeEmbeddedPostgres("inbound email service", () => {
     const [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("processed");
     expect(storedMessage.createdIssueId).toBeTruthy();
+    expect(storedMessage.sourceDeletedAt).toBeTruthy();
+    expect(storedMessage.sourceDeleteError).toBeNull();
 
     const [createdIssue] = await db.select().from(issues);
-    expect(createdIssue.title).toBe("Need help with production deploy");
+    expect(createdIssue.title).toBe("ProductionDeploy failure");
+    expect(createdIssue.projectId).toBe(project.id);
     expect(createdIssue.originKind).toBe("inbound_email");
     expect(createdIssue.originId).toBe(storedMessage.id);
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "101",
+    );
   }, 20_000);
 
   it("skips unknown sender domains without sending a reply", async () => {
@@ -268,6 +300,13 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.skipReason).toBe("unknown_sender_domain");
     expect(await db.select().from(issues)).toEqual([]);
     expect(sendMailMock).not.toHaveBeenCalled();
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "unknown-domain",
+    );
+    expect(storedMessage.sourceSeenAt).toBeTruthy();
+    expect(storedMessage.sourceSeenError).toBeNull();
   }, 20_000);
 
   it("does not authorize a sender through an inactive client", async () => {
@@ -289,6 +328,11 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.skipReason).toBe("unknown_sender_domain");
     expect(await db.select().from(issues)).toEqual([]);
     expect(sendMailMock).not.toHaveBeenCalled();
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "inactive-client",
+    );
   }, 20_000);
 
   it("replies in Portuguese when the domain is accepted but the employee is not registered", async () => {
@@ -318,18 +362,24 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(email?.text).toContain("não está cadastrado");
     expect(email?.text).toContain("Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro.");
     expect(email?.html).toContain("Solicitação não processada");
+    expect(storedMessage.sourceDeletedAt).toBeTruthy();
+    expect(storedMessage.sourceDeleteError).toBeNull();
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "unregistered",
+    );
   }, 20_000);
 
-  it("creates an issue when a registered employee is allowed for the target project", async () => {
+  it("creates an issue when a registered employee mentions an allowed project", async () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });
-    const project = await seedProject(companyId);
+    const project = await seedProject(companyId, "OC Importer");
     await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
-    const mailbox = await createMailbox(companyId, project.id);
+    const mailbox = await createMailbox(companyId);
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
-      rawEmail: rawEmail({ messageId: "<allowed-project@example.com>" }),
+      rawEmail: rawEmail({ messageId: "<allowed-project@example.com>", subject: "Issue in oc-importer" }),
       providerUid: "allowed-project",
     });
 
@@ -340,21 +390,266 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.status).toBe("processed");
     expect(createdIssue.projectId).toBe(project.id);
     expect(sendMailMock).not.toHaveBeenCalled();
+    expect(storedMessage.sourceDeletedAt).toBeTruthy();
+    expect(storedMessage.sourceDeleteError).toBeNull();
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "allowed-project",
+    );
   }, 20_000);
 
-  it("replies when a registered employee targets a project not linked to the client", async () => {
+  it("matches allowed projects by aliases in the email body", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Long Internal Name");
+    await linkClientProject({
+      companyId,
+      clientId: client.id,
+      projectId: project.id,
+      projectNameOverride: "Client Portal",
+      projectAliases: ["Portal Azul"],
+    });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<alias-project@example.com>",
+        subject: "New request",
+        body: "Please review the PortalAzul onboarding issue.",
+      }),
+      providerUid: "alias-project",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(sendMailMock).not.toHaveBeenCalled();
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "alias-project",
+    );
+  }, 20_000);
+
+  it("does not match short project aliases inside unrelated words", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "AI");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id, projectAliases: ["AI"] });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<short-alias-substring@example.com>",
+        subject: "Service failure",
+        body: "The document parser is failing again.",
+      }),
+      providerUid: "short-alias-substring",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "short-alias-substring",
+    );
+  }, 20_000);
+
+  it("matches short project aliases as whole tokens", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "AI");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id, projectAliases: ["AI"] });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<short-alias-token@example.com>", subject: "AI outage" }),
+      providerUid: "short-alias-token",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(sendMailMock).not.toHaveBeenCalled();
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "short-alias-token",
+    );
+  }, 20_000);
+
+  it("replies when project matching is ambiguous", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId });
+    const firstProject = await seedProject(companyId, "North Portal");
+    const secondProject = await seedProject(companyId, "South Portal");
+    await linkClientProject({ companyId, clientId: client.id, projectId: firstProject.id, projectAliases: ["Portal"] });
+    await linkClientProject({ companyId, clientId: client.id, projectId: secondProject.id, projectAliases: ["Portal"] });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<ambiguous-project@example.com>", subject: "Portal request" }),
+      providerUid: "ambiguous-project",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_match_ambiguous");
+    expect(await db.select().from(issues)).toEqual([]);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("mais de um projeto possível");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "ambiguous-project",
+    );
+    expect(markMessageSeenInMailboxMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("retries source deletion without recreating an already-created issue", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Delete Retry");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const raw = rawEmail({ messageId: "<delete-retry@example.com>", subject: "DeleteRetry incident" });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "delete-retry",
+      processAfterImport: false,
+    });
+    deleteMessageFromMailboxMock.mockRejectedValueOnce(new Error("imap delete failed"));
+
+    await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow("imap delete failed");
+
+    let [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.createdIssueId).toBeTruthy();
+    expect(storedMessage.sourceDeletedAt).toBeNull();
+    expect(storedMessage.sourceDeleteError).toBe("imap delete failed");
+    expect((await db.select().from(issues)).length).toBe(1);
+
+    await db.delete(backgroundJobs);
+    const duplicate = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "delete-retry",
+      processAfterImport: true,
+    });
+    expect(duplicate.status).toBe("duplicate");
+    expect((await db.select().from(backgroundJobs)).some((job) => job.kind === "email.process_message")).toBe(true);
+
+    const processed = await svc.runEmailWorkerOnce("delete-retry-worker", 5, { runScheduler: false });
+    expect(processed).toBe(1);
+
+    [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.sourceDeletedAt).toBeTruthy();
+    expect(storedMessage.sourceDeleteError).toBeNull();
+    expect((await db.select().from(issues)).length).toBe(1);
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledTimes(2);
+  }, 20_000);
+
+  it("replies with no-project guidance when the only named client project link is inactive", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Paused Portal");
+    const clientProject = await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    await db.update(clientProjects).set({ status: "inactive" }).where(eq(clientProjects.id, clientProject.id));
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<inactive-client-project@example.com>", subject: "Paused Portal is down" }),
+      providerUid: "inactive-client-project",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "inactive-client-project",
+    );
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("replies with no-project guidance when no linked project is named", async () => {
     const companyId = await seedCompany();
     await db
       .update(companies)
       .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
       .where(eq(companies.id, companyId));
     await seedClientIdentity({ companyId });
-    const project = await seedProject(companyId, "Private Project");
-    const mailbox = await createMailbox(companyId, project.id);
+    const mailbox = await createMailbox(companyId);
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
-      rawEmail: rawEmail({ messageId: "<unlinked-project@example.com>" }),
+      rawEmail: rawEmail({ messageId: "<selected-untargeted@example.com>" }),
+      providerUid: "selected-untargeted",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).toContain("não conseguimos identificar com segurança");
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "selected-untargeted",
+    );
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("does not create an issue when the sender names a project from another client", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const other = await seedClientIdentity({ companyId, clientName: "Other Client", domain: "other.example", employeeEmail: "other@other.example" });
+    const project = await seedProject(companyId, "Private Project");
+    await linkClientProject({ companyId, clientId: other.client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<unlinked-project@example.com>", subject: "Private Project request" }),
       providerUid: "unlinked-project",
     });
 
@@ -362,10 +657,10 @@ describeEmbeddedPostgres("inbound email service", () => {
 
     const [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("skipped");
-    expect(storedMessage.skipReason).toBe("project_not_authorized");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
     expect(await db.select().from(issues)).toEqual([]);
     const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
-    expect(email?.text).toContain("não tem autorização para abrir solicitações para este projeto");
+    expect(email?.text).toContain("não conseguimos identificar com segurança");
     expect(email?.text).not.toContain("Private Project");
   }, 20_000);
 
@@ -404,11 +699,11 @@ describeEmbeddedPostgres("inbound email service", () => {
       employeeId: employee.id,
       clientProjectId: allowedClientProject.id,
     });
-    const mailbox = await createMailbox(companyId, deniedProject.id);
+    const mailbox = await createMailbox(companyId);
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
-      rawEmail: rawEmail({ messageId: "<selected-denied@example.com>" }),
+      rawEmail: rawEmail({ messageId: "<selected-denied@example.com>", subject: "DeniedProject request" }),
       providerUid: "selected-denied",
     });
 
@@ -442,6 +737,8 @@ describeEmbeddedPostgres("inbound email service", () => {
     const [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("failed");
     expect(storedMessage.error).toBe("Could not send inbound authorization reply: smtp_not_configured");
+    expect(storedMessage.sourceDeletedAt).toBeNull();
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
   }, 20_000);
 
   it("collapses concurrent manual poll triggers into a single active job", async () => {

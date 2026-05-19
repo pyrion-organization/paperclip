@@ -334,7 +334,9 @@ export async function sendIssueCompletionEmail(params: IssueCompletionEmailParam
 
 export type InboundEmailAuthorizationReplyReason =
   | "employee_not_registered"
-  | "project_not_authorized";
+  | "project_not_authorized"
+  | "project_not_identified"
+  | "project_match_ambiguous";
 
 export type InboundEmailAuthorizationReplyResult =
   | { status: "sent" }
@@ -355,14 +357,24 @@ export async function sendInboundEmailAuthorizationReply(params: {
   const originalSubject = nonEmpty(params.originalSubject);
   const subject = originalSubject
     ? `Re: ${originalSubject}`.slice(0, 200)
-    : "Cadastro necessário para envio de solicitações";
+    : params.reason === "project_not_identified" || params.reason === "project_match_ambiguous"
+      ? "Projeto necessário para envio de solicitações"
+      : "Cadastro necessário para envio de solicitações";
   const clientLabel = nonEmpty(params.clientName) ?? "sua empresa";
-  const bodyMessage = params.reason === "employee_not_registered"
-    ? `Recebemos sua mensagem, mas o endereço ${params.to} não está cadastrado como funcionário autorizado de ${clientLabel}. Por isso, sua solicitação não pôde ser processada.`
-    : `Recebemos sua mensagem, mas o endereço ${params.to} não tem autorização para abrir solicitações para este projeto. Por isso, sua solicitação não pôde ser processada.`;
-  const actionMessage = params.reason === "employee_not_registered"
-    ? "Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro. Depois que o cadastro for concluído, você poderá enviar novas solicitações por e-mail."
-    : "Peça para um usuário autorizado solicitar a atualização do seu cadastro ou enviar a solicitação em seu nome.";
+  const bodyMessageByReason: Record<InboundEmailAuthorizationReplyReason, string> = {
+    employee_not_registered: `Recebemos sua mensagem, mas o endereço ${params.to} não está cadastrado como funcionário autorizado de ${clientLabel}. Por isso, sua solicitação não pôde ser processada.`,
+    project_not_authorized: `Recebemos sua mensagem, mas o endereço ${params.to} não tem autorização para abrir solicitações para este projeto. Por isso, sua solicitação não pôde ser processada.`,
+    project_not_identified: "Recebemos sua mensagem, mas não conseguimos identificar com segurança a qual projeto ela se refere. Por isso, sua solicitação ainda não pôde ser processada.",
+    project_match_ambiguous: "Recebemos sua mensagem, mas ela parece mencionar mais de um projeto possível. Por isso, sua solicitação ainda não pôde ser processada.",
+  };
+  const actionMessageByReason: Record<InboundEmailAuthorizationReplyReason, string> = {
+    employee_not_registered: "Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro. Depois que o cadastro for concluído, você poderá enviar novas solicitações por e-mail.",
+    project_not_authorized: "Peça para um usuário autorizado solicitar a atualização do seu cadastro ou enviar a solicitação em seu nome.",
+    project_not_identified: "Responda a este e-mail informando o nome do projeto ou um apelido conhecido do projeto para que possamos abrir a solicitação corretamente.",
+    project_match_ambiguous: "Responda a este e-mail esclarecendo qual é o projeto correto para que possamos abrir a solicitação corretamente.",
+  };
+  const bodyMessage = bodyMessageByReason[params.reason];
+  const actionMessage = actionMessageByReason[params.reason];
 
   const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
     ${escapeHtml(bodyMessage)}
@@ -377,7 +389,9 @@ export async function sendInboundEmailAuthorizationReply(params: {
   const html = buildEmailWrapper({
     headerColor: "#b45309",
     headerIcon: "⚠️",
-    headerTitle: "Cadastro necessário",
+    headerTitle: params.reason === "project_not_identified" || params.reason === "project_match_ambiguous"
+      ? "Projeto necessário"
+      : "Cadastro necessário",
     headerSubtitle: "Solicitação não processada",
     body,
     signatureHtml: config.signatureHtml,

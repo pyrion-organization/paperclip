@@ -40,7 +40,7 @@ For one mailbox:
 2. Stamp `lastPollAt = now` (so we don't double-poll even if IMAP hangs).
 3. Open IMAP session via `fetchUnreadMessages` (inbound-email-imap.ts) — pulls up to `fetchLimit` (default 20) unseen messages.
 4. For each raw RFC822 buffer, call `submitRawMessage({...processAfterImport: true})`.
-5. If `mailbox.markSeen`, flag it `\Seen` on the server (failures are logged, not fatal).
+5. Do not mark the source message as read during polling. Source cleanup is deferred until the processing job has successfully created an issue or sent a required authorization reply.
 6. On overall success → set `lastSuccessAt`, clear `lastError`. On failure → write `lastError`, rethrow (job will retry).
 
 ## 6. Stage A.5 — `submitRawMessage` (line 904)
@@ -58,28 +58,35 @@ Imports a raw email into the DB without yet creating an issue:
 
 This separation means parsing/storage and issue creation are **transactionally independent** — a flaky issues service won't lose mail, and a re-poll won't double-import.
 
+The historical archive is storage-linked: raw `.eml` files are saved under `inbound-email/raw`, attachments under `inbound-email/attachments`, and the database rows link the message, attachment metadata, and created assets.
+
 ## 7. Stage B — `processMessage` (line 985)
 
 Runs in its own job, so retries don't repeat IMAP I/O:
 
 1. Re-read message; if already `processed`/`duplicate`/`skipped`, return (idempotent).
 2. Flip `status: "processing"`.
-3. `resolveProcessingContext` → `{mailbox, rule, targetProjectId}` (rule wins over mailbox default).
-4. `resolveSenderAuthorization` — domain → client → employee → optional project link checks.
+3. `resolveProcessingContext` → `{mailbox, rule}` for mailbox settings plus optional priority/labels from matching rules.
+4. `resolveSenderAuthorization` — domain → client → employee → fuzzy project detection → optional employee project-link checks.
 5. **If unauthorized**:
-   - For `employee_not_registered` and `project_not_authorized`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). If SMTP isn't configured, the reply step throws → job retries (intentional: don't skip-silently when SMTP is just misconfigured).
+   - For `employee_not_registered`, `project_not_authorized`, `project_not_identified`, and `project_match_ambiguous`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). If SMTP isn't configured, the reply step throws → job retries (intentional: don't skip-silently when SMTP is just misconfigured).
    - Otherwise mark `status: "skipped"`, store `error: <reason>`, log `inbound_email.message_skipped`.
-6. **If authorized**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds`/`projectId` from the rule context, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
+6. **If authorized**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
 7. Flip the message to `status: "processed"`, write `createdIssueId`, log `inbound_email.issue_created`.
-8. On exception → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
+8. Delete the source IMAP message after a successful issue creation, or after a required Portuguese authorization/registration reply is sent and the message is marked `skipped`. `project_not_identified` keeps the source email in the mailbox and marks it seen after the reply. Unknown-domain skips are not deleted, but they are marked seen so the poller does not keep fetching them.
+9. On exception before terminal status → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
+10. If source deletion fails after terminal status, keep the terminal status, store `source_delete_error`, rethrow, and let the job retry deletion without recreating the issue or resending the reply.
 
 ## Project resolution
 
-`targetProjectId = rule?.targetProjectId ?? mailbox.targetProjectId ?? null`
+The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
 
-- Rule (`selectRule(message)`) is matched against the mailbox's `inboundEmailRules` via `matchesPattern` on sender/subject/etc.
-- Mailbox default is the fallback.
-- Nothing is inferred from the email body/subject; project is purely configuration.
+- Rule (`selectRule(message)`) is still matched against `inboundEmailRules` for priority/labels, but rule and mailbox `targetProjectId` are ignored for project routing.
+- Candidate projects are only active `client_projects` rows for the sender's active client.
+- The matcher searches subject + body text against project name, client project name override, and client project aliases.
+- Matching normalizes text by lowercasing, stripping accents, and removing spaces/punctuation, so `Oc Importer`, `oc-importer`, and `OCIMPORTER` all match.
+- Single-token names or aliases such as `AI`, `IT`, or `OC` must appear as a whole token, so they do not match unrelated words like `failure` or `document`.
+- The single strongest match wins. If there is no match, the sender gets `project_not_identified`. If multiple projects tie for strongest match, the sender gets `project_match_ambiguous`.
 
 ## Sender authorization
 
@@ -88,9 +95,8 @@ In `resolveSenderAuthorization`:
 1. Normalize sender email + domain. If missing → `unknown_sender_domain`.
 2. Find `clientEmailDomains` row matching `(companyId, domain)` joined to an `active` client. No match → `unknown_sender_domain`.
 3. Find `clientEmployees` row matching `(companyId, clientId, email)`. No match → `employee_not_registered` (triggers reply).
-4. If `targetProjectId` is null → allowed.
-5. Find `clientProjects` row for `(companyId, clientId, targetProjectId)`. No match → `project_not_authorized` (triggers reply).
-6. If `employee.projectScope === "selected_projects"`, require a `clientEmployeeProjectLinks` row for `(employee, clientProject)`. Missing → `project_not_authorized`.
+4. Fuzzy-match subject/body against the active projects linked to the client. No match → `project_not_identified` (triggers reply and marks source seen). Ambiguous match → `project_match_ambiguous` (triggers reply and deletes source).
+5. If `employee.projectScope === "selected_projects"`, require a `clientEmployeeProjectLinks` row for `(employee, matched clientProject)`. Missing → `project_not_authorized`.
 
 ## Message status state machine
 
@@ -100,6 +106,8 @@ persisted → processing → processed   (issue created)
                        ↘ skipped      (auth failure; terminal)
                        ↘ failed       (transient; retried via job)
 ```
+
+Terminal `processed` messages with an issue and terminal `skipped` messages that already sent a required reply also track source mailbox cleanup with `source_deleted_at` / `source_delete_error` or `source_seen_at` / `source_seen_error`.
 
 ## Why this design
 

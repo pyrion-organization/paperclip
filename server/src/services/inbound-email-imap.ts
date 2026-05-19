@@ -12,7 +12,6 @@ export type ImapMailboxConfig = {
 export type FetchedImapMessage = {
   providerUid: string;
   raw: Buffer;
-  markSeen: () => Promise<void>;
 };
 
 const SOCKET_TIMEOUT_MS = 60_000;
@@ -79,13 +78,7 @@ export async function fetchUnreadMessages(
       for await (const msg of client.fetch(selected, { uid: true, source: true }, { uid: true })) {
         if (!msg.source) continue;
         const uid = String(msg.uid);
-        messages.push({
-          providerUid: uid,
-          raw: msg.source,
-          markSeen: async () => {
-            await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
-          },
-        });
+        messages.push({ providerUid: uid, raw: msg.source });
       }
     }
   } catch (error) {
@@ -93,4 +86,42 @@ export async function fetchUnreadMessages(
     throw error;
   }
   return { messages, close };
+}
+
+export async function deleteMessageFromMailbox(config: ImapMailboxConfig, providerUid: string): Promise<void> {
+  const client = buildClient(config);
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(config.folder);
+    try {
+      await client.messageDelete(providerUid, { uid: true });
+    } finally {
+      lock.release();
+    }
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore — connection may already be torn down
+    }
+  }
+}
+
+export async function markMessageSeenInMailbox(config: ImapMailboxConfig, providerUid: string): Promise<void> {
+  const client = buildClient(config);
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(config.folder);
+    try {
+      await client.messageFlagsAdd(providerUid, ["\\Seen"], { uid: true });
+    } finally {
+      lock.release();
+    }
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore — connection may already be torn down
+    }
+  }
 }

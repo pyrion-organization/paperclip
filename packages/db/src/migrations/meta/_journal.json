@@ -729,6 +729,20 @@
       "when": 1778900000000,
       "tag": "0103_inbound_email_skip_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1779204257000,
+      "tag": "0104_inbound_email_source_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1779210180000,
+      "tag": "0105_inbound_email_source_seen",
+      "breakpoints": true
     }
   ]
 }

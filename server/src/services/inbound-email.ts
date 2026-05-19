@@ -27,7 +27,12 @@ import { notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
 import { backgroundJobService } from "./background-jobs.js";
-import { fetchUnreadMessages, testImapConnection } from "./inbound-email-imap.js";
+import {
+  deleteMessageFromMailbox,
+  fetchUnreadMessages,
+  markMessageSeenInMailbox,
+  testImapConnection,
+} from "./inbound-email-imap.js";
 import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
 import { logActivity } from "./activity-log.js";
@@ -47,10 +52,37 @@ const INBOUND_EMAIL_ACTOR = {
 const REPLY_REQUIRED_SKIP_REASONS: ReadonlySet<InboundEmailAuthorizationReplyReason> = new Set([
   "employee_not_registered",
   "project_not_authorized",
+  "project_not_identified",
+  "project_match_ambiguous",
 ]);
+const DELETE_AFTER_REPLY_REASONS: ReadonlySet<InboundEmailAuthorizationReplyReason> = new Set([
+  "employee_not_registered",
+  "project_not_authorized",
+  "project_match_ambiguous",
+]);
+const MARK_SEEN_SKIP_REASONS: ReadonlySet<string> = new Set([
+  "unknown_sender_domain",
+  "project_not_identified",
+]);
+const MAX_SOURCE_DELETE_ERROR_LENGTH = 2_000;
 
 function isReplyRequiredSkipReason(reason: string): reason is InboundEmailAuthorizationReplyReason {
   return REPLY_REQUIRED_SKIP_REASONS.has(reason as InboundEmailAuthorizationReplyReason);
+}
+
+function shouldDeleteAfterReply(reason: string | null): boolean {
+  return Boolean(reason && DELETE_AFTER_REPLY_REASONS.has(reason as InboundEmailAuthorizationReplyReason));
+}
+
+function shouldMarkSeenForSkip(reason: string | null): boolean {
+  return Boolean(reason && MARK_SEEN_SKIP_REASONS.has(reason));
+}
+
+function truncateSourceDeleteError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > MAX_SOURCE_DELETE_ERROR_LENGTH
+    ? `${message.slice(0, MAX_SOURCE_DELETE_ERROR_LENGTH)}...`
+    : message;
 }
 
 export type ListPageOptions = {
@@ -126,6 +158,51 @@ function matchesPattern(value: string | null | undefined, pattern: string | null
   const normalizedPattern = pattern?.trim().toLowerCase();
   if (!normalizedPattern) return true;
   return (value ?? "").toLowerCase().includes(normalizedPattern);
+}
+
+function normalizeProjectMatchText(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function projectMatchTokens(value: string | null | undefined): string[] {
+  const normalized = normalizeProjectMatchText(value);
+  return normalized ? normalized.split(/\s+/).filter(Boolean) : [];
+}
+
+function hasContiguousTokenMatch(searchTokens: string[], candidateTokens: string[]): boolean {
+  if (candidateTokens.length === 0 || candidateTokens.length > searchTokens.length) return false;
+  for (let start = 0; start <= searchTokens.length - candidateTokens.length; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < candidateTokens.length; offset += 1) {
+      if (searchTokens[start + offset] !== candidateTokens[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+function matchesProjectName(searchTokens: string[], name: string | null | undefined): { matched: boolean; score: number } {
+  const candidateTokens = projectMatchTokens(name);
+  if (candidateTokens.length === 0) return { matched: false, score: 0 };
+
+  const candidateCompact = candidateTokens.join("");
+  if (candidateTokens.length === 1) {
+    return { matched: searchTokens.includes(candidateCompact), score: candidateCompact.length };
+  }
+
+  const compactTokenMatch = searchTokens.includes(candidateCompact);
+  return {
+    matched: compactTokenMatch || hasContiguousTokenMatch(searchTokens, candidateTokens),
+    score: candidateCompact.length,
+  };
 }
 
 function clampLimit(limit: number | undefined, fallback = 50, max = 200): number {
@@ -358,7 +435,73 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return {
       mailbox,
       rule,
-      targetProjectId: rule?.targetProjectId ?? mailbox.targetProjectId ?? null,
+      targetProjectId: null as string | null,
+    };
+  }
+
+  async function resolveClientProjectFromMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+    clientId: string,
+  ): Promise<
+    | { status: "matched"; clientProjectId: string; projectId: string; projectName: string }
+    | { status: "not_identified" }
+    | { status: "ambiguous"; projectIds: string[] }
+  > {
+    const bodyText = message.bodyText?.trim() || (message.bodyHtml ? htmlToPlain(message.bodyHtml) : "");
+    const searchTokens = projectMatchTokens(`${message.subject ?? ""} ${bodyText}`);
+    if (searchTokens.length === 0) return { status: "not_identified" };
+
+    const rows = await db
+      .select({
+        clientProjectId: clientProjects.id,
+        projectId: clientProjects.projectId,
+        projectName: projects.name,
+        projectNameOverride: clientProjects.projectNameOverride,
+        projectAliases: clientProjects.projectAliases,
+      })
+      .from(clientProjects)
+      .innerJoin(projects, and(eq(clientProjects.projectId, projects.id), eq(clientProjects.companyId, projects.companyId)))
+      .where(
+        and(
+          eq(clientProjects.companyId, message.companyId),
+          eq(clientProjects.clientId, clientId),
+          eq(clientProjects.status, "active"),
+        ),
+      );
+
+    const matches = new Map<string, { clientProjectId: string; projectId: string; projectName: string; score: number }>();
+    for (const row of rows) {
+      const names = [
+        row.projectName,
+        row.projectNameOverride,
+        ...(Array.isArray(row.projectAliases) ? row.projectAliases : []),
+      ];
+      for (const name of names) {
+        const match = matchesProjectName(searchTokens, name);
+        if (!match.matched) continue;
+        const existing = matches.get(row.projectId);
+        if (!existing || match.score > existing.score) {
+          matches.set(row.projectId, {
+            clientProjectId: row.clientProjectId,
+            projectId: row.projectId,
+            projectName: row.projectName,
+            score: match.score,
+          });
+        }
+      }
+    }
+
+    if (matches.size === 0) return { status: "not_identified" };
+    const ranked = [...matches.values()].sort((a, b) => b.score - a.score || a.projectName.localeCompare(b.projectName));
+    const bestScore = ranked[0]!.score;
+    const tied = ranked.filter((match) => match.score === bestScore);
+    if (tied.length > 1) return { status: "ambiguous", projectIds: tied.map((match) => match.projectId) };
+    const match = ranked[0]!;
+    return {
+      status: "matched",
+      clientProjectId: match.clientProjectId,
+      projectId: match.projectId,
+      projectName: match.projectName,
     };
   }
 
@@ -396,10 +539,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
 
   async function resolveSenderAuthorization(
     message: typeof inboundEmailMessages.$inferSelect,
-    context: Awaited<ReturnType<typeof resolveProcessingContext>>,
   ): Promise<{
     allowed: boolean;
-    reason?: "unknown_sender_domain" | "employee_not_registered" | "project_not_authorized";
+    reason?: "unknown_sender_domain" | InboundEmailAuthorizationReplyReason;
     senderEmail: string | null;
     client?: { id: string; name: string };
     employee?: { id: string; projectScope: string };
@@ -457,41 +599,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return { allowed: false, reason: "employee_not_registered", senderEmail, client };
     }
 
-    if (!context.targetProjectId) {
-      return { allowed: true, senderEmail, client, employee };
+    const matchedProject = await resolveClientProjectFromMessage(message, client.id);
+    if (matchedProject.status === "not_identified") {
+      return { allowed: false, reason: "project_not_identified", senderEmail, client, employee };
     }
-
-    const clientProject = await db
-      .select({
-        id: clientProjects.id,
-        projectId: clientProjects.projectId,
-        projectName: projects.name,
-      })
-      .from(clientProjects)
-      .innerJoin(projects, eq(clientProjects.projectId, projects.id))
-      .where(
-        and(
-          eq(clientProjects.companyId, message.companyId),
-          eq(clientProjects.clientId, client.id),
-          eq(clientProjects.projectId, context.targetProjectId),
-        ),
-      )
-      .then((rows) => rows[0] ?? null);
-
-    if (!clientProject) {
-      const project = await db
-        .select({ id: projects.id, name: projects.name })
-        .from(projects)
-        .where(and(eq(projects.companyId, message.companyId), eq(projects.id, context.targetProjectId)))
-        .then((rows) => rows[0] ?? null);
-      return {
-        allowed: false,
-        reason: "project_not_authorized",
-        senderEmail,
-        client,
-        employee,
-        project: project ? { id: project.id, name: project.name } : undefined,
-      };
+    if (matchedProject.status === "ambiguous") {
+      return { allowed: false, reason: "project_match_ambiguous", senderEmail, client, employee };
     }
 
     if (employee.projectScope === "selected_projects") {
@@ -503,7 +616,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             eq(clientEmployeeProjectLinks.companyId, message.companyId),
             eq(clientEmployeeProjectLinks.clientId, client.id),
             eq(clientEmployeeProjectLinks.employeeId, employee.id),
-            eq(clientEmployeeProjectLinks.clientProjectId, clientProject.id),
+            eq(clientEmployeeProjectLinks.clientProjectId, matchedProject.clientProjectId),
           ),
         )
         .then((rows) => rows[0] ?? null);
@@ -514,7 +627,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           senderEmail,
           client,
           employee,
-          project: { id: clientProject.projectId, name: clientProject.projectName },
+          project: { id: matchedProject.projectId, name: matchedProject.projectName },
         };
       }
     }
@@ -524,7 +637,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       senderEmail,
       client,
       employee,
-      project: { id: clientProject.projectId, name: clientProject.projectName },
+      project: { id: matchedProject.projectId, name: matchedProject.projectName },
     };
   }
 
@@ -553,6 +666,141 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       },
     });
     return updated ?? { ...input.message, status: "skipped" as const, skipReason: input.reason, error: null, updatedAt: now };
+  }
+
+  function shouldDeleteSourceMessage(message: typeof inboundEmailMessages.$inferSelect): boolean {
+    if (message.sourceDeletedAt) return false;
+    if (!message.providerUid) return false;
+    if (message.status === "processed" && message.createdIssueId) return true;
+    return message.status === "skipped" && shouldDeleteAfterReply(message.skipReason);
+  }
+
+  function shouldMarkSourceSeen(message: typeof inboundEmailMessages.$inferSelect): boolean {
+    if (message.sourceSeenAt) return false;
+    if (!message.providerUid) return false;
+    return message.status === "skipped" && shouldMarkSeenForSkip(message.skipReason);
+  }
+
+  function shouldFinalizeSourceDisposition(message: typeof inboundEmailMessages.$inferSelect): boolean {
+    return shouldDeleteSourceMessage(message) || shouldMarkSourceSeen(message);
+  }
+
+  async function deleteSourceMessageIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
+    if (!shouldDeleteSourceMessage(message)) return message;
+    const mailbox = await loadMailbox(message.companyId, message.mailboxId);
+    const password = await resolveMailboxPassword(mailbox);
+    if (!password) {
+      const error = "Inbound mailbox password is not configured";
+      await db
+        .update(inboundEmailMessages)
+        .set({ sourceDeleteError: error, updatedAt: new Date() })
+        .where(eq(inboundEmailMessages.id, message.id));
+      throw new Error(error);
+    }
+
+    try {
+      await deleteMessageFromMailbox(
+        {
+          host: mailbox.host,
+          port: mailbox.port,
+          username: mailbox.username,
+          password,
+          folder: mailbox.folder,
+          tls: mailbox.tls,
+        },
+        message.providerUid!,
+      );
+    } catch (error) {
+      const sourceDeleteError = truncateSourceDeleteError(error);
+      await db
+        .update(inboundEmailMessages)
+        .set({ sourceDeleteError, updatedAt: new Date() })
+        .where(eq(inboundEmailMessages.id, message.id));
+      throw error;
+    }
+
+    const now = new Date();
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({ sourceDeletedAt: now, sourceDeleteError: null, updatedAt: now })
+      .where(eq(inboundEmailMessages.id, message.id))
+      .returning();
+    await logActivity(db, {
+      companyId: message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.source_deleted",
+      entityType: "inbound_email_message",
+      entityId: message.id,
+      details: {
+        mailboxId: message.mailboxId,
+        providerUid: message.providerUid,
+        status: message.status,
+        skipReason: message.skipReason,
+      },
+    });
+    return updated ?? { ...message, sourceDeletedAt: now, sourceDeleteError: null, updatedAt: now };
+  }
+
+  async function markSourceMessageSeenIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
+    if (!shouldMarkSourceSeen(message)) return message;
+    const mailbox = await loadMailbox(message.companyId, message.mailboxId);
+    const password = await resolveMailboxPassword(mailbox);
+    if (!password) {
+      const error = "Inbound mailbox password is not configured";
+      await db
+        .update(inboundEmailMessages)
+        .set({ sourceSeenError: error, updatedAt: new Date() })
+        .where(eq(inboundEmailMessages.id, message.id));
+      throw new Error(error);
+    }
+
+    try {
+      await markMessageSeenInMailbox(
+        {
+          host: mailbox.host,
+          port: mailbox.port,
+          username: mailbox.username,
+          password,
+          folder: mailbox.folder,
+          tls: mailbox.tls,
+        },
+        message.providerUid!,
+      );
+    } catch (error) {
+      const sourceSeenError = truncateSourceDeleteError(error);
+      await db
+        .update(inboundEmailMessages)
+        .set({ sourceSeenError, updatedAt: new Date() })
+        .where(eq(inboundEmailMessages.id, message.id));
+      throw error;
+    }
+
+    const now = new Date();
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({ sourceSeenAt: now, sourceSeenError: null, updatedAt: now })
+      .where(eq(inboundEmailMessages.id, message.id))
+      .returning();
+    await logActivity(db, {
+      companyId: message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.source_seen",
+      entityType: "inbound_email_message",
+      entityId: message.id,
+      details: {
+        mailboxId: message.mailboxId,
+        providerUid: message.providerUid,
+        status: message.status,
+        skipReason: message.skipReason,
+      },
+    });
+    return updated ?? { ...message, sourceSeenAt: now, sourceSeenError: null, updatedAt: now };
+  }
+
+  async function applySourceDispositionIfEligible(message: typeof inboundEmailMessages.$inferSelect) {
+    if (shouldDeleteSourceMessage(message)) return deleteSourceMessageIfEligible(message);
+    if (shouldMarkSourceSeen(message)) return markSourceMessageSeenIfEligible(message);
+    return message;
   }
 
   // Cursor-paginated select where rows are ordered by (createdAt asc, id asc).
@@ -874,16 +1122,6 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             processAfterImport: true,
           });
           if (result.status !== "duplicate") imported += 1;
-          if (mailbox.markSeen) {
-            try {
-              await message.markSeen();
-            } catch (flagError) {
-              logger.warn(
-                { err: flagError, mailboxId: mailbox.id, uid: message.providerUid },
-                "failed to mark IMAP message seen",
-              );
-            }
-          }
         }
         await db
           .update(inboundEmailMailboxes)
@@ -926,10 +1164,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         // doesn't strand the message.
         if (
           input.processAfterImport !== false &&
-          duplicate.status !== "processed" &&
-          duplicate.status !== "duplicate" &&
-          duplicate.status !== "skipped" &&
-          !duplicate.createdIssueId
+          (
+            (
+              duplicate.status !== "processed" &&
+              duplicate.status !== "duplicate" &&
+              duplicate.status !== "skipped" &&
+              !duplicate.createdIssueId
+            ) ||
+            shouldFinalizeSourceDisposition(duplicate)
+          )
         ) {
           await enqueueProcessMessage(duplicate.companyId, duplicate.id);
         }
@@ -990,15 +1233,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .then((rows) => rows[0] ?? null);
       if (!message) throw notFound("Inbound email message not found");
       if (message.status === "processed" || message.status === "duplicate" || message.status === "skipped") {
-        return message;
+        return applySourceDispositionIfEligible(message);
       }
       await db
         .update(inboundEmailMessages)
         .set({ status: "processing", error: null, updatedAt: new Date() })
         .where(eq(inboundEmailMessages.id, message.id));
+      let completedMessage: typeof inboundEmailMessages.$inferSelect | null = null;
       try {
         const context = await resolveProcessingContext(message);
-        const authorization = await resolveSenderAuthorization(message, context);
+        const authorization = await resolveSenderAuthorization(message);
         if (!authorization.allowed) {
           const reason = authorization.reason ?? "sender_not_authorized";
           if (authorization.senderEmail && isReplyRequiredSkipReason(reason)) {
@@ -1014,41 +1258,45 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               throw new Error(`Could not send inbound authorization reply: ${reply.reason}`);
             }
           }
-          return await markMessageSkipped({
+          completedMessage = await markMessageSkipped({
             message,
             reason,
             details: {
               senderEmail: authorization.senderEmail,
               clientId: authorization.client?.id,
               employeeId: authorization.employee?.id,
-              targetProjectId: context.targetProjectId,
+              targetProjectId: authorization.project?.id ?? null,
             },
           });
+        } else {
+          const issue = await createIssueFromMessage(message, {
+            ...context,
+            targetProjectId: authorization.project?.id ?? null,
+          });
+          const [updated] = await db
+            .update(inboundEmailMessages)
+            .set({
+              status: "processed",
+              createdIssueId: issue.id,
+              error: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(inboundEmailMessages.id, message.id))
+            .returning();
+          await logActivity(db, {
+            companyId: message.companyId,
+            ...INBOUND_EMAIL_ACTOR,
+            action: "inbound_email.issue_created",
+            entityType: "issue",
+            entityId: issue.id,
+            details: {
+              messageId: message.id,
+              identifier: issue.identifier,
+              subject: message.subject,
+            },
+          });
+          completedMessage = updated ?? { ...message, status: "processed" as const, createdIssueId: issue.id };
         }
-
-        const issue = await createIssueFromMessage(message, context);
-        await db
-          .update(inboundEmailMessages)
-          .set({
-            status: "processed",
-            createdIssueId: issue.id,
-            error: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(inboundEmailMessages.id, message.id));
-        await logActivity(db, {
-          companyId: message.companyId,
-          ...INBOUND_EMAIL_ACTOR,
-          action: "inbound_email.issue_created",
-          entityType: "issue",
-          entityId: issue.id,
-          details: {
-            messageId: message.id,
-            identifier: issue.identifier,
-            subject: message.subject,
-          },
-        });
-        return { ...message, status: "processed" as const, createdIssueId: issue.id };
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         await db
@@ -1057,6 +1305,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .where(eq(inboundEmailMessages.id, message.id));
         throw error;
       }
+      return applySourceDispositionIfEligible(completedMessage);
     },
 
     runNextEmailJob: async (workerId: string) => {
