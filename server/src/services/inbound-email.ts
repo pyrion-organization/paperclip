@@ -698,7 +698,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return updated ?? { ...input.message, status: "skipped" as const, skipReason: input.reason, error: null, updatedAt: now };
   }
 
-  // Cursor-paginated select where rows are ordered by (createdAt asc, id asc).
+  // Cursor-paginated select. The `rows` callback MUST order results by
+  // (createdAt asc, id asc) — the cursor encoding (encodeCursor/decodeCursor)
+  // assumes that ordering. Passing a different orderBy will produce wrong pages.
   async function paginated<T extends { id: string; createdAt: Date }>(
     rows: (limit: number, cursor: { createdAt: Date; id: string } | null) => Promise<T[]>,
     options: ListPageOptions | undefined,
@@ -839,6 +841,24 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .where(eq(inboundEmailMailboxes.id, mailboxId))
         .returning();
       return redactMailbox(reflected);
+    },
+
+    deleteMailbox: async (companyId: string, mailboxId: string) => {
+      const mailbox = await loadMailbox(companyId, mailboxId);
+      if (mailbox.passwordSecretName) {
+        await clearMailboxSecret(companyId, mailbox.passwordSecretName);
+      }
+      await db
+        .delete(inboundEmailMailboxes)
+        .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)));
+      await logActivity(db, {
+        companyId,
+        ...INBOUND_EMAIL_ACTOR,
+        action: "inbound_email.mailbox_deleted",
+        entityType: "inbound_email_mailbox",
+        entityId: mailboxId,
+        details: { name: mailbox.name, host: mailbox.host, username: mailbox.username },
+      });
     },
 
     listRules: async (companyId: string, options?: ListPageOptions) => {
@@ -988,12 +1008,6 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const password = await resolveMailboxPassword(mailbox);
       if (!password) throw unprocessable("Inbound mailbox password is not configured");
 
-      const now = new Date();
-      await db
-        .update(inboundEmailMailboxes)
-        .set({ lastPollAt: now, lastError: null, updatedAt: now })
-        .where(eq(inboundEmailMailboxes.id, mailbox.id));
-
       let imported = 0;
       let session: Awaited<ReturnType<typeof fetchUnreadMessages>> | null = null;
       try {
@@ -1028,14 +1042,20 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             }
           }
         }
+        const successAt = new Date();
         await db
           .update(inboundEmailMailboxes)
-          .set({ lastSuccessAt: new Date(), lastError: null, updatedAt: new Date() })
+          .set({ lastPollAt: successAt, lastSuccessAt: successAt, lastError: null, updatedAt: successAt })
           .where(eq(inboundEmailMailboxes.id, mailbox.id));
       } catch (error) {
+        const failedAt = new Date();
         await db
           .update(inboundEmailMailboxes)
-          .set({ lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date() })
+          .set({
+            lastPollAt: failedAt,
+            lastError: error instanceof Error ? error.message : String(error),
+            updatedAt: failedAt,
+          })
           .where(eq(inboundEmailMailboxes.id, mailbox.id));
         throw error;
       } finally {
@@ -1145,16 +1165,27 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         if (!authorization.allowed) {
           const reason = authorization.reason ?? "sender_not_authorized";
           if (authorization.senderEmail && isReplyRequiredSkipReason(reason)) {
-            const reply = await sendInboundEmailAuthorizationReply({
-              to: authorization.senderEmail,
-              reason,
-              originalSubject: message.subject,
-              clientName: authorization.client?.name ?? null,
-              db,
-              companyId: message.companyId,
-            });
-            if (reply.status === "skipped") {
-              throw new Error(`Could not send inbound authorization reply: ${reply.reason}`);
+            // Auth replies are best-effort: a failure to notify the sender must
+            // never re-fail the message (would retry-storm against SMTP).
+            try {
+              const reply = await sendInboundEmailAuthorizationReply({
+                to: authorization.senderEmail,
+                reason,
+                originalSubject: message.subject,
+                db,
+                companyId: message.companyId,
+              });
+              if (reply.status === "skipped") {
+                logger.warn(
+                  { messageId: message.id, reason: reply.reason, skipReason: reason },
+                  "inbound auth reply skipped",
+                );
+              }
+            } catch (replyError) {
+              logger.warn(
+                { err: replyError, messageId: message.id, skipReason: reason },
+                "inbound auth reply threw",
+              );
             }
           }
           return await markMessageSkipped({
@@ -1200,6 +1231,69 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .where(eq(inboundEmailMessages.id, message.id));
         throw error;
       }
+    },
+
+    retryMessage: async (companyId: string, messageId: string) => {
+      const message = await db
+        .select()
+        .from(inboundEmailMessages)
+        .where(and(eq(inboundEmailMessages.id, messageId), eq(inboundEmailMessages.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!message) throw notFound("Inbound email message not found");
+      if (message.status !== "failed") {
+        throw unprocessable(`Only failed messages can be retried (current status: ${message.status})`);
+      }
+      await db
+        .update(inboundEmailMessages)
+        .set({ status: "persisted", error: null, updatedAt: new Date() })
+        .where(eq(inboundEmailMessages.id, message.id));
+      const job = await enqueueProcessMessage(companyId, message.id);
+      await logActivity(db, {
+        companyId,
+        ...INBOUND_EMAIL_ACTOR,
+        action: "inbound_email.message_retried",
+        entityType: "inbound_email_message",
+        entityId: message.id,
+        details: { mailboxId: message.mailboxId, jobId: job.id },
+      });
+      return job;
+    },
+
+    retryJob: async (companyId: string, jobId: string) => {
+      const job = await db
+        .select()
+        .from(backgroundJobs)
+        .where(and(eq(backgroundJobs.id, jobId), eq(backgroundJobs.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!job) throw notFound("Background job not found");
+      if (job.kind !== EMAIL_POLL_MAILBOX_JOB_KIND && job.kind !== EMAIL_PROCESS_MESSAGE_JOB_KIND) {
+        throw unprocessable("Only inbound email jobs can be retried here");
+      }
+      if (job.status !== "failed" && job.status !== "dead") {
+        throw unprocessable(`Only failed or dead jobs can be retried (current status: ${job.status})`);
+      }
+      const now = new Date();
+      const [updated] = await db
+        .update(backgroundJobs)
+        .set({
+          status: "pending",
+          lastError: null,
+          lockedBy: null,
+          lockedAt: null,
+          runAfter: now,
+          updatedAt: now,
+        })
+        .where(eq(backgroundJobs.id, job.id))
+        .returning();
+      await logActivity(db, {
+        companyId,
+        ...INBOUND_EMAIL_ACTOR,
+        action: "inbound_email.job_retried",
+        entityType: "background_job",
+        entityId: job.id,
+        details: { kind: job.kind, previousStatus: job.status },
+      });
+      return updated;
     },
 
     runNextEmailJob: async (workerId: string) => {
@@ -1409,6 +1503,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const jobCountsByMailbox = new Map<string, InboundEmailOpsJobSummary>();
       const lastFailedMessageByMailbox = new Map<string, InboundEmailOpsMessage>();
       const lastFailedJobByMailbox = new Map<string, InboundEmailOpsJob>();
+      const existingMailboxIds = new Set(mailboxRows.map((mailbox) => mailbox.id));
 
       for (const row of messageCountRows as unknown as Array<{ mailboxId: string; status: string; count: number | string }>) {
         const counts = messageCountsByMailbox.get(row.mailboxId) ?? emptyMessageSummary();
@@ -1417,12 +1512,17 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         messageCountsByMailbox.set(row.mailboxId, counts);
       }
 
+      const orphanJobCounts = emptyJobSummary();
       for (const row of jobCountRows as unknown as Array<{ mailboxId: string | null; status: string; count: number | string }>) {
-        if (!row.mailboxId) continue;
-        const counts = jobCountsByMailbox.get(row.mailboxId) ?? emptyJobSummary();
-        if (row.status === "pending" || row.status === "running" || row.status === "retrying" || row.status === "failed" || row.status === "dead") {
-          counts[row.status] = Number(row.count);
+        if (row.status !== "pending" && row.status !== "running" && row.status !== "retrying" && row.status !== "failed" && row.status !== "dead") {
+          continue;
         }
+        if (!row.mailboxId || !existingMailboxIds.has(row.mailboxId)) {
+          orphanJobCounts[row.status] += Number(row.count);
+          continue;
+        }
+        const counts = jobCountsByMailbox.get(row.mailboxId) ?? emptyJobSummary();
+        counts[row.status] = Number(row.count);
         jobCountsByMailbox.set(row.mailboxId, counts);
       }
 
@@ -1455,7 +1555,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         };
       });
 
-      const allJobCounts = [...jobCountsByMailbox.values()];
+      const allJobCounts = [...jobCountsByMailbox.values(), orphanJobCounts];
       const allMessageCounts = [...messageCountsByMailbox.values()];
       const pendingJobCount = allJobCounts.reduce((sum, counts) => sum + counts.pending + counts.retrying, 0);
       const failedJobCount = allJobCounts.reduce((sum, counts) => sum + counts.failed + counts.dead, 0);
@@ -1481,6 +1581,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         mailboxes,
         recentFailedJobs,
         recentFailedMessages,
+        orphanJobCounts,
       };
     },
 

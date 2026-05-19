@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   InboundEmailOpsDashboard,
   InboundEmailOpsMailbox,
@@ -50,6 +50,10 @@ const healthMeta: Record<InboundEmailOpsMailboxHealth, {
     icon: Clock3,
   },
 };
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
 function asDate(value: Date | string | null | undefined): Date | null {
   if (!value) return null;
@@ -188,17 +192,41 @@ function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
   );
 }
 
-function FailureList({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
-  const failures = [
-    ...dashboard.recentFailedJobs.map((job) => ({
+type FailureEntry = {
+  id: string;
+  source: "job" | "message";
+  refId: string;
+  kind: string;
+  mailboxId: string | null;
+  detail: string;
+  time: Date | string | null | undefined;
+};
+
+function FailureList({
+  dashboard,
+  onRetryMessage,
+  onRetryJob,
+  retryingId,
+}: {
+  dashboard: InboundEmailOpsDashboard;
+  onRetryMessage: (messageId: string) => void;
+  onRetryJob: (jobId: string) => void;
+  retryingId: string | null;
+}) {
+  const failures: FailureEntry[] = [
+    ...dashboard.recentFailedJobs.map((job): FailureEntry => ({
       id: `job-${job.id}`,
+      source: "job",
+      refId: job.id,
       kind: job.kind,
       mailboxId: job.mailboxId,
       detail: job.lastError ?? "Job failed without error text",
       time: job.updatedAt,
     })),
-    ...dashboard.recentFailedMessages.map((message) => ({
+    ...dashboard.recentFailedMessages.map((message): FailureEntry => ({
       id: `message-${message.id}`,
+      source: "message",
+      refId: message.id,
       kind: `message.${message.status}`,
       mailboxId: message.mailboxId,
       detail: message.error ?? message.subject ?? "Message failed without error text",
@@ -218,13 +246,25 @@ function FailureList({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card/60">
-      {failures.map((failure) => (
-        <div key={failure.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 md:grid-cols-[160px_180px_1fr]">
-          <div className="text-xs font-medium text-foreground">{failure.kind}</div>
-          <div className="text-xs text-muted-foreground">{formatTime(failure.time)}</div>
-          <div className="min-w-0 break-words text-xs text-muted-foreground">{failure.detail}</div>
-        </div>
-      ))}
+      {failures.map((failure) => {
+        const pending = retryingId === failure.id;
+        return (
+          <div key={failure.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 md:grid-cols-[160px_180px_1fr_auto]">
+            <div className="text-xs font-medium text-foreground">{failure.kind}</div>
+            <div className="text-xs text-muted-foreground">{formatTime(failure.time)}</div>
+            <div className="min-w-0 break-words text-xs text-muted-foreground">{failure.detail}</div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => (failure.source === "message" ? onRetryMessage(failure.refId) : onRetryJob(failure.refId))}
+            >
+              {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Retry
+            </Button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -232,6 +272,7 @@ function FailureList({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
 export function InboundEmailOps() {
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     setBreadcrumbs([
@@ -247,6 +288,30 @@ export function InboundEmailOps() {
     enabled: Boolean(selectedCompanyId),
     refetchInterval: 15_000,
   });
+
+  const retryMessageMutation = useMutation({
+    mutationFn: (messageId: string) => companiesApi.retryInboundEmailMessage(selectedCompanyId!, messageId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+    },
+  });
+  const retryJobMutation = useMutation({
+    mutationFn: (jobId: string) => companiesApi.retryInboundEmailJob(selectedCompanyId!, jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+    },
+  });
+  const retryingId =
+    retryMessageMutation.isPending && retryMessageMutation.variables
+      ? `message-${retryMessageMutation.variables}`
+      : retryJobMutation.isPending && retryJobMutation.variables
+        ? `job-${retryJobMutation.variables}`
+        : null;
+  const retryError = retryMessageMutation.isError
+    ? retryMessageMutation.error
+    : retryJobMutation.isError
+      ? retryJobMutation.error
+      : null;
 
   if (!selectedCompany) {
     return <div className="text-sm text-muted-foreground">No company selected. Select a company from the switcher above.</div>;
@@ -311,6 +376,22 @@ export function InboundEmailOps() {
         </div>
       ) : null}
 
+      {(() => {
+        const orphan = dashboard.orphanJobCounts;
+        const total = orphan.pending + orphan.running + orphan.retrying + orphan.failed + orphan.dead;
+        if (total === 0) return null;
+        return (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <span className="font-medium">{total} background job{total === 1 ? "" : "s"}</span> are not associated with any mailbox
+              ({orphan.failed + orphan.dead} failed, {orphan.pending + orphan.running + orphan.retrying} active).
+              These usually point to a deleted mailbox or a malformed payload — retry from the failures list below.
+            </div>
+          </div>
+        );
+      })()}
+
       <section className="overflow-hidden rounded-md border border-border bg-background">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div>
@@ -333,7 +414,27 @@ export function InboundEmailOps() {
           <h2 className="text-sm font-semibold">Recent Failures</h2>
           <div className="text-xs text-muted-foreground">Latest failed queue jobs and failed inbound message processing records.</div>
         </div>
-        <FailureList dashboard={dashboard} />
+        {retryError ? (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <span className="font-medium">Retry failed.</span>{" "}
+              {errorMessage(retryError, "The selected failure could not be retried. Refresh and try again.")}
+            </div>
+          </div>
+        ) : null}
+        <FailureList
+          dashboard={dashboard}
+          onRetryMessage={(id) => {
+            retryJobMutation.reset();
+            retryMessageMutation.mutate(id);
+          }}
+          onRetryJob={(id) => {
+            retryMessageMutation.reset();
+            retryJobMutation.mutate(id);
+          }}
+          retryingId={retryingId}
+        />
       </section>
     </div>
   );

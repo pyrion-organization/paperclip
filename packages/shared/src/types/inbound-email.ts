@@ -162,4 +162,5 @@ export interface InboundEmailOpsDashboard {
   mailboxes: InboundEmailOpsMailbox[];
   recentFailedJobs: InboundEmailOpsJob[];
   recentFailedMessages: InboundEmailOpsMessage[];
+  orphanJobCounts: InboundEmailOpsJobSummary;
 }

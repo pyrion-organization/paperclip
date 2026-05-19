@@ -338,13 +338,12 @@ export type InboundEmailAuthorizationReplyReason =
 
 export type InboundEmailAuthorizationReplyResult =
   | { status: "sent" }
-  | { status: "skipped"; reason: "smtp_not_configured" };
+  | { status: "skipped"; reason: "smtp_not_configured" | "send_failed" };
 
 export async function sendInboundEmailAuthorizationReply(params: {
   to: string;
   reason: InboundEmailAuthorizationReplyReason;
   originalSubject?: string | null;
-  clientName?: string | null;
   db?: Db | null;
   companyId?: string | null;
 }): Promise<InboundEmailAuthorizationReplyResult> {
@@ -356,10 +355,9 @@ export async function sendInboundEmailAuthorizationReply(params: {
   const subject = originalSubject
     ? `Re: ${originalSubject}`.slice(0, 200)
     : "Cadastro necessário para envio de solicitações";
-  const clientLabel = nonEmpty(params.clientName) ?? "sua empresa";
   const bodyMessage = params.reason === "employee_not_registered"
-    ? `Recebemos sua mensagem, mas o endereço ${params.to} não está cadastrado como funcionário autorizado de ${clientLabel}. Por isso, sua solicitação não pôde ser processada.`
-    : `Recebemos sua mensagem, mas o endereço ${params.to} não tem autorização para abrir solicitações para este projeto. Por isso, sua solicitação não pôde ser processada.`;
+    ? `Recebemos sua mensagem, mas o endereço ${params.to} não está autorizado a enviar solicitações por este canal. Por isso, sua solicitação não pôde ser processada.`
+    : `Recebemos sua mensagem, mas o endereço ${params.to} não está autorizado a abrir solicitações para este projeto. Por isso, sua solicitação não pôde ser processada.`;
   const actionMessage = params.reason === "employee_not_registered"
     ? "Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro. Depois que o cadastro for concluído, você poderá enviar novas solicitações por e-mail."
     : "Peça para um usuário autorizado solicitar a atualização do seu cadastro ou enviar a solicitação em seu nome.";
@@ -383,19 +381,24 @@ export async function sendInboundEmailAuthorizationReply(params: {
     signatureHtml: config.signatureHtml,
   });
 
-  await transport.sendMail({
-    from: config.from,
-    to: params.to,
-    subject,
-    text: [
-      bodyMessage,
-      "",
-      actionMessage,
-      "",
-      "Esta é uma resposta automática do Paperclip.",
-    ].join("\n"),
-    html,
-  });
+  try {
+    await transport.sendMail({
+      from: config.from,
+      to: params.to,
+      subject,
+      text: [
+        bodyMessage,
+        "",
+        actionMessage,
+        "",
+        "Esta é uma resposta automática do Paperclip.",
+      ].join("\n"),
+      html,
+    });
+  } catch (err) {
+    logger.warn({ err, to: params.to, reason: params.reason }, "inbound auth reply send failed");
+    return { status: "skipped", reason: "send_failed" };
+  }
   return { status: "sent" };
 }
 

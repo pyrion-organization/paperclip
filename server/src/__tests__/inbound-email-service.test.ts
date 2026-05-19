@@ -15,8 +15,10 @@ import {
   companySecrets,
   companySecretVersions,
   createDb,
+  inboundEmailAttachments,
   inboundEmailMailboxes,
   inboundEmailMessages,
+  inboundEmailRules,
   issues,
   projects,
 } from "@paperclipai/db";
@@ -77,7 +79,9 @@ describeEmbeddedPostgres("inbound email service", () => {
   afterEach(async () => {
     await db.delete(backgroundJobs);
     await db.delete(activityLog);
+    await db.delete(inboundEmailAttachments);
     await db.delete(inboundEmailMessages);
+    await db.delete(inboundEmailRules);
     await db.delete(inboundEmailMailboxes);
     await db.delete(issues);
     await db.delete(clientEmployeeProjectLinks);
@@ -336,8 +340,9 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const email = sendMailMock.mock.calls[0]?.[0] as { to?: string; text?: string; html?: string } | undefined;
     expect(email?.to).toBe("new.user@example.com");
-    expect(email?.text).toContain("não está cadastrado");
+    expect(email?.text).toContain("não está autorizado a enviar solicitações por este canal");
     expect(email?.text).toContain("Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro.");
+    expect(email?.text).not.toContain("Cliente Alfa");
     expect(email?.html).toContain("Solicitação não processada");
   }, 20_000);
 
@@ -386,7 +391,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.skipReason).toBe("project_not_authorized");
     expect(await db.select().from(issues)).toEqual([]);
     const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
-    expect(email?.text).toContain("não tem autorização para abrir solicitações para este projeto");
+    expect(email?.text).toContain("não está autorizado a abrir solicitações para este projeto");
     expect(email?.text).not.toContain("Private Project");
   }, 20_000);
 
@@ -440,11 +445,11 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.skipReason).toBe("project_not_authorized");
     expect(await db.select().from(issues)).toEqual([]);
     const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
-    expect(email?.text).toContain("não tem autorização para abrir solicitações para este projeto");
+    expect(email?.text).toContain("não está autorizado a abrir solicitações para este projeto");
     expect(email?.text).not.toContain("Denied Project");
   }, 20_000);
 
-  it("fails retryably when an authorization reply is required but SMTP is not configured", async () => {
+  it("still skips the message when an authorization reply is required but SMTP is not configured", async () => {
     const companyId = await seedCompany();
     await seedClientIdentity({ companyId, skipEmployee: true });
     const mailbox = await createMailbox(companyId);
@@ -456,13 +461,38 @@ describeEmbeddedPostgres("inbound email service", () => {
       processAfterImport: false,
     });
 
-    await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow(
-      "Could not send inbound authorization reply: smtp_not_configured",
-    );
+    await svc.processMessage(companyId, imported.message.id);
 
     const [storedMessage] = await db.select().from(inboundEmailMessages);
-    expect(storedMessage.status).toBe("failed");
-    expect(storedMessage.error).toBe("Could not send inbound authorization reply: smtp_not_configured");
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_not_registered");
+    expect(sendMailMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("still skips the message when the authorization reply send throws", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, skipEmployee: true });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<reply-send-fail@example.com>", from: "new.user@example.com" }),
+      providerUid: "reply-send-fail",
+      processAfterImport: false,
+    });
+    sendMailMock.mockImplementationOnce(async () => {
+      throw new Error("SMTP exploded");
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_not_registered");
   }, 20_000);
 
   it("collapses concurrent manual poll triggers into a single active job", async () => {
@@ -835,5 +865,191 @@ describeEmbeddedPostgres("inbound email service", () => {
       },
     });
     expect(res.body.mailboxes[0].mailbox).not.toHaveProperty("passwordSecretName");
+  });
+
+  it("deletes a mailbox, soft-deletes its secret, and cascades dependent rows", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: null,
+      subjectPattern: null,
+      targetProjectId: null,
+      createMode: "issue",
+      priority: "medium",
+      labelIds: [],
+    });
+    await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<delete-cascade@example.com>" }),
+      providerUid: "delete-cascade",
+      processAfterImport: false,
+    });
+    const liveSecretsBefore = await db
+      .select()
+      .from(companySecrets)
+      .where(eq(companySecrets.companyId, companyId));
+    expect(liveSecretsBefore.find((s) => s.status === "active" && s.name.startsWith("__inbound_email_password__:"))).toBeTruthy();
+
+    await svc.deleteMailbox(companyId, mailbox.id);
+
+    expect(await db.select().from(inboundEmailMailboxes).where(eq(inboundEmailMailboxes.id, mailbox.id))).toEqual([]);
+    expect(await db.select().from(inboundEmailRules)).toEqual([]);
+    expect(await db.select().from(inboundEmailMessages)).toEqual([]);
+    const liveSecretsAfter = await db
+      .select()
+      .from(companySecrets)
+      .where(eq(companySecrets.companyId, companyId));
+    expect(liveSecretsAfter.find((s) => s.status === "active" && s.name === `__inbound_email_password__:${mailbox.id}`)).toBeUndefined();
+  }, 20_000);
+
+  it("retries a failed message by enqueueing a new process job", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<retry-message@example.com>" }),
+      providerUid: "retry-message",
+      processAfterImport: false,
+    });
+    await db
+      .update(inboundEmailMessages)
+      .set({ status: "failed", error: "boom" })
+      .where(eq(inboundEmailMessages.id, imported.message.id));
+    await db.delete(backgroundJobs);
+
+    const job = await svc.retryMessage(companyId, imported.message.id);
+
+    expect(job.kind).toBe("email.process_message");
+    expect((job.payload as { messageId?: string }).messageId).toBe(imported.message.id);
+    const [stored] = await db.select().from(inboundEmailMessages).where(eq(inboundEmailMessages.id, imported.message.id));
+    expect(stored.status).toBe("persisted");
+    expect(stored.error).toBeNull();
+  }, 20_000);
+
+  it("rejects retryMessage when the message is not in failed status", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<retry-not-failed@example.com>" }),
+      providerUid: "retry-not-failed",
+      processAfterImport: false,
+    });
+
+    await expect(svc.retryMessage(companyId, imported.message.id)).rejects.toThrow(/Only failed messages/);
+  }, 20_000);
+
+  it("retries a dead background job by resetting it to pending", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const job = await svc.enqueueMailboxPoll(companyId, mailbox.id);
+    await db
+      .update(backgroundJobs)
+      .set({ status: "dead", lastError: "max attempts", lockedBy: "old", lockedAt: new Date() })
+      .where(eq(backgroundJobs.id, job.id));
+
+    const updated = await svc.retryJob(companyId, job.id);
+
+    expect(updated.status).toBe("pending");
+    expect(updated.lastError).toBeNull();
+    expect(updated.lockedBy).toBeNull();
+    expect(updated.lockedAt).toBeNull();
+  }, 20_000);
+
+  it("rejects retryJob for a job that is not failed or dead", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const job = await svc.enqueueMailboxPoll(companyId, mailbox.id);
+
+    await expect(svc.retryJob(companyId, job.id)).rejects.toThrow(/Only failed or dead jobs/);
+  }, 20_000);
+
+  it("dedupes mailbox poll scheduling within a single poll interval window", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Scheduler dedupe",
+      provider: "imap",
+      enabled: true,
+      host: "imap.example.com",
+      port: 993,
+      username: "scheduler@example.com",
+      password: "secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
+      createMode: "issue",
+      markSeen: true,
+    });
+    void mailbox;
+
+    const fixedNow = new Date("2026-05-19T10:00:30Z");
+    const enqueued1 = await svc.enqueueDueMailboxPollJobs(fixedNow);
+    const enqueued2 = await svc.enqueueDueMailboxPollJobs(new Date(fixedNow.getTime() + 5_000));
+
+    expect(enqueued1).toBe(1);
+    // Same interval bucket — dedupe key collides.
+    expect(enqueued2).toBe(1);
+    const activeRows = await db.select().from(backgroundJobs);
+    const active = activeRows.filter((r) => r.kind === "email.poll_mailbox" && (r.status === "pending" || r.status === "running" || r.status === "retrying"));
+    expect(active.length).toBe(1);
+  }, 20_000);
+
+  it("aggregates orphan jobs in the ops dashboard payload", async () => {
+    const companyId = await seedCompany();
+    const deletedMailbox = await createMailbox(companyId);
+    await db.insert(backgroundJobs).values({
+      companyId,
+      kind: "email.process_message",
+      status: "failed",
+      payload: { messageId: randomUUID() },
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: "orphaned",
+    });
+    await db.insert(backgroundJobs).values({
+      companyId,
+      kind: "email.poll_mailbox",
+      status: "dead",
+      payload: { mailboxId: deletedMailbox.id },
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: "deleted mailbox",
+    });
+    await svc.deleteMailbox(companyId, deletedMailbox.id);
+
+    const dashboard = await svc.getOpsDashboard(companyId);
+
+    expect(dashboard.orphanJobCounts.failed).toBe(1);
+    expect(dashboard.orphanJobCounts.dead).toBe(1);
+    expect(dashboard.summary.failedJobCount).toBeGreaterThanOrEqual(2);
+    expect(dashboard.mailboxes).toHaveLength(0);
+  }, 20_000);
+});
+
+describe("inbound email validators", () => {
+  it("rejects rawEmail payloads larger than 10MB", async () => {
+    const { importInboundEmailMessageSchema } = await import("@paperclipai/shared");
+    const oversized = "a".repeat(10_000_001);
+    const result = importInboundEmailMessageSchema.safeParse({
+      mailboxId: "00000000-0000-0000-0000-000000000000",
+      rawEmail: oversized,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts rawEmail payloads at the 10MB boundary", async () => {
+    const { importInboundEmailMessageSchema } = await import("@paperclipai/shared");
+    const ok = "a".repeat(10_000_000);
+    const result = importInboundEmailMessageSchema.safeParse({
+      mailboxId: "00000000-0000-0000-0000-000000000000",
+      rawEmail: ok,
+    });
+    expect(result.success).toBe(true);
   });
 });

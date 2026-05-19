@@ -11,6 +11,8 @@ import { InboundEmailOps } from "./InboundEmailOps";
 
 const mockCompaniesApi = vi.hoisted(() => ({
   getInboundEmailOpsDashboard: vi.fn(),
+  retryInboundEmailMessage: vi.fn(),
+  retryInboundEmailJob: vi.fn(),
 }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
@@ -148,6 +150,7 @@ function makeDashboard(): InboundEmailOpsDashboard {
     ],
     recentFailedJobs: [],
     recentFailedMessages: [],
+    orphanJobCounts: { pending: 0, running: 0, retrying: 0, failed: 0, dead: 0 },
   };
 }
 
@@ -207,8 +210,10 @@ describe("InboundEmailOps", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
+    mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
+    mockCompaniesApi.retryInboundEmailJob.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -256,5 +261,24 @@ describe("InboundEmailOps", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Newest message failure should render first");
     expect(text.indexOf("Newest message failure should render first")).toBeLessThan(text.indexOf("Old job failure 0"));
+  });
+
+  it("surfaces retry failures from the API", async () => {
+    mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(withRecentFailures(makeDashboard()));
+    mockCompaniesApi.retryInboundEmailMessage.mockRejectedValue(new Error("Message is no longer retryable"));
+
+    await renderPage();
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Retry"));
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.retryInboundEmailMessage).toHaveBeenCalledWith("company-1", "new-message-1");
+    expect(container.textContent).toContain("Retry failed.");
+    expect(container.textContent).toContain("Message is no longer retryable");
   });
 });

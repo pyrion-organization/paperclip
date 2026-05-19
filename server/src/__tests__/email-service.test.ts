@@ -231,7 +231,6 @@ describeEmbeddedPostgres("email service", () => {
       to: "novo.usuario@example.com",
       reason: "employee_not_registered",
       originalSubject: "Preciso de ajuda",
-      clientName: "Cliente Alfa",
       db,
       companyId,
     });
@@ -246,8 +245,9 @@ describeEmbeddedPostgres("email service", () => {
     } | undefined;
     expect(message?.to).toBe("novo.usuario@example.com");
     expect(message?.subject).toBe("Re: Preciso de ajuda");
-    expect(message?.text).toContain("não está cadastrado");
+    expect(message?.text).toContain("não está autorizado a enviar solicitações por este canal");
     expect(message?.text).toContain("Peça para um usuário já cadastrado enviar uma solicitação pedindo o seu cadastro.");
+    expect(message?.text).not.toContain("Cliente Alfa");
     expect(message?.html).toContain("Solicitação não processada");
     expect(message?.html).toContain("Assinatura Acme");
   });

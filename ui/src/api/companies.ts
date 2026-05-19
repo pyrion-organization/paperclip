@@ -80,6 +80,18 @@ export const companiesApi = {
       : api.post<InboundEmailMailbox>(`/companies/${companyId}/inbound-email/mailboxes`, data),
   testInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.post<{ ok: true }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/test`, {}),
+  deleteInboundEmailMailbox: (companyId: string, mailboxId: string) =>
+    api.delete<void>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}`),
+  retryInboundEmailMessage: (companyId: string, messageId: string) =>
+    api.post<{ id: string; status: string }>(
+      `/companies/${companyId}/inbound-email/messages/${messageId}/retry`,
+      {},
+    ),
+  retryInboundEmailJob: (companyId: string, jobId: string) =>
+    api.post<{ id: string; status: string }>(
+      `/companies/${companyId}/inbound-email/jobs/${jobId}/retry`,
+      {},
+    ),
   pollInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.post<{ id: string; status: string }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/poll`, {}),
   listInboundEmailRules: (companyId: string) =>

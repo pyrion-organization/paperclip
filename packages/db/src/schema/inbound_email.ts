@@ -98,6 +98,7 @@ export const inboundEmailMessages = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }),
     status: text("status").$type<InboundEmailMessageStatus>().notNull().default("discovered"),
     bodyText: text("body_text"),
+    // Stored verbatim from the inbound MIME part — must NEVER be rendered as HTML in the UI without sanitization.
     bodyHtml: text("body_html"),
     rawStorageKey: text("raw_storage_key"),
     rawContentType: text("raw_content_type").notNull().default("message/rfc822"),
