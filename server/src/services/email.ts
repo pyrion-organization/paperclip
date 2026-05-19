@@ -340,7 +340,7 @@ export type InboundEmailAuthorizationReplyReason =
 
 export type InboundEmailAuthorizationReplyResult =
   | { status: "sent" }
-  | { status: "skipped"; reason: "smtp_not_configured" };
+  | { status: "skipped"; reason: "smtp_not_configured" | "send_failed" };
 
 export async function sendInboundEmailAuthorizationReply(params: {
   to: string;
@@ -397,19 +397,24 @@ export async function sendInboundEmailAuthorizationReply(params: {
     signatureHtml: config.signatureHtml,
   });
 
-  await transport.sendMail({
-    from: config.from,
-    to: params.to,
-    subject,
-    text: [
-      bodyMessage,
-      "",
-      actionMessage,
-      "",
-      "Esta é uma resposta automática do Paperclip.",
-    ].join("\n"),
-    html,
-  });
+  try {
+    await transport.sendMail({
+      from: config.from,
+      to: params.to,
+      subject,
+      text: [
+        bodyMessage,
+        "",
+        actionMessage,
+        "",
+        "Esta é uma resposta automática do Paperclip.",
+      ].join("\n"),
+      html,
+    });
+  } catch (err) {
+    logger.warn({ err, to: params.to, reason: params.reason }, "inbound auth reply send failed");
+    return { status: "skipped", reason: "send_failed" };
+  }
   return { status: "sent" };
 }
 

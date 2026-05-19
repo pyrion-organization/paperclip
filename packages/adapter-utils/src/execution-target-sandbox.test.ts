@@ -243,6 +243,7 @@ describe("sandbox adapter execution targets", () => {
         stdout: "ok\n",
         stderr: "",
         pid: null,
+        processGroupId: null,
         startedAt: new Date().toISOString(),
       })),
     };
@@ -285,6 +286,7 @@ describe("sandbox adapter execution targets", () => {
         stdout: "ok\n",
         stderr: "",
         pid: null,
+        processGroupId: null,
         startedAt: new Date().toISOString(),
       })),
     };

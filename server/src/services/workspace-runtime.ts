@@ -1733,7 +1733,7 @@ async function waitForReadiness(input: {
   let lastError = "service did not become ready";
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(input.url);
+      const response = await fetch(input.url, { signal: AbortSignal.timeout(intervalMs) });
       if (response.ok) return;
       lastError = `received HTTP ${response.status}`;
     } catch (err) {

@@ -77,3 +77,95 @@ export interface InboundEmailMessage {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type InboundEmailOpsMailboxHealth = "healthy" | "warning" | "error" | "disabled";
+
+export type InboundEmailOpsJobStatus =
+  | "pending"
+  | "running"
+  | "retrying"
+  | "succeeded"
+  | "failed"
+  | "dead";
+
+export interface InboundEmailOpsJobSummary {
+  pending: number;
+  running: number;
+  retrying: number;
+  failed: number;
+  dead: number;
+}
+
+export interface InboundEmailOpsMessageSummary {
+  discovered: number;
+  persisted: number;
+  processing: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  duplicate: number;
+}
+
+export interface InboundEmailOpsJob {
+  id: string;
+  companyId: string;
+  kind: string;
+  status: InboundEmailOpsJobStatus;
+  mailboxId: string | null;
+  messageId: string | null;
+  attempts: number;
+  maxAttempts: number;
+  runAfter: Date;
+  lockedBy: string | null;
+  lockedAt: Date | null;
+  lastError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface InboundEmailOpsMessage {
+  id: string;
+  mailboxId: string;
+  status: InboundEmailMessageStatus;
+  subject: string | null;
+  fromAddress: string | null;
+  createdIssueId: string | null;
+  error: string | null;
+  skipReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface InboundEmailOpsMailbox {
+  mailbox: InboundEmailMailbox;
+  health: InboundEmailOpsMailboxHealth;
+  healthDetail: string;
+  nextPollDueAt: Date | null;
+  messageCounts: InboundEmailOpsMessageSummary;
+  jobCounts: InboundEmailOpsJobSummary;
+  lastFailedMessage: InboundEmailOpsMessage | null;
+  lastFailedJob: InboundEmailOpsJob | null;
+}
+
+export interface InboundEmailOpsDashboard {
+  generatedAt: Date;
+  sourceDelete: {
+    supported: boolean;
+    errorCount: number;
+    lastError: string | null;
+  };
+  summary: {
+    mailboxCount: number;
+    enabledMailboxCount: number;
+    healthyMailboxCount: number;
+    warningMailboxCount: number;
+    errorMailboxCount: number;
+    pendingJobCount: number;
+    failedJobCount: number;
+    failedMessageCount: number;
+  };
+  mailboxes: InboundEmailOpsMailbox[];
+  recentFailedJobs: InboundEmailOpsJob[];
+  recentFailedMessages: InboundEmailOpsMessage[];
+  orphanJobCounts: InboundEmailOpsJobSummary;
+}

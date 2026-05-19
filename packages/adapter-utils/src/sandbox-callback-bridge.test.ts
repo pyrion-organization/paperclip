@@ -964,6 +964,7 @@ describe("sandbox callback bridge", () => {
         stdout: "",
         stderr: "",
         pid: null,
+        processGroupId: null,
         startedAt: new Date().toISOString(),
       })),
     };

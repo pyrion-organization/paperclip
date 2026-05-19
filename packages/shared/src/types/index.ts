@@ -6,6 +6,12 @@ export type {
   InboundEmailMailbox,
   InboundEmailRule,
   InboundEmailMessage,
+  InboundEmailOpsDashboard,
+  InboundEmailOpsJob,
+  InboundEmailOpsJobStatus,
+  InboundEmailOpsMailbox,
+  InboundEmailOpsMailboxHealth,
+  InboundEmailOpsMessage,
 } from "./inbound-email.js";
 export type {
   Environment,

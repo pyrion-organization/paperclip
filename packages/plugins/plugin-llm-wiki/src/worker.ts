@@ -59,6 +59,8 @@ import {
   updateSpace,
   writeTemplate,
   writeWikiPage,
+  type WikiEventIngestionSettings,
+  type WikiEventIngestionSource,
 } from "./wiki.js";
 
 function stringField(value: unknown): string | null {
@@ -340,7 +342,7 @@ const plugin = definePlugin({
       const requestedSources = typeof params.sources === "object" && params.sources != null && !Array.isArray(params.sources)
         ? params.sources as Record<string, unknown>
         : null;
-      const sources: { issues?: boolean; comments?: boolean; documents?: boolean } = {};
+      const sources: Partial<Record<WikiEventIngestionSource, boolean>> = {};
       if (requestedSources && Object.prototype.hasOwnProperty.call(requestedSources, "issues")) {
         sources.issues = requestedSources.issues === true;
       }
@@ -350,11 +352,8 @@ const plugin = definePlugin({
       if (requestedSources && Object.prototype.hasOwnProperty.call(requestedSources, "documents")) {
         sources.documents = requestedSources.documents === true;
       }
-      const settings: {
-        enabled?: boolean;
-        wikiId?: string;
-        maxCharacters?: number;
-        sources?: typeof sources;
+      const settings: Partial<Omit<WikiEventIngestionSettings, "sources">> & {
+        sources?: Partial<Record<WikiEventIngestionSource, boolean>>;
       } = {
         wikiId: stringField(params.wikiId) ?? undefined,
         maxCharacters: typeof params.maxCharacters === "number" ? params.maxCharacters : undefined,

@@ -65,12 +65,17 @@ export async function startEmailWorker() {
 
   logger.info({ workerId, idleMs, batchSize, schedulerIntervalMs }, "inbound email worker started");
   while (!control.stopped) {
-    const now = Date.now();
-    const runScheduler = now - lastSchedulerTickAt >= schedulerIntervalMs;
-    if (runScheduler) lastSchedulerTickAt = now;
-    const processed = await svc.runEmailWorkerOnce(workerId, batchSize, { runScheduler });
-    if (processed === 0 && !control.stopped) {
-      await sleep(idleMs, control);
+    try {
+      const now = Date.now();
+      const runScheduler = now - lastSchedulerTickAt >= schedulerIntervalMs;
+      if (runScheduler) lastSchedulerTickAt = now;
+      const processed = await svc.runEmailWorkerOnce(workerId, batchSize, { runScheduler });
+      if (processed === 0 && !control.stopped) {
+        await sleep(idleMs, control);
+      }
+    } catch (err) {
+      logger.error({ err, workerId }, "inbound email worker iteration failed");
+      if (!control.stopped) await sleep(idleMs, control);
     }
   }
   logger.info({ workerId }, "inbound email worker stopped");
@@ -79,6 +84,6 @@ export async function startEmailWorker() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   startEmailWorker().catch((err) => {
     logger.error({ err }, "inbound email worker crashed");
-    process.exitCode = 1;
+    process.exit(1);
   });
 }

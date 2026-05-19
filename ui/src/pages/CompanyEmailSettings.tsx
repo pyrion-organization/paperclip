@@ -268,6 +268,14 @@ export function CompanyEmailSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.messages(selectedCompanyId!) });
     },
   });
+  const inboundDeleteMutation = useMutation({
+    mutationFn: () => companiesApi.deleteInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.mailboxes(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.messages(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
+    },
+  });
 
   const ruleDraftValid: boolean =
     ruleDraft.senderPattern.trim().length > 0 ||
@@ -455,14 +463,32 @@ export function CompanyEmailSettings() {
             <Button data-testid="company-settings-inbound-poll" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => inboundPollMutation.mutate()} disabled={!primaryInboundMailbox || inboundPollMutation.isPending}>
               {inboundPollMutation.isPending ? "Queued..." : "Queue poll"}
             </Button>
+            {primaryInboundMailbox ? (
+              <Button
+                data-testid="company-settings-inbound-delete"
+                size="sm"
+                variant="outline"
+                className="w-full text-destructive sm:w-auto"
+                onClick={() => {
+                  if (typeof window !== "undefined" && !window.confirm("Delete this inbound mailbox? Existing messages, rules, and stored attachments for this mailbox will also be removed.")) {
+                    return;
+                  }
+                  inboundDeleteMutation.mutate();
+                }}
+                disabled={inboundDeleteMutation.isPending}
+              >
+                {inboundDeleteMutation.isPending ? "Deleting..." : "Delete mailbox"}
+              </Button>
+            ) : null}
           </div>
           {inboundSaveMutation.isSuccess && <span className="block text-xs text-muted-foreground">Inbound mailbox saved.</span>}
           {inboundTestMutation.isSuccess && <span className="block text-xs text-muted-foreground">Mailbox connection succeeded.</span>}
           {inboundPollMutation.isSuccess && <span className="block text-xs text-muted-foreground">Mailbox poll queued.</span>}
-          {(inboundSaveMutation.isError || inboundTestMutation.isError || inboundPollMutation.isError) && (
+          {inboundDeleteMutation.isSuccess && <span className="block text-xs text-muted-foreground">Inbound mailbox deleted.</span>}
+          {(inboundSaveMutation.isError || inboundTestMutation.isError || inboundPollMutation.isError || inboundDeleteMutation.isError) && (
             <span className="block min-w-0 break-words text-xs text-destructive">
-              {(inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error) instanceof Error
-                ? (inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error)?.message
+              {(inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error ?? inboundDeleteMutation.error) instanceof Error
+                ? (inboundSaveMutation.error ?? inboundTestMutation.error ?? inboundPollMutation.error ?? inboundDeleteMutation.error)?.message
                 : "Inbound email action failed"}
             </span>
           )}

@@ -1199,5 +1199,13 @@ export type {
   InboundEmailMailbox,
   InboundEmailRule,
   InboundEmailMessage,
+  InboundEmailOpsDashboard,
+  InboundEmailOpsJob,
+  InboundEmailOpsJobStatus,
+  InboundEmailOpsJobSummary,
+  InboundEmailOpsMailbox,
+  InboundEmailOpsMailboxHealth,
+  InboundEmailOpsMessage,
+  InboundEmailOpsMessageSummary,
   MailboxView,
 } from "./types/inbound-email.js";

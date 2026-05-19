@@ -279,6 +279,7 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
           stdout: "",
           stderr: "",
           pid: 555,
+          processGroupId: null,
           startedAt: new Date().toISOString(),
         };
         }

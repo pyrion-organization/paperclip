@@ -37,6 +37,13 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     res.json(await svc.listMailboxes(companyId, pageOptions(req)));
   });
 
+  router.get("/companies/:companyId/inbound-email/ops", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    res.json(await svc.getOpsDashboard(companyId));
+  });
+
   router.post(
     "/companies/:companyId/inbound-email/mailboxes",
     validate(createInboundEmailMailboxSchema),
@@ -66,6 +73,39 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
         userId: actor.actorType === "user" ? actor.actorId : null,
         agentId: actor.agentId ?? null,
       }));
+    },
+  );
+
+  router.delete("/companies/:companyId/inbound-email/mailboxes/:mailboxId", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const mailboxId = req.params.mailboxId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    await svc.deleteMailbox(companyId, mailboxId);
+    res.status(204).end();
+  });
+
+  router.post(
+    "/companies/:companyId/inbound-email/messages/:messageId/retry",
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const messageId = req.params.messageId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const job = await svc.retryMessage(companyId, messageId);
+      res.status(202).json(job);
+    },
+  );
+
+  router.post(
+    "/companies/:companyId/inbound-email/jobs/:jobId/retry",
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const jobId = req.params.jobId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const job = await svc.retryJob(companyId, jobId);
+      res.status(202).json(job);
     },
   );
 

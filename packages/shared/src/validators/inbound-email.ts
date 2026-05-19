@@ -80,7 +80,7 @@ export type UpdateInboundEmailRule = z.infer<typeof updateInboundEmailRuleSchema
 export const importInboundEmailMessageSchema = z.object({
   mailboxId: z.string().uuid(),
   providerUid: z.string().max(255).nullable().optional(),
-  rawEmail: z.string().min(1),
+  rawEmail: z.string().min(1).max(10_000_000),
   processAfterImport: z.boolean().optional().default(true),
 });
 

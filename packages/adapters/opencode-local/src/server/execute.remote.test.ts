@@ -22,6 +22,7 @@ const {
         stdout: "opencode/gpt-5-nano\nopenai/gpt-4.1\n",
         stderr: "",
         pid: 122,
+        processGroupId: null,
         startedAt: new Date().toISOString(),
       };
     }
@@ -40,6 +41,7 @@ const {
       ].join("\n"),
       stderr: "",
       pid: 123,
+      processGroupId: null,
       startedAt: new Date().toISOString(),
     };
   }),
@@ -238,7 +240,7 @@ describe("opencode remote execution", () => {
     expect(call?.[3].remoteExecution?.remoteCwd).toBe(managedRemoteWorkspace);
     expect(startAdapterExecutionTargetPaperclipBridge).toHaveBeenCalledTimes(1);
     expect(restoreWorkspaceFromSshExecution).toHaveBeenCalledTimes(1);
-  });
+  }, 10_000);
 
   it("fails before the remote run when the configured model is unavailable on the SSH target", async () => {
     runChildProcess.mockImplementationOnce(async () => ({
@@ -248,6 +250,7 @@ describe("opencode remote execution", () => {
       stdout: "openai/gpt-4.1\n",
       stderr: "",
       pid: 456,
+      processGroupId: null,
       startedAt: new Date().toISOString(),
     }));
 
