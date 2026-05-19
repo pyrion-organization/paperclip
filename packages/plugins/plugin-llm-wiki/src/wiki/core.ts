@@ -1100,7 +1100,12 @@ export async function listPaperclipIngestionCandidates(ctx: PluginContext, input
 
 export async function updateEventIngestionSettings(
   ctx: PluginContext,
-  input: { companyId: string; settings: Partial<WikiEventIngestionSettings> & { sources?: Partial<Record<WikiEventIngestionSource, boolean>> } },
+  input: {
+    companyId: string;
+    settings: Partial<Omit<WikiEventIngestionSettings, "sources">> & {
+      sources?: Partial<Record<WikiEventIngestionSource, boolean>>;
+    };
+  },
 ): Promise<WikiEventIngestionSettings> {
   await requirePaperclipIngestionPolicy(ctx, {
     companyId: input.companyId,

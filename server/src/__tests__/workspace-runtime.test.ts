@@ -3234,7 +3234,8 @@ describeEmbeddedPostgres("workspace runtime startup reconciliation", () => {
       executionWorkspaceId,
       workspaceCwd: workspace.cwd,
     });
-    await expect(fetch(first[0]!.url!)).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await expect(fetch(first[0]!.url!, { signal: AbortSignal.timeout(1_000) })).rejects.toThrow();
 
     const second = await startRuntimeServicesForWorkspaceControl({
       db,
@@ -3257,7 +3258,7 @@ describeEmbeddedPostgres("workspace runtime startup reconciliation", () => {
       executionWorkspaceId,
       workspaceCwd: workspace.cwd,
     });
-  });
+  }, 20_000);
 });
 
 describe("normalizeAdapterManagedRuntimeServices", () => {

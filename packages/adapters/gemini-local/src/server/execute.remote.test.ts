@@ -29,6 +29,7 @@ const {
     ].join("\n"),
     stderr: "",
     pid: 123,
+    processGroupId: null,
     startedAt: new Date().toISOString(),
   })),
   ensureCommandResolvable: vi.fn(async () => undefined),

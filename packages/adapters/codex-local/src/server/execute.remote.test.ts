@@ -19,6 +19,7 @@ const {
     stdout: "",
     stderr: "remote failure",
     pid: 123,
+    processGroupId: null,
     startedAt: new Date().toISOString(),
   })),
   ensureCommandResolvable: vi.fn(async () => undefined),

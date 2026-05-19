@@ -234,6 +234,7 @@ describe("runAdapterExecutionTargetProcess", () => {
       stdout: "",
       stderr: "",
       pid: null,
+      processGroupId: null,
       startedAt: new Date().toISOString(),
     });
 
