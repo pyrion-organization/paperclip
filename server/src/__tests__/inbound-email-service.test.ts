@@ -547,6 +547,48 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
+  it.each([
+    ["Re: Cadastro de usuário", "reply"],
+    ["Fwd: Cadastro de usuário", "forward"],
+    ["ENC: Cadastro de usuário", "pt-br forward"],
+  ])("does not treat registration commands in %s subjects as new registration requests", async (subject) => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const project = await seedProject(companyId, "Billing");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-reply-subject@example.com>",
+        from: "requester@example.com",
+        subject,
+        body: "Obrigado pelo retorno.",
+      }),
+      providerUid: "register-reply-subject",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect((await db.select().from(clientEmployees)).map((row) => row.email)).toEqual(["requester@example.com"]);
+    const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
+    expect(email?.text).not.toContain("Cadastro incompleto");
+    expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
+    expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "register-reply-subject",
+    );
+  }, 20_000);
+
   it("rejects registration for an email outside the same client accepted domains", async () => {
     const companyId = await seedCompany();
     await db

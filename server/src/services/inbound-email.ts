@@ -451,9 +451,14 @@ function registrationContent(message: typeof inboundEmailMessages.$inferSelect):
   return { subject: message.subject ?? "", body: stripQuotedReply(rawBody) };
 }
 
+function hasReplyOrForwardPrefix(subject: string): boolean {
+  return /^\s*(?:(?:re|res|fw|fwd|enc)\s*:\s*)+/i.test(subject);
+}
+
 function isRegistrationCommand(message: typeof inboundEmailMessages.$inferSelect): boolean {
   const { subject, body } = registrationContent(message);
-  const searchTokens = projectMatchTokens(`${subject} ${body}`);
+  const subjectCommandText = hasReplyOrForwardPrefix(subject) ? "" : subject;
+  const searchTokens = projectMatchTokens(`${subjectCommandText} ${body}`);
   return REGISTRATION_COMMAND_PHRASES.some((phrase) => hasContiguousTokenMatch(searchTokens, phrase));
 }
 
