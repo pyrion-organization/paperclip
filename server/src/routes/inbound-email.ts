@@ -37,6 +37,13 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     res.json(await svc.listMailboxes(companyId, pageOptions(req)));
   });
 
+  router.get("/companies/:companyId/inbound-email/ops", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    res.json(await svc.getOpsDashboard(companyId));
+  });
+
   router.post(
     "/companies/:companyId/inbound-email/mailboxes",
     validate(createInboundEmailMailboxSchema),

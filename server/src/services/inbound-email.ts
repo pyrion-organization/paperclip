@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
@@ -20,6 +20,12 @@ import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
   InboundEmailMailbox as MailboxView,
+  InboundEmailOpsDashboard,
+  InboundEmailOpsJob,
+  InboundEmailOpsJobSummary,
+  InboundEmailOpsMailboxHealth,
+  InboundEmailOpsMessage,
+  InboundEmailOpsMessageSummary,
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
@@ -40,6 +46,7 @@ export const EMAIL_PROCESS_MESSAGE_JOB_KIND = "email.process_message";
 
 const DEFAULT_EMAIL_WORKER_BATCH_SIZE = 10;
 const DEFAULT_EMAIL_FETCH_LIMIT = 20;
+const OPS_RECENT_FAILURE_LIMIT = 20;
 const INBOUND_EMAIL_ACTOR = {
   actorType: "system" as const,
   actorId: "inbound-email-worker",
@@ -101,12 +108,148 @@ function redactMailbox(row: typeof inboundEmailMailboxes.$inferSelect): MailboxV
   } as MailboxView;
 }
 
+function emptyMessageSummary(): InboundEmailOpsMessageSummary {
+  return {
+    discovered: 0,
+    persisted: 0,
+    processing: 0,
+    processed: 0,
+    skipped: 0,
+    failed: 0,
+    duplicate: 0,
+  };
+}
+
+function emptyJobSummary(): InboundEmailOpsJobSummary {
+  return {
+    pending: 0,
+    running: 0,
+    retrying: 0,
+    failed: 0,
+    dead: 0,
+  };
+}
+
 function hashBuffer(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function jobMailboxId(job: typeof backgroundJobs.$inferSelect, messageById: Map<string, typeof inboundEmailMessages.$inferSelect>): string | null {
+  const payloadMailboxId = asNullableString(job.payload.mailboxId);
+  if (payloadMailboxId) return payloadMailboxId;
+  const messageId = asNullableString(job.payload.messageId);
+  return messageId ? messageById.get(messageId)?.mailboxId ?? null : null;
+}
+
+function toOpsJob(
+  job: typeof backgroundJobs.$inferSelect,
+  messageById: Map<string, typeof inboundEmailMessages.$inferSelect>,
+): InboundEmailOpsJob {
+  return {
+    id: job.id,
+    companyId: job.companyId,
+    kind: job.kind,
+    status: job.status,
+    mailboxId: jobMailboxId(job, messageById),
+    messageId: asNullableString(job.payload.messageId),
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts,
+    runAfter: job.runAfter,
+    lockedBy: job.lockedBy,
+    lockedAt: job.lockedAt,
+    lastError: job.lastError,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function toOpsMessage(message: typeof inboundEmailMessages.$inferSelect): InboundEmailOpsMessage {
+  return {
+    id: message.id,
+    mailboxId: message.mailboxId,
+    status: message.status,
+    subject: message.subject,
+    fromAddress: message.fromAddress,
+    createdIssueId: message.createdIssueId,
+    error: message.error,
+    skipReason: message.skipReason,
+    createdAt: message.createdAt,
+    updatedAt: message.updatedAt,
+  };
+}
+
+function toOpsMessageFromRow(row: {
+  id: string;
+  mailboxId: string;
+  status: string;
+  subject: string | null;
+  fromAddress: string | null;
+  createdIssueId: string | null;
+  error: string | null;
+  skipReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): InboundEmailOpsMessage {
+  return {
+    ...row,
+    status: row.status as InboundEmailOpsMessage["status"],
+  };
+}
+
+function toOpsJobFromRow(row: {
+  id: string;
+  companyId: string;
+  kind: string;
+  status: string;
+  mailboxId: string | null;
+  messageId: string | null;
+  attempts: number;
+  maxAttempts: number;
+  runAfter: Date;
+  lockedBy: string | null;
+  lockedAt: Date | null;
+  lastError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): InboundEmailOpsJob {
+  return {
+    ...row,
+    status: row.status as InboundEmailOpsJob["status"],
+  };
+}
+
+function deriveMailboxHealth(input: {
+  mailbox: MailboxView;
+  now: Date;
+}): { health: InboundEmailOpsMailboxHealth; healthDetail: string; nextPollDueAt: Date | null } {
+  const { mailbox, now } = input;
+  const nextPollDueAt = mailbox.lastPollAt
+    ? new Date(mailbox.lastPollAt.getTime() + mailbox.pollIntervalSeconds * 1000)
+    : null;
+  if (!mailbox.enabled) {
+    return { health: "disabled", healthDetail: "Mailbox disabled", nextPollDueAt };
+  }
+  if (mailbox.lastError) {
+    return { health: "error", healthDetail: mailbox.lastError, nextPollDueAt };
+  }
+  if (!mailbox.passwordSet) {
+    return { health: "warning", healthDetail: "Password is not configured", nextPollDueAt };
+  }
+  if (!mailbox.lastPollAt) {
+    return { health: "warning", healthDetail: "No poll has run yet", nextPollDueAt };
+  }
+  if (!mailbox.lastSuccessAt) {
+    return { health: "warning", healthDetail: "No successful poll has completed yet", nextPollDueAt };
+  }
+  const staleAfterMs = Math.max(mailbox.pollIntervalSeconds * 3 * 1000, 5 * 60_000);
+  if (now.getTime() - mailbox.lastSuccessAt.getTime() > staleAfterMs) {
+    return { health: "warning", healthDetail: "Last successful poll is stale", nextPollDueAt };
+  }
+  return { health: "healthy", healthDetail: "Polling successfully", nextPollDueAt };
 }
 
 function normalizeEmailAddress(value: string | null | undefined): string | null {
@@ -1128,6 +1271,217 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .orderBy(asc(backgroundJobs.createdAt), asc(backgroundJobs.id))
           .limit(limit);
       }, options);
+    },
+
+    getOpsDashboard: async (companyId: string, now = new Date()): Promise<InboundEmailOpsDashboard> => {
+      const [
+        mailboxRows,
+        messageCountRows,
+        jobCountRows,
+        recentFailedMessageRows,
+        recentFailedJobRows,
+        latestFailedMessageRows,
+        latestFailedJobRows,
+      ] = await Promise.all([
+        db
+          .select()
+          .from(inboundEmailMailboxes)
+          .where(eq(inboundEmailMailboxes.companyId, companyId))
+          .orderBy(asc(inboundEmailMailboxes.name), asc(inboundEmailMailboxes.createdAt)),
+        db.execute(sql`
+          select
+            ${inboundEmailMessages.mailboxId}::text as "mailboxId",
+            ${inboundEmailMessages.status}::text as "status",
+            count(*)::int as "count"
+          from ${inboundEmailMessages}
+          where ${inboundEmailMessages.companyId} = ${companyId}::uuid
+          group by ${inboundEmailMessages.mailboxId}, ${inboundEmailMessages.status}
+        `),
+        db.execute(sql`
+          select
+            coalesce(
+              ${backgroundJobs.payload}->>'mailboxId',
+              ${inboundEmailMessages.mailboxId}::text
+            ) as "mailboxId",
+            ${backgroundJobs.status}::text as "status",
+            count(*)::int as "count"
+          from ${backgroundJobs}
+          left join ${inboundEmailMessages}
+            on ${inboundEmailMessages.id}::text = ${backgroundJobs.payload}->>'messageId'
+            and ${inboundEmailMessages.companyId} = ${backgroundJobs.companyId}
+          where ${backgroundJobs.companyId} = ${companyId}::uuid
+            and ${backgroundJobs.kind} in (${EMAIL_POLL_MAILBOX_JOB_KIND}, ${EMAIL_PROCESS_MESSAGE_JOB_KIND})
+          group by "mailboxId", ${backgroundJobs.status}
+        `),
+        db
+          .select()
+          .from(inboundEmailMessages)
+          .where(and(eq(inboundEmailMessages.companyId, companyId), eq(inboundEmailMessages.status, "failed")))
+          .orderBy(desc(inboundEmailMessages.updatedAt), desc(inboundEmailMessages.createdAt))
+          .limit(OPS_RECENT_FAILURE_LIMIT),
+        db
+          .select()
+          .from(backgroundJobs)
+          .where(
+            and(
+              eq(backgroundJobs.companyId, companyId),
+              inArray(backgroundJobs.status, ["failed", "dead"]),
+              inArray(backgroundJobs.kind, [
+                EMAIL_POLL_MAILBOX_JOB_KIND,
+                EMAIL_PROCESS_MESSAGE_JOB_KIND,
+              ]),
+            ),
+          )
+          .orderBy(desc(backgroundJobs.updatedAt), desc(backgroundJobs.createdAt))
+          .limit(OPS_RECENT_FAILURE_LIMIT),
+        db.execute(sql`
+          select distinct on (${inboundEmailMessages.mailboxId})
+            ${inboundEmailMessages.id}::text as "id",
+            ${inboundEmailMessages.mailboxId}::text as "mailboxId",
+            ${inboundEmailMessages.status}::text as "status",
+            ${inboundEmailMessages.subject} as "subject",
+            ${inboundEmailMessages.fromAddress} as "fromAddress",
+            ${inboundEmailMessages.createdIssueId}::text as "createdIssueId",
+            ${inboundEmailMessages.error} as "error",
+            ${inboundEmailMessages.skipReason} as "skipReason",
+            ${inboundEmailMessages.createdAt} as "createdAt",
+            ${inboundEmailMessages.updatedAt} as "updatedAt"
+          from ${inboundEmailMessages}
+          where ${inboundEmailMessages.companyId} = ${companyId}::uuid
+            and ${inboundEmailMessages.status} = 'failed'
+          order by ${inboundEmailMessages.mailboxId}, ${inboundEmailMessages.updatedAt} desc, ${inboundEmailMessages.createdAt} desc
+        `),
+        db.execute(sql`
+          with failed_jobs as (
+            select
+              ${backgroundJobs.id}::text as "id",
+              ${backgroundJobs.companyId}::text as "companyId",
+              ${backgroundJobs.kind}::text as "kind",
+              ${backgroundJobs.status}::text as "status",
+              coalesce(
+                ${backgroundJobs.payload}->>'mailboxId',
+                ${inboundEmailMessages.mailboxId}::text
+              ) as "mailboxId",
+              ${backgroundJobs.payload}->>'messageId' as "messageId",
+              ${backgroundJobs.attempts} as "attempts",
+              ${backgroundJobs.maxAttempts} as "maxAttempts",
+              ${backgroundJobs.runAfter} as "runAfter",
+              ${backgroundJobs.lockedBy} as "lockedBy",
+              ${backgroundJobs.lockedAt} as "lockedAt",
+              ${backgroundJobs.lastError} as "lastError",
+              ${backgroundJobs.createdAt} as "createdAt",
+              ${backgroundJobs.updatedAt} as "updatedAt"
+            from ${backgroundJobs}
+            left join ${inboundEmailMessages}
+              on ${inboundEmailMessages.id}::text = ${backgroundJobs.payload}->>'messageId'
+              and ${inboundEmailMessages.companyId} = ${backgroundJobs.companyId}
+            where ${backgroundJobs.companyId} = ${companyId}::uuid
+              and ${backgroundJobs.status} in ('failed', 'dead')
+              and ${backgroundJobs.kind} in (${EMAIL_POLL_MAILBOX_JOB_KIND}, ${EMAIL_PROCESS_MESSAGE_JOB_KIND})
+          )
+          select distinct on ("mailboxId") *
+          from failed_jobs
+          where "mailboxId" is not null
+          order by "mailboxId", "updatedAt" desc, "createdAt" desc
+        `),
+      ]);
+
+      const recentJobMessageIds = recentFailedJobRows
+        .map((job) => asNullableString(job.payload.messageId))
+        .filter((messageId): messageId is string => Boolean(messageId));
+      const recentJobMessages = recentJobMessageIds.length > 0
+        ? await db
+          .select()
+          .from(inboundEmailMessages)
+          .where(
+            and(
+              eq(inboundEmailMessages.companyId, companyId),
+              inArray(inboundEmailMessages.id, recentJobMessageIds),
+            ),
+          )
+        : [];
+      const recentJobMessageById = new Map(recentJobMessages.map((message) => [message.id, message]));
+      const recentFailedJobs = recentFailedJobRows.map((job) => toOpsJob(job, recentJobMessageById));
+      const recentFailedMessages = recentFailedMessageRows.map(toOpsMessage);
+      const latestFailedMessages = (latestFailedMessageRows as unknown as Array<Parameters<typeof toOpsMessageFromRow>[0]>).map(toOpsMessageFromRow);
+      const latestFailedJobs = (latestFailedJobRows as unknown as Array<Parameters<typeof toOpsJobFromRow>[0]>).map(toOpsJobFromRow);
+      const messageCountsByMailbox = new Map<string, InboundEmailOpsMessageSummary>();
+      const jobCountsByMailbox = new Map<string, InboundEmailOpsJobSummary>();
+      const lastFailedMessageByMailbox = new Map<string, InboundEmailOpsMessage>();
+      const lastFailedJobByMailbox = new Map<string, InboundEmailOpsJob>();
+
+      for (const row of messageCountRows as unknown as Array<{ mailboxId: string; status: string; count: number | string }>) {
+        const counts = messageCountsByMailbox.get(row.mailboxId) ?? emptyMessageSummary();
+        const status = row.status as keyof InboundEmailOpsMessageSummary;
+        counts[status] = Number(row.count);
+        messageCountsByMailbox.set(row.mailboxId, counts);
+      }
+
+      for (const row of jobCountRows as unknown as Array<{ mailboxId: string | null; status: string; count: number | string }>) {
+        if (!row.mailboxId) continue;
+        const counts = jobCountsByMailbox.get(row.mailboxId) ?? emptyJobSummary();
+        if (row.status === "pending" || row.status === "running" || row.status === "retrying" || row.status === "failed" || row.status === "dead") {
+          counts[row.status] = Number(row.count);
+        }
+        jobCountsByMailbox.set(row.mailboxId, counts);
+      }
+
+      for (const message of latestFailedMessages) {
+        lastFailedMessageByMailbox.set(message.mailboxId, message);
+      }
+
+      for (const job of latestFailedJobs) {
+        if (job.mailboxId) {
+          lastFailedJobByMailbox.set(job.mailboxId, job);
+        }
+      }
+
+      let healthyMailboxCount = 0;
+      let warningMailboxCount = 0;
+      let errorMailboxCount = 0;
+      const mailboxes = mailboxRows.map((row) => {
+        const mailbox = redactMailbox(row);
+        const health = deriveMailboxHealth({ mailbox, now });
+        if (health.health === "healthy") healthyMailboxCount += 1;
+        if (health.health === "warning") warningMailboxCount += 1;
+        if (health.health === "error") errorMailboxCount += 1;
+        return {
+          mailbox,
+          ...health,
+          messageCounts: messageCountsByMailbox.get(mailbox.id) ?? emptyMessageSummary(),
+          jobCounts: jobCountsByMailbox.get(mailbox.id) ?? emptyJobSummary(),
+          lastFailedMessage: lastFailedMessageByMailbox.get(mailbox.id) ?? null,
+          lastFailedJob: lastFailedJobByMailbox.get(mailbox.id) ?? null,
+        };
+      });
+
+      const allJobCounts = [...jobCountsByMailbox.values()];
+      const allMessageCounts = [...messageCountsByMailbox.values()];
+      const pendingJobCount = allJobCounts.reduce((sum, counts) => sum + counts.pending + counts.retrying, 0);
+      const failedJobCount = allJobCounts.reduce((sum, counts) => sum + counts.failed + counts.dead, 0);
+      const failedMessageCount = allMessageCounts.reduce((sum, counts) => sum + counts.failed, 0);
+
+      return {
+        generatedAt: now,
+        sourceDelete: {
+          supported: false,
+          errorCount: 0,
+          lastError: null,
+        },
+        summary: {
+          mailboxCount: mailboxRows.length,
+          enabledMailboxCount: mailboxRows.filter((mailbox) => mailbox.enabled).length,
+          healthyMailboxCount,
+          warningMailboxCount,
+          errorMailboxCount,
+          pendingJobCount,
+          failedJobCount,
+          failedMessageCount,
+        },
+        mailboxes,
+        recentFailedJobs,
+        recentFailedMessages,
+      };
     },
 
     // Exposed for tests.

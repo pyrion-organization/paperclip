@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import express from "express";
+import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backgroundJobs,
@@ -23,6 +25,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { inboundEmailService } from "../services/inbound-email.ts";
+import { inboundEmailRoutes } from "../routes/inbound-email.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
@@ -190,6 +193,24 @@ describeEmbeddedPostgres("inbound email service", () => {
       tls: true,
       pollIntervalSeconds: 60,
       targetProjectId,
+      createMode: "issue",
+      markSeen: true,
+    });
+  }
+
+  async function createNamedMailbox(companyId: string, name: string) {
+    return svc.createMailbox(companyId, {
+      name,
+      provider: "imap",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}@example.com`,
+      password: "mailbox-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+      targetProjectId: null,
       createMode: "issue",
       markSeen: true,
     });
@@ -637,5 +658,182 @@ describeEmbeddedPostgres("inbound email service", () => {
       createMode: "issue",
       markSeen: true,
     })).rejects.toThrow("targetProjectId must belong to the same company");
+  });
+
+  it("builds a company-scoped inbound email ops dashboard from mailboxes, messages, and jobs", async () => {
+    const companyId = await seedCompany();
+    const otherCompanyId = await seedCompany("Other Company");
+    const mailbox = await createMailbox(companyId);
+    const otherMailbox = await createMailbox(otherCompanyId);
+    const now = new Date("2026-05-19T12:00:00.000Z");
+
+    await db
+      .update(inboundEmailMailboxes)
+      .set({
+        enabled: true,
+        lastPollAt: new Date(),
+        lastSuccessAt: new Date(),
+      })
+      .where(eq(inboundEmailMailboxes.id, mailbox.id));
+
+    const [failedMessage] = await db
+      .insert(inboundEmailMessages)
+      .values({
+        companyId,
+        mailboxId: mailbox.id,
+        rawSha256: randomUUID().replace(/-/g, ""),
+        status: "failed",
+        subject: "Cannot deploy",
+        fromAddress: "customer@example.com",
+        error: "Project authorization reply could not be sent",
+      })
+      .returning();
+    await db.insert(inboundEmailMessages).values({
+      companyId: otherCompanyId,
+      mailboxId: otherMailbox.id,
+      rawSha256: randomUUID().replace(/-/g, ""),
+      status: "failed",
+      subject: "Other company failure",
+      error: "Must not leak",
+    });
+    await db.insert(backgroundJobs).values({
+      companyId,
+      kind: "email.process_message",
+      status: "dead",
+      payload: { messageId: failedMessage.id },
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: "Processing failed permanently",
+    });
+    await db.insert(backgroundJobs).values({
+      companyId,
+      kind: "email.poll_mailbox",
+      status: "pending",
+      payload: { mailboxId: mailbox.id },
+      attempts: 0,
+      maxAttempts: 3,
+    });
+    await db.insert(backgroundJobs).values({
+      companyId: otherCompanyId,
+      kind: "email.poll_mailbox",
+      status: "dead",
+      payload: { mailboxId: otherMailbox.id },
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: "Other failure",
+    });
+
+    const dashboard = await svc.getOpsDashboard(companyId, now);
+
+    expect(dashboard.summary.mailboxCount).toBe(1);
+    expect(dashboard.summary.enabledMailboxCount).toBe(1);
+    expect(dashboard.summary.healthyMailboxCount).toBe(1);
+    expect(dashboard.summary.failedMessageCount).toBe(1);
+    expect(dashboard.summary.failedJobCount).toBe(1);
+    expect(dashboard.sourceDelete.supported).toBe(false);
+    expect(dashboard.mailboxes[0]?.mailbox.id).toBe(mailbox.id);
+    expect(dashboard.mailboxes[0]?.messageCounts.failed).toBe(1);
+    expect(dashboard.mailboxes[0]?.jobCounts.pending).toBe(1);
+    expect(dashboard.mailboxes[0]?.jobCounts.dead).toBe(1);
+    expect(dashboard.mailboxes[0]?.lastFailedMessage?.error).toBe("Project authorization reply could not be sent");
+    expect(dashboard.mailboxes[0]?.lastFailedJob?.lastError).toBe("Processing failed permanently");
+    expect(dashboard.recentFailedMessages).toHaveLength(1);
+    expect(dashboard.recentFailedJobs).toHaveLength(1);
+  });
+
+  it("keeps per-mailbox failure detail when another mailbox owns the global recent failure window", async () => {
+    const companyId = await seedCompany();
+    const noisyMailbox = await createMailbox(companyId);
+    const quietMailbox = await createNamedMailbox(companyId, "Quiet inbox");
+    const baseTime = new Date("2026-05-19T12:00:00.000Z");
+
+    for (let index = 0; index < 25; index += 1) {
+      await db.insert(inboundEmailMessages).values({
+        companyId,
+        mailboxId: noisyMailbox.id,
+        rawSha256: randomUUID().replace(/-/g, ""),
+        status: "failed",
+        subject: `Noisy failure ${index}`,
+        error: `Noisy failure ${index}`,
+        createdAt: new Date(baseTime.getTime() + index * 1_000),
+        updatedAt: new Date(baseTime.getTime() + index * 1_000),
+      });
+    }
+
+    const quietFailureAt = new Date(baseTime.getTime() - 60_000);
+    const [quietMessage] = await db.insert(inboundEmailMessages).values({
+      companyId,
+      mailboxId: quietMailbox.id,
+      rawSha256: randomUUID().replace(/-/g, ""),
+      status: "failed",
+      subject: "Quiet mailbox failure",
+      error: "Quiet mailbox detail must remain visible",
+      createdAt: quietFailureAt,
+      updatedAt: quietFailureAt,
+    }).returning();
+    await db.insert(backgroundJobs).values({
+      companyId,
+      kind: "email.process_message",
+      status: "dead",
+      payload: { messageId: quietMessage.id },
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: "Quiet mailbox job detail must remain visible",
+      createdAt: quietFailureAt,
+      updatedAt: quietFailureAt,
+    });
+
+    const dashboard = await svc.getOpsDashboard(companyId, new Date(baseTime.getTime() + 120_000));
+    const quietRow = dashboard.mailboxes.find((row) => row.mailbox.id === quietMailbox.id);
+
+    expect(dashboard.recentFailedMessages.every((message) => message.mailboxId === noisyMailbox.id)).toBe(true);
+    expect(quietRow?.messageCounts.failed).toBe(1);
+    expect(quietRow?.jobCounts.dead).toBe(1);
+    expect(quietRow?.lastFailedMessage?.error).toBe("Quiet mailbox detail must remain visible");
+    expect(quietRow?.lastFailedJob?.lastError).toBe("Quiet mailbox job detail must remain visible");
+  });
+
+  it("serves the inbound email ops dashboard through the board API route", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    await db
+      .update(inboundEmailMailboxes)
+      .set({
+        enabled: true,
+        lastPollAt: new Date(),
+        lastSuccessAt: new Date(),
+      })
+      .where(eq(inboundEmailMailboxes.id, mailbox.id));
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db));
+
+    const res = await request(app)
+      .get(`/companies/${companyId}/inbound-email/ops`)
+      .expect(200);
+
+    expect(res.body.summary).toMatchObject({
+      mailboxCount: 1,
+      enabledMailboxCount: 1,
+    });
+    expect(res.body.mailboxes[0]).toMatchObject({
+      health: "healthy",
+      mailbox: {
+        id: mailbox.id,
+        name: "Support inbox",
+        passwordSet: true,
+      },
+    });
+    expect(res.body.mailboxes[0].mailbox).not.toHaveProperty("passwordSecretName");
   });
 });

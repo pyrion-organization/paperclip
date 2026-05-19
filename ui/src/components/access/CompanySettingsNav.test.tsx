@@ -60,6 +60,8 @@ describe("CompanySettingsNav", () => {
     expect(getCompanySettingsTab("/PAP/company/settings")).toBe("general");
     expect(getCompanySettingsTab("/company/settings/email")).toBe("email");
     expect(getCompanySettingsTab("/PAP/company/settings/email")).toBe("email");
+    expect(getCompanySettingsTab("/company/settings/email/ops")).toBe("emailOps");
+    expect(getCompanySettingsTab("/PAP/company/settings/email/ops")).toBe("emailOps");
     expect(getCompanySettingsTab("/company/settings/environments")).toBe("environments");
     expect(getCompanySettingsTab("/PAP/company/settings/environments")).toBe("environments");
     expect(getCompanySettingsTab("/company/settings/access")).toBe("access");
@@ -82,6 +84,7 @@ describe("CompanySettingsNav", () => {
         items: [
           { value: "general", label: "General" },
           { value: "email", label: "Email" },
+          { value: "emailOps", label: "Email Ops" },
           { value: "environments", label: "Environments" },
           { value: "access", label: "Access" },
           { value: "invites", label: "Invites" },

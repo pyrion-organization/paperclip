@@ -13,6 +13,7 @@ import type {
   CreateInboundEmailRule,
   InboundEmailMailbox,
   InboundEmailMessage,
+  InboundEmailOpsDashboard,
   InboundEmailRule,
   UpdateCompanyBranding,
   UpdateInboundEmailMailbox,
@@ -67,6 +68,8 @@ export const companiesApi = {
     api.get<InboundEmailListPage<InboundEmailMailbox>>(
       `/companies/${companyId}/inbound-email/mailboxes`,
     ),
+  getInboundEmailOpsDashboard: (companyId: string) =>
+    api.get<InboundEmailOpsDashboard>(`/companies/${companyId}/inbound-email/ops`),
   saveInboundEmailMailbox: (
     companyId: string,
     mailboxId: string | null,
