@@ -249,7 +249,16 @@ describe("InboundEmailOps", () => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
     mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({
-      items: [makeProcessedMessage()],
+      items: [
+        makeProcessedMessage({
+          id: "older-message",
+          subject: "Older processed email",
+          receivedAt: new Date("2026-05-19T11:45:00.000Z"),
+          createdAt: new Date("2026-05-19T11:45:00.000Z"),
+          updatedAt: new Date("2026-05-19T11:45:00.000Z"),
+        }),
+        makeProcessedMessage(),
+      ],
       nextCursor: "next-cursor",
     });
     mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
@@ -305,6 +314,9 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Recent Failures");
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
+    expect(container.textContent!.indexOf("Processed order email")).toBeLessThan(
+      container.textContent!.indexOf("Older processed email"),
+    );
     expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
       status: undefined,
       mailboxId: undefined,

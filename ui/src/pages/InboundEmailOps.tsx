@@ -476,7 +476,11 @@ function ProcessedEmailList({
     setQuery(queryInput.trim());
   };
 
-  const rows = messagesQuery.data?.items ?? [];
+  const rows = [...(messagesQuery.data?.items ?? [])].sort((a, b) => {
+    const aTime = asDate(a.receivedAt ?? a.createdAt)?.getTime() ?? 0;
+    const bTime = asDate(b.receivedAt ?? b.createdAt)?.getTime() ?? 0;
+    return bTime - aTime;
+  });
   const canPrevious = cursorStack.length > 0;
   const canNext = Boolean(messagesQuery.data?.nextCursor);
 
