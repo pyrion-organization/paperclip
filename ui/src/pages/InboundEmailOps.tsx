@@ -120,7 +120,7 @@ function explainMailboxHealth(item: InboundEmailOpsMailbox) {
   if (!item.mailbox.lastPollAt) return "This mailbox has not been polled yet. Wait for the worker interval or trigger a manual poll from settings.";
   if (!item.mailbox.lastSuccessAt) return "Polling has started, but no poll has completed successfully yet.";
   if (item.health === "warning") return "The last successful poll is older than the expected interval. Confirm the email worker is still running.";
-  return "Polling is completing successfully.";
+  return null;
 }
 
 function explainFailure(failure: FailureEntry) {
@@ -174,6 +174,7 @@ function MailboxRow({
   const pendingMessages = item.messageCounts.persisted + item.messageCounts.processing;
   const needsAttention = item.health === "warning" || item.health === "error" || failedJobs > 0 || item.messageCounts.failed > 0;
   const canPoll = item.mailbox.enabled && item.mailbox.passwordSet;
+  const healthExplanation = explainMailboxHealth(item);
   return (
     <div className="grid gap-3 border-t border-border px-4 py-3 lg:grid-cols-[minmax(220px,1.25fr)_1.3fr_1fr_1fr]">
       <div className="min-w-0">
@@ -216,7 +217,9 @@ function MailboxRow({
         <div className={needsAttention ? "mt-2 min-w-0 break-words text-xs text-amber-300" : "mt-2 min-w-0 break-words text-xs text-muted-foreground"}>
           {item.healthDetail}
         </div>
-        <div className="mt-1 min-w-0 break-words text-xs text-muted-foreground">{explainMailboxHealth(item)}</div>
+        {healthExplanation ? (
+          <div className="mt-1 min-w-0 break-words text-xs text-muted-foreground">{healthExplanation}</div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center text-xs">
