@@ -69,8 +69,38 @@ export async function startEmailWorker() {
       const now = Date.now();
       const runScheduler = now - lastSchedulerTickAt >= schedulerIntervalMs;
       if (runScheduler) lastSchedulerTickAt = now;
-      const processed = await svc.runEmailWorkerOnce(workerId, batchSize, { runScheduler });
-      if (processed === 0 && !control.stopped) {
+      const startedAt = Date.now();
+      const result = await svc.runEmailWorkerOnce(workerId, batchSize, { runScheduler });
+      const elapsedMs = Date.now() - startedAt;
+      const logPayload = {
+        workerId,
+        elapsedMs,
+        processed: result.processed,
+        succeeded: result.succeeded,
+        failed: result.failed,
+        schedulerRan: result.scheduler.ran,
+        scheduledPollJobs: result.scheduler.enqueued,
+        staleJobsRequeued: result.staleJobsRequeued,
+        jobs: result.jobs.map((job) => job.claimed
+          ? {
+            id: job.jobId,
+            kind: job.kind,
+            status: job.status,
+            companyId: job.companyId,
+            mailboxId: job.mailboxId,
+            messageId: job.messageId,
+            error: job.error,
+          }
+          : { claimed: false }),
+      };
+      if (result.processed === 0) {
+        logger.info(logPayload, "inbound email worker iteration idle");
+      } else if (result.failed > 0) {
+        logger.warn(logPayload, "inbound email worker iteration completed with failures");
+      } else {
+        logger.info(logPayload, "inbound email worker iteration completed");
+      }
+      if (result.processed === 0 && !control.stopped) {
         await sleep(idleMs, control);
       }
     } catch (err) {

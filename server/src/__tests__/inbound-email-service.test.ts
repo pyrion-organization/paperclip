@@ -291,8 +291,16 @@ describeEmbeddedPostgres("inbound email service", () => {
     });
     expect(duplicate.status).toBe("duplicate");
 
-    const processed = await svc.runEmailWorkerOnce("test-worker", 5);
-    expect(processed).toBe(1);
+    const runResult = await svc.runEmailWorkerOnce("test-worker", 5);
+    expect(runResult.processed).toBe(1);
+    expect(runResult.succeeded).toBe(1);
+    expect(runResult.failed).toBe(0);
+    expect(runResult.jobs[0]).toMatchObject({
+      claimed: true,
+      status: "succeeded",
+      kind: "email.process_message",
+      companyId,
+    });
 
     const [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("processed");
@@ -994,6 +1002,12 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.sourceDeletedAt).toBeNull();
     expect(storedMessage.sourceDeleteError).toBe("imap delete failed");
     expect((await db.select().from(issues)).length).toBe(1);
+    const failedCleanupDashboard = await svc.getOpsDashboard(companyId);
+    expect(failedCleanupDashboard.sourceDelete).toMatchObject({
+      supported: true,
+      errorCount: 1,
+      lastError: "imap delete failed",
+    });
 
     await db.delete(backgroundJobs);
     const duplicate = await svc.submitRawMessage({
@@ -1006,13 +1020,21 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(duplicate.status).toBe("duplicate");
     expect((await db.select().from(backgroundJobs)).some((job) => job.kind === "email.process_message")).toBe(true);
 
-    const processed = await svc.runEmailWorkerOnce("delete-retry-worker", 5, { runScheduler: false });
-    expect(processed).toBe(1);
+    const runResult = await svc.runEmailWorkerOnce("delete-retry-worker", 5, { runScheduler: false });
+    expect(runResult.processed).toBe(1);
+    expect(runResult.succeeded).toBe(1);
+    expect(runResult.scheduler.ran).toBe(false);
 
     [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("processed");
     expect(storedMessage.sourceDeletedAt).toBeTruthy();
     expect(storedMessage.sourceDeleteError).toBeNull();
+    const recoveredCleanupDashboard = await svc.getOpsDashboard(companyId);
+    expect(recoveredCleanupDashboard.sourceDelete).toMatchObject({
+      supported: true,
+      errorCount: 0,
+      lastError: null,
+    });
     expect((await db.select().from(issues)).length).toBe(1);
     expect(deleteMessageFromMailboxMock).toHaveBeenCalledTimes(2);
   }, 20_000);

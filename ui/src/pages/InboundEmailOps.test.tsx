@@ -252,6 +252,9 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Inbound Email Ops");
     expect(container.textContent).toContain("Support inbox");
     expect(container.textContent).toContain("IMAP authentication failed");
+    expect(container.textContent).toContain("The last IMAP poll failed");
+    expect(container.textContent).toContain("2 queued email jobs");
+    expect(container.textContent).toContain("Failures need an operator retry");
     expect(container.textContent).toContain("Source-delete telemetry is not supported");
     expect(container.textContent).toContain("2 active");
     expect(container.textContent).toContain("1");

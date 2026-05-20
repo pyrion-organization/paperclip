@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Clock3,
   ExternalLink,
+  Info,
   Loader2,
   MailWarning,
   RefreshCw,
@@ -86,6 +87,51 @@ function formatRelative(value: Date | string | null | undefined) {
   return `${days}d ${diffMs >= 0 ? "ago" : "from now"}`;
 }
 
+function messageStatusLabel(status: string) {
+  switch (status) {
+    case "persisted":
+      return "Imported but not processed yet";
+    case "processing":
+      return "Currently processing";
+    case "processed":
+      return "Issue created";
+    case "skipped":
+      return "Skipped by rule or authorization";
+    case "failed":
+      return "Processing failed";
+    case "duplicate":
+      return "Duplicate";
+    default:
+      return status;
+  }
+}
+
+function failureKindLabel(kind: string) {
+  if (kind === "email.poll_mailbox") return "Mailbox poll job";
+  if (kind === "email.process_message") return "Message processing job";
+  if (kind === "message.failed") return "Inbound message";
+  return kind;
+}
+
+function explainMailboxHealth(item: InboundEmailOpsMailbox) {
+  if (!item.mailbox.enabled) return "Polling is turned off for this mailbox.";
+  if (!item.mailbox.passwordSet) return "The mailbox password is missing. Add it in Email settings before polling can connect.";
+  if (item.mailbox.lastError) return "The last IMAP poll failed. Check the host, port, TLS setting, username, password, and folder name.";
+  if (!item.mailbox.lastPollAt) return "This mailbox has not been polled yet. Wait for the worker interval or trigger a manual poll from settings.";
+  if (!item.mailbox.lastSuccessAt) return "Polling has started, but no poll has completed successfully yet.";
+  if (item.health === "warning") return "The last successful poll is older than the expected interval. Confirm the email worker is still running.";
+  return "Polling is completing successfully.";
+}
+
+function explainFailure(failure: FailureEntry) {
+  if (failure.source === "job") {
+    if (failure.kind === "email.poll_mailbox") return "The worker could not read the mailbox. This usually means IMAP credentials, folder, network, or provider access failed.";
+    if (failure.kind === "email.process_message") return "The worker imported the email but failed while creating or finalizing the Paperclip issue.";
+    return "The background job failed before it could complete.";
+  }
+  return "The message row is marked failed. Retry after fixing the error shown below.";
+}
+
 function Metric({ label, value, tone }: { label: string; value: number; tone?: "ok" | "warn" | "bad" }) {
   const toneClass =
     tone === "bad"
@@ -117,6 +163,8 @@ function HealthBadge({ health }: { health: InboundEmailOpsMailboxHealth }) {
 function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
   const activeJobs = item.jobCounts.pending + item.jobCounts.running + item.jobCounts.retrying;
   const failedJobs = item.jobCounts.failed + item.jobCounts.dead;
+  const pendingMessages = item.messageCounts.persisted + item.messageCounts.processing;
+  const needsAttention = item.health === "warning" || item.health === "error" || failedJobs > 0 || item.messageCounts.failed > 0;
   return (
     <div className="grid gap-3 border-t border-border px-4 py-3 lg:grid-cols-[minmax(220px,1.25fr)_1.3fr_1fr_1fr]">
       <div className="min-w-0">
@@ -150,12 +198,15 @@ function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
           <span className="text-muted-foreground">Next due</span>
           <span className="text-right text-foreground">{formatRelative(item.nextPollDueAt)}</span>
         </div>
-        <div className="mt-2 min-w-0 break-words text-xs text-muted-foreground">{item.healthDetail}</div>
+        <div className={needsAttention ? "mt-2 min-w-0 break-words text-xs text-amber-300" : "mt-2 min-w-0 break-words text-xs text-muted-foreground"}>
+          {item.healthDetail}
+        </div>
+        <div className="mt-1 min-w-0 break-words text-xs text-muted-foreground">{explainMailboxHealth(item)}</div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center text-xs">
         <div>
-          <div className="font-semibold tabular-nums text-foreground">{item.messageCounts.persisted + item.messageCounts.processing}</div>
+          <div className={pendingMessages > 0 ? "font-semibold tabular-nums text-amber-300" : "font-semibold tabular-nums text-foreground"}>{pendingMessages}</div>
           <div className="text-muted-foreground">pending</div>
         </div>
         <div>
@@ -183,9 +234,15 @@ function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
             Issue
           </Link>
         ) : item.lastFailedMessage ? (
-          <div className="mt-2 break-words text-destructive">{item.lastFailedMessage.error ?? "Message failed"}</div>
+          <div className="mt-2 space-y-1 break-words">
+            <div className="text-destructive">{item.lastFailedMessage.error ?? "Message failed"}</div>
+            <div className="text-muted-foreground">{messageStatusLabel(item.lastFailedMessage.status)}</div>
+          </div>
         ) : item.lastFailedJob ? (
-          <div className="mt-2 break-words text-destructive">{item.lastFailedJob.lastError ?? "Job failed"}</div>
+          <div className="mt-2 space-y-1 break-words">
+            <div className="text-destructive">{item.lastFailedJob.lastError ?? "Job failed"}</div>
+            <div className="text-muted-foreground">{failureKindLabel(item.lastFailedJob.kind)} exhausted {item.lastFailedJob.attempts}/{item.lastFailedJob.maxAttempts} attempt{item.lastFailedJob.maxAttempts === 1 ? "" : "s"}.</div>
+          </div>
         ) : null}
       </div>
     </div>
@@ -250,9 +307,12 @@ function FailureList({
         const pending = retryingId === failure.id;
         return (
           <div key={failure.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 md:grid-cols-[160px_180px_1fr_auto]">
-            <div className="text-xs font-medium text-foreground">{failure.kind}</div>
+            <div className="text-xs font-medium text-foreground">{failureKindLabel(failure.kind)}</div>
             <div className="text-xs text-muted-foreground">{formatTime(failure.time)}</div>
-            <div className="min-w-0 break-words text-xs text-muted-foreground">{failure.detail}</div>
+            <div className="min-w-0 space-y-1 break-words text-xs">
+              <div className="text-muted-foreground">{explainFailure(failure)}</div>
+              <div className="text-foreground">{failure.detail}</div>
+            </div>
             <Button
               size="sm"
               variant="outline"
@@ -262,6 +322,75 @@ function FailureList({
               {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               Retry
             </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
+  const failedTotal = dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount;
+  const activeQueue = dashboard.summary.pendingJobCount;
+  const warningOrErrorMailboxes = dashboard.mailboxes.filter((item) => item.health === "warning" || item.health === "error");
+  const items: Array<{ tone: "bad" | "warn" | "info"; title: string; detail: string }> = [];
+
+  for (const item of warningOrErrorMailboxes.slice(0, 3)) {
+    items.push({
+      tone: item.health === "error" ? "bad" : "warn",
+      title: `${item.mailbox.name}: ${healthMeta[item.health].label}`,
+      detail: `${item.healthDetail}. ${explainMailboxHealth(item)}`,
+    });
+  }
+  if (activeQueue > 0) {
+    items.push({
+      tone: "warn",
+      title: `${activeQueue} queued email job${activeQueue === 1 ? "" : "s"}`,
+      detail: "The worker has pending or retrying work. If this number does not fall, check that `pnpm worker:email` is running and review Recent Failures.",
+    });
+  }
+  if (failedTotal > 0) {
+    items.push({
+      tone: "bad",
+      title: `${failedTotal} failed email item${failedTotal === 1 ? "" : "s"}`,
+      detail: "Failures need an operator retry after the underlying IMAP, SMTP, authorization, or issue-creation error is corrected.",
+    });
+  }
+  if (dashboard.sourceDelete.supported && dashboard.sourceDelete.errorCount > 0) {
+    items.push({
+      tone: "warn",
+      title: `${dashboard.sourceDelete.errorCount} source cleanup error${dashboard.sourceDelete.errorCount === 1 ? "" : "s"}`,
+      detail: dashboard.sourceDelete.lastError
+        ? `Paperclip processed the email but could not delete or mark the source message: ${dashboard.sourceDelete.lastError}`
+        : "Paperclip processed at least one email but could not delete or mark the source message.",
+    });
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        No active email polling warnings or failures. The worker dashboard has no operator action to report.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-2 lg:grid-cols-2">
+      {items.slice(0, 4).map((item) => {
+        const Icon = item.tone === "bad" ? XCircle : item.tone === "warn" ? AlertTriangle : Info;
+        const className = item.tone === "bad"
+          ? "border-destructive/40 bg-destructive/10 text-destructive"
+          : item.tone === "warn"
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+            : "border-border bg-muted/30 text-muted-foreground";
+        return (
+          <div key={`${item.title}-${item.detail}`} className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${className}`}>
+            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0">
+              <div className="font-medium">{item.title}</div>
+              <div className="mt-1 break-words text-muted-foreground">{item.detail}</div>
+            </div>
           </div>
         );
       })}
@@ -367,6 +496,8 @@ export function InboundEmailOps() {
         <Metric label="queued" value={dashboard.summary.pendingJobCount} tone={dashboard.summary.pendingJobCount > 0 ? "warn" : undefined} />
         <Metric label="failed" value={dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount} tone={dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount > 0 ? "bad" : undefined} />
       </div>
+
+      <OpsDiagnostics dashboard={dashboard} />
 
       {!dashboard.sourceDelete.supported ? (
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">

@@ -58,6 +58,7 @@ export const EMAIL_PROCESS_MESSAGE_JOB_KIND = "email.process_message";
 const DEFAULT_EMAIL_WORKER_BATCH_SIZE = 10;
 const DEFAULT_EMAIL_FETCH_LIMIT = 20;
 const OPS_RECENT_FAILURE_LIMIT = 20;
+const OPS_SOURCE_DISPOSITION_FAILURE_LIMIT = 20;
 const INBOUND_EMAIL_ACTOR = {
   actorType: "system" as const,
   actorId: "inbound-email-worker",
@@ -128,6 +129,33 @@ export type ListPageOptions = {
 export type ListPage<T> = {
   items: T[];
   nextCursor: string | null;
+};
+
+export type EmailWorkerJobRunResult =
+  | {
+    claimed: false;
+  }
+  | {
+    claimed: true;
+    status: "succeeded" | "failed";
+    jobId: string;
+    kind: string;
+    companyId: string;
+    mailboxId: string | null;
+    messageId: string | null;
+    error: string | null;
+  };
+
+export type EmailWorkerRunResult = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  scheduler: {
+    ran: boolean;
+    enqueued: number;
+  };
+  staleJobsRequeued: number;
+  jobs: EmailWorkerJobRunResult[];
 };
 
 const HTML_ENTITIES: Record<string, string> = {
@@ -2132,27 +2160,47 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return updated;
     },
 
-    runNextEmailJob: async (workerId: string) => {
+    runNextEmailJob: async (workerId: string): Promise<EmailWorkerJobRunResult> => {
       const job = await jobs.claimNext({ workerId, kindPrefix: "email." });
-      if (!job) return { claimed: false };
+      if (!job) return { claimed: false as const };
+      const mailboxIdFromPayload = asNullableString(job.payload.mailboxId);
+      const messageIdFromPayload = asNullableString(job.payload.messageId);
       try {
         if (job.kind === EMAIL_POLL_MAILBOX_JOB_KIND) {
-          const mailboxId = asNullableString(job.payload.mailboxId);
+          const mailboxId = mailboxIdFromPayload;
           if (!mailboxId) throw new Error("email.poll_mailbox job missing mailboxId");
           await api.pollMailbox(job.companyId, mailboxId);
         } else if (job.kind === EMAIL_PROCESS_MESSAGE_JOB_KIND) {
-          const messageId = asNullableString(job.payload.messageId);
+          const messageId = messageIdFromPayload;
           if (!messageId) throw new Error("email.process_message job missing messageId");
           await api.processMessage(job.companyId, messageId);
         } else {
           throw new Error(`Unsupported email job kind: ${job.kind}`);
         }
         await jobs.complete(job.id);
-        return { claimed: true, status: "succeeded" as const, jobId: job.id };
+        return {
+          claimed: true,
+          status: "succeeded" as const,
+          jobId: job.id,
+          kind: job.kind,
+          companyId: job.companyId,
+          mailboxId: mailboxIdFromPayload,
+          messageId: messageIdFromPayload,
+          error: null,
+        };
       } catch (error) {
         logger.warn({ err: error, jobId: job.id, kind: job.kind }, "inbound email job failed");
         await jobs.fail(job, error);
-        return { claimed: true, status: "failed" as const, jobId: job.id };
+        return {
+          claimed: true,
+          status: "failed" as const,
+          jobId: job.id,
+          kind: job.kind,
+          companyId: job.companyId,
+          mailboxId: mailboxIdFromPayload,
+          messageId: messageIdFromPayload,
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
 
@@ -2160,8 +2208,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       workerId: string,
       batchSize = DEFAULT_EMAIL_WORKER_BATCH_SIZE,
       options?: { runScheduler?: boolean },
-    ) => {
-      await jobs.requeueStaleRunning({
+    ): Promise<EmailWorkerRunResult> => {
+      const staleJobsRequeued = await jobs.requeueStaleRunning({
         default: 5 * 60_000,
         byKind: {
           // Polls may legitimately hold the lock for the IMAP socket timeout
@@ -2170,16 +2218,27 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           [EMAIL_POLL_MAILBOX_JOB_KIND]: 10 * 60_000,
         },
       });
+      let enqueued = 0;
       if (options?.runScheduler !== false) {
-        await api.enqueueDueMailboxPollJobs();
+        enqueued = await api.enqueueDueMailboxPollJobs();
       }
-      let processed = 0;
+      const jobResults: EmailWorkerJobRunResult[] = [];
       for (let i = 0; i < batchSize; i += 1) {
         const result = await api.runNextEmailJob(workerId);
         if (!result.claimed) break;
-        processed += 1;
+        jobResults.push(result);
       }
-      return processed;
+      return {
+        processed: jobResults.length,
+        succeeded: jobResults.filter((result) => result.claimed && result.status === "succeeded").length,
+        failed: jobResults.filter((result) => result.claimed && result.status === "failed").length,
+        scheduler: {
+          ran: options?.runScheduler !== false,
+          enqueued,
+        },
+        staleJobsRequeued,
+        jobs: jobResults,
+      };
     },
 
     listJobs: async (companyId: string, options?: ListPageOptions) => {
@@ -2220,6 +2279,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         recentFailedJobRows,
         latestFailedMessageRows,
         latestFailedJobRows,
+        sourceDispositionFailureRows,
       ] = await Promise.all([
         db
           .select()
@@ -2322,6 +2382,20 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           where "mailboxId" is not null
           order by "mailboxId", "updatedAt" desc, "createdAt" desc
         `),
+        db.execute(sql`
+          select
+            ${inboundEmailMessages.sourceDeleteError} as "sourceDeleteError",
+            ${inboundEmailMessages.sourceSeenError} as "sourceSeenError",
+            count(*) over()::int as "total"
+          from ${inboundEmailMessages}
+          where ${inboundEmailMessages.companyId} = ${companyId}::uuid
+            and (
+              ${inboundEmailMessages.sourceDeleteError} is not null
+              or ${inboundEmailMessages.sourceSeenError} is not null
+            )
+          order by ${inboundEmailMessages.updatedAt} desc, ${inboundEmailMessages.createdAt} desc
+          limit ${OPS_SOURCE_DISPOSITION_FAILURE_LIMIT}
+        `),
       ]);
 
       const recentJobMessageIds = recentFailedJobRows
@@ -2404,13 +2478,22 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const pendingJobCount = allJobCounts.reduce((sum, counts) => sum + counts.pending + counts.retrying, 0);
       const failedJobCount = allJobCounts.reduce((sum, counts) => sum + counts.failed + counts.dead, 0);
       const failedMessageCount = allMessageCounts.reduce((sum, counts) => sum + counts.failed, 0);
+      const sourceDispositionFailures = (sourceDispositionFailureRows as unknown as Array<{
+        sourceDeleteError: string | null;
+        sourceSeenError: string | null;
+        total: number | string;
+      }>).filter((row) =>
+        Boolean(row.sourceDeleteError || row.sourceSeenError),
+      );
+      const latestSourceDispositionFailure = sourceDispositionFailures[0] ?? null;
+      const sourceDispositionFailureCount = Number(latestSourceDispositionFailure?.total ?? 0);
 
       return {
         generatedAt: now,
         sourceDelete: {
           supported: true,
-          errorCount: 0,
-          lastError: null,
+          errorCount: sourceDispositionFailureCount,
+          lastError: latestSourceDispositionFailure?.sourceDeleteError ?? latestSourceDispositionFailure?.sourceSeenError ?? null,
         },
         summary: {
           mailboxCount: mailboxRows.length,
