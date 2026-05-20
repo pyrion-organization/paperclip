@@ -97,6 +97,10 @@ vi.mock("./NewGoalDialog", () => ({
   NewGoalDialog: () => null,
 }));
 
+vi.mock("./CreateClientDialog", () => ({
+  CreateClientDialog: () => <div data-testid="create-client-dialog" />,
+}));
+
 vi.mock("./NewAgentDialog", () => ({
   NewAgentDialog: () => null,
 }));
@@ -281,6 +285,7 @@ describe("Layout", () => {
     expect(mockHealthApi.get).toHaveBeenCalled();
     expect(container.textContent).toContain("Breadcrumbs");
     expect(container.textContent).toContain("Outlet content");
+    expect(container.querySelector('[data-testid="create-client-dialog"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Company rail");
     expect(container.textContent).not.toContain("Authenticated private");
     expect(container.textContent).not.toContain(

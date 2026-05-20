@@ -60,6 +60,7 @@ type DialogStateValue = Pick<
   | "newProjectOpen"
   | "newGoalOpen"
   | "newGoalDefaults"
+  | "newClientOpen"
   | "newAgentOpen"
   | "onboardingOpen"
   | "onboardingOptions"
@@ -142,6 +143,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       newProjectOpen,
       newGoalOpen,
       newGoalDefaults,
+      newClientOpen,
       newAgentOpen,
       onboardingOpen,
       onboardingOptions,
@@ -152,6 +154,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       newProjectOpen,
       newGoalOpen,
       newGoalDefaults,
+      newClientOpen,
       newAgentOpen,
       onboardingOpen,
       onboardingOptions,
@@ -166,7 +169,6 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       closeNewProject,
       openNewGoal,
       closeNewGoal,
-      newClientOpen,
       openNewClient,
       closeNewClient,
       openNewAgent,
@@ -181,7 +183,6 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       closeNewProject,
       openNewGoal,
       closeNewGoal,
-      newClientOpen,
       openNewClient,
       closeNewClient,
       openNewAgent,
