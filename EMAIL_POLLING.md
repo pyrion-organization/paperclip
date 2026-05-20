@@ -39,8 +39,8 @@ For one mailbox:
 1. Load row, decrypt password via `secretService` (`__inbound_email_password__:<mailboxId>`).
 2. Stamp `lastPollAt = now` (so we don't double-poll even if IMAP hangs).
 3. Open IMAP session via `fetchUnreadMessages` (inbound-email-imap.ts) — pulls up to `fetchLimit` (default 20) unseen messages.
-4. For each raw RFC822 buffer, call `submitRawMessage({...processAfterImport: true})`.
-5. Do not mark the source message as read during polling. Source cleanup is deferred until the processing job has successfully created an issue or sent a required authorization reply.
+4. For each raw RFC822 buffer, call `submitRawMessage({...processAfterImport: false})`, then process the message inline while the IMAP session is still open. If inline processing fails, enqueue `email.process_message` for retry.
+5. Do not mark the source message as read merely because it was fetched. Source cleanup happens only after processing reaches a terminal outcome: issue creation deletes the source, clarification-style skips mark it seen, and terminal duplicate sources get the same delete/seen treatment as the original row.
 6. On overall success → set `lastSuccessAt`, clear `lastError`. On failure → write `lastError`, rethrow (job will retry).
 
 ## 6. Stage A.5 — `submitRawMessage` (line 904)
@@ -108,7 +108,7 @@ In `resolveSenderAuthorization`:
 1. Normalize sender email + domain. If missing → `unknown_sender_domain`.
 2. Find `clientEmailDomains` row matching `(companyId, domain)` joined to an `active` client. No match → `unknown_sender_domain`.
 3. Find `clientEmployees` row matching `(companyId, clientId, email)`. No match → `employee_not_registered` (triggers reply).
-4. Fuzzy-match subject/body against the active projects linked to the client. No match → `project_not_identified` (triggers reply and marks source seen). Ambiguous match → `project_match_ambiguous` (triggers reply and deletes source).
+4. Fuzzy-match subject/body against the active projects linked to the client. No match → `project_not_identified` (triggers reply and marks source seen). Ambiguous match → `project_match_ambiguous` (triggers reply and marks source seen so the sender can reply in the same thread).
 5. If `employee.projectScope === "selected_projects"`, require a `clientEmployeeProjectLinks` row for `(employee, matched clientProject)`. Missing → `project_not_authorized`.
 
 ## Message status state machine

@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, integer, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 
 export type BackgroundJobStatus =
@@ -40,5 +41,8 @@ export const backgroundJobs = pgTable(
     ),
     lockedAtIdx: index("background_jobs_locked_at_idx").on(table.lockedAt),
     dedupeIdx: index("background_jobs_dedupe_idx").on(table.companyId, table.kind, table.dedupeKey),
+    activeDedupeUq: uniqueIndex("background_jobs_active_dedupe_uniq")
+      .on(table.companyId, table.kind, table.dedupeKey)
+      .where(sql`${table.status} in ('pending', 'running', 'retrying') and ${table.dedupeKey} is not null`),
   }),
 );

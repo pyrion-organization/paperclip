@@ -1311,6 +1311,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return shouldDeleteSourceMessage(message) || shouldMarkSourceSeen(message);
   }
 
+  function sourceDispositionActionForTerminalDuplicate(
+    message: typeof inboundEmailMessages.$inferSelect,
+  ): "delete" | "seen" | null {
+    if (message.status === "processed" && message.createdIssueId) return "delete";
+    if (message.status !== "skipped") return null;
+    if (shouldDeleteAfterReply(message.skipReason)) return "delete";
+    if (shouldMarkSeenForSkip(message.skipReason)) return "seen";
+    return null;
+  }
+
   type SessionImapOps = {
     markSeen: (providerUid: string) => Promise<void>;
     deleteMessage: (providerUid: string) => Promise<void>;
@@ -1341,6 +1351,18 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     };
     if (action === "delete") await deleteMessageFromMailbox(config, message.providerUid!);
     else await markMessageSeenInMailbox(config, message.providerUid!);
+  }
+
+  async function applyLiveDuplicateSourceDisposition(input: {
+    duplicate: typeof inboundEmailMessages.$inferSelect;
+    liveProviderUid: string | null;
+    ops: SessionImapOps;
+  }): Promise<void> {
+    if (!input.liveProviderUid) return;
+    const action = sourceDispositionActionForTerminalDuplicate(input.duplicate);
+    if (!action) return;
+    if (action === "delete") await input.ops.deleteMessage(input.liveProviderUid);
+    else await input.ops.markSeen(input.liveProviderUid);
   }
 
   async function deleteSourceMessageIfEligible(
@@ -1780,6 +1802,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           const sameSourceMessage =
             result.message.mailboxId === mailbox.id && result.message.providerUid === message.providerUid;
           if (result.status === "duplicate" && !sameSourceMessage) {
+            await applyLiveDuplicateSourceDisposition({
+              duplicate: result.message,
+              liveProviderUid: message.providerUid,
+              ops: sessionOps,
+            });
             if (
               (
                 result.message.status !== "processed" &&

@@ -1452,7 +1452,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(seenRow.sourceSeenAt).toBeTruthy();
   }, 20_000);
 
-  it("does not use in-session disposition for a duplicate row with a different provider UID", async () => {
+  it("cleans up a live duplicate UID and still retries stored-row cleanup", async () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });
     const project = await seedProject(companyId, "Production Deploy");
@@ -1493,7 +1493,7 @@ describeEmbeddedPostgres("inbound email service", () => {
 
     await svc.pollMailbox(companyId, mailbox.id);
 
-    expect(sessionDelete).not.toHaveBeenCalled();
+    expect(sessionDelete).toHaveBeenCalledWith("new-uid");
     expect(sessionMarkSeen).not.toHaveBeenCalled();
     expect(deleteMessageFromMailboxMock).not.toHaveBeenCalled();
     expect(sessionClose).toHaveBeenCalledTimes(1);
