@@ -28,6 +28,27 @@ export interface InboundEmailListPage<T> {
   nextCursor: string | null;
 }
 
+export interface InboundEmailMessageListParams {
+  status?: string;
+  mailboxId?: string;
+  q?: string;
+  cursor?: string | null;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
+function inboundEmailQuery(params?: InboundEmailMessageListParams): string {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.mailboxId) query.set("mailboxId", params.mailboxId);
+  if (params?.q?.trim()) query.set("q", params.q.trim());
+  if (params?.cursor) query.set("cursor", params.cursor);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.order) query.set("order", params.order);
+  const value = query.toString();
+  return value ? `?${value}` : "";
+}
+
 export const companiesApi = {
   list: () => api.get<Company[]>("/companies"),
   get: (companyId: string) => api.get<Company>(`/companies/${companyId}`),
@@ -106,9 +127,9 @@ export const companiesApi = {
     ruleId
       ? api.patch<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules/${ruleId}`, data)
       : api.post<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules`, data),
-  listInboundEmailMessages: (companyId: string) =>
+  listInboundEmailMessages: (companyId: string, params?: InboundEmailMessageListParams) =>
     api.get<InboundEmailListPage<InboundEmailMessage>>(
-      `/companies/${companyId}/inbound-email/messages`,
+      `/companies/${companyId}/inbound-email/messages${inboundEmailQuery(params)}`,
     ),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),

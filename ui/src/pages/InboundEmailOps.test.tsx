@@ -4,13 +4,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Company, InboundEmailOpsDashboard } from "@paperclipai/shared";
+import type { Company, InboundEmailMessage, InboundEmailOpsDashboard } from "@paperclipai/shared";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MemoryRouter } from "@/lib/router";
 import { InboundEmailOps } from "./InboundEmailOps";
 
 const mockCompaniesApi = vi.hoisted(() => ({
   getInboundEmailOpsDashboard: vi.fn(),
+  listInboundEmailMessages: vi.fn(),
   retryInboundEmailMessage: vi.fn(),
   retryInboundEmailJob: vi.fn(),
   pollInboundEmailMailbox: vi.fn(),
@@ -193,11 +194,45 @@ function withRecentFailures(dashboard: InboundEmailOpsDashboard): InboundEmailOp
   };
 }
 
+function makeProcessedMessage(overrides: Partial<InboundEmailMessage> = {}): InboundEmailMessage {
+  const now = new Date("2026-05-19T12:45:00.000Z");
+  return {
+    id: "processed-message-1",
+    companyId: "company-1",
+    mailboxId: "mailbox-1",
+    providerUid: "uid-1",
+    messageId: "<processed@example.com>",
+    rawSha256: "sha-1",
+    fromAddress: "customer@example.com",
+    toAddresses: ["support@example.com"],
+    subject: "Processed order email",
+    receivedAt: now,
+    status: "processed",
+    rawStorageKey: "inbound-email/raw/processed.eml",
+    createdIssueId: "issue-1",
+    error: null,
+    skipReason: null,
+    sourceDeletedAt: now,
+    sourceDeleteError: null,
+    sourceSeenAt: null,
+    sourceSeenError: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 describe("InboundEmailOps", () => {
@@ -213,6 +248,10 @@ describe("InboundEmailOps", () => {
     root = createRoot(container);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
+    mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({
+      items: [makeProcessedMessage()],
+      nextCursor: "next-cursor",
+    });
     mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
     mockCompaniesApi.retryInboundEmailJob.mockResolvedValue(undefined);
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "poll-job-1", status: "pending" });
@@ -241,6 +280,7 @@ describe("InboundEmailOps", () => {
       );
     });
     await flushReact();
+    await flushReact();
   }
 
   it("renders compact mailbox health, queue, and source-delete support state", async () => {
@@ -262,7 +302,63 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("1");
     expect(container.textContent).toContain("Configure");
     expect(container.textContent).toContain("Poll now");
+    expect(container.textContent).toContain("Recent Failures");
+    expect(container.textContent).toContain("Processed Emails");
+    expect(container.textContent).toContain("Processed order email");
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
+      status: "processed",
+      mailboxId: undefined,
+      q: undefined,
+      cursor: null,
+      limit: 25,
+      order: "desc",
+    });
     expect(container.textContent).not.toContain("Email settings");
+  });
+
+  it("filters and pages processed email records", async () => {
+    await renderPage();
+
+    const searchInput = container.querySelector('input[aria-label="Search processed emails"]') as HTMLInputElement | null;
+    expect(searchInput).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(searchInput!, "customer");
+    });
+
+    const searchButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Search"));
+    expect(searchButton).toBeTruthy();
+
+    await act(async () => {
+      searchButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenLastCalledWith("company-1", {
+      status: "processed",
+      mailboxId: undefined,
+      q: "customer",
+      cursor: null,
+      limit: 25,
+      order: "desc",
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Next"));
+    expect(nextButton).toBeTruthy();
+
+    await act(async () => {
+      nextButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenLastCalledWith("company-1", {
+      status: "processed",
+      mailboxId: undefined,
+      q: "customer",
+      cursor: "next-cursor",
+      limit: 25,
+      order: "desc",
+    });
   });
 
   it("sorts mixed recent job and message failures by recency before truncating", async () => {

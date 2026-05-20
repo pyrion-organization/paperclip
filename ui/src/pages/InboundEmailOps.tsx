@@ -1,25 +1,35 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  InboundEmailMessage,
+  InboundEmailMessageStatus,
   InboundEmailOpsDashboard,
   InboundEmailOpsMailbox,
   InboundEmailOpsMailboxHealth,
 } from "@paperclipai/shared";
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   ExternalLink,
   Info,
+  Inbox,
   Loader2,
   MailWarning,
   RefreshCw,
+  Search,
   Settings,
   XCircle,
 } from "lucide-react";
 import { companiesApi } from "../api/companies";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { Link } from "@/lib/router";
@@ -51,6 +61,19 @@ const healthMeta: Record<InboundEmailOpsMailboxHealth, {
     icon: Clock3,
   },
 };
+
+const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; label: string }> = [
+  { value: "processed", label: "Processed" },
+  { value: "skipped", label: "Skipped" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "failed", label: "Failed" },
+  { value: "persisted", label: "Imported" },
+  { value: "processing", label: "Processing" },
+  { value: "discovered", label: "Discovered" },
+  { value: "all", label: "All statuses" },
+];
+
+const pageSizeOptions = [10, 25, 50] as const;
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -347,6 +370,256 @@ function FailureList({
   );
 }
 
+function OpsPanel({
+  title,
+  description,
+  count,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  description: string;
+  count?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="overflow-hidden rounded-md border border-border bg-background">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span className="flex min-w-0 items-start gap-2">
+            {open ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold">{title}</span>
+                {typeof count === "number" ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[11px] tabular-nums">
+                    {count}
+                  </Badge>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
+            </span>
+          </span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t border-border p-4">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function statusClassName(status: InboundEmailMessageStatus) {
+  switch (status) {
+    case "processed":
+      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+    case "skipped":
+    case "duplicate":
+      return "border-border bg-muted/50 text-muted-foreground";
+    case "failed":
+      return "border-destructive/50 bg-destructive/10 text-destructive";
+    case "processing":
+      return "border-cyan-500/40 bg-cyan-500/10 text-cyan-300";
+    case "persisted":
+    case "discovered":
+      return "border-amber-500/40 bg-amber-500/10 text-amber-300";
+  }
+}
+
+function ProcessedEmailList({
+  companyId,
+  mailboxes,
+}: {
+  companyId: string;
+  mailboxes: InboundEmailOpsMailbox[];
+}) {
+  const [status, setStatus] = useState<InboundEmailMessageStatus | "all">("processed");
+  const [mailboxId, setMailboxId] = useState("all");
+  const [queryInput, setQueryInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState<number>(25);
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const cursor = cursorStack[cursorStack.length - 1] ?? null;
+
+  useEffect(() => {
+    setCursorStack([]);
+  }, [companyId, status, mailboxId, query, limit]);
+
+  const messagesQuery = useQuery({
+    queryKey: [
+      ...queryKeys.inboundEmail.messages(companyId),
+      {
+        status,
+        mailboxId,
+        query,
+        cursor,
+        limit,
+      },
+    ],
+    queryFn: () => companiesApi.listInboundEmailMessages(companyId, {
+      status: status === "all" ? undefined : status,
+      mailboxId: mailboxId === "all" ? undefined : mailboxId,
+      q: query || undefined,
+      cursor,
+      limit,
+      order: "desc",
+    }),
+    enabled: Boolean(companyId),
+    placeholderData: (previous) => previous,
+  });
+
+  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setQuery(queryInput.trim());
+  };
+
+  const rows = messagesQuery.data?.items ?? [];
+  const canPrevious = cursorStack.length > 0;
+  const canNext = Boolean(messagesQuery.data?.nextCursor);
+
+  return (
+    <div className="space-y-3">
+      <form className="grid gap-2 md:grid-cols-[minmax(180px,240px)_minmax(160px,220px)_1fr_auto_auto]" onSubmit={submitSearch}>
+        <Select value={status} onValueChange={(value) => setStatus(value as InboundEmailMessageStatus | "all")}>
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            {messageStatusFilters.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={mailboxId} onValueChange={setMailboxId}>
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue placeholder="Mailbox" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All mailboxes</SelectItem>
+            {mailboxes.map((item) => (
+              <SelectItem key={item.mailbox.id} value={item.mailbox.id}>
+                {item.mailbox.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 text-xs"
+            value={queryInput}
+            onChange={(event) => setQueryInput(event.target.value)}
+            placeholder="Search sender, subject, or message ID"
+            aria-label="Search processed emails"
+          />
+        </div>
+        <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+          <SelectTrigger size="sm" className="w-full md:w-[92px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((value) => (
+              <SelectItem key={value} value={String(value)}>
+                {value} / page
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="submit" size="sm" variant="outline">
+          Search
+        </Button>
+      </form>
+
+      {messagesQuery.isError ? (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <span className="font-medium">Email list failed.</span>{" "}
+            {errorMessage(messagesQuery.error, "The processed email list could not be loaded.")}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-md border border-border bg-card/60">
+        {messagesQuery.isLoading ? (
+          <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading emails...
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
+            <Inbox className="mt-0.5 h-4 w-4 shrink-0" />
+            No emails match the current filters.
+          </div>
+        ) : (
+          rows.map((message: InboundEmailMessage) => (
+            <div key={message.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 lg:grid-cols-[minmax(150px,0.7fr)_minmax(220px,1.2fr)_minmax(180px,1fr)_140px]">
+              <div className="min-w-0">
+                <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${statusClassName(message.status)}`}>
+                  {messageStatusLabel(message.status)}
+                </Badge>
+                <div className="text-xs text-muted-foreground">{formatTime(message.receivedAt ?? message.createdAt)}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-foreground">{message.subject || "(No subject)"}</div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{message.fromAddress || "Unknown sender"}</div>
+              </div>
+              <div className="min-w-0 break-words text-xs text-muted-foreground">
+                {message.error || message.skipReason || message.messageId || message.rawSha256}
+              </div>
+              <div className="flex items-start justify-start lg:justify-end">
+                {message.createdIssueId ? (
+                  <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/issues/${message.createdIssueId}`}>
+                    <ExternalLink className="h-3 w-3" />
+                    Issue
+                  </Link>
+                ) : (
+                  <span className="text-xs text-muted-foreground">No issue</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Page {cursorStack.length + 1}
+          {messagesQuery.isFetching && !messagesQuery.isLoading ? " · refreshing" : ""}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canPrevious || messagesQuery.isFetching}
+            onClick={() => setCursorStack((current) => current.slice(0, -1))}
+          >
+            Previous
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canNext || messagesQuery.isFetching}
+            onClick={() => {
+              const nextCursor = messagesQuery.data?.nextCursor;
+              if (nextCursor) setCursorStack((current) => [...current, nextCursor]);
+            }}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
   const failedTotal = dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount;
   const activeQueue = dashboard.summary.pendingJobCount;
@@ -591,11 +864,11 @@ export function InboundEmailOps() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">Recent Failures</h2>
-          <div className="text-xs text-muted-foreground">Latest failed queue jobs and failed inbound message processing records.</div>
-        </div>
+      <OpsPanel
+        title="Recent Failures"
+        description="Latest failed queue jobs and failed inbound message processing records."
+        count={dashboard.recentFailedJobs.length + dashboard.recentFailedMessages.length}
+      >
         {retryError ? (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -617,7 +890,15 @@ export function InboundEmailOps() {
           }}
           retryingId={retryingId}
         />
-      </section>
+      </OpsPanel>
+
+      <OpsPanel
+        title="Processed Emails"
+        description="Paginated inbound email records with mailbox, status, and text filters."
+        count={dashboard.mailboxes.reduce((total, item) => total + item.messageCounts.processed, 0)}
+      >
+        <ProcessedEmailList companyId={selectedCompanyId!} mailboxes={dashboard.mailboxes} />
+      </OpsPanel>
     </div>
   );
 }

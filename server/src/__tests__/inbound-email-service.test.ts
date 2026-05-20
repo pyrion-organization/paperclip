@@ -472,6 +472,77 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
+  it.each([
+    ["Usuário", "ana@example.com", "Ana Silva"],
+    ["Nome do usuario", "bruno@example.com", "Bruno Souza"],
+    ["Nme", "carla@example.com", "Carla Lima"],
+    ["Noem", "diana@example.com", "Diana Costa"],
+  ])("accepts %s as a registration name field label", async (nameLabel, requestedEmail, requestedName) => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: `<register-${requestedEmail}>`,
+        from: "requester@example.com",
+        subject: "Cadastro de usuário",
+        body: `${nameLabel}: ${requestedName}\nEmail: ${requestedEmail}`,
+      }),
+      providerUid: `register-${requestedEmail}`,
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_created");
+    const [createdEmployee] = await db
+      .select()
+      .from(clientEmployees)
+      .where(eq(clientEmployees.email, requestedEmail));
+    expect(createdEmployee.name).toBe(requestedName);
+    expect(await db.select().from(issues)).toEqual([]);
+  }, 20_000);
+
+  it("does not treat phone fields as fuzzy registration name labels", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId, employeeEmail: "requester@example.com" });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<register-phone-before-name@example.com>",
+        from: "requester@example.com",
+        subject: "Cadastro de usuário",
+        body: "Fone: 119999999\nNome: Elisa Rocha\nEmail: elisa@example.com",
+      }),
+      providerUid: "register-phone-before-name",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("employee_registration_created");
+    const [createdEmployee] = await db
+      .select()
+      .from(clientEmployees)
+      .where(eq(clientEmployees.email, "elisa@example.com"));
+    expect(createdEmployee.name).toBe("Elisa Rocha");
+    expect(createdEmployee.name).not.toBe("119999999");
+  }, 20_000);
+
   it("preserves a created registration outcome when the success reply is retried", async () => {
     const companyId = await seedCompany();
     await db

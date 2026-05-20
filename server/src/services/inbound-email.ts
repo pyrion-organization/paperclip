@@ -126,6 +126,13 @@ export type ListPageOptions = {
   cursor?: string | null;
 };
 
+export type ListInboundEmailMessagesOptions = ListPageOptions & {
+  status?: string;
+  mailboxId?: string;
+  q?: string;
+  order?: "asc" | "desc";
+};
+
 export type ListPage<T> = {
   items: T[];
   nextCursor: string | null;
@@ -501,11 +508,17 @@ function parseRegistrationRequest(message: typeof inboundEmailMessages.$inferSel
   let email: string | null = null;
 
   for (const line of lines) {
-    const nameMatch = line.match(/^\s*nome\s*:\s*(.+?)\s*$/i);
-    if (nameMatch && !name) name = nameMatch[1]?.trim() || null;
+    const fieldMatch = line.match(/^\s*([^:]{1,80})\s*:\s*(.+?)\s*$/);
+    if (!fieldMatch) continue;
+    const [, label, value] = fieldMatch;
+    if (!name && isRegistrationNameFieldLabel(label ?? "")) {
+      name = value?.trim() || null;
+      continue;
+    }
 
-    const emailMatch = line.match(/^\s*(?:e-?mail|email)\s*:\s*(.+?)\s*$/i);
-    if (emailMatch && !email) email = normalizeEmailAddress(emailMatch[1] ?? "");
+    if (!email && isRegistrationEmailFieldLabel(label ?? "")) {
+      email = normalizeEmailAddress(value ?? "");
+    }
   }
 
   const missingFields = [
@@ -513,6 +526,55 @@ function parseRegistrationRequest(message: typeof inboundEmailMessages.$inferSel
     ...(email ? [] : ["Email"]),
   ];
   return { name, email, missingFields };
+}
+
+function isSingleDeletionTypo(token: string, expected: string): boolean {
+  if (token.length !== expected.length - 1) return false;
+  let skipped = false;
+  let tokenIndex = 0;
+  for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex += 1) {
+    if (token[tokenIndex] === expected[expectedIndex]) {
+      tokenIndex += 1;
+      continue;
+    }
+    if (skipped) return false;
+    skipped = true;
+  }
+  return true;
+}
+
+function isAdjacentTranspositionTypo(token: string, expected: string): boolean {
+  if (token.length !== expected.length || token === expected) return false;
+  for (let index = 0; index < expected.length - 1; index += 1) {
+    if (
+      token[index] === expected[index + 1] &&
+      token[index + 1] === expected[index] &&
+      token.slice(0, index) === expected.slice(0, index) &&
+      token.slice(index + 2) === expected.slice(index + 2)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isFuzzyRegistrationToken(token: string, expected: "nome" | "usuario"): boolean {
+  if (token.length < 3) return false;
+  return token === expected || isSingleDeletionTypo(token, expected) || isAdjacentTranspositionTypo(token, expected);
+}
+
+function isRegistrationNameFieldLabel(label: string): boolean {
+  const tokens = projectMatchTokens(label);
+  return tokens.some((token) =>
+    isFuzzyRegistrationToken(token, "nome") ||
+    isFuzzyRegistrationToken(token, "usuario") ||
+    token === "user",
+  );
+}
+
+function isRegistrationEmailFieldLabel(label: string): boolean {
+  const normalized = normalizeProjectMatchText(label).replace(/\s+/g, "");
+  return normalized === "email" || normalized === "e-mail";
 }
 
 function isValidRegistrationEmail(value: string): boolean {
@@ -1708,35 +1770,60 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
 
     listMessages: async (
       companyId: string,
-      status?: string,
-      options?: ListPageOptions,
+      options?: ListInboundEmailMessagesOptions,
     ) => {
       return paginated(async (limit, cursor) => {
         const conditions = [eq(inboundEmailMessages.companyId, companyId)];
-        if (status) {
+        if (options?.status) {
           conditions.push(
             eq(
               inboundEmailMessages.status,
-              status as typeof inboundEmailMessages.$inferSelect.status,
+              options.status as typeof inboundEmailMessages.$inferSelect.status,
             ),
           );
         }
-        if (cursor) {
+        if (options?.mailboxId) {
+          conditions.push(eq(inboundEmailMessages.mailboxId, options.mailboxId));
+        }
+        const query = options?.q?.trim().toLowerCase();
+        if (query) {
+          const likeQuery = `%${query}%`;
           conditions.push(
-            or(
-              sql`${inboundEmailMessages.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
-              and(
-                eq(inboundEmailMessages.createdAt, cursor.createdAt),
-                sql`${inboundEmailMessages.id} > ${cursor.id}::uuid`,
-              ),
-            )!,
+            sql`(
+              lower(coalesce(${inboundEmailMessages.subject}, '')) like ${likeQuery}
+              or lower(coalesce(${inboundEmailMessages.fromAddress}, '')) like ${likeQuery}
+              or lower(coalesce(${inboundEmailMessages.messageId}, '')) like ${likeQuery}
+            )`,
+          );
+        }
+        if (cursor) {
+          const descOrder = options?.order === "desc";
+          conditions.push(
+            descOrder
+              ? or(
+                sql`${inboundEmailMessages.createdAt} < ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailMessages.createdAt, cursor.createdAt),
+                  sql`${inboundEmailMessages.id} < ${cursor.id}::uuid`,
+                ),
+              )!
+              : or(
+                sql`${inboundEmailMessages.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailMessages.createdAt, cursor.createdAt),
+                  sql`${inboundEmailMessages.id} > ${cursor.id}::uuid`,
+                ),
+              )!,
           );
         }
         return db
           .select()
           .from(inboundEmailMessages)
           .where(and(...conditions))
-          .orderBy(asc(inboundEmailMessages.createdAt), asc(inboundEmailMessages.id))
+          .orderBy(
+            options?.order === "desc" ? desc(inboundEmailMessages.createdAt) : asc(inboundEmailMessages.createdAt),
+            options?.order === "desc" ? desc(inboundEmailMessages.id) : asc(inboundEmailMessages.id),
+          )
           .limit(limit);
       }, options);
     },

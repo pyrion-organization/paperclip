@@ -381,9 +381,6 @@ export async function sendInboundEmailAuthorizationReply(params: {
   </p>
   <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
     ${escapeHtml(actionMessage)}
-  </p>
-  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
-    Esta é uma resposta automática do Paperclip.
   </p>`;
 
   const html = buildEmailWrapper({
@@ -406,8 +403,6 @@ export async function sendInboundEmailAuthorizationReply(params: {
         bodyMessage,
         "",
         actionMessage,
-        "",
-        "Esta é uma resposta automática do Paperclip.",
       ].join("\n"),
       html,
     });
@@ -487,10 +482,7 @@ export async function sendInboundEmailRegistrationReply(params: {
   <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
     ${escapeHtml(actionMessage)}
   </p>
-  ${templateHtml}
-  <p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
-    Esta é uma resposta automática do Paperclip.
-  </p>`;
+  ${templateHtml}`;
 
   const html = buildEmailWrapper({
     headerColor: params.reason === "created" || params.reason === "updated" || params.reason === "already_registered"
@@ -517,8 +509,6 @@ export async function sendInboundEmailRegistrationReply(params: {
         "",
         actionMessage,
         ...(includeTemplate ? ["", template] : []),
-        "",
-        "Esta é uma resposta automática do Paperclip.",
       ].join("\n"),
       html,
     });
