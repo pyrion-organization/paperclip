@@ -277,7 +277,6 @@ export function InboundEmailOps() {
   useEffect(() => {
     setBreadcrumbs([
       { label: selectedCompany?.name ?? "Company", href: "/dashboard" },
-      { label: "Settings", href: "/company/settings" },
       { label: "Email Ops" },
     ]);
   }, [setBreadcrumbs, selectedCompany?.name]);

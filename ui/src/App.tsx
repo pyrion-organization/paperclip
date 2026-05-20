@@ -74,7 +74,7 @@ function boardRoutes() {
       <Route path="companies" element={<Companies />} />
       <Route path="company/settings" element={<CompanySettings />} />
       <Route path="company/settings/email" element={<CompanyEmailSettings />} />
-      <Route path="company/settings/email/ops" element={<InboundEmailOps />} />
+      <Route path="company/settings/email/ops" element={<Navigate to="/email/ops" replace />} />
       <Route path="company/instructions" element={<CompanyInstructions />} />
       <Route path="company/settings/environments" element={<CompanyEnvironments />} />
       <Route path="company/settings/access" element={<CompanyAccess />} />
@@ -137,6 +137,7 @@ function boardRoutes() {
       <Route path="costs" element={<Costs />} />
       <Route path="usage" element={<Usage />} />
       <Route path="activity" element={<Activity />} />
+      <Route path="email/ops" element={<InboundEmailOps />} />
       <Route path="inbox" element={<InboxRootRedirect />} />
       <Route path="inbox/mine" element={<Inbox />} />
       <Route path="inbox/recent" element={<Inbox />} />
@@ -307,6 +308,7 @@ export function App() {
           <Route path="skills/*" element={<UnprefixedBoardRedirect />} />
           <Route path="settings" element={<LegacySettingsRedirect />} />
           <Route path="settings/*" element={<LegacySettingsRedirect />} />
+          <Route path="email/ops" element={<UnprefixedBoardRedirect />} />
           <Route path="agents" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/new" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/:agentId" element={<UnprefixedBoardRedirect />} />

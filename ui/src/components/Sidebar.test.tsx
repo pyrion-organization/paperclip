@@ -161,4 +161,16 @@ describe("Sidebar", () => {
       root.unmount();
     });
   });
+
+  it("links Email Ops from the main company navigation", async () => {
+    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
+    const root = await renderSidebar();
+
+    const link = [...container.querySelectorAll("a")].find((anchor) => anchor.textContent === "Email Ops");
+    expect(link?.getAttribute("href")).toBe("/email/ops");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });

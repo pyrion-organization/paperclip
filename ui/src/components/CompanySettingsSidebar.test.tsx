@@ -110,6 +110,7 @@ describe("CompanySettingsSidebar", () => {
     expect(container.textContent).toContain("Company Settings");
     expect(container.textContent).toContain("General");
     expect(container.textContent).toContain("Email");
+    expect(container.textContent).not.toContain("Email Ops");
     expect(container.textContent).toContain("Environments");
     expect(container.textContent).toContain("Access");
     expect(container.textContent).toContain("Invites");

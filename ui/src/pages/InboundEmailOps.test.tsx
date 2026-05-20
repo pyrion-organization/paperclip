@@ -245,6 +245,10 @@ describe("InboundEmailOps", () => {
     await renderPage();
 
     expect(mockCompaniesApi.getInboundEmailOpsDashboard).toHaveBeenCalledWith("company-1");
+    expect(mockSetBreadcrumbs).toHaveBeenCalledWith([
+      { label: "Paperclip", href: "/dashboard" },
+      { label: "Email Ops" },
+    ]);
     expect(container.textContent).toContain("Inbound Email Ops");
     expect(container.textContent).toContain("Support inbox");
     expect(container.textContent).toContain("IMAP authentication failed");
