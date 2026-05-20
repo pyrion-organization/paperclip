@@ -37,7 +37,9 @@ COPY packages/plugins/paperclip-plugin-fake-sandbox/package.json packages/plugin
 COPY packages/plugins/plugin-llm-wiki/package.json packages/plugins/plugin-llm-wiki/
 COPY patches/ patches/
 
-RUN pnpm install --frozen-lockfile
+# PRs do not carry pnpm-lock.yaml updates; repo automation refreshes the lockfile
+# after manifest changes land. Keep Docker builds usable from feature branches.
+RUN pnpm install --no-frozen-lockfile
 
 FROM base AS build
 WORKDIR /app
@@ -47,6 +49,7 @@ RUN pnpm --filter @paperclipai/ui build
 RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/server build
 RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" && exit 1)
+RUN test -f server/dist/email-worker.js || (echo "ERROR: email worker build output missing" && exit 1)
 
 FROM base AS production
 ARG USER_UID=1000
@@ -61,7 +64,8 @@ RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/cod
   && chown node:node /paperclip
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY scripts/docker-start.sh /usr/local/bin/paperclip-docker-start
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/paperclip-docker-start
 
 ENV NODE_ENV=production \
   HOME=/paperclip \
@@ -75,10 +79,11 @@ ENV NODE_ENV=production \
   PAPERCLIP_CONFIG=/paperclip/instances/default/config.json \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
   PAPERCLIP_DEPLOYMENT_EXPOSURE=private \
+  PAPERCLIP_EMAIL_WORKER_ENABLED=true \
   OPENCODE_ALLOW_ALL_MODELS=true
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
+CMD ["paperclip-docker-start"]

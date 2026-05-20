@@ -39,6 +39,10 @@ docker run --name paperclip \
 
 Open: `http://localhost:3100`
 
+The container starts both the Paperclip API/UI and the inbound email worker by default. The worker waits for the API health check before it begins polling enabled inbound mailboxes, then processes `email.*` jobs from the same database queue.
+
+Set `PAPERCLIP_EMAIL_WORKER_ENABLED=false` if you want to run the worker as a separate process or disable inbound email polling in that container.
+
 Data persistence:
 
 - Embedded PostgreSQL data
@@ -50,7 +54,7 @@ All persisted under your bind mount (`./data/docker-paperclip` in the example ab
 
 ## Docker Compose
 
-### Quickstart (embedded SQLite)
+### Quickstart (embedded PostgreSQL)
 
 Single container, no external database. Data persists via a bind mount.
 
@@ -77,9 +81,18 @@ If you change host port or use a non-local domain, set `PAPERCLIP_PUBLIC_URL` to
 
 Pass `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable local adapter runs.
 
+Inbound email polling is enabled in the container by default. Tune the worker with:
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `PAPERCLIP_EMAIL_WORKER_ENABLED` | `true` | Start the email worker after the API is healthy |
+| `PAPERCLIP_EMAIL_WORKER_IDLE_MS` | `5000` | Sleep time when no email jobs are claimed |
+| `PAPERCLIP_EMAIL_WORKER_BATCH_SIZE` | `10` | Max email jobs claimed per worker tick |
+| `PAPERCLIP_EMAIL_WORKER_SCHEDULER_INTERVAL_MS` | `10000` | How often due mailbox polls are enqueued |
+
 ### Full stack (with PostgreSQL)
 
-Paperclip server + PostgreSQL 17. The database is health-checked before the server starts.
+Paperclip server + inbound email worker + PostgreSQL 17. The database is health-checked before the Paperclip container starts.
 
 ```sh
 BETTER_AUTH_SECRET=$(openssl rand -hex 32) \

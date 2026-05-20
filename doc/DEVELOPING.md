@@ -151,6 +151,7 @@ docker run --name paperclip \
   -p 3100:3100 \
   -e HOST=0.0.0.0 \
   -e PAPERCLIP_HOME=/paperclip \
+  -e PAPERCLIP_EMAIL_WORKER_ENABLED=true \
   -v "$(pwd)/data/docker-paperclip:/paperclip" \
   paperclip-local
 ```
@@ -161,7 +162,7 @@ Or use Compose:
 docker compose -f docker/docker-compose.quickstart.yml up --build
 ```
 
-See `doc/DOCKER.md` for API key wiring (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`) and persistence details.
+The Docker image starts the API/UI and inbound email worker by default. See `doc/DOCKER.md` for email worker tuning, API key wiring (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`), and persistence details.
 
 ## Docker For Untrusted PR Review
 

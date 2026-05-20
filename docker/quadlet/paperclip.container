@@ -12,6 +12,7 @@ Environment=HOST=0.0.0.0
 Environment=PAPERCLIP_HOME=/paperclip
 Environment=PAPERCLIP_DEPLOYMENT_MODE=authenticated
 Environment=PAPERCLIP_DEPLOYMENT_EXPOSURE=private
+Environment=PAPERCLIP_EMAIL_WORKER_ENABLED=true
 Environment=PAPERCLIP_PUBLIC_URL=http://localhost:3100
 EnvironmentFile=%h/.config/containers/systemd/paperclip.env
 

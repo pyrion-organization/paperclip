@@ -406,6 +406,7 @@ curl -sf https://$PAPERCLIP_DOMAIN/api/health
 **Healthy indicators:**
 - ECS task status: `RUNNING`, health: `HEALTHY`
 - Logs show `plugin job coordinator started` and `plugin-loader: loadAll complete`
+- Logs show `inbound email worker started` when `PAPERCLIP_EMAIL_WORKER_ENABLED=true`
 - `/api/health` returns 200
 
 ## Post-Deploy Security Hardening

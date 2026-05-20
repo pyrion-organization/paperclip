@@ -17,6 +17,7 @@ Defaults:
 
 - Host port: `3100`
 - Data directory: `./data/docker-paperclip`
+- Inbound email worker: enabled after the API health check passes
 
 Override with environment variables:
 
@@ -27,6 +28,8 @@ PAPERCLIP_PORT=3200 PAPERCLIP_DATA_DIR=../data/pc \
 
 **Note:** `PAPERCLIP_DATA_DIR` is resolved relative to the compose file (`docker/`), so `../data/pc` maps to `data/pc` in the project root.
 
+Inbound email polling is ready in Docker by default. Configure mailboxes in the UI, then monitor the worker at `/email/ops`. Set `PAPERCLIP_EMAIL_WORKER_ENABLED=false` to disable the bundled worker when you run a separate worker process.
+
 ## Manual Docker Build
 
 ```sh
@@ -35,6 +38,7 @@ docker run --name paperclip \
   -p 3100:3100 \
   -e HOST=0.0.0.0 \
   -e PAPERCLIP_HOME=/paperclip \
+  -e PAPERCLIP_EMAIL_WORKER_ENABLED=true \
   -v "$(pwd)/data/docker-paperclip:/paperclip" \
   paperclip-local
 ```
@@ -44,6 +48,7 @@ docker run --name paperclip \
 All data is persisted under the bind mount (`./data/docker-paperclip`):
 
 - Embedded PostgreSQL data
+- Inbound email mailbox/message/job state
 - Uploaded assets
 - Local secrets key
 - Agent workspace data
