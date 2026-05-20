@@ -63,6 +63,7 @@ const healthMeta: Record<InboundEmailOpsMailboxHealth, {
 };
 
 const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; label: string }> = [
+  { value: "all", label: "All statuses" },
   { value: "processed", label: "Processed" },
   { value: "skipped", label: "Skipped" },
   { value: "duplicate", label: "Duplicate" },
@@ -70,10 +71,9 @@ const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; la
   { value: "persisted", label: "Imported" },
   { value: "processing", label: "Processing" },
   { value: "discovered", label: "Discovered" },
-  { value: "all", label: "All statuses" },
 ];
 
-const pageSizeOptions = [10, 25, 50] as const;
+const PROCESSED_EMAIL_PAGE_SIZE = 25;
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -438,17 +438,16 @@ function ProcessedEmailList({
   companyId: string;
   mailboxes: InboundEmailOpsMailbox[];
 }) {
-  const [status, setStatus] = useState<InboundEmailMessageStatus | "all">("processed");
+  const [status, setStatus] = useState<InboundEmailMessageStatus | "all">("all");
   const [mailboxId, setMailboxId] = useState("all");
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
-  const [limit, setLimit] = useState<number>(25);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const cursor = cursorStack[cursorStack.length - 1] ?? null;
 
   useEffect(() => {
     setCursorStack([]);
-  }, [companyId, status, mailboxId, query, limit]);
+  }, [companyId, status, mailboxId, query]);
 
   const messagesQuery = useQuery({
     queryKey: [
@@ -458,7 +457,6 @@ function ProcessedEmailList({
         mailboxId,
         query,
         cursor,
-        limit,
       },
     ],
     queryFn: () => companiesApi.listInboundEmailMessages(companyId, {
@@ -466,7 +464,7 @@ function ProcessedEmailList({
       mailboxId: mailboxId === "all" ? undefined : mailboxId,
       q: query || undefined,
       cursor,
-      limit,
+      limit: PROCESSED_EMAIL_PAGE_SIZE,
       order: "desc",
     }),
     enabled: Boolean(companyId),
@@ -484,7 +482,7 @@ function ProcessedEmailList({
 
   return (
     <div className="space-y-3">
-      <form className="grid gap-2 md:grid-cols-[minmax(180px,240px)_minmax(160px,220px)_1fr_auto_auto]" onSubmit={submitSearch}>
+      <form className="grid gap-2 md:grid-cols-[minmax(180px,240px)_minmax(160px,220px)_1fr_auto]" onSubmit={submitSearch}>
         <Select value={status} onValueChange={(value) => setStatus(value as InboundEmailMessageStatus | "all")}>
           <SelectTrigger size="sm" className="w-full">
             <SelectValue placeholder="Status" />
@@ -520,18 +518,6 @@ function ProcessedEmailList({
             aria-label="Search processed emails"
           />
         </div>
-        <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
-          <SelectTrigger size="sm" className="w-full md:w-[92px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {pageSizeOptions.map((value) => (
-              <SelectItem key={value} value={String(value)}>
-                {value} / page
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Button type="submit" size="sm" variant="outline">
           Search
         </Button>

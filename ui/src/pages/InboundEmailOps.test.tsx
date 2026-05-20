@@ -306,13 +306,14 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
     expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
-      status: "processed",
+      status: undefined,
       mailboxId: undefined,
       q: undefined,
       cursor: null,
       limit: 25,
       order: "desc",
     });
+    expect(container.textContent).not.toContain("25 / page");
     expect(container.textContent).not.toContain("Email settings");
   });
 
@@ -335,7 +336,7 @@ describe("InboundEmailOps", () => {
     await flushReact();
 
     expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenLastCalledWith("company-1", {
-      status: "processed",
+      status: undefined,
       mailboxId: undefined,
       q: "customer",
       cursor: null,
@@ -352,7 +353,7 @@ describe("InboundEmailOps", () => {
     await flushReact();
 
     expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenLastCalledWith("company-1", {
-      status: "processed",
+      status: undefined,
       mailboxId: undefined,
       q: "customer",
       cursor: "next-cursor",
