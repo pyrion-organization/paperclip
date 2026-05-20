@@ -13,6 +13,7 @@ const mockCompaniesApi = vi.hoisted(() => ({
   getInboundEmailOpsDashboard: vi.fn(),
   retryInboundEmailMessage: vi.fn(),
   retryInboundEmailJob: vi.fn(),
+  pollInboundEmailMailbox: vi.fn(),
 }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
@@ -214,6 +215,7 @@ describe("InboundEmailOps", () => {
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
     mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
     mockCompaniesApi.retryInboundEmailJob.mockResolvedValue(undefined);
+    mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "poll-job-1", status: "pending" });
   });
 
   afterEach(async () => {
@@ -258,6 +260,9 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Source-delete telemetry is not supported");
     expect(container.textContent).toContain("2 active");
     expect(container.textContent).toContain("1");
+    expect(container.textContent).toContain("Configure");
+    expect(container.textContent).toContain("Poll now");
+    expect(container.textContent).not.toContain("Email settings");
   });
 
   it("sorts mixed recent job and message failures by recency before truncating", async () => {
@@ -287,5 +292,19 @@ describe("InboundEmailOps", () => {
     expect(mockCompaniesApi.retryInboundEmailMessage).toHaveBeenCalledWith("company-1", "new-message-1");
     expect(container.textContent).toContain("Retry failed.");
     expect(container.textContent).toContain("Message is no longer retryable");
+  });
+
+  it("queues an immediate mailbox poll from the mailbox row", async () => {
+    await renderPage();
+
+    const pollButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Poll now"));
+    expect(pollButton).toBeTruthy();
+
+    await act(async () => {
+      pollButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.pollInboundEmailMailbox).toHaveBeenCalledWith("company-1", "mailbox-1");
   });
 });

@@ -160,11 +160,20 @@ function HealthBadge({ health }: { health: InboundEmailOpsMailboxHealth }) {
   );
 }
 
-function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
+function MailboxRow({
+  item,
+  onPollNow,
+  polling,
+}: {
+  item: InboundEmailOpsMailbox;
+  onPollNow: (mailboxId: string) => void;
+  polling: boolean;
+}) {
   const activeJobs = item.jobCounts.pending + item.jobCounts.running + item.jobCounts.retrying;
   const failedJobs = item.jobCounts.failed + item.jobCounts.dead;
   const pendingMessages = item.messageCounts.persisted + item.messageCounts.processing;
   const needsAttention = item.health === "warning" || item.health === "error" || failedJobs > 0 || item.messageCounts.failed > 0;
+  const canPoll = item.mailbox.enabled && item.mailbox.passwordSet;
   return (
     <div className="grid gap-3 border-t border-border px-4 py-3 lg:grid-cols-[minmax(220px,1.25fr)_1.3fr_1fr_1fr]">
       <div className="min-w-0">
@@ -175,11 +184,17 @@ function MailboxRow({ item }: { item: InboundEmailOpsMailbox }) {
         <div className="mt-1 truncate text-xs text-muted-foreground">
           {item.mailbox.username} · {item.mailbox.folder}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to="/company/settings/email">
-            <Settings className="h-3 w-3" />
-            Configure
-          </Link>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!canPoll || polling}
+            onClick={() => onPollNow(item.mailbox.id)}
+            title={canPoll ? "Queue an immediate poll for this mailbox" : "Enable the mailbox and configure a password before polling"}
+          >
+            {polling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Poll now
+          </Button>
           {item.mailbox.targetProjectId ? (
             <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/projects/${item.mailbox.targetProjectId}`}>
               <ExternalLink className="h-3 w-3" />
@@ -429,17 +444,27 @@ export function InboundEmailOps() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
     },
   });
+  const pollMailboxMutation = useMutation({
+    mutationFn: (mailboxId: string) => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, mailboxId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+    },
+  });
   const retryingId =
     retryMessageMutation.isPending && retryMessageMutation.variables
       ? `message-${retryMessageMutation.variables}`
       : retryJobMutation.isPending && retryJobMutation.variables
         ? `job-${retryJobMutation.variables}`
         : null;
+  const pollingMailboxId = pollMailboxMutation.isPending && pollMailboxMutation.variables
+    ? pollMailboxMutation.variables
+    : null;
   const retryError = retryMessageMutation.isError
     ? retryMessageMutation.error
     : retryJobMutation.isError
       ? retryJobMutation.error
       : null;
+  const pollError = pollMailboxMutation.isError ? pollMailboxMutation.error : null;
 
   if (!selectedCompany) {
     return <div className="text-sm text-muted-foreground">No company selected. Select a company from the switcher above.</div>;
@@ -528,14 +553,38 @@ export function InboundEmailOps() {
             <h2 className="text-sm font-semibold">Mailboxes</h2>
             <div className="text-xs text-muted-foreground">Per-mailbox poll health and queue state.</div>
           </div>
-          <Link className="text-xs text-primary hover:underline" to="/company/settings/email">Email settings</Link>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/company/settings/email">
+              <Settings className="h-4 w-4" />
+              Configure
+            </Link>
+          </Button>
         </div>
+        {pollError ? (
+          <div className="mx-4 mb-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <span className="font-medium">Poll request failed.</span>{" "}
+              {errorMessage(pollError, "The selected mailbox could not be queued for polling. Refresh and try again.")}
+            </div>
+          </div>
+        ) : null}
         {dashboard.mailboxes.length === 0 ? (
           <div className="border-t border-border px-4 py-8 text-sm text-muted-foreground">
             No inbound mailboxes are configured for this company.
           </div>
         ) : (
-          dashboard.mailboxes.map((item) => <MailboxRow key={item.mailbox.id} item={item} />)
+          dashboard.mailboxes.map((item) => (
+            <MailboxRow
+              key={item.mailbox.id}
+              item={item}
+              polling={pollingMailboxId === item.mailbox.id}
+              onPollNow={(mailboxId) => {
+                pollMailboxMutation.reset();
+                pollMailboxMutation.mutate(mailboxId);
+              }}
+            />
+          ))
         )}
       </section>
 
