@@ -750,6 +750,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return changesPriority || appliesLabels;
   }
 
+  function rulePriorityOverride(rule: Pick<typeof inboundEmailRules.$inferSelect, "priority"> | null | undefined) {
+    return rule && rule.priority !== "medium" ? rule.priority : null;
+  }
+
   function assertRuleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
     if (!ruleHasProcessingEffect(rule)) {
       throw unprocessable("Inbound email rules must change priority or apply at least one label");
@@ -1199,7 +1203,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       title: (message.subject?.trim() || `Inbound email from ${message.fromAddress ?? "unknown sender"}`).slice(0, 300),
       description: formatIssueDescription({ message, attachmentCount: attachmentRows.length }),
       status: "backlog",
-      priority: context.rule?.priority ?? defaultPriorityForClassification(message.classificationCategory),
+      priority: rulePriorityOverride(context.rule) ?? defaultPriorityForClassification(message.classificationCategory),
       projectId: context.projectId,
       labelIds: context.rule?.labelIds ?? [],
       originKind: "inbound_email",
@@ -2176,6 +2180,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         })
         .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
         .returning();
+      if (!rule) throw notFound("Inbound email rule not found");
       await logActivity(db, {
         companyId,
         ...inboundEmailMutationActor(actor),

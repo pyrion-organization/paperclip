@@ -2236,6 +2236,41 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(createdIssue.priority).toBe("high");
   }, 20_000);
 
+  it("keeps classified high priority when a label-only rule matches", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Deploy Pipeline");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const [label] = await db
+      .insert(labels)
+      .values({ companyId, name: "Bug triage", color: "#00ff00" })
+      .returning();
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "Deploy Pipeline",
+      priority: "medium",
+      labelIds: [label.id],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<label-only-priority@example.com>",
+        subject: "Deploy Pipeline failure",
+        body: "The deploy pipeline is failing again.",
+      }),
+      providerUid: "label-only-priority",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.priority).toBe("high");
+  }, 20_000);
+
   it("rejects invalid inbound message list filters before querying", async () => {
     const companyId = await seedCompany();
 
