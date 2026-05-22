@@ -30,7 +30,7 @@ const PROMPT_INJECTION_PATTERNS: Array<[RegExp, string]> = [
   [/\bsystem\s+prompt\b/i, "prompt_injection"],
   [/\bdeveloper\s+message\b/i, "prompt_injection"],
   [/\bprint\s+(the\s+)?(secrets?|api\s+keys?|tokens?|passwords?)\b/i, "secret_request"],
-  [/\b(api\s+key|token|password|senha)\b/i, "secret_reference"],
+  [/\b(api\s+key|token)\b/i, "secret_reference"],
   [/\brun\s+this\s+command\b/i, "dangerous_operation"],
   [/\bdelete\s+(the\s+)?database\b/i, "dangerous_operation"],
   [/\bdeploy\s+immediately\b/i, "dangerous_operation"],
@@ -107,9 +107,11 @@ export function decideInboundEmailFinalAction(input: {
   recommendedAction: InboundEmailRecommendedAction;
   safetyFlags: string[];
   senderTrusted: boolean;
+  projectResolved: boolean;
 }): InboundEmailRecommendedAction {
   if (input.safetyFlags.length > 0) return "discard_or_quarantine";
   if (!input.senderTrusted) return "reply_request_more_info";
+  if (input.category === "unclear" && !input.projectResolved) return "reply_request_more_info";
   if (input.category === "spam_or_irrelevant") return "discard_or_quarantine";
   if (input.category === "infra_incident") return "defer_future_infra_agent";
   return "create_triage_issue";
@@ -130,6 +132,7 @@ export function classifyInboundEmailMessage(input: InboundEmailClassificationInp
         recommendedAction,
         safetyFlags,
         senderTrusted: input.senderTrusted,
+        projectResolved: input.projectResolved,
       }),
       summary: "Message contains unsafe agent-control, secret-related, or dangerous operation instructions.",
       safetyFlags,
@@ -150,6 +153,7 @@ export function classifyInboundEmailMessage(input: InboundEmailClassificationInp
       recommendedAction,
       safetyFlags,
       senderTrusted: input.senderTrusted,
+      projectResolved: input.projectResolved,
     }),
     summary: matched?.summary ?? "Message could not be classified confidently.",
     safetyFlags,

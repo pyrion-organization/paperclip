@@ -2625,7 +2625,19 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               shouldCreateProjectlessIssue(classification) &&
               !shouldPreserveClarificationThread(message)
             ) {
-              const issue = await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
+              const issue = await db
+                .select()
+                .from(issueRows)
+                .where(
+                  and(
+                    eq(issueRows.companyId, message.companyId),
+                    eq(issueRows.originKind, "inbound_email"),
+                    eq(issueRows.originId, message.id),
+                  ),
+                )
+                .then((rows) => rows[0] ?? null)
+                ?? await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
+              await linkIssueAttachmentsFromMessage(classifiedMessage, issue.id);
               const [updated] = await db
                 .update(inboundEmailMessages)
                 .set({

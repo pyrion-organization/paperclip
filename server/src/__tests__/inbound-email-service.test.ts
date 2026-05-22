@@ -1412,6 +1412,62 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.createdIssueId).toBe(storedIssues[0].id);
   }, 20_000);
 
+  it("retries a projectless post-issue failure without creating a duplicate issue", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<projectless-post-issue-retry@example.com>",
+        subject: "Production deploy failure",
+      }),
+      providerUid: "projectless-post-issue-retry",
+      processAfterImport: false,
+    });
+    await db.execute(sql`
+      create or replace function fail_projectless_processed_update()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.status = 'processed' then
+          raise exception 'projectless processed update failed';
+        end if;
+        return new;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_projectless_processed_update
+      before update of status on inbound_email_messages
+      for each row
+      execute function fail_projectless_processed_update();
+    `);
+
+    try {
+      await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow(/Failed query: update "inbound_email_messages"/);
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_projectless_processed_update on inbound_email_messages;`);
+      await db.execute(sql`drop function if exists fail_projectless_processed_update();`);
+    }
+
+    let storedIssues = await db.select().from(issues);
+    let [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedIssues).toHaveLength(1);
+    expect(storedMessage.status).toBe("failed");
+    expect(storedMessage.createdIssueId).toBeNull();
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    storedIssues = await db.select().from(issues);
+    [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedIssues).toHaveLength(1);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.createdIssueId).toBe(storedIssues[0].id);
+  }, 20_000);
+
   it("creates an infra triage issue when the only named client project link is inactive", async () => {
     const companyId = await seedCompany();
     await db
@@ -1474,6 +1530,56 @@ describeEmbeddedPostgres("inbound email service", () => {
       expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
       "selected-untargeted",
     );
+  }, 20_000);
+
+  it("stores reply guidance as the final action for unclear projectless mail", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<unclear-projectless@example.com>",
+        subject: "Preciso de ajuda",
+        body: "Pode verificar isso para mim?",
+      }),
+      providerUid: "unclear-projectless",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(storedMessage.classificationCategory).toBe("unclear");
+    expect(storedMessage.classificationFinalAction).toBe("reply_request_more_info");
+    expect(await db.select().from(issues)).toEqual([]);
+  }, 20_000);
+
+  it("creates account access triage issues for trusted password-help emails", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<password-help@example.com>",
+        subject: "Ajuda com acesso",
+        body: "Não consigo trocar minha senha.",
+      }),
+      providerUid: "password-help",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const storedIssues = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.classificationCategory).toBe("account_access");
+    expect(storedMessage.classificationSafetyFlags).toEqual([]);
+    expect(storedIssues).toHaveLength(1);
   }, 20_000);
 
   it("quarantines unsafe prompt-injection support email without creating an issue", async () => {
