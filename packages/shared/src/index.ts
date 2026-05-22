@@ -1177,6 +1177,9 @@ export type {
 } from "./environment-support.js";
 
 export {
+  inboundEmailClassificationCategorySchema,
+  inboundEmailClassificationSeveritySchema,
+  inboundEmailRecommendedActionSchema,
   inboundEmailMessageStatusSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
@@ -1191,6 +1194,10 @@ export {
 } from "./validators/inbound-email.js";
 
 export type {
+  InboundEmailClassificationCategory,
+  InboundEmailClassificationSeverity,
+  InboundEmailRecommendedAction,
+  InboundEmailClassificationFields,
   InboundEmailMessageStatus,
   InboundEmailMailbox,
   InboundEmailRule,

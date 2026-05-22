@@ -1,3 +1,31 @@
+export type InboundEmailClassificationCategory =
+  | "code_bug"
+  | "infra_incident"
+  | "how_to_question"
+  | "feature_request"
+  | "account_access"
+  | "spam_or_irrelevant"
+  | "unsafe_or_prompt_injection"
+  | "unclear";
+export type InboundEmailClassificationSeverity = "low" | "medium" | "high" | "urgent";
+export type InboundEmailRecommendedAction =
+  | "create_agent_task"
+  | "create_triage_issue"
+  | "reply_with_guidance"
+  | "reply_request_more_info"
+  | "defer_future_infra_agent"
+  | "discard_or_quarantine";
+export interface InboundEmailClassificationFields {
+  classificationCategory: InboundEmailClassificationCategory | null;
+  classificationConfidence: number | null;
+  classificationSeverity: InboundEmailClassificationSeverity | null;
+  classificationRecommendedAction: InboundEmailRecommendedAction | null;
+  classificationFinalAction: InboundEmailRecommendedAction | null;
+  classificationSummary: string | null;
+  classificationSafetyFlags: string[] | null;
+  classificationRuleVersion: string | null;
+  classifiedAt: Date | null;
+}
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -46,7 +74,7 @@ export interface InboundEmailRule {
   updatedAt: Date;
 }
 
-export interface InboundEmailMessage {
+export interface InboundEmailMessage extends InboundEmailClassificationFields {
   id: string;
   companyId: string;
   mailboxId: string;
@@ -115,7 +143,7 @@ export interface InboundEmailOpsJob {
   updatedAt: Date;
 }
 
-export interface InboundEmailOpsMessage {
+export interface InboundEmailOpsMessage extends InboundEmailClassificationFields {
   id: string;
   mailboxId: string;
   status: InboundEmailMessageStatus;

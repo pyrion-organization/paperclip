@@ -14,6 +14,23 @@ import { companies } from "./companies.js";
 import { issues } from "./issues.js";
 import { assets } from "./assets.js";
 
+export type InboundEmailClassificationCategory =
+  | "code_bug"
+  | "infra_incident"
+  | "how_to_question"
+  | "feature_request"
+  | "account_access"
+  | "spam_or_irrelevant"
+  | "unsafe_or_prompt_injection"
+  | "unclear";
+export type InboundEmailClassificationSeverity = "low" | "medium" | "high" | "urgent";
+export type InboundEmailRecommendedAction =
+  | "create_agent_task"
+  | "create_triage_issue"
+  | "reply_with_guidance"
+  | "reply_request_more_info"
+  | "defer_future_infra_agent"
+  | "discard_or_quarantine";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -100,6 +117,15 @@ export const inboundEmailMessages = pgTable(
     sourceDeleteError: text("source_delete_error"),
     sourceSeenAt: timestamp("source_seen_at", { withTimezone: true }),
     sourceSeenError: text("source_seen_error"),
+    classificationCategory: text("classification_category").$type<InboundEmailClassificationCategory>(),
+    classificationConfidence: integer("classification_confidence"),
+    classificationSeverity: text("classification_severity").$type<InboundEmailClassificationSeverity>(),
+    classificationRecommendedAction: text("classification_recommended_action").$type<InboundEmailRecommendedAction>(),
+    classificationFinalAction: text("classification_final_action").$type<InboundEmailRecommendedAction>(),
+    classificationSummary: text("classification_summary"),
+    classificationSafetyFlags: jsonb("classification_safety_flags").$type<string[]>(),
+    classificationRuleVersion: text("classification_rule_version"),
+    classifiedAt: timestamp("classified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

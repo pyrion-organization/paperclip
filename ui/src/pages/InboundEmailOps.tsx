@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  InboundEmailClassificationCategory,
   InboundEmailMessage,
   InboundEmailMessageStatus,
   InboundEmailOpsDashboard,
@@ -74,6 +75,17 @@ const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; la
 ];
 
 const PROCESSED_EMAIL_PAGE_SIZE = 25;
+
+const classificationLabels: Record<InboundEmailClassificationCategory, string> = {
+  code_bug: "Code bug",
+  infra_incident: "Infra",
+  how_to_question: "Question",
+  feature_request: "Feature",
+  account_access: "Access",
+  spam_or_irrelevant: "Spam",
+  unsafe_or_prompt_injection: "Unsafe",
+  unclear: "Unclear",
+};
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -291,6 +303,10 @@ type FailureEntry = {
   kind: string;
   mailboxId: string | null;
   detail: string;
+  classificationCategory?: InboundEmailClassificationCategory | null;
+  classificationConfidence?: number | null;
+  classificationFinalAction?: InboundEmailMessage["classificationFinalAction"];
+  classificationSafetyFlags?: string[] | null;
   time: Date | string | null | undefined;
 };
 
@@ -322,6 +338,10 @@ function FailureList({
       kind: `message.${message.status}`,
       mailboxId: message.mailboxId,
       detail: message.error ?? message.subject ?? "Message failed without error text",
+      classificationCategory: message.classificationCategory,
+      classificationConfidence: message.classificationConfidence,
+      classificationFinalAction: message.classificationFinalAction,
+      classificationSafetyFlags: message.classificationSafetyFlags,
       time: message.updatedAt,
     })),
   ]
@@ -346,6 +366,16 @@ function FailureList({
             <div className="text-xs text-muted-foreground">{formatTime(failure.time)}</div>
             <div className="min-w-0 space-y-1 break-words text-xs">
               <div className="text-muted-foreground">{explainFailure(failure)}</div>
+              {failure.classificationCategory ? (
+                <ClassificationBadges
+                  message={{
+                    classificationCategory: failure.classificationCategory,
+                    classificationConfidence: failure.classificationConfidence ?? null,
+                    classificationFinalAction: failure.classificationFinalAction ?? null,
+                    classificationSafetyFlags: failure.classificationSafetyFlags ?? null,
+                  }}
+                />
+              ) : null}
               <div className="text-foreground">{failure.detail}</div>
             </div>
             <Button
@@ -423,6 +453,54 @@ function statusClassName(status: InboundEmailMessageStatus) {
     case "discovered":
       return "border-amber-500/40 bg-amber-500/10 text-amber-300";
   }
+}
+
+function classificationClassName(category: InboundEmailClassificationCategory | null | undefined) {
+  switch (category) {
+    case "code_bug":
+      return "border-orange-500/40 bg-orange-500/10 text-orange-300";
+    case "infra_incident":
+      return "border-red-500/40 bg-red-500/10 text-red-300";
+    case "unsafe_or_prompt_injection":
+    case "spam_or_irrelevant":
+      return "border-destructive/50 bg-destructive/10 text-destructive";
+    case "feature_request":
+      return "border-violet-500/40 bg-violet-500/10 text-violet-300";
+    case "how_to_question":
+      return "border-blue-500/40 bg-blue-500/10 text-blue-300";
+    case "account_access":
+      return "border-cyan-500/40 bg-cyan-500/10 text-cyan-300";
+    case "unclear":
+    default:
+      return "border-border bg-muted/50 text-muted-foreground";
+  }
+}
+
+function ClassificationBadges({ message }: {
+  message: Pick<
+    InboundEmailMessage,
+    "classificationCategory" | "classificationConfidence" | "classificationFinalAction" | "classificationSafetyFlags"
+  >;
+}) {
+  if (!message.classificationCategory) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      <Badge variant="outline" className={`h-5 px-1.5 text-[11px] ${classificationClassName(message.classificationCategory)}`}>
+        {classificationLabels[message.classificationCategory]}
+        {message.classificationConfidence !== null ? ` ${message.classificationConfidence}%` : ""}
+      </Badge>
+      {message.classificationFinalAction ? (
+        <Badge variant="outline" className="h-5 border-border bg-muted/30 px-1.5 text-[11px] text-muted-foreground">
+          {message.classificationFinalAction.replaceAll("_", " ")}
+        </Badge>
+      ) : null}
+      {message.classificationSafetyFlags?.length ? (
+        <Badge variant="outline" className="h-5 border-destructive/50 bg-destructive/10 px-1.5 text-[11px] text-destructive">
+          {message.classificationSafetyFlags.length} safety
+        </Badge>
+      ) : null}
+    </div>
+  );
 }
 
 function ProcessedEmailList({
@@ -554,9 +632,10 @@ function ProcessedEmailList({
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-foreground">{message.subject || "(No subject)"}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{message.fromAddress || "Unknown sender"}</div>
+                <ClassificationBadges message={message} />
               </div>
               <div className="min-w-0 break-words text-xs text-muted-foreground">
-                {message.error || message.skipReason || message.messageId || message.rawSha256}
+                {message.classificationSummary || message.error || message.skipReason || message.messageId || message.rawSha256}
               </div>
               <div className="flex items-start justify-start lg:justify-end">
                 {message.createdIssueId ? (

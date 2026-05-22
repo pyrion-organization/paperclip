@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+export const inboundEmailClassificationCategorySchema = z.enum([
+  "code_bug",
+  "infra_incident",
+  "how_to_question",
+  "feature_request",
+  "account_access",
+  "spam_or_irrelevant",
+  "unsafe_or_prompt_injection",
+  "unclear",
+]);
+export const inboundEmailClassificationSeveritySchema = z.enum(["low", "medium", "high", "urgent"]);
+export const inboundEmailRecommendedActionSchema = z.enum([
+  "create_agent_task",
+  "create_triage_issue",
+  "reply_with_guidance",
+  "reply_request_more_info",
+  "defer_future_infra_agent",
+  "discard_or_quarantine",
+]);
 export const inboundEmailMessageStatusSchema = z.enum([
   "discovered",
   "persisted",

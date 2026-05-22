@@ -30,6 +30,29 @@ vi.mock("../context/CompanyContext", () => ({
   }),
 }));
 
+const emptyClassification = {
+  classificationCategory: null,
+  classificationConfidence: null,
+  classificationSeverity: null,
+  classificationRecommendedAction: null,
+  classificationFinalAction: null,
+  classificationSummary: null,
+  classificationSafetyFlags: null,
+  classificationRuleVersion: null,
+  classifiedAt: null,
+} satisfies Pick<
+  InboundEmailMessage,
+  | "classificationCategory"
+  | "classificationConfidence"
+  | "classificationSeverity"
+  | "classificationRecommendedAction"
+  | "classificationFinalAction"
+  | "classificationSummary"
+  | "classificationSafetyFlags"
+  | "classificationRuleVersion"
+  | "classifiedAt"
+>;
+
 function makeCompany(): Company {
   return {
     id: "company-1",
@@ -125,6 +148,7 @@ function makeDashboard(): InboundEmailOpsDashboard {
           createdIssueId: null,
           error: "Project authorization reply could not be sent",
           skipReason: null,
+          ...emptyClassification,
           createdAt: now,
           updatedAt: now,
         },
@@ -183,6 +207,7 @@ function withRecentFailures(dashboard: InboundEmailOpsDashboard): InboundEmailOp
         createdIssueId: null,
         error: "Newest message failure should render first",
         skipReason: null,
+        ...emptyClassification,
         createdAt: newer,
         updatedAt: newer,
       },
@@ -212,6 +237,7 @@ function makeProcessedMessage(overrides: Partial<InboundEmailMessage> = {}): Inb
     sourceDeleteError: null,
     sourceSeenAt: null,
     sourceSeenError: null,
+    ...emptyClassification,
     createdAt: now,
     updatedAt: now,
     ...overrides,

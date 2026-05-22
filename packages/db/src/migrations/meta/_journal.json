@@ -750,6 +750,13 @@
       "when": 1779210181000,
       "tag": "0106_inbound_email_attachment_sha_index",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1779210182000,
+      "tag": "0107_inbound_email_classification",
+      "breakpoints": true
     }
   ]
 }
