@@ -246,10 +246,10 @@ describeEmbeddedPostgres("inbound email service", () => {
     return clientProject;
   }
 
-  async function createMailbox(companyId: string, input?: { supportRepliesEnabled?: boolean }) {
+  async function createMailbox(companyId: string, input?: { enabled?: boolean; supportRepliesEnabled?: boolean }) {
     return svc.createMailbox(companyId, {
       name: "Support inbox",
-      enabled: false,
+      enabled: input?.enabled ?? false,
       host: "imap.example.com",
       port: 993,
       username: "support@example.com",
@@ -2004,7 +2004,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     const companyId = await seedCompany();
     const mailbox = await svc.createMailbox(companyId, {
       name: "Dedupe inbox",
-      enabled: false,
+      enabled: true,
       host: "imap.example.com",
       port: 993,
       username: "dedupe@example.com",
@@ -3126,7 +3126,7 @@ describeEmbeddedPostgres("inbound email service", () => {
 
   it("retries a dead background job by resetting it to pending with a fresh attempt budget", async () => {
     const companyId = await seedCompany();
-    const mailbox = await createMailbox(companyId);
+    const mailbox = await createMailbox(companyId, { enabled: true });
     const job = await svc.enqueueMailboxPoll(companyId, mailbox.id);
     await db
       .update(backgroundJobs)
@@ -3151,7 +3151,7 @@ describeEmbeddedPostgres("inbound email service", () => {
 
   it("logs operator attribution for manual poll, retry, and mailbox delete actions", async () => {
     const companyId = await seedCompany();
-    const mailbox = await createMailbox(companyId);
+    const mailbox = await createMailbox(companyId, { enabled: true });
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
@@ -3197,7 +3197,7 @@ describeEmbeddedPostgres("inbound email service", () => {
 
   it("returns the active dedupe peer when retrying an obsolete failed job", async () => {
     const companyId = await seedCompany();
-    const mailbox = await createMailbox(companyId);
+    const mailbox = await createMailbox(companyId, { enabled: true });
     const [failedJob] = await db
       .insert(backgroundJobs)
       .values({
@@ -3236,7 +3236,7 @@ describeEmbeddedPostgres("inbound email service", () => {
 
   it("rejects retryJob for a job that is not failed or dead", async () => {
     const companyId = await seedCompany();
-    const mailbox = await createMailbox(companyId);
+    const mailbox = await createMailbox(companyId, { enabled: true });
     const job = await svc.enqueueMailboxPoll(companyId, mailbox.id);
 
     await expect(svc.retryJob(companyId, job.id)).rejects.toThrow(/Only failed or dead jobs/);
@@ -3284,6 +3284,32 @@ describeEmbeddedPostgres("inbound email service", () => {
     const enqueued = await svc.enqueueDueMailboxPollJobs(new Date("2026-05-19T10:00:30Z"));
 
     expect(enqueued).toBe(0);
+    expect(await db.select().from(backgroundJobs)).toEqual([]);
+  }, 20_000);
+
+  it("rejects manual polls for mailboxes without configured passwords", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Passwordless manual poll",
+      enabled: true,
+      host: "imap.example.com",
+      port: 993,
+      username: "manual@example.com",
+      password: null,
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+    });
+
+    await expect(svc.enqueueMailboxPoll(companyId, mailbox.id)).rejects.toThrow("Inbound mailbox password is not configured");
+    expect(await db.select().from(backgroundJobs)).toEqual([]);
+  }, 20_000);
+
+  it("rejects manual polls for disabled mailboxes", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    await expect(svc.enqueueMailboxPoll(companyId, mailbox.id)).rejects.toThrow("Inbound mailbox polling is disabled");
     expect(await db.select().from(backgroundJobs)).toEqual([]);
   }, 20_000);
 

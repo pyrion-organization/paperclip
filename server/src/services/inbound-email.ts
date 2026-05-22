@@ -2476,7 +2476,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       mailboxId: string,
       actor?: { userId?: string | null; agentId?: string | null },
     ) => {
-      await loadMailbox(companyId, mailboxId);
+      const mailbox = await loadMailbox(companyId, mailboxId);
+      if (!mailbox.enabled) throw unprocessable("Inbound mailbox polling is disabled");
+      if (!mailbox.passwordSecretName) throw unprocessable("Inbound mailbox password is not configured");
       const result = await jobs.enqueueWithDisposition({
         companyId,
         kind: EMAIL_POLL_MAILBOX_JOB_KIND,
