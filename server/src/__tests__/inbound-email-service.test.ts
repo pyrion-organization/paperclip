@@ -1753,6 +1753,79 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedIssues).toHaveLength(1);
   }, 20_000);
 
+  it("classifies trusted English password-help emails as account access", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<english-password-help@example.com>",
+        subject: "Password reset help",
+        body: "I cannot reset my password.",
+      }),
+      providerUid: "english-password-help",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.classificationCategory).toBe("account_access");
+    expect(storedMessage.classificationSafetyFlags).toEqual([]);
+    expect(await db.select().from(issues)).toHaveLength(1);
+  }, 20_000);
+
+  it("classifies trusted API-token support emails as account access", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<api-token-help@example.com>",
+        subject: "API token expired",
+        body: "My API token stopped working and I cannot create a new one.",
+      }),
+      providerUid: "api-token-help",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.classificationCategory).toBe("account_access");
+    expect(storedMessage.classificationSafetyFlags).toEqual([]);
+    expect(await db.select().from(issues)).toHaveLength(1);
+  }, 20_000);
+
+  it("quarantines support emails that expose pasted API keys", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<pasted-api-key@example.com>",
+        subject: "API key issue",
+        body: "api key: abcdef1234567890",
+      }),
+      providerUid: "pasted-api-key",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("unsafe_or_prompt_injection");
+    expect(storedMessage.classificationCategory).toBe("unsafe_or_prompt_injection");
+    expect(storedMessage.classificationSafetyFlags).toContain("secret_reference");
+    expect(await db.select().from(issues)).toEqual([]);
+  }, 20_000);
+
   it("quarantines unsafe prompt-injection support email without creating an issue", async () => {
     const companyId = await seedCompany();
     await seedClientIdentity({ companyId });
@@ -3192,6 +3265,26 @@ describeEmbeddedPostgres("inbound email service", () => {
     const activeRows = await db.select().from(backgroundJobs);
     const active = activeRows.filter((r) => r.kind === "email.poll_mailbox" && (r.status === "pending" || r.status === "running" || r.status === "retrying"));
     expect(active.length).toBe(1);
+  }, 20_000);
+
+  it("does not schedule enabled mailboxes without configured passwords", async () => {
+    const companyId = await seedCompany();
+    await svc.createMailbox(companyId, {
+      name: "Passwordless scheduler",
+      enabled: true,
+      host: "imap.example.com",
+      port: 993,
+      username: "scheduler@example.com",
+      password: null,
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+    });
+
+    const enqueued = await svc.enqueueDueMailboxPollJobs(new Date("2026-05-19T10:00:30Z"));
+
+    expect(enqueued).toBe(0);
+    expect(await db.select().from(backgroundJobs)).toEqual([]);
   }, 20_000);
 
   it("marks a mailbox as polled before fetching unread messages", async () => {

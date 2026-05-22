@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
@@ -2451,7 +2451,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const mailboxes = await db
         .select()
         .from(inboundEmailMailboxes)
-        .where(eq(inboundEmailMailboxes.enabled, true));
+        .where(and(
+          eq(inboundEmailMailboxes.enabled, true),
+          isNotNull(inboundEmailMailboxes.passwordSecretName),
+        ));
       let enqueued = 0;
       for (const mailbox of mailboxes) {
         const intervalMs = mailbox.pollIntervalSeconds * 1000;

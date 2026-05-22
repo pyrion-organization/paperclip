@@ -30,7 +30,8 @@ const PROMPT_INJECTION_PATTERNS: Array<[RegExp, string]> = [
   [/\bsystem\s+prompt\b/i, "prompt_injection"],
   [/\bdeveloper\s+message\b/i, "prompt_injection"],
   [/\bprint\s+(the\s+)?(secrets?|api\s+keys?|tokens?|passwords?)\b/i, "secret_request"],
-  [/\b(api\s+key|token)\b/i, "secret_reference"],
+  [/\b(show|send|share|expose|reveal|return|display)\s+(the\s+)?(api\s+key|token)\b/i, "secret_request"],
+  [/\b(api\s+key|token)\s*[:=]\s*[a-z0-9._-]{12,}\b/i, "secret_reference"],
   [/\brun\s+this\s+command\b/i, "dangerous_operation"],
   [/\bdelete\s+(the\s+)?database\b/i, "dangerous_operation"],
   [/\bdeploy\s+immediately\b/i, "dangerous_operation"],
@@ -66,7 +67,7 @@ const CLASSIFICATION_PATTERNS: Array<{
     severity: "medium",
     recommendedAction: "create_triage_issue",
     summary: "Message appears to involve account, login, registration, or permission access.",
-    pattern: /\b(login|senha|acesso|permiss[aã]o|cadastro|usu[aá]rio|usuario|invite)\b/i,
+    pattern: /\b(login|password|senha|acesso|permiss[aã]o|cadastro|usu[aá]rio|usuario|invite|api\s+key|token)\b/i,
   },
   {
     category: "feature_request",
