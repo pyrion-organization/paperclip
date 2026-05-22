@@ -69,10 +69,11 @@ Runs in its own job, so retries don't repeat IMAP I/O:
 3. Resolve sender identity — domain → active client → registered employee.
 4. If the registered sender sent a registration command, handle the client employee registration path and do not create an issue.
 5. Otherwise, `resolveProcessingContext` → `{mailbox, rule}` for mailbox settings plus optional priority/labels from matching rules, then `resolveSenderAuthorization` performs fuzzy project detection and optional employee project-link checks.
+6. For recognized non-registration senders, run deterministic V1 support classification and persist category, confidence, severity, recommended/final action, summary, safety flags, rule version, and timestamp on the message.
 6. **If unauthorized**:
    - For `employee_not_registered`, `project_not_authorized`, `project_not_identified`, and `project_match_ambiguous`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). Authorization replies are best-effort and SMTP failures are logged.
    - Otherwise mark `status: "skipped"`, store `error: <reason>`, log `inbound_email.message_skipped`.
-7. **If authorized for a support request**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
+7. **If authorized for a support request**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection or configured target project, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
 8. Flip support messages to `status: "processed"`, write `createdIssueId`, log `inbound_email.issue_created`.
 9. Delete the source IMAP message after a successful issue creation, or after a required Portuguese authorization/registration reply is sent and the message is marked `skipped`. `project_not_identified` keeps the source email in the mailbox and marks it seen after the reply. Unknown-domain skips are not deleted, but they are marked seen so the poller does not keep fetching them.
 10. On exception before terminal status → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
@@ -89,6 +90,17 @@ Registered client employees can register another employee by email without creat
 - **Privilege model**: any registered employee can grant another address on an accepted client domain the same role/scope they hold themselves — there is no admin approval step and no "max role you can grant" gate. If `role` grants meaningful authority elsewhere, treat email-based registration as equivalent to letting any current employee create peers.
 - Registration parsing only reads the subject and the new body content above quoted history (`Em … escreveu:`, `On … wrote:`, `>` lines, `-----Original Message-----`, etc.), so replies to old registration threads don't re-trigger the flow.
 - Registration outcomes are terminal `skipped` messages with `employee_registration_*` skip reasons. They send a Portuguese reply and delete the source IMAP message after the reply succeeds. They never call `createIssueFromMessage`.
+
+## Support classification V1
+
+Classification is deterministic and conservative in V1. It does not call an LLM, auto-run agents, auto-deploy code, or fix infrastructure. The classifier treats the original email as untrusted evidence and stores its decision on `inbound_email_messages`.
+
+- Categories: `code_bug`, `infra_incident`, `how_to_question`, `feature_request`, `account_access`, `spam_or_irrelevant`, `unsafe_or_prompt_injection`, and `unclear`.
+- Safety patterns such as prompt-injection text, secret requests, dangerous commands, or immediate deploy instructions win before normal bug/infra/question matching.
+- `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` create triage issues for recognized senders. `code_bug` and `infra_incident` default to high priority when no rule priority applies; questions default to low. `unclear` keeps the existing project-clarification behavior when no project is identified.
+- `unsafe_or_prompt_injection` and `spam_or_irrelevant` are skipped/quarantined and marked seen so the worker does not keep reprocessing them.
+- If project matching fails with `project_not_identified`, classification can still create a projectless or configured-target triage issue for a recognized sender. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
+- Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
 
 ## Project resolution
 

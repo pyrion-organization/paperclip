@@ -1179,6 +1179,9 @@ export type {
 export {
   inboundEmailCreateModeSchema,
   inboundEmailProviderSchema,
+  inboundEmailClassificationCategorySchema,
+  inboundEmailClassificationSeveritySchema,
+  inboundEmailRecommendedActionSchema,
   inboundEmailMessageStatusSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
@@ -1195,6 +1198,10 @@ export {
 export type {
   InboundEmailProvider,
   InboundEmailCreateMode,
+  InboundEmailClassificationCategory,
+  InboundEmailClassificationSeverity,
+  InboundEmailRecommendedAction,
+  InboundEmailClassificationFields,
   InboundEmailMessageStatus,
   InboundEmailMailbox,
   InboundEmailRule,
