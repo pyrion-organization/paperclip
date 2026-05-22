@@ -342,6 +342,98 @@ export type InboundEmailAuthorizationReplyResult =
   | { status: "sent" }
   | { status: "skipped"; reason: "smtp_not_configured" | "send_failed" };
 
+export type InboundEmailSupportReplyReason =
+  | "code_bug_received"
+  | "infra_incident_received"
+  | "feature_request_received"
+  | "how_to_question_received"
+  | "account_access_received"
+  | "unclear_request_more_info";
+
+export type InboundEmailSupportReplyResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "smtp_not_configured" }
+  | { status: "failed"; reason: "send_failed"; error: string };
+
+export async function sendInboundEmailSupportReply(params: {
+  to: string;
+  reason: InboundEmailSupportReplyReason;
+  originalSubject?: string | null;
+  issueIdentifier?: string | null;
+  issueId?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<InboundEmailSupportReplyResult> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
+  const transport = buildTransport(config);
+
+  const originalSubject = nonEmpty(params.originalSubject);
+  const subject = originalSubject
+    ? `Re: ${originalSubject}`.slice(0, 200)
+    : params.reason === "unclear_request_more_info"
+      ? "Mais informações necessárias"
+      : "Solicitação recebida";
+  const issueLabel = nonEmpty(params.issueIdentifier) ?? nonEmpty(params.issueId)?.slice(0, 8) ?? null;
+  const issueSentence = issueLabel
+    ? `Abrimos a solicitação ${issueLabel} para acompanhamento.`
+    : "Registramos sua mensagem para acompanhamento.";
+
+  const bodyMessageByReason: Record<InboundEmailSupportReplyReason, string> = {
+    code_bug_received: "Recebemos seu relato de erro no sistema.",
+    infra_incident_received: "Recebemos seu relato de problema de infraestrutura, disponibilidade ou acesso ao serviço.",
+    feature_request_received: "Recebemos sua sugestão de melhoria ou mudança no produto.",
+    how_to_question_received: "Recebemos sua dúvida de uso ou solicitação de orientação.",
+    account_access_received: "Recebemos sua solicitação relacionada a conta, login ou permissões.",
+    unclear_request_more_info: "Recebemos sua mensagem, mas precisamos de mais informações para encaminhar corretamente.",
+  };
+  const actionMessageByReason: Record<InboundEmailSupportReplyReason, string> = {
+    code_bug_received: `${issueSentence} A equipe vai analisar o comportamento reportado.`,
+    infra_incident_received: `${issueSentence} O caso foi registrado para triagem operacional.`,
+    feature_request_received: `${issueSentence} A mudança será avaliada como solicitação de produto.`,
+    how_to_question_received: `${issueSentence} A equipe de suporte vai responder com orientação.`,
+    account_access_received: `${issueSentence} A equipe vai revisar o pedido de acesso.`,
+    unclear_request_more_info: "Responda a este e-mail informando o nome do projeto, URL ou tela afetada, passos para reproduzir, resultado esperado e resultado atual. Screenshots ou logs também ajudam.",
+  };
+  const bodyMessage = bodyMessageByReason[params.reason];
+  const actionMessage = actionMessageByReason[params.reason];
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(bodyMessage)}
+  </p>
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(actionMessage)}
+  </p>`;
+
+  const needsMoreInfo = params.reason === "unclear_request_more_info";
+  const html = buildEmailWrapper({
+    headerColor: needsMoreInfo ? "#b45309" : "#047857",
+    headerIcon: needsMoreInfo ? "!" : "✓",
+    headerTitle: needsMoreInfo ? "Mais informações necessárias" : "Solicitação recebida",
+    headerSubtitle: needsMoreInfo ? "Aguardando detalhes" : "Registro automático de suporte",
+    body,
+    signatureHtml: config.signatureHtml,
+  });
+
+  try {
+    await transport.sendMail({
+      from: config.from,
+      to: params.to,
+      subject,
+      text: [
+        bodyMessage,
+        "",
+        actionMessage,
+      ].join("\n"),
+      html,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err, to: params.to, reason: params.reason }, "inbound support reply send failed");
+    return { status: "failed", reason: "send_failed", error: message };
+  }
+  return { status: "sent" };
+}
+
 export async function sendInboundEmailAuthorizationReply(params: {
   to: string;
   reason: InboundEmailAuthorizationReplyReason;

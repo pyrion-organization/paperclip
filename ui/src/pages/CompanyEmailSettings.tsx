@@ -71,6 +71,7 @@ export function CompanyEmailSettings() {
   const [inboundFolder, setInboundFolder] = useState("INBOX");
   const [inboundTls, setInboundTls] = useState(true);
   const [inboundPollIntervalSeconds, setInboundPollIntervalSeconds] = useState("60");
+  const [inboundSupportRepliesEnabled, setInboundSupportRepliesEnabled] = useState(false);
 
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>(emptyRuleDraft);
 
@@ -132,6 +133,7 @@ export function CompanyEmailSettings() {
       setInboundFolder("INBOX");
       setInboundTls(true);
       setInboundPollIntervalSeconds("60");
+      setInboundSupportRepliesEnabled(false);
       return;
     }
     setInboundName(mailbox.name);
@@ -144,6 +146,7 @@ export function CompanyEmailSettings() {
     setInboundFolder(mailbox.folder);
     setInboundTls(mailbox.tls);
     setInboundPollIntervalSeconds(String(mailbox.pollIntervalSeconds));
+    setInboundSupportRepliesEnabled(mailbox.supportRepliesEnabled);
   };
 
   useEffect(() => {
@@ -227,6 +230,7 @@ export function CompanyEmailSettings() {
     inboundFolder !== primaryInboundMailbox.folder ||
     inboundTls !== primaryInboundMailbox.tls ||
     inboundPollIntervalSeconds !== String(primaryInboundMailbox.pollIntervalSeconds) ||
+    inboundSupportRepliesEnabled !== primaryInboundMailbox.supportRepliesEnabled ||
     (inboundPasswordTouched && inboundPassword.trim().length > 0);
 
   const invalidateInboundEmailState = (groups: Array<"mailboxes" | "messages" | "jobs" | "ops" | "rules">) => {
@@ -247,6 +251,7 @@ export function CompanyEmailSettings() {
         folder: inboundFolder.trim(),
         tls: inboundTls,
         pollIntervalSeconds: inboundPollIntervalNum,
+        supportRepliesEnabled: inboundSupportRepliesEnabled,
         ...(inboundPasswordTouched && inboundPassword.trim().length > 0 ? { password: inboundPassword } : {}),
       };
       return companiesApi.saveInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox?.id ?? null, payload);
@@ -442,6 +447,10 @@ export function CompanyEmailSettings() {
             <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
               <input data-testid="company-settings-inbound-tls" type="checkbox" checked={inboundTls} onChange={(e) => setInboundTls(e.target.checked)} />
               Use TLS
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+              <input data-testid="company-settings-inbound-support-replies" type="checkbox" checked={inboundSupportRepliesEnabled} onChange={(e) => setInboundSupportRepliesEnabled(e.target.checked)} />
+              Auto-reply to support emails
             </label>
             <Field label="Poll interval" hint="Seconds between mailbox polls.">
               <input data-testid="company-settings-inbound-poll-interval" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={30} max={3600} value={inboundPollIntervalSeconds} onChange={(e) => setInboundPollIntervalSeconds(e.target.value)} />

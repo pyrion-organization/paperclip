@@ -1,5 +1,12 @@
 export type { Company } from "./company.js";
 export type {
+  InboundEmailClassificationCategory,
+  InboundEmailClassificationSeverity,
+  InboundEmailRecommendedAction,
+  InboundEmailClassificationFields,
+  InboundEmailSupportReplyStatus,
+  InboundEmailSupportReplyReason,
+  InboundEmailSupportReplyFields,
   InboundEmailMessageStatus,
   InboundEmailMailbox,
   InboundEmailRule,

@@ -87,6 +87,20 @@ const classificationLabels: Record<InboundEmailClassificationCategory, string> =
   unclear: "Unclear",
 };
 
+const supportReplyReasonLabels: Record<NonNullable<InboundEmailMessage["supportReplyReason"]>, string> = {
+  code_bug_received: "Bug confirmation",
+  infra_incident_received: "Infra confirmation",
+  feature_request_received: "Feature confirmation",
+  how_to_question_received: "Question confirmation",
+  account_access_received: "Access confirmation",
+  unclear_request_more_info: "Asked for info",
+  smtp_not_configured: "SMTP not configured",
+  reply_disabled: "Replies disabled",
+  unsafe_or_spam: "No unsafe/spam reply",
+  missing_sender: "Missing sender",
+  send_failed: "Send failed",
+};
+
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -307,6 +321,9 @@ type FailureEntry = {
   classificationConfidence?: number | null;
   classificationFinalAction?: InboundEmailMessage["classificationFinalAction"];
   classificationSafetyFlags?: string[] | null;
+  supportReplyStatus?: InboundEmailMessage["supportReplyStatus"];
+  supportReplyReason?: InboundEmailMessage["supportReplyReason"];
+  supportReplyError?: string | null;
   time: Date | string | null | undefined;
 };
 
@@ -342,6 +359,9 @@ function FailureList({
       classificationConfidence: message.classificationConfidence,
       classificationFinalAction: message.classificationFinalAction,
       classificationSafetyFlags: message.classificationSafetyFlags,
+      supportReplyStatus: message.supportReplyStatus,
+      supportReplyReason: message.supportReplyReason,
+      supportReplyError: message.supportReplyError,
       time: message.updatedAt,
     })),
   ]
@@ -373,6 +393,15 @@ function FailureList({
                     classificationConfidence: failure.classificationConfidence ?? null,
                     classificationFinalAction: failure.classificationFinalAction ?? null,
                     classificationSafetyFlags: failure.classificationSafetyFlags ?? null,
+                  }}
+                />
+              ) : null}
+              {failure.supportReplyStatus ? (
+                <SupportReplyBadge
+                  message={{
+                    supportReplyStatus: failure.supportReplyStatus,
+                    supportReplyReason: failure.supportReplyReason ?? null,
+                    supportReplyError: failure.supportReplyError ?? null,
                   }}
                 />
               ) : null}
@@ -500,6 +529,30 @@ function ClassificationBadges({ message }: {
         </Badge>
       ) : null}
     </div>
+  );
+}
+
+function SupportReplyBadge({ message }: {
+  message: Pick<InboundEmailMessage, "supportReplyStatus" | "supportReplyReason" | "supportReplyError">;
+}) {
+  if (!message.supportReplyStatus) return null;
+  const className =
+    message.supportReplyStatus === "sent"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      : message.supportReplyStatus === "failed"
+        ? "border-destructive/50 bg-destructive/10 text-destructive"
+        : "border-border bg-muted/30 text-muted-foreground";
+  const label = message.supportReplyReason
+    ? supportReplyReasonLabels[message.supportReplyReason]
+    : message.supportReplyStatus;
+  return (
+    <Badge
+      variant="outline"
+      className={`h-5 px-1.5 text-[11px] ${className}`}
+      title={message.supportReplyError ?? undefined}
+    >
+      Reply: {label}
+    </Badge>
   );
 }
 
@@ -633,6 +686,9 @@ function ProcessedEmailList({
                 <div className="truncate text-sm font-medium text-foreground">{message.subject || "(No subject)"}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{message.fromAddress || "Unknown sender"}</div>
                 <ClassificationBadges message={message} />
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <SupportReplyBadge message={message} />
+                </div>
               </div>
               <div className="min-w-0 break-words text-xs text-muted-foreground">
                 {message.classificationSummary || message.error || message.skipReason || message.messageId || message.rawSha256}

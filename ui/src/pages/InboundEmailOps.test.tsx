@@ -53,6 +53,21 @@ const emptyClassification = {
   | "classifiedAt"
 >;
 
+const emptySupportReply = {
+  supportReplyStatus: null,
+  supportReplyReason: null,
+  supportReplyAttemptedAt: null,
+  supportReplySentAt: null,
+  supportReplyError: null,
+} satisfies Pick<
+  InboundEmailMessage,
+  | "supportReplyStatus"
+  | "supportReplyReason"
+  | "supportReplyAttemptedAt"
+  | "supportReplySentAt"
+  | "supportReplyError"
+>;
+
 function makeCompany(): Company {
   return {
     id: "company-1",
@@ -114,6 +129,7 @@ function makeDashboard(): InboundEmailOpsDashboard {
           folder: "INBOX",
           tls: true,
           pollIntervalSeconds: 60,
+          supportRepliesEnabled: true,
           lastPollAt: new Date("2026-05-19T11:55:00.000Z"),
           lastSuccessAt: new Date("2026-05-19T11:50:00.000Z"),
           lastError: "IMAP authentication failed",
@@ -145,10 +161,12 @@ function makeDashboard(): InboundEmailOpsDashboard {
           status: "failed",
           subject: "Need help",
           fromAddress: "customer@example.com",
+          replyToAddress: null,
           createdIssueId: null,
           error: "Project authorization reply could not be sent",
           skipReason: null,
           ...emptyClassification,
+          ...emptySupportReply,
           createdAt: now,
           updatedAt: now,
         },
@@ -204,10 +222,12 @@ function withRecentFailures(dashboard: InboundEmailOpsDashboard): InboundEmailOp
         status: "failed",
         subject: "New message failure",
         fromAddress: "customer@example.com",
+        replyToAddress: null,
         createdIssueId: null,
         error: "Newest message failure should render first",
         skipReason: null,
         ...emptyClassification,
+        ...emptySupportReply,
         createdAt: newer,
         updatedAt: newer,
       },
@@ -225,6 +245,7 @@ function makeProcessedMessage(overrides: Partial<InboundEmailMessage> = {}): Inb
     messageId: "<processed@example.com>",
     rawSha256: "sha-1",
     fromAddress: "customer@example.com",
+    replyToAddress: null,
     toAddresses: ["support@example.com"],
     subject: "Processed order email",
     receivedAt: now,
@@ -238,6 +259,7 @@ function makeProcessedMessage(overrides: Partial<InboundEmailMessage> = {}): Inb
     sourceSeenAt: null,
     sourceSeenError: null,
     ...emptyClassification,
+    ...emptySupportReply,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -279,7 +301,12 @@ describe("InboundEmailOps", () => {
           createdAt: new Date("2026-05-19T11:45:00.000Z"),
           updatedAt: new Date("2026-05-19T11:45:00.000Z"),
         }),
-        makeProcessedMessage(),
+        makeProcessedMessage({
+          supportReplyStatus: "sent",
+          supportReplyReason: "code_bug_received",
+          supportReplyAttemptedAt: new Date("2026-05-19T12:45:10.000Z"),
+          supportReplySentAt: new Date("2026-05-19T12:45:11.000Z"),
+        }),
       ],
       nextCursor: "next-cursor",
     });
@@ -336,6 +363,7 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Recent Failures");
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
+    expect(container.textContent).toContain("Reply: Bug confirmation");
     expect(container.textContent!.indexOf("Processed order email")).toBeLessThan(
       container.textContent!.indexOf("Older processed email"),
     );

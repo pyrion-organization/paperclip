@@ -8,6 +8,7 @@ import {
 import {
   sendInboundEmailAuthorizationReply,
   sendInboundEmailRegistrationReply,
+  sendInboundEmailSupportReply,
   sendIssueCompletionEmail,
   sendRoutineSuccessEmail,
 } from "../services/email.ts";
@@ -317,6 +318,38 @@ describeEmbeddedPostgres("email service", () => {
     expect(message?.text).not.toContain("Paperclip");
     expect(message?.html).toContain("Cadastro processado");
     expect(message?.html).not.toContain("Paperclip");
+  });
+
+  it("sends Portuguese inbound support confirmations with issue references", async () => {
+    const companyId = randomUUID();
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Acme Operations",
+      issuePrefix: `M${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@acme.example",
+      emailSignatureHtml: "<div>Assinatura Acme</div>",
+    });
+
+    const result = await sendInboundEmailSupportReply({
+      to: "customer@example.com",
+      reason: "code_bug_received",
+      originalSubject: "Erro no checkout",
+      issueIdentifier: "ACME-12",
+      db,
+      companyId,
+    });
+
+    expect(result.status).toBe("sent");
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const message = sendMailMock.mock.calls[0]?.[0] as { subject?: string; text?: string; html?: string } | undefined;
+    expect(message?.subject).toBe("Re: Erro no checkout");
+    expect(message?.text).toContain("Recebemos seu relato de erro no sistema.");
+    expect(message?.text).toContain("ACME-12");
+    expect(message?.html).toContain("Solicitação recebida");
+    expect(message?.html).toContain("Assinatura Acme");
   });
 
   it("strips script tags and event handlers from signature HTML before sending", async () => {

@@ -6,6 +6,7 @@ describe("parseInboundEmail", () => {
     const raw = [
       "Message-ID: <abc@example.com>",
       "From: Customer <customer@example.com>",
+      "Reply-To: Support Thread <thread@example.com>",
       "To: intake@example.com, support@example.com",
       "Subject: Hello",
       "Date: Tue, 12 May 2026 10:00:00 +0000",
@@ -17,6 +18,7 @@ describe("parseInboundEmail", () => {
     expect(parsed.messageId).toBe("abc@example.com");
     expect(parsed.subject).toBe("Hello");
     expect(parsed.fromAddress).toBe("customer@example.com");
+    expect(parsed.replyToAddress).toBe("thread@example.com");
     expect(parsed.toAddresses.sort()).toEqual(["intake@example.com", "support@example.com"]);
     expect(parsed.bodyText).toBe("Hi there");
     expect(parsed.attachments).toEqual([]);

@@ -570,8 +570,18 @@ Automatic replies are useful but should be phased in.
 
 ### Base Version
 
-Base version should not add full automatic support replies, except preserving
+Base version should not add full conversational support replies, except preserving
 existing registration and authorization replies.
+
+Phase 2A adds a conservative reply layer:
+
+- support replies are opt-in per mailbox,
+- templates are Portuguese-first,
+- accepted support reports receive acknowledgement replies,
+- unclear reports can ask for more information,
+- unsafe or spam messages receive no reply,
+- SMTP failures are recorded but never fail message processing,
+- retries do not resend already-sent support replies.
 
 ### Future Replies
 
@@ -779,8 +789,8 @@ Improve user-facing support behavior.
 
 Deliverables:
 
-- confirmation replies,
-- ask-for-more-info replies,
+- per-mailbox opt-in confirmation replies,
+- ask-for-more-info replies for unclear reports,
 - support mailbox configuration,
 - support-specific inbound rules,
 - better project fallback handling.

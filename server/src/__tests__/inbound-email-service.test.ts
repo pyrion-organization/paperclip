@@ -61,10 +61,11 @@ if (!embeddedPostgresSupport.supported) {
   );
 }
 
-function rawEmail(input?: { subject?: string; messageId?: string; from?: string; body?: string }) {
+function rawEmail(input?: { subject?: string; messageId?: string; from?: string; replyTo?: string; body?: string }) {
   return [
     `Message-ID: ${input?.messageId ?? `<${randomUUID()}@example.com>`}`,
     `From: Customer <${input?.from ?? "customer@example.com"}>`,
+    ...(input?.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
     "To: intake@example.com",
     `Subject: ${input?.subject ?? "Need help with production deploy"}`,
     "Date: Tue, 12 May 2026 10:00:00 +0000",
@@ -245,7 +246,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     return clientProject;
   }
 
-  async function createMailbox(companyId: string) {
+  async function createMailbox(companyId: string, input?: { supportRepliesEnabled?: boolean }) {
     return svc.createMailbox(companyId, {
       name: "Support inbox",
       enabled: false,
@@ -256,6 +257,7 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
+      supportRepliesEnabled: input?.supportRepliesEnabled ?? false,
     });
   }
 
@@ -361,6 +363,7 @@ describeEmbeddedPostgres("inbound email service", () => {
       host: "imap.example.com",
       username: "support@example.com",
       folder: "INBOX",
+      supportRepliesEnabled: false,
     });
 
     await expect(svc.createMailbox(companyId, {
@@ -380,12 +383,14 @@ describeEmbeddedPostgres("inbound email service", () => {
       host: "  mail.example.com  ",
       username: "  ops@example.com  ",
       folder: "  Support  ",
+      supportRepliesEnabled: true,
     });
     expect(updated).toMatchObject({
       name: "Support ops",
       host: "mail.example.com",
       username: "ops@example.com",
       folder: "Support",
+      supportRepliesEnabled: true,
     });
 
     const [stored] = await db.select().from(inboundEmailMailboxes).where(eq(inboundEmailMailboxes.id, mailbox.id));
@@ -394,12 +399,13 @@ describeEmbeddedPostgres("inbound email service", () => {
       host: "mail.example.com",
       username: "ops@example.com",
       folder: "Support",
+      supportRepliesEnabled: true,
     });
   }, 20_000);
 
   it("normalizes blank provider UIDs to null for manual imports", async () => {
     const companyId = await seedCompany();
-    const mailbox = await createMailbox(companyId);
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
 
     const first = await svc.submitRawMessage({
       companyId,
@@ -1532,6 +1538,171 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
+  it("sends a Portuguese support confirmation when mailbox replies are enabled", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<support-confirmation@example.com>",
+        subject: "Production deploy failure",
+        body: "The production deploy failed with error 500.",
+      }),
+      providerUid: "support-confirmation",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.supportReplyStatus).toBe("sent");
+    expect(storedMessage.supportReplyReason).toBe("code_bug_received");
+    expect(storedMessage.supportReplyAttemptedAt).toBeTruthy();
+    expect(storedMessage.supportReplySentAt).toBeTruthy();
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const email = sendMailMock.mock.calls[0]?.[0] as { subject?: string; text?: string; to?: string } | undefined;
+    expect(email?.to).toBe("customer@example.com");
+    expect(email?.subject).toBe("Re: Production deploy failure");
+    expect(email?.text).toContain("Recebemos seu relato de erro no sistema.");
+    expect(email?.text).toContain(createdIssue.identifier);
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "support-confirmation",
+    );
+  }, 20_000);
+
+  it("sends support confirmations to Reply-To while authorizing by From", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<support-reply-to@example.com>",
+        subject: "Production deploy failure",
+        replyTo: "Support Queue <queue@example.com>",
+        body: "The production deploy failed with error 500.",
+      }),
+      providerUid: "support-reply-to",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.fromAddress).toBe("customer@example.com");
+    expect(storedMessage.replyToAddress).toBe("queue@example.com");
+    expect(createdIssue).toBeTruthy();
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const email = sendMailMock.mock.calls[0]?.[0] as { to?: string; text?: string } | undefined;
+    expect(email?.to).toBe("queue@example.com");
+    expect(email?.text).toContain(createdIssue.identifier);
+  }, 20_000);
+
+  it("does not duplicate a sent support confirmation while retrying source deletion", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<support-retry-idempotent@example.com>",
+        subject: "Production deploy failure",
+        body: "The production deploy failed with error 500.",
+      }),
+      providerUid: "support-retry-idempotent",
+      processAfterImport: false,
+    });
+    deleteMessageFromMailboxMock.mockRejectedValueOnce(new Error("imap delete failed"));
+
+    await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow("imap delete failed");
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.supportReplyStatus).toBe("sent");
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledTimes(2);
+  }, 20_000);
+
+  it("records skipped support replies when SMTP is not configured", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<support-smtp-missing@example.com>",
+        subject: "Production deploy failure",
+        body: "The production deploy failed with error 500.",
+      }),
+      providerUid: "support-smtp-missing",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.supportReplyStatus).toBe("skipped");
+    expect(storedMessage.supportReplyReason).toBe("smtp_not_configured");
+    expect(storedMessage.supportReplyAttemptedAt).toBeTruthy();
+    expect(sendMailMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("records failed support replies without failing message processing", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<support-send-failed@example.com>",
+        subject: "Production deploy failure",
+        body: "The production deploy failed with error 500.",
+      }),
+      providerUid: "support-send-failed",
+    });
+    sendMailMock.mockRejectedValueOnce(new Error("smtp unavailable"));
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.supportReplyStatus).toBe("failed");
+    expect(storedMessage.supportReplyReason).toBe("send_failed");
+    expect(storedMessage.supportReplyError).toBe("smtp unavailable");
+    expect(deleteMessageFromMailboxMock).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
+      "support-send-failed",
+    );
+  }, 20_000);
+
   it("stores reply guidance as the final action for unclear projectless mail", async () => {
     const companyId = await seedCompany();
     await seedClientIdentity({ companyId });
@@ -1604,6 +1775,8 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(storedMessage.skipReason).toBe("unsafe_or_prompt_injection");
     expect(storedMessage.classificationCategory).toBe("unsafe_or_prompt_injection");
     expect(storedMessage.classificationSafetyFlags).toContain("prompt_injection");
+    expect(storedMessage.supportReplyStatus).toBe("skipped");
+    expect(storedMessage.supportReplyReason).toBe("unsafe_or_spam");
     expect(await db.select().from(issues)).toEqual([]);
     expect(sendMailMock).not.toHaveBeenCalled();
     expect(markMessageSeenInMailboxMock).toHaveBeenCalledWith(
@@ -1684,7 +1857,11 @@ describeEmbeddedPostgres("inbound email service", () => {
     const imported = await svc.submitRawMessage({
       companyId,
       mailboxId: mailbox.id,
-      rawEmail: rawEmail({ messageId: "<selected-denied@example.com>", subject: "DeniedProject request" }),
+      rawEmail: rawEmail({
+        messageId: "<selected-denied@example.com>",
+        subject: "DeniedProject request",
+        body: "Gostaria de adicionar um novo campo nesse projeto.",
+      }),
       providerUid: "selected-denied",
     });
 
@@ -1693,10 +1870,15 @@ describeEmbeddedPostgres("inbound email service", () => {
     const [storedMessage] = await db.select().from(inboundEmailMessages);
     expect(storedMessage.status).toBe("skipped");
     expect(storedMessage.skipReason).toBe("project_not_authorized");
+    expect(storedMessage.classificationCategory).toBe("feature_request");
+    expect(storedMessage.supportReplyStatus).toBeNull();
+    expect(storedMessage.supportReplyReason).toBeNull();
     expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
     const email = sendMailMock.mock.calls[0]?.[0] as { text?: string } | undefined;
     expect(email?.text).toContain("não tem autorização para abrir solicitações para este projeto");
     expect(email?.text).not.toContain("Denied Project");
+    expect(email?.text).not.toContain("Registramos sua mensagem para acompanhamento.");
   }, 20_000);
 
   it("still skips the message when an authorization reply is required but SMTP is not configured", async () => {
@@ -3096,6 +3278,7 @@ describe("inbound email validators", () => {
       host: "imap.example.com",
       username: "support@example.com",
     };
+    expect(createInboundEmailMailboxSchema.safeParse({ ...mailboxPayload, supportRepliesEnabled: true }).success).toBe(true);
     expect(createInboundEmailMailboxSchema.safeParse({ ...mailboxPayload, provider: "imap" }).success).toBe(false);
     expect(updateInboundEmailMailboxSchema.safeParse({ markSeen: true }).success).toBe(false);
     expect(createInboundEmailRuleSchema.safeParse({ targetProjectId: randomUUID() }).success).toBe(false);

@@ -62,6 +62,7 @@ export const createInboundEmailMailboxSchema = z.object({
   folder: z.string().trim().min(1).max(255).optional().default("INBOX"),
   tls: z.boolean().optional().default(true),
   pollIntervalSeconds: z.number().int().min(30).max(3600).optional().default(60),
+  supportRepliesEnabled: z.boolean().optional().default(false),
 }).strict();
 
 export type CreateInboundEmailMailbox = z.infer<typeof createInboundEmailMailboxSchema>;

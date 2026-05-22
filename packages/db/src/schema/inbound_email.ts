@@ -31,6 +31,19 @@ export type InboundEmailRecommendedAction =
   | "reply_request_more_info"
   | "defer_future_infra_agent"
   | "discard_or_quarantine";
+export type InboundEmailSupportReplyStatus = "sent" | "skipped" | "failed";
+export type InboundEmailSupportReplyReason =
+  | "code_bug_received"
+  | "infra_incident_received"
+  | "feature_request_received"
+  | "how_to_question_received"
+  | "account_access_received"
+  | "unclear_request_more_info"
+  | "smtp_not_configured"
+  | "reply_disabled"
+  | "unsafe_or_spam"
+  | "missing_sender"
+  | "send_failed";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -55,6 +68,7 @@ export const inboundEmailMailboxes = pgTable(
     folder: text("folder").notNull().default("INBOX"),
     tls: boolean("tls").notNull().default(true),
     pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(60),
+    supportRepliesEnabled: boolean("support_replies_enabled").notNull().default(false),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -101,6 +115,7 @@ export const inboundEmailMessages = pgTable(
     messageId: text("message_id"),
     rawSha256: text("raw_sha256").notNull(),
     fromAddress: text("from_address"),
+    replyToAddress: text("reply_to_address"),
     toAddresses: jsonb("to_addresses").$type<string[]>().notNull().default([]),
     subject: text("subject"),
     receivedAt: timestamp("received_at", { withTimezone: true }),
@@ -126,6 +141,11 @@ export const inboundEmailMessages = pgTable(
     classificationSafetyFlags: jsonb("classification_safety_flags").$type<string[]>(),
     classificationRuleVersion: text("classification_rule_version"),
     classifiedAt: timestamp("classified_at", { withTimezone: true }),
+    supportReplyStatus: text("support_reply_status").$type<InboundEmailSupportReplyStatus>(),
+    supportReplyReason: text("support_reply_reason").$type<InboundEmailSupportReplyReason>(),
+    supportReplyAttemptedAt: timestamp("support_reply_attempted_at", { withTimezone: true }),
+    supportReplySentAt: timestamp("support_reply_sent_at", { withTimezone: true }),
+    supportReplyError: text("support_reply_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

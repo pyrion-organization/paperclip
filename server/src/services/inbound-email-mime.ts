@@ -11,6 +11,7 @@ export type ParsedInboundEmailAttachment = {
 export type ParsedInboundEmail = {
   messageId: string | null;
   fromAddress: string | null;
+  replyToAddress: string | null;
   toAddresses: string[];
   subject: string | null;
   receivedAt: Date | null;
@@ -63,6 +64,7 @@ export async function parseInboundEmail(rawInput: Buffer | string): Promise<Pars
   return {
     messageId: normalizeMessageId(parsed.messageId),
     fromAddress: firstAddress(parsed.from),
+    replyToAddress: firstAddress(parsed.replyTo),
     toAddresses: collectAddresses(parsed.to),
     subject: parsed.subject?.trim() || null,
     receivedAt: parsed.date ?? null,

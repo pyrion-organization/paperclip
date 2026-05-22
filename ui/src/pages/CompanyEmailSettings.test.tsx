@@ -98,6 +98,7 @@ function makeMailbox(overrides: Partial<InboundEmailMailbox> = {}): InboundEmail
     folder: "INBOX",
     tls: true,
     pollIntervalSeconds: 60,
+    supportRepliesEnabled: false,
     lastPollAt: null,
     lastSuccessAt: null,
     lastError: null,
@@ -246,6 +247,7 @@ describe("CompanyEmailSettings", () => {
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-username']") as HTMLInputElement, "  support@example.com  ");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-password']") as HTMLInputElement, "mailbox-secret");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement, "  INBOX  ");
+    (container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).click();
     await flushReact();
 
     await act(async () => {
@@ -262,12 +264,14 @@ describe("CompanyEmailSettings", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
+      supportRepliesEnabled: true,
       password: "mailbox-secret",
     });
     expect((container.querySelector("[data-testid='company-settings-inbound-name']") as HTMLInputElement).value).toBe("Shared inbox");
     expect((container.querySelector("[data-testid='company-settings-inbound-host']") as HTMLInputElement).value).toBe("imap.example.com");
     expect((container.querySelector("[data-testid='company-settings-inbound-username']") as HTMLInputElement).value).toBe("support@example.com");
     expect((container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement).value).toBe("INBOX");
+    expect((container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).checked).toBe(true);
   });
 
   it("refreshes related inbound email caches after mailbox mutations", async () => {

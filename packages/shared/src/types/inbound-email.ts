@@ -15,6 +15,19 @@ export type InboundEmailRecommendedAction =
   | "reply_request_more_info"
   | "defer_future_infra_agent"
   | "discard_or_quarantine";
+export type InboundEmailSupportReplyStatus = "sent" | "skipped" | "failed";
+export type InboundEmailSupportReplyReason =
+  | "code_bug_received"
+  | "infra_incident_received"
+  | "feature_request_received"
+  | "how_to_question_received"
+  | "account_access_received"
+  | "unclear_request_more_info"
+  | "smtp_not_configured"
+  | "reply_disabled"
+  | "unsafe_or_spam"
+  | "missing_sender"
+  | "send_failed";
 export interface InboundEmailClassificationFields {
   classificationCategory: InboundEmailClassificationCategory | null;
   classificationConfidence: number | null;
@@ -25,6 +38,13 @@ export interface InboundEmailClassificationFields {
   classificationSafetyFlags: string[] | null;
   classificationRuleVersion: string | null;
   classifiedAt: Date | null;
+}
+export interface InboundEmailSupportReplyFields {
+  supportReplyStatus: InboundEmailSupportReplyStatus | null;
+  supportReplyReason: InboundEmailSupportReplyReason | null;
+  supportReplyAttemptedAt: Date | null;
+  supportReplySentAt: Date | null;
+  supportReplyError: string | null;
 }
 export type InboundEmailMessageStatus =
   | "discovered"
@@ -52,6 +72,7 @@ export interface InboundEmailMailbox {
   folder: string;
   tls: boolean;
   pollIntervalSeconds: number;
+  supportRepliesEnabled: boolean;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;
@@ -74,7 +95,7 @@ export interface InboundEmailRule {
   updatedAt: Date;
 }
 
-export interface InboundEmailMessage extends InboundEmailClassificationFields {
+export interface InboundEmailMessage extends InboundEmailClassificationFields, InboundEmailSupportReplyFields {
   id: string;
   companyId: string;
   mailboxId: string;
@@ -82,6 +103,7 @@ export interface InboundEmailMessage extends InboundEmailClassificationFields {
   messageId: string | null;
   rawSha256: string;
   fromAddress: string | null;
+  replyToAddress: string | null;
   toAddresses: string[];
   subject: string | null;
   receivedAt: Date | null;
@@ -143,12 +165,13 @@ export interface InboundEmailOpsJob {
   updatedAt: Date;
 }
 
-export interface InboundEmailOpsMessage extends InboundEmailClassificationFields {
+export interface InboundEmailOpsMessage extends InboundEmailClassificationFields, InboundEmailSupportReplyFields {
   id: string;
   mailboxId: string;
   status: InboundEmailMessageStatus;
   subject: string | null;
   fromAddress: string | null;
+  replyToAddress: string | null;
   createdIssueId: string | null;
   error: string | null;
   skipReason: string | null;

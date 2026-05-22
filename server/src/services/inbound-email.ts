@@ -23,6 +23,8 @@ import type {
   CreateInboundEmailRule,
   InboundEmailClassificationCategory,
   InboundEmailMessageStatus,
+  InboundEmailSupportReplyReason,
+  InboundEmailSupportReplyStatus,
   InboundEmailMailbox as MailboxView,
   InboundEmailOpsDashboard,
   InboundEmailOpsJob,
@@ -55,8 +57,10 @@ import { secretService } from "./secrets.js";
 import {
   sendInboundEmailAuthorizationReply,
   sendInboundEmailRegistrationReply,
+  sendInboundEmailSupportReply,
   type InboundEmailAuthorizationReplyReason,
   type InboundEmailRegistrationReplyReason,
+  type InboundEmailSupportReplyReason as SendableInboundEmailSupportReplyReason,
 } from "./email.js";
 
 export const INBOUND_EMAIL_PASSWORD_SECRET_PREFIX = "__inbound_email_password__";
@@ -243,6 +247,15 @@ type SenderIdentity =
     client?: SenderClient;
   };
 
+const SUPPORT_REPLY_REASON_BY_CATEGORY: Partial<Record<InboundEmailClassificationCategory, SendableInboundEmailSupportReplyReason>> = {
+  code_bug: "code_bug_received",
+  infra_incident: "infra_incident_received",
+  feature_request: "feature_request_received",
+  how_to_question: "how_to_question_received",
+  account_access: "account_access_received",
+  unclear: "unclear_request_more_info",
+};
+
 function redactMailbox(row: RawMailboxRow): RedactedMailbox {
   const { passwordSecretName, ...safeRow } = row;
   return {
@@ -317,6 +330,7 @@ function toOpsMessage(message: typeof inboundEmailMessages.$inferSelect): Inboun
     status: message.status,
     subject: message.subject,
     fromAddress: message.fromAddress,
+    replyToAddress: message.replyToAddress,
     createdIssueId: message.createdIssueId,
     error: message.error,
     skipReason: message.skipReason,
@@ -329,6 +343,11 @@ function toOpsMessage(message: typeof inboundEmailMessages.$inferSelect): Inboun
     classificationSafetyFlags: message.classificationSafetyFlags,
     classificationRuleVersion: message.classificationRuleVersion,
     classifiedAt: message.classifiedAt,
+    supportReplyStatus: message.supportReplyStatus,
+    supportReplyReason: message.supportReplyReason,
+    supportReplyAttemptedAt: message.supportReplyAttemptedAt,
+    supportReplySentAt: message.supportReplySentAt,
+    supportReplyError: message.supportReplyError,
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
   };
@@ -340,6 +359,7 @@ function toOpsMessageFromRow(row: {
   status: string;
   subject: string | null;
   fromAddress: string | null;
+  replyToAddress: string | null;
   createdIssueId: string | null;
   error: string | null;
   skipReason: string | null;
@@ -352,6 +372,11 @@ function toOpsMessageFromRow(row: {
   classificationSafetyFlags: string[] | null;
   classificationRuleVersion: string | null;
   classifiedAt: Date | null;
+  supportReplyStatus: InboundEmailSupportReplyStatus | null;
+  supportReplyReason: InboundEmailSupportReplyReason | null;
+  supportReplyAttemptedAt: Date | null;
+  supportReplySentAt: Date | null;
+  supportReplyError: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): InboundEmailOpsMessage {
@@ -1109,6 +1134,144 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       safetyFlags: message.classificationSafetyFlags ?? [],
       ruleVersion: message.classificationRuleVersion,
     };
+  }
+
+  function supportReplyReasonForMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+  ): SendableInboundEmailSupportReplyReason | "unsafe_or_spam" | null {
+    if (!message.classificationCategory) return null;
+    if (message.classificationCategory === "unsafe_or_prompt_injection" || message.classificationCategory === "spam_or_irrelevant") {
+      return "unsafe_or_spam";
+    }
+    if (message.status === "skipped" && isReplyRequiredSkipReason(message.skipReason ?? "")) {
+      return null;
+    }
+    return SUPPORT_REPLY_REASON_BY_CATEGORY[message.classificationCategory] ?? null;
+  }
+
+  async function recordSupportReplyOutcome(input: {
+    message: typeof inboundEmailMessages.$inferSelect;
+    status: InboundEmailSupportReplyStatus;
+    reason: InboundEmailSupportReplyReason;
+    attemptedAt?: Date | null;
+    sentAt?: Date | null;
+    error?: string | null;
+  }) {
+    const now = new Date();
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({
+        supportReplyStatus: input.status,
+        supportReplyReason: input.reason,
+        supportReplyAttemptedAt: input.attemptedAt ?? null,
+        supportReplySentAt: input.sentAt ?? null,
+        supportReplyError: input.error ?? null,
+        updatedAt: now,
+      })
+      .where(eq(inboundEmailMessages.id, input.message.id))
+      .returning();
+    await logActivity(db, {
+      companyId: input.message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: `inbound_email.support_reply_${input.status}`,
+      entityType: "inbound_email_message",
+      entityId: input.message.id,
+      details: {
+        status: input.status,
+        reason: input.reason,
+        error: input.error ?? null,
+      },
+    });
+    return updated ?? {
+      ...input.message,
+      supportReplyStatus: input.status,
+      supportReplyReason: input.reason,
+      supportReplyAttemptedAt: input.attemptedAt ?? null,
+      supportReplySentAt: input.sentAt ?? null,
+      supportReplyError: input.error ?? null,
+      updatedAt: now,
+    };
+  }
+
+  async function sendSupportReplyIfEligible(
+    message: typeof inboundEmailMessages.$inferSelect,
+  ): Promise<typeof inboundEmailMessages.$inferSelect> {
+    if (message.supportReplyStatus === "sent") return message;
+    if (message.status !== "processed" && message.status !== "skipped") return message;
+
+    const reason = supportReplyReasonForMessage(message);
+    if (!reason) return message;
+    if (reason === "unsafe_or_spam") {
+      return recordSupportReplyOutcome({
+        message,
+        status: "skipped",
+        reason: "unsafe_or_spam",
+      });
+    }
+
+    const mailbox = await loadMailbox(message.companyId, message.mailboxId);
+    if (!mailbox.supportRepliesEnabled) {
+      return recordSupportReplyOutcome({
+        message,
+        status: "skipped",
+        reason: "reply_disabled",
+      });
+    }
+
+    const toEmail = normalizeEmailAddress(message.replyToAddress) ?? normalizeEmailAddress(message.fromAddress);
+    if (!toEmail) {
+      return recordSupportReplyOutcome({
+        message,
+        status: "skipped",
+        reason: "missing_sender",
+      });
+    }
+
+    const issue = message.createdIssueId
+      ? await db
+        .select({
+          id: issueRows.id,
+          identifier: issueRows.identifier,
+        })
+        .from(issueRows)
+        .where(and(eq(issueRows.id, message.createdIssueId), eq(issueRows.companyId, message.companyId)))
+        .then((rows) => rows[0] ?? null)
+      : null;
+    const attemptedAt = new Date();
+    const reply = await sendInboundEmailSupportReply({
+      to: toEmail,
+      reason,
+      originalSubject: message.subject,
+      issueIdentifier: issue?.identifier ?? null,
+      issueId: issue?.id ?? message.createdIssueId,
+      db,
+      companyId: message.companyId,
+    });
+
+    if (reply.status === "sent") {
+      return recordSupportReplyOutcome({
+        message,
+        status: "sent",
+        reason,
+        attemptedAt,
+        sentAt: new Date(),
+      });
+    }
+    if (reply.status === "skipped") {
+      return recordSupportReplyOutcome({
+        message,
+        status: "skipped",
+        reason: reply.reason,
+        attemptedAt,
+      });
+    }
+    return recordSupportReplyOutcome({
+      message,
+      status: "failed",
+      reason: reply.reason,
+      attemptedAt,
+      error: reply.error,
+    });
   }
 
   async function resolveClientProjectFromMessage(
@@ -1908,6 +2071,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               folder: normalized.folder,
               tls: normalized.tls,
               pollIntervalSeconds: normalized.pollIntervalSeconds,
+              supportRepliesEnabled: normalized.supportRepliesEnabled,
               passwordSecretName,
             })
             .returning();
@@ -1925,6 +2089,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               folder: created.folder,
               tls: created.tls,
               pollIntervalSeconds: created.pollIntervalSeconds,
+              supportRepliesEnabled: created.supportRepliesEnabled,
               passwordSet: Boolean(created.passwordSecretName),
             },
           });
@@ -2490,6 +2655,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           messageId: parsed.messageId,
           rawSha256: parsed.rawSha256,
           fromAddress: parsed.fromAddress,
+          replyToAddress: parsed.replyToAddress,
           toAddresses: parsed.toAddresses,
           subject: parsed.subject,
           receivedAt: parsed.receivedAt,
@@ -2535,7 +2701,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .then((rows) => rows[0] ?? null);
       if (!message) throw notFound("Inbound email message not found");
       if (message.status === "processed" || message.status === "duplicate" || message.status === "skipped") {
-        return applySourceDispositionIfEligible(message, ops);
+        const repliedMessage = await sendSupportReplyIfEligible(message);
+        return applySourceDispositionIfEligible(repliedMessage, ops);
       }
       if (message.createdIssueId) {
         const [updated] = await db
@@ -2543,10 +2710,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .set({ status: "processed", error: null, updatedAt: new Date() })
           .where(eq(inboundEmailMessages.id, message.id))
           .returning();
-        return applySourceDispositionIfEligible(
-          updated ?? { ...message, status: "processed" as const, error: null },
-          ops,
-        );
+        const processedMessage = updated ?? { ...message, status: "processed" as const, error: null };
+        const repliedMessage = await sendSupportReplyIfEligible(processedMessage);
+        return applySourceDispositionIfEligible(repliedMessage, ops);
       }
       await db
         .update(inboundEmailMessages)
@@ -2766,7 +2932,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .where(eq(inboundEmailMessages.id, message.id));
         throw error;
       }
-      return applySourceDispositionIfEligible(completedMessage, ops);
+      const repliedMessage = completedMessage ? await sendSupportReplyIfEligible(completedMessage) : completedMessage;
+      return applySourceDispositionIfEligible(repliedMessage, ops);
     },
 
     retryMessage: async (
@@ -3051,6 +3218,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             ${inboundEmailMessages.status}::text as "status",
             ${inboundEmailMessages.subject} as "subject",
             ${inboundEmailMessages.fromAddress} as "fromAddress",
+            ${inboundEmailMessages.replyToAddress} as "replyToAddress",
             ${inboundEmailMessages.createdIssueId}::text as "createdIssueId",
             ${inboundEmailMessages.error} as "error",
             ${inboundEmailMessages.skipReason} as "skipReason",
@@ -3063,6 +3231,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             ${inboundEmailMessages.classificationSafetyFlags} as "classificationSafetyFlags",
             ${inboundEmailMessages.classificationRuleVersion} as "classificationRuleVersion",
             ${inboundEmailMessages.classifiedAt} as "classifiedAt",
+            ${inboundEmailMessages.supportReplyStatus} as "supportReplyStatus",
+            ${inboundEmailMessages.supportReplyReason} as "supportReplyReason",
+            ${inboundEmailMessages.supportReplyAttemptedAt} as "supportReplyAttemptedAt",
+            ${inboundEmailMessages.supportReplySentAt} as "supportReplySentAt",
+            ${inboundEmailMessages.supportReplyError} as "supportReplyError",
             ${inboundEmailMessages.createdAt} as "createdAt",
             ${inboundEmailMessages.updatedAt} as "updatedAt"
           from ${inboundEmailMessages}

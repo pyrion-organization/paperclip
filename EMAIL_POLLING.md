@@ -102,6 +102,15 @@ Classification is deterministic and conservative in V1. It does not call an LLM,
 - If project matching fails with `project_not_identified`, classification can still create a projectless or configured-target triage issue for a recognized sender. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
 - Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
 
+## Support replies V1
+
+Support replies are per-mailbox opt-in via `support_replies_enabled`. When enabled and company SMTP is configured, the worker sends Portuguese acknowledgement replies after a classified support email reaches a terminal outcome.
+
+- `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` confirmations include the created issue identifier when one exists.
+- `unclear` can send a request for project name, URL or screen, reproduction steps, expected behavior, actual behavior, screenshots, or logs, except when the existing project-identification authorization reply already handled that clarification.
+- `unsafe_or_prompt_injection` and `spam_or_irrelevant` never send a support reply.
+- Reply outcomes are stored on `inbound_email_messages` as status, reason, attempted/sent timestamps, and error text. SMTP-not-configured and send failures do not fail message processing or source cleanup, and sent replies are not duplicated by retries.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
