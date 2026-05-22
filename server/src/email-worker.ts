@@ -9,11 +9,22 @@ const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_SCHEDULER_INTERVAL_MS = 10_000;
 const SHUTDOWN_HARD_DEADLINE_MS = 30_000;
 
-function sleep(ms: number, signal: { stopped: boolean }): Promise<void> {
+export type EmailWorkerControl = { stopped: boolean; wake: (() => void) | null };
+
+export function sleepUntilEmailWorkerWake(ms: number, control: EmailWorkerControl): Promise<void> {
   return new Promise((resolve) => {
-    if (signal.stopped) return resolve();
-    const timer = setTimeout(resolve, ms);
+    if (control.stopped) return resolve();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (control.wake === finish) control.wake = null;
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
     timer.unref?.();
+    control.wake = finish;
   });
 }
 
@@ -47,12 +58,13 @@ export async function startEmailWorker() {
     1_000,
     Number(process.env.PAPERCLIP_EMAIL_WORKER_SCHEDULER_INTERVAL_MS) || DEFAULT_SCHEDULER_INTERVAL_MS,
   );
-  const control = { stopped: false };
+  const control: EmailWorkerControl = { stopped: false, wake: null };
   let lastSchedulerTickAt = 0;
 
   const stop = (signal: string) => {
     if (control.stopped) return;
     control.stopped = true;
+    control.wake?.();
     logger.info({ workerId, signal }, "inbound email worker draining");
     const hardTimer = setTimeout(() => {
       logger.warn({ workerId }, "inbound email worker hard exit after drain timeout");
@@ -101,11 +113,11 @@ export async function startEmailWorker() {
         logger.info(logPayload, "inbound email worker iteration completed");
       }
       if (result.processed === 0 && !control.stopped) {
-        await sleep(idleMs, control);
+        await sleepUntilEmailWorkerWake(idleMs, control);
       }
     } catch (err) {
       logger.error({ err, workerId }, "inbound email worker iteration failed");
-      if (!control.stopped) await sleep(idleMs, control);
+      if (!control.stopped) await sleepUntilEmailWorkerWake(idleMs, control);
     }
   }
   logger.info({ workerId }, "inbound email worker stopped");

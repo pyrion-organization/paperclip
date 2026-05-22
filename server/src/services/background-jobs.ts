@@ -26,10 +26,10 @@ export type ClaimBackgroundJobOptions = {
 };
 
 export function backgroundJobService(db: Db) {
-  async function enqueue(
+  async function enqueueWithDisposition(
     input: EnqueueBackgroundJobInput,
     executor: Db = db,
-  ): Promise<typeof backgroundJobs.$inferSelect> {
+  ): Promise<{ job: typeof backgroundJobs.$inferSelect; inserted: boolean }> {
     const values = {
       companyId: input.companyId,
       kind: input.kind,
@@ -41,7 +41,7 @@ export function backgroundJobService(db: Db) {
 
     if (!input.dedupeKey) {
       const [job] = await executor.insert(backgroundJobs).values(values).returning();
-      return job;
+      return { job, inserted: true };
     }
 
     // Atomic insert relying on the partial unique index
@@ -52,7 +52,7 @@ export function backgroundJobService(db: Db) {
       .values(values)
       .onConflictDoNothing()
       .returning();
-    if (inserted[0]) return inserted[0];
+    if (inserted[0]) return { job: inserted[0], inserted: true };
 
     const existing = await executor
       .select()
@@ -66,7 +66,7 @@ export function backgroundJobService(db: Db) {
         ),
       )
       .then((rows) => rows[0] ?? null);
-    if (existing) return existing;
+    if (existing) return { job: existing, inserted: false };
 
     // Lost the race AND the conflicting row already transitioned to a terminal
     // status — safe to retry the insert without conflict.
@@ -75,7 +75,7 @@ export function backgroundJobService(db: Db) {
       .values(values)
       .onConflictDoNothing()
       .returning();
-    if (retried) return retried;
+    if (retried) return { job: retried, inserted: true };
 
     // Last-ditch: re-select; if still nothing, surface a clear error rather
     // than silently returning undefined.
@@ -91,8 +91,15 @@ export function backgroundJobService(db: Db) {
         ),
       )
       .then((rows) => rows[0] ?? null);
-    if (final) return final;
+    if (final) return { job: final, inserted: false };
     throw new Error("background_jobs.enqueue: could not insert or locate dedupe peer");
+  }
+
+  async function enqueue(
+    input: EnqueueBackgroundJobInput,
+    executor: Db = db,
+  ): Promise<typeof backgroundJobs.$inferSelect> {
+    return (await enqueueWithDisposition(input, executor)).job;
   }
 
   async function claimNext(
@@ -228,5 +235,5 @@ export function backgroundJobService(db: Db) {
     return rows.length;
   }
 
-  return { enqueue, claimNext, complete, fail, requeueStaleRunning };
+  return { enqueue, enqueueWithDisposition, claimNext, complete, fail, requeueStaleRunning };
 }

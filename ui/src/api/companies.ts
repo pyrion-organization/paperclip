@@ -127,6 +127,8 @@ export const companiesApi = {
     ruleId
       ? api.patch<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules/${ruleId}`, data)
       : api.post<InboundEmailRule>(`/companies/${companyId}/inbound-email/rules`, data),
+  deleteInboundEmailRule: (companyId: string, ruleId: string) =>
+    api.delete<void>(`/companies/${companyId}/inbound-email/rules/${ruleId}`),
   listInboundEmailMessages: (companyId: string, params?: InboundEmailMessageListParams) =>
     api.get<InboundEmailListPage<InboundEmailMessage>>(
       `/companies/${companyId}/inbound-email/messages${inboundEmailQuery(params)}`,

@@ -1,7 +1,5 @@
 export type { Company } from "./company.js";
 export type {
-  InboundEmailProvider,
-  InboundEmailCreateMode,
   InboundEmailMessageStatus,
   InboundEmailMailbox,
   InboundEmailRule,

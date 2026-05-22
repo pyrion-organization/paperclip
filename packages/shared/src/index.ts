@@ -1177,8 +1177,6 @@ export type {
 } from "./environment-support.js";
 
 export {
-  inboundEmailCreateModeSchema,
-  inboundEmailProviderSchema,
   inboundEmailMessageStatusSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
@@ -1193,8 +1191,6 @@ export {
 } from "./validators/inbound-email.js";
 
 export type {
-  InboundEmailProvider,
-  InboundEmailCreateMode,
   InboundEmailMessageStatus,
   InboundEmailMailbox,
   InboundEmailRule,

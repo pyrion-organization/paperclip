@@ -17,6 +17,14 @@ const SUBMIT_STATUS_CODES = {
   duplicate: 200,
 } as const;
 
+function inboundEmailActorFromRequest(req: Request): { userId: string | null; agentId: string | null } {
+  const actor = getActorInfo(req);
+  return {
+    userId: actor.actorType === "user" ? actor.actorId : null,
+    agentId: actor.agentId ?? null,
+  };
+}
+
 function pageOptions(req: Request): ListPageOptions {
   const rawLimit = typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : undefined;
   const cursor = typeof req.query.cursor === "string" && req.query.cursor.length > 0 ? req.query.cursor : null;
@@ -51,11 +59,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const companyId = req.params.companyId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      const actor = getActorInfo(req);
-      const mailbox = await svc.createMailbox(companyId, req.body, {
-        userId: actor.actorType === "user" ? actor.actorId : null,
-        agentId: actor.agentId ?? null,
-      });
+      const mailbox = await svc.createMailbox(companyId, req.body, inboundEmailActorFromRequest(req));
       res.status(201).json(mailbox);
     },
   );
@@ -68,11 +72,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const mailboxId = req.params.mailboxId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      const actor = getActorInfo(req);
-      res.json(await svc.updateMailbox(companyId, mailboxId, req.body, {
-        userId: actor.actorType === "user" ? actor.actorId : null,
-        agentId: actor.agentId ?? null,
-      }));
+      res.json(await svc.updateMailbox(companyId, mailboxId, req.body, inboundEmailActorFromRequest(req)));
     },
   );
 
@@ -81,7 +81,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     const mailboxId = req.params.mailboxId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    await svc.deleteMailbox(companyId, mailboxId);
+    await svc.deleteMailbox(companyId, mailboxId, inboundEmailActorFromRequest(req));
     res.status(204).end();
   });
 
@@ -92,7 +92,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const messageId = req.params.messageId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      const job = await svc.retryMessage(companyId, messageId);
+      const job = await svc.retryMessage(companyId, messageId, inboundEmailActorFromRequest(req));
       res.status(202).json(job);
     },
   );
@@ -104,7 +104,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const jobId = req.params.jobId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      const job = await svc.retryJob(companyId, jobId);
+      const job = await svc.retryJob(companyId, jobId, inboundEmailActorFromRequest(req));
       res.status(202).json(job);
     },
   );
@@ -123,7 +123,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     const mailboxId = req.params.mailboxId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    const job = await svc.enqueueMailboxPoll(companyId, mailboxId);
+    const job = await svc.enqueueMailboxPoll(companyId, mailboxId, inboundEmailActorFromRequest(req));
     res.status(202).json(job);
   });
 
@@ -141,7 +141,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const companyId = req.params.companyId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      res.status(201).json(await svc.createRule(companyId, req.body));
+      res.status(201).json(await svc.createRule(companyId, req.body, inboundEmailActorFromRequest(req)));
     },
   );
 
@@ -153,9 +153,18 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const ruleId = req.params.ruleId as string;
       assertCompanyAccess(req, companyId);
       assertBoard(req);
-      res.json(await svc.updateRule(companyId, ruleId, req.body));
+      res.json(await svc.updateRule(companyId, ruleId, req.body, inboundEmailActorFromRequest(req)));
     },
   );
+
+  router.delete("/companies/:companyId/inbound-email/rules/:ruleId", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const ruleId = req.params.ruleId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    await svc.deleteRule(companyId, ruleId, inboundEmailActorFromRequest(req));
+    res.status(204).end();
+  });
 
   router.get("/companies/:companyId/inbound-email/messages", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -188,6 +197,7 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
         providerUid: req.body.providerUid,
         rawEmail: req.body.rawEmail,
         processAfterImport: req.body.processAfterImport,
+        actor: inboundEmailActorFromRequest(req),
       });
       const statusCode = SUBMIT_STATUS_CODES[result.status as keyof typeof SUBMIT_STATUS_CODES] ?? 500;
       res.status(statusCode).json(result);

@@ -94,7 +94,7 @@ Registered client employees can register another employee by email without creat
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
 
-- Rule (`selectRule(message)`) is still matched against `inboundEmailRules` for priority/labels, but rule and mailbox `targetProjectId` are ignored for project routing.
+- Rule (`selectRule(message)`) is still matched against `inboundEmailRules` for priority/labels. Project routing is not configured on mailboxes or rules; it comes from sender authorization plus client-project matching.
 - Candidate projects are only active `client_projects` rows for the sender's active client.
 - The matcher searches subject + body text against project name, client project name override, and client project aliases.
 - Matching normalizes text by lowercasing, stripping accents, and removing spaces/punctuation, so `Oc Importer`, `oc-importer`, and `OCIMPORTER` all match.

@@ -69,8 +69,6 @@ export {
   inboundEmailRules,
   inboundEmailMessages,
   inboundEmailAttachments,
-  type InboundMailboxProvider,
-  type InboundEmailCreateMode,
   type InboundEmailMessageStatus,
   type InboundEmailAttachmentStatus,
 } from "./inbound_email.js";

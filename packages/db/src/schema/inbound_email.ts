@@ -11,12 +11,9 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
-import { projects } from "./projects.js";
 import { issues } from "./issues.js";
 import { assets } from "./assets.js";
 
-export type InboundMailboxProvider = "imap";
-export type InboundEmailCreateMode = "issue";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -33,7 +30,6 @@ export const inboundEmailMailboxes = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    provider: text("provider").$type<InboundMailboxProvider>().notNull().default("imap"),
     enabled: boolean("enabled").notNull().default(false),
     host: text("host").notNull(),
     port: integer("port").notNull().default(993),
@@ -42,9 +38,6 @@ export const inboundEmailMailboxes = pgTable(
     folder: text("folder").notNull().default("INBOX"),
     tls: boolean("tls").notNull().default(true),
     pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(60),
-    targetProjectId: uuid("target_project_id").references(() => projects.id, { onDelete: "set null" }),
-    createMode: text("create_mode").$type<InboundEmailCreateMode>().notNull().default("issue"),
-    markSeen: boolean("mark_seen").notNull().default(true),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -70,8 +63,6 @@ export const inboundEmailRules = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     senderPattern: text("sender_pattern"),
     subjectPattern: text("subject_pattern"),
-    targetProjectId: uuid("target_project_id").references(() => projects.id, { onDelete: "set null" }),
-    createMode: text("create_mode").$type<InboundEmailCreateMode>().notNull().default("issue"),
     priority: text("priority").notNull().default("medium"),
     labelIds: jsonb("label_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -148,6 +139,6 @@ export const inboundEmailAttachments = pgTable(
   (table) => ({
     companyMessageIdx: index("inbound_email_attachments_company_message_idx").on(table.companyId, table.messageId),
     assetIdx: index("inbound_email_attachments_asset_idx").on(table.assetId),
-    messageShaUq: uniqueIndex("inbound_email_attachments_message_sha_uq").on(table.messageId, table.sha256),
+    messageShaIdx: index("inbound_email_attachments_message_sha_idx").on(table.messageId, table.sha256),
   }),
 );

@@ -19,7 +19,6 @@ CREATE TABLE "inbound_email_mailboxes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"company_id" uuid NOT NULL,
 	"name" text NOT NULL,
-	"provider" text DEFAULT 'imap' NOT NULL,
 	"enabled" boolean DEFAULT false NOT NULL,
 	"host" text NOT NULL,
 	"port" integer DEFAULT 993 NOT NULL,
@@ -28,9 +27,6 @@ CREATE TABLE "inbound_email_mailboxes" (
 	"folder" text DEFAULT 'INBOX' NOT NULL,
 	"tls" boolean DEFAULT true NOT NULL,
 	"poll_interval_seconds" integer DEFAULT 60 NOT NULL,
-	"target_project_id" uuid,
-	"create_mode" text DEFAULT 'issue' NOT NULL,
-	"mark_seen" boolean DEFAULT true NOT NULL,
 	"last_poll_at" timestamp with time zone,
 	"last_success_at" timestamp with time zone,
 	"last_error" text,
@@ -45,8 +41,6 @@ CREATE TABLE "inbound_email_rules" (
 	"enabled" boolean DEFAULT true NOT NULL,
 	"sender_pattern" text,
 	"subject_pattern" text,
-	"target_project_id" uuid,
-	"create_mode" text DEFAULT 'issue' NOT NULL,
 	"priority" text DEFAULT 'medium' NOT NULL,
 	"label_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -94,13 +88,9 @@ ALTER TABLE "background_jobs" ADD CONSTRAINT "background_jobs_company_id_compani
 --> statement-breakpoint
 ALTER TABLE "inbound_email_mailboxes" ADD CONSTRAINT "inbound_email_mailboxes_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE "inbound_email_mailboxes" ADD CONSTRAINT "inbound_email_mailboxes_target_project_id_projects_id_fk" FOREIGN KEY ("target_project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;
---> statement-breakpoint
 ALTER TABLE "inbound_email_rules" ADD CONSTRAINT "inbound_email_rules_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "inbound_email_rules" ADD CONSTRAINT "inbound_email_rules_mailbox_id_inbound_email_mailboxes_id_fk" FOREIGN KEY ("mailbox_id") REFERENCES "public"."inbound_email_mailboxes"("id") ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "inbound_email_rules" ADD CONSTRAINT "inbound_email_rules_target_project_id_projects_id_fk" FOREIGN KEY ("target_project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "inbound_email_messages" ADD CONSTRAINT "inbound_email_messages_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
@@ -146,4 +136,4 @@ CREATE INDEX "inbound_email_attachments_company_message_idx" ON "inbound_email_a
 --> statement-breakpoint
 CREATE INDEX "inbound_email_attachments_asset_idx" ON "inbound_email_attachments" USING btree ("asset_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX "inbound_email_attachments_message_sha_uq" ON "inbound_email_attachments" USING btree ("message_id","sha256");
+CREATE INDEX "inbound_email_attachments_message_sha_idx" ON "inbound_email_attachments" USING btree ("message_id","sha256");

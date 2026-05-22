@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InboundEmailRule } from "@paperclipai/shared";
-import { Mail, Plus } from "lucide-react";
+import type { InboundEmailMailbox, InboundEmailRule } from "@paperclipai/shared";
+import { Mail, Plus, Trash2 } from "lucide-react";
 import { companiesApi } from "../api/companies";
 import { issuesApi } from "../api/issues";
-import { projectsApi } from "../api/projects";
 import { Button } from "@/components/ui/button";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
@@ -17,7 +16,6 @@ type RuleDraft = {
   enabled: boolean;
   senderPattern: string;
   subjectPattern: string;
-  targetProjectId: string;
   priority: "critical" | "high" | "medium" | "low";
   labelIds: string[];
 };
@@ -28,7 +26,6 @@ const emptyRuleDraft: RuleDraft = {
   enabled: true,
   senderPattern: "",
   subjectPattern: "",
-  targetProjectId: "",
   priority: "medium",
   labelIds: [],
 };
@@ -40,7 +37,6 @@ function ruleToDraft(rule: InboundEmailRule): RuleDraft {
     enabled: rule.enabled,
     senderPattern: rule.senderPattern ?? "",
     subjectPattern: rule.subjectPattern ?? "",
-    targetProjectId: rule.targetProjectId ?? "",
     priority: rule.priority,
     labelIds: rule.labelIds ?? [],
   };
@@ -116,11 +112,6 @@ export function CompanyEmailSettings() {
     enabled: Boolean(selectedCompanyId),
   });
   const rulesLoaded = (inboundRulesQuery.data?.items?.length ?? 0) > 0;
-  const projectsQuery = useQuery({
-    queryKey: queryKeys.projects.list(companyIdForKeys),
-    queryFn: () => projectsApi.list(selectedCompanyId!),
-    enabled: Boolean(selectedCompanyId) && (ruleFormOpen || rulesLoaded),
-  });
   const labelsQuery = useQuery({
     queryKey: queryKeys.issues.labels(companyIdForKeys),
     queryFn: () => issuesApi.listLabels(selectedCompanyId!),
@@ -129,8 +120,8 @@ export function CompanyEmailSettings() {
 
   const primaryInboundMailbox = inboundMailboxesQuery.data?.items?.[0] ?? null;
 
-  useEffect(() => {
-    if (!primaryInboundMailbox) {
+  const applyInboundMailboxToForm = (mailbox: InboundEmailMailbox | null) => {
+    if (!mailbox) {
       setInboundName("Support inbox");
       setInboundEnabled(false);
       setInboundHost("");
@@ -143,16 +134,20 @@ export function CompanyEmailSettings() {
       setInboundPollIntervalSeconds("60");
       return;
     }
-    setInboundName(primaryInboundMailbox.name);
-    setInboundEnabled(primaryInboundMailbox.enabled);
-    setInboundHost(primaryInboundMailbox.host);
-    setInboundPort(String(primaryInboundMailbox.port));
-    setInboundUsername(primaryInboundMailbox.username);
+    setInboundName(mailbox.name);
+    setInboundEnabled(mailbox.enabled);
+    setInboundHost(mailbox.host);
+    setInboundPort(String(mailbox.port));
+    setInboundUsername(mailbox.username);
     setInboundPassword("");
     setInboundPasswordTouched(false);
-    setInboundFolder(primaryInboundMailbox.folder);
-    setInboundTls(primaryInboundMailbox.tls);
-    setInboundPollIntervalSeconds(String(primaryInboundMailbox.pollIntervalSeconds));
+    setInboundFolder(mailbox.folder);
+    setInboundTls(mailbox.tls);
+    setInboundPollIntervalSeconds(String(mailbox.pollIntervalSeconds));
+  };
+
+  useEffect(() => {
+    applyInboundMailboxToForm(primaryInboundMailbox);
   }, [primaryInboundMailbox?.id]);
 
   const smtpPortNum = smtpPort.trim() === "" ? null : Number(smtpPort);
@@ -234,11 +229,17 @@ export function CompanyEmailSettings() {
     inboundPollIntervalSeconds !== String(primaryInboundMailbox.pollIntervalSeconds) ||
     (inboundPasswordTouched && inboundPassword.trim().length > 0);
 
+  const invalidateInboundEmailState = (groups: Array<"mailboxes" | "messages" | "jobs" | "ops" | "rules">) => {
+    if (!selectedCompanyId) return;
+    for (const group of groups) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail[group](selectedCompanyId) });
+    }
+  };
+
   const inboundSaveMutation = useMutation({
     mutationFn: () => {
       const payload = {
         name: inboundName.trim(),
-        provider: "imap" as const,
         enabled: inboundEnabled,
         host: inboundHost.trim(),
         port: inboundPortNum,
@@ -246,17 +247,13 @@ export function CompanyEmailSettings() {
         folder: inboundFolder.trim(),
         tls: inboundTls,
         pollIntervalSeconds: inboundPollIntervalNum,
-        targetProjectId: primaryInboundMailbox?.targetProjectId ?? null,
-        createMode: primaryInboundMailbox?.createMode ?? ("issue" as const),
-        markSeen: primaryInboundMailbox?.markSeen ?? true,
         ...(inboundPasswordTouched && inboundPassword.trim().length > 0 ? { password: inboundPassword } : {}),
       };
       return companiesApi.saveInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox?.id ?? null, payload);
     },
-    onSuccess: () => {
-      setInboundPassword("");
-      setInboundPasswordTouched(false);
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.mailboxes(selectedCompanyId!) });
+    onSuccess: (mailbox) => {
+      applyInboundMailboxToForm(mailbox);
+      invalidateInboundEmailState(["mailboxes", "ops"]);
     },
   });
   const inboundTestMutation = useMutation({
@@ -265,24 +262,17 @@ export function CompanyEmailSettings() {
   const inboundPollMutation = useMutation({
     mutationFn: () => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.messages(selectedCompanyId!) });
+      invalidateInboundEmailState(["messages", "jobs", "ops"]);
     },
   });
   const inboundDeleteMutation = useMutation({
     mutationFn: () => companiesApi.deleteInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.mailboxes(selectedCompanyId!) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.messages(selectedCompanyId!) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
+      invalidateInboundEmailState(["mailboxes", "messages", "jobs", "ops", "rules"]);
     },
   });
 
-  const ruleDraftValid: boolean =
-    ruleDraft.senderPattern.trim().length > 0 ||
-    ruleDraft.subjectPattern.trim().length > 0 ||
-    ruleDraft.mailboxId.length > 0 ||
-    ruleDraft.targetProjectId.length > 0 ||
-    ruleDraft.labelIds.length > 0;
+  const ruleDraftValid = ruleDraft.priority !== "medium" || ruleDraft.labelIds.length > 0;
   const ruleSaveMutation = useMutation({
     mutationFn: () => {
       const basePayload = {
@@ -290,14 +280,10 @@ export function CompanyEmailSettings() {
         enabled: ruleDraft.enabled,
         senderPattern: ruleDraft.senderPattern.trim() || null,
         subjectPattern: ruleDraft.subjectPattern.trim() || null,
-        targetProjectId: ruleDraft.targetProjectId || null,
         priority: ruleDraft.priority,
         labelIds: ruleDraft.labelIds,
       };
-      const payload = ruleDraft.id
-        ? basePayload
-        : { ...basePayload, createMode: "issue" as const };
-      return companiesApi.saveInboundEmailRule(selectedCompanyId!, ruleDraft.id, payload);
+      return companiesApi.saveInboundEmailRule(selectedCompanyId!, ruleDraft.id, basePayload);
     },
     onSuccess: () => {
       setRuleDraft(emptyRuleDraft);
@@ -312,10 +298,19 @@ export function CompanyEmailSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
     },
   });
+  const deleteRuleMutation = useMutation({
+    mutationFn: (ruleId: string) => companiesApi.deleteInboundEmailRule(selectedCompanyId!, ruleId),
+    onSuccess: (_result, ruleId) => {
+      if (ruleDraft.id === ruleId) {
+        setRuleDraft(emptyRuleDraft);
+        setRuleFormOpen(false);
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
+    },
+  });
 
   const mailboxOptions = inboundMailboxesQuery.data?.items ?? [];
   const ruleRows = inboundRulesQuery.data?.items ?? [];
-  const projectOptions = projectsQuery.data ?? [];
   const labelOptions = labelsQuery.data ?? [];
   const labelNameById = useMemo(() => new Map(labelOptions.map((label) => [label.id, label.name])), [labelOptions]);
 
@@ -542,12 +537,6 @@ export function CompanyEmailSettings() {
                 <Field label="Subject contains" hint="Case-insensitive text match against the subject.">
                   <input data-testid="company-settings-inbound-rule-subject" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.subjectPattern} placeholder="urgent" onChange={(e) => setRuleDraft((current) => ({ ...current, subjectPattern: e.target.value }))} />
                 </Field>
-                <Field label="Target project" hint="Project for created issues.">
-                  <select data-testid="company-settings-inbound-rule-project" className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none" value={ruleDraft.targetProjectId} onChange={(e) => setRuleDraft((current) => ({ ...current, targetProjectId: e.target.value }))}>
-                    <option value="">Mailbox default</option>
-                    {projectOptions.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-                  </select>
-                </Field>
                 <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
                   <input data-testid="company-settings-inbound-rule-enabled" type="checkbox" checked={ruleDraft.enabled} onChange={(e) => setRuleDraft((current) => ({ ...current, enabled: e.target.checked }))} />
                   Enabled
@@ -578,7 +567,7 @@ export function CompanyEmailSettings() {
                   </div>
                 </div>
               )}
-              {!ruleDraftValid && <span className="block text-xs text-destructive">Set at least one match or routing option before saving.</span>}
+              {!ruleDraftValid && <span className="block text-xs text-destructive">Choose a priority change or at least one label before saving.</span>}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Button data-testid="company-settings-inbound-rule-save" size="sm" onClick={() => ruleSaveMutation.mutate()} disabled={ruleSaveMutation.isPending || !ruleDraftValid}>
                   {ruleSaveMutation.isPending ? "Saving..." : ruleDraft.id ? "Save rule" : "Create rule"}
@@ -609,7 +598,7 @@ export function CompanyEmailSettings() {
                         <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{rule.priority}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        Mailbox: {labelForId(mailboxOptions, rule.mailboxId)} · Project: {labelForId(projectOptions, rule.targetProjectId)}
+                        Mailbox: {labelForId(mailboxOptions, rule.mailboxId)}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Sender: {rule.senderPattern || "any"} · Subject: {rule.subjectPattern || "any"}
@@ -629,6 +618,21 @@ export function CompanyEmailSettings() {
                         setRuleFormOpen(true);
                       }}>
                         Edit
+                      </Button>
+                      <Button
+                        data-testid={`company-settings-inbound-rule-delete-${rule.id}`}
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => {
+                          if (typeof window !== "undefined" && !window.confirm("Delete this inbound rule?")) {
+                            return;
+                          }
+                          deleteRuleMutation.mutate(rule.id);
+                        }}
+                        disabled={deleteRuleMutation.isPending}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
                       </Button>
                     </div>
                   </div>

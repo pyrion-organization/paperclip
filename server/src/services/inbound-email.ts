@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
@@ -14,12 +14,14 @@ import {
   inboundEmailMessages,
   inboundEmailRules,
   issueAttachments,
+  issues as issueRows,
   labels,
   projects,
 } from "@paperclipai/db";
 import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
+  InboundEmailMessageStatus,
   InboundEmailMailbox as MailboxView,
   InboundEmailOpsDashboard,
   InboundEmailOpsJob,
@@ -30,6 +32,7 @@ import type {
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
+import { inboundEmailMessageStatusSchema } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
@@ -95,6 +98,7 @@ const DURABLE_REGISTRATION_REPLY_REASONS: ReadonlySet<InboundEmailRegistrationRe
   "already_registered",
 ]);
 const MAX_SOURCE_DELETE_ERROR_LENGTH = 2_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isReplyRequiredSkipReason(reason: string): reason is InboundEmailAuthorizationReplyReason {
   return REPLY_REQUIRED_SKIP_REASONS.has(reason as InboundEmailAuthorizationReplyReason);
@@ -114,6 +118,12 @@ function shouldMarkSeenForSkip(reason: string | null): boolean {
   return Boolean(reason && MARK_SEEN_SKIP_REASONS.has(reason));
 }
 
+function inboundEmailMutationActor(actor?: { userId?: string | null; agentId?: string | null }) {
+  if (actor?.agentId) return { actorType: "agent" as const, actorId: actor.agentId, agentId: actor.agentId };
+  if (actor?.userId) return { actorType: "user" as const, actorId: actor.userId };
+  return INBOUND_EMAIL_ACTOR;
+}
+
 function truncateSourceDeleteError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.length > MAX_SOURCE_DELETE_ERROR_LENGTH
@@ -128,6 +138,13 @@ export type ListPageOptions = {
 
 export type ListInboundEmailMessagesOptions = ListPageOptions & {
   status?: string;
+  mailboxId?: string;
+  q?: string;
+  order?: "asc" | "desc";
+};
+
+type NormalizedListInboundEmailMessagesOptions = ListPageOptions & {
+  status?: InboundEmailMessageStatus;
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -616,6 +633,27 @@ function decodeCursor(cursor: string | null | undefined): { createdAt: Date; id:
   }
 }
 
+function normalizeListMessagesOptions(
+  options?: ListInboundEmailMessagesOptions,
+): NormalizedListInboundEmailMessagesOptions | undefined {
+  const statusInput = options?.status?.trim();
+  const statusResult = statusInput ? inboundEmailMessageStatusSchema.safeParse(statusInput) : null;
+  if (statusResult && !statusResult.success) {
+    throw unprocessable("Invalid inbound email message status");
+  }
+
+  const mailboxId = options?.mailboxId?.trim();
+  if (mailboxId && !UUID_RE.test(mailboxId)) {
+    throw unprocessable("Invalid inbound email mailbox filter");
+  }
+
+  return {
+    ...options,
+    status: statusResult?.success ? statusResult.data : undefined,
+    mailboxId: mailboxId || undefined,
+  };
+}
+
 function formatIssueDescription(input: {
   message: typeof inboundEmailMessages.$inferSelect;
   attachmentCount: number;
@@ -645,26 +683,57 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   const secrets = secretService(db);
   const issues = issueService(db);
 
-  async function assertProjectBelongsToCompany(companyId: string, projectId: string | null | undefined) {
-    if (!projectId) return;
-    const row = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.companyId, companyId)))
-      .then((rows) => rows[0] ?? null);
-    if (!row) throw unprocessable("targetProjectId must belong to the same company");
+  function normalizeRuleLabelIds(labelIds: string[] | undefined): string[] {
+    return [...new Set(labelIds ?? [])];
   }
 
-  async function assertLabelsBelongToCompany(companyId: string, labelIds: string[] | undefined) {
-    if (!labelIds || labelIds.length === 0) return;
-    const deduped = [...new Set(labelIds)];
+  async function assertLabelsBelongToCompany(companyId: string, labelIds: string[]) {
+    if (labelIds.length === 0) return;
     const existing = await db
       .select({ id: labels.id })
       .from(labels)
-      .where(and(eq(labels.companyId, companyId), inArray(labels.id, deduped)));
-    if (existing.length !== deduped.length) {
+      .where(and(eq(labels.companyId, companyId), inArray(labels.id, labelIds)));
+    if (existing.length !== labelIds.length) {
       throw unprocessable("One or more labels are invalid for this company");
     }
+  }
+
+  function ruleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+    const changesPriority = rule.priority !== undefined && rule.priority !== null && rule.priority !== "medium";
+    const appliesLabels = (rule.labelIds?.length ?? 0) > 0;
+    return changesPriority || appliesLabels;
+  }
+
+  function assertRuleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+    if (!ruleHasProcessingEffect(rule)) {
+      throw unprocessable("Inbound email rules must change priority or apply at least one label");
+    }
+  }
+
+  function normalizeMailboxText(value: string, field: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) throw unprocessable(`Inbound email mailbox ${field} is required`);
+    return trimmed;
+  }
+
+  function normalizeCreateMailboxInput(input: CreateInboundEmailMailbox): CreateInboundEmailMailbox {
+    return {
+      ...input,
+      name: normalizeMailboxText(input.name, "name"),
+      host: normalizeMailboxText(input.host, "host"),
+      username: normalizeMailboxText(input.username, "username"),
+      folder: normalizeMailboxText(input.folder, "folder"),
+    };
+  }
+
+  function normalizeUpdateMailboxInput(input: UpdateInboundEmailMailbox): UpdateInboundEmailMailbox {
+    return {
+      ...input,
+      ...(input.name !== undefined ? { name: normalizeMailboxText(input.name, "name") } : {}),
+      ...(input.host !== undefined ? { host: normalizeMailboxText(input.host, "host") } : {}),
+      ...(input.username !== undefined ? { username: normalizeMailboxText(input.username, "username") } : {}),
+      ...(input.folder !== undefined ? { folder: normalizeMailboxText(input.folder, "folder") } : {}),
+    };
   }
 
   async function loadMailbox(companyId: string, mailboxId: string) {
@@ -805,6 +874,68 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return attachment;
   }
 
+  function attachmentSignature(input: {
+    filename: string | null;
+    contentType: string;
+    byteSize: number;
+    sha256: string;
+  }) {
+    return JSON.stringify([
+      input.sha256,
+      input.filename ?? "",
+      input.contentType,
+      input.byteSize,
+    ]);
+  }
+
+  async function reconcileMessageAttachmentsFromParsed(
+    message: typeof inboundEmailMessages.$inferSelect,
+    parsedAttachments: Array<{
+      filename: string | null;
+      contentType: string;
+      body: Buffer;
+      sha256: string;
+    }>,
+  ) {
+    if (parsedAttachments.length === 0) return;
+    const existingRows = await db
+      .select()
+      .from(inboundEmailAttachments)
+      .where(eq(inboundEmailAttachments.messageId, message.id));
+    const available = new Map<string, number>();
+    for (const row of existingRows) {
+      if (row.status !== "stored") continue;
+      const signature = attachmentSignature({
+        filename: row.filename,
+        contentType: row.contentType,
+        byteSize: row.byteSize,
+        sha256: row.sha256,
+      });
+      available.set(signature, (available.get(signature) ?? 0) + 1);
+    }
+
+    for (const attachment of parsedAttachments) {
+      const signature = attachmentSignature({
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        byteSize: attachment.body.length,
+        sha256: attachment.sha256,
+      });
+      const count = available.get(signature) ?? 0;
+      if (count > 0) {
+        available.set(signature, count - 1);
+        continue;
+      }
+      await storeAttachment({
+        companyId: message.companyId,
+        messageId: message.id,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        body: attachment.body,
+      });
+    }
+  }
+
   async function selectRule(message: typeof inboundEmailMessages.$inferSelect) {
     const rules = await db
       .select()
@@ -818,6 +949,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       )
       .orderBy(asc(inboundEmailRules.createdAt), asc(inboundEmailRules.id));
     return rules.find((rule) =>
+      ruleHasProcessingEffect(rule) &&
       matchesPattern(message.fromAddress, rule.senderPattern) &&
       matchesPattern(message.subject, rule.subjectPattern),
     ) ?? null;
@@ -831,7 +963,6 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return {
       mailbox,
       rule,
-      targetProjectId: null as string | null,
     };
   }
 
@@ -917,7 +1048,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
 
   async function createIssueFromMessage(
     message: typeof inboundEmailMessages.$inferSelect,
-    context: Awaited<ReturnType<typeof resolveProcessingContext>>,
+    context: Awaited<ReturnType<typeof resolveProcessingContext>> & { projectId: string | null },
   ) {
     const attachmentRows = await db
       .select()
@@ -928,23 +1059,39 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       description: formatIssueDescription({ message, attachmentCount: attachmentRows.length }),
       status: "backlog",
       priority: context.rule?.priority ?? "medium",
-      projectId: context.targetProjectId,
+      projectId: context.projectId,
       labelIds: context.rule?.labelIds ?? [],
       originKind: "inbound_email",
       originId: message.id,
       originFingerprint: message.rawSha256,
     });
+    await linkIssueAttachmentsFromMessage(message, issue.id, attachmentRows);
+    return issue;
+  }
+
+  async function linkIssueAttachmentsFromMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+    issueId: string,
+    attachments?: Array<typeof inboundEmailAttachments.$inferSelect>,
+  ) {
+    const attachmentRows = attachments
+      ?? await db
+        .select()
+        .from(inboundEmailAttachments)
+        .where(eq(inboundEmailAttachments.messageId, message.id));
     const attachmentsWithAssets = attachmentRows.filter((row) => row.assetId);
     if (attachmentsWithAssets.length > 0) {
-      await db.insert(issueAttachments).values(
-        attachmentsWithAssets.map((row) => ({
-          companyId: message.companyId,
-          issueId: issue.id,
-          assetId: row.assetId!,
-        })),
-      );
+      await db
+        .insert(issueAttachments)
+        .values(
+          attachmentsWithAssets.map((row) => ({
+            companyId: message.companyId,
+            issueId,
+            assetId: row.assetId!,
+          })),
+        )
+        .onConflictDoNothing({ target: issueAttachments.assetId });
     }
-    return issue;
   }
 
   async function resolveSenderIdentity(
@@ -1542,9 +1689,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return message;
   }
 
-  // Cursor-paginated select. The `rows` callback MUST order results by
-  // (createdAt asc, id asc) — the cursor encoding (encodeCursor/decodeCursor)
-  // assumes that ordering. Passing a different orderBy will produce wrong pages.
+  // Cursor-paginated select. The row callback owns its order and cursor
+  // comparison; encodeCursor/decodeCursor only preserves the boundary tuple.
   async function paginated<T extends { id: string; createdAt: Date }>(
     rows: (limit: number, cursor: { createdAt: Date; id: string } | null) => Promise<T[]>,
     options: ListPageOptions | undefined,
@@ -1591,10 +1737,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       input: CreateInboundEmailMailbox,
       actor?: { userId?: string | null; agentId?: string | null },
     ): Promise<MailboxView> => {
-      await assertProjectBelongsToCompany(companyId, input.targetProjectId);
-
       const mailboxId = randomUUID();
-      const trimmedPassword = input.password?.trim() ?? "";
+      const normalized = normalizeCreateMailboxInput(input);
+      const trimmedPassword = normalized.password?.trim() ?? "";
       let passwordSecretName: string | null = null;
 
       if (trimmedPassword.length > 0) {
@@ -1604,26 +1749,42 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }
 
       try {
-        const [mailbox] = await db
-          .insert(inboundEmailMailboxes)
-          .values({
-            id: mailboxId,
+        const mailbox = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(inboundEmailMailboxes)
+            .values({
+              id: mailboxId,
+              companyId,
+              name: normalized.name,
+              enabled: normalized.enabled,
+              host: normalized.host,
+              port: normalized.port,
+              username: normalized.username,
+              folder: normalized.folder,
+              tls: normalized.tls,
+              pollIntervalSeconds: normalized.pollIntervalSeconds,
+              passwordSecretName,
+            })
+            .returning();
+          await logActivity(tx as unknown as Db, {
             companyId,
-            name: input.name,
-            provider: input.provider,
-            enabled: input.enabled,
-            host: input.host,
-            port: input.port,
-            username: input.username,
-            folder: input.folder,
-            tls: input.tls,
-            pollIntervalSeconds: input.pollIntervalSeconds,
-            targetProjectId: input.targetProjectId ?? null,
-            createMode: input.createMode,
-            markSeen: input.markSeen,
-            passwordSecretName,
-          })
-          .returning();
+            ...inboundEmailMutationActor(actor),
+            action: "inbound_email.mailbox_created",
+            entityType: "inbound_email_mailbox",
+            entityId: created.id,
+            details: {
+              name: created.name,
+              enabled: created.enabled,
+              host: created.host,
+              username: created.username,
+              folder: created.folder,
+              tls: created.tls,
+              pollIntervalSeconds: created.pollIntervalSeconds,
+              passwordSet: Boolean(created.passwordSecretName),
+            },
+          });
+          return created;
+        });
         return redactMailbox(mailbox);
       } catch (error) {
         if (passwordSecretName) {
@@ -1645,12 +1806,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       actor?: { userId?: string | null; agentId?: string | null },
     ): Promise<MailboxView> => {
       const existing = await loadMailbox(companyId, mailboxId);
-      await assertProjectBelongsToCompany(companyId, input.targetProjectId);
+      const normalized = normalizeUpdateMailboxInput(input);
 
       // Update the row first so a validation failure (unique name, FK, etc.)
       // surfaces before we mutate the stored secret. The password field is
       // applied in a follow-up write below.
-      const { password: _password, ...patch } = input;
+      const { password: _password, ...patch } = normalized;
       const [updated] = await db
         .update(inboundEmailMailboxes)
         .set({
@@ -1661,47 +1822,123 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .returning();
       if (!updated) throw notFound("Inbound email mailbox not found");
 
-      if (input.password === undefined) {
-        return redactMailbox(updated);
+      let finalMailbox = updated;
+      if (normalized.password !== undefined) {
+        const secretName = secretNameForMailbox(existing.id);
+        const trimmed = normalized.password?.trim() ?? "";
+        try {
+          if (trimmed.length === 0) {
+            if (updated.passwordSecretName !== null) {
+              const [reflected] = await db
+                .update(inboundEmailMailboxes)
+                .set({ passwordSecretName: null, updatedAt: new Date() })
+                .where(eq(inboundEmailMailboxes.id, mailboxId))
+                .returning();
+              finalMailbox = reflected;
+            }
+            await clearMailboxSecret(companyId, secretName);
+          } else {
+            await writeOrRotateMailboxSecret(companyId, secretName, trimmed, actor);
+            if (secretName !== updated.passwordSecretName) {
+              const [reflected] = await db
+                .update(inboundEmailMailboxes)
+                .set({ passwordSecretName: secretName, updatedAt: new Date() })
+                .where(eq(inboundEmailMailboxes.id, mailboxId))
+                .returning();
+              finalMailbox = reflected;
+            }
+          }
+        } catch (error) {
+          if (trimmed.length > 0 && !existing.passwordSecretName) {
+            await clearMailboxSecret(companyId, secretName).catch((cleanupError) => {
+              logger.warn(
+                { err: cleanupError, mailboxId, companyId },
+                "failed to roll back orphan mailbox secret after password update failure",
+              );
+            });
+          }
+          await db
+            .update(inboundEmailMailboxes)
+            .set({
+              name: existing.name,
+              enabled: existing.enabled,
+              host: existing.host,
+              port: existing.port,
+              username: existing.username,
+              folder: existing.folder,
+              tls: existing.tls,
+              pollIntervalSeconds: existing.pollIntervalSeconds,
+              passwordSecretName: existing.passwordSecretName,
+              updatedAt: new Date(),
+            })
+            .where(eq(inboundEmailMailboxes.id, mailboxId))
+            .catch((rollbackError) => {
+              logger.warn(
+                { err: rollbackError, mailboxId, companyId },
+                "failed to roll back mailbox row after password update failure",
+              );
+            });
+          throw error;
+        }
       }
 
-      const secretName = secretNameForMailbox(existing.id);
-      const trimmed = input.password?.trim() ?? "";
-      let passwordSecretNameUpdate: string | null;
-      if (trimmed.length === 0) {
-        await clearMailboxSecret(companyId, secretName);
-        passwordSecretNameUpdate = null;
-      } else {
-        await writeOrRotateMailboxSecret(companyId, secretName, trimmed, actor);
-        passwordSecretNameUpdate = secretName;
-      }
-
-      if (passwordSecretNameUpdate === updated.passwordSecretName) {
-        return redactMailbox(updated);
-      }
-      const [reflected] = await db
-        .update(inboundEmailMailboxes)
-        .set({ passwordSecretName: passwordSecretNameUpdate, updatedAt: new Date() })
-        .where(eq(inboundEmailMailboxes.id, mailboxId))
-        .returning();
-      return redactMailbox(reflected);
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.mailbox_updated",
+        entityType: "inbound_email_mailbox",
+        entityId: mailboxId,
+        details: {
+          name: finalMailbox.name,
+          enabled: finalMailbox.enabled,
+          host: finalMailbox.host,
+          username: finalMailbox.username,
+          folder: finalMailbox.folder,
+          tls: finalMailbox.tls,
+          pollIntervalSeconds: finalMailbox.pollIntervalSeconds,
+          passwordSet: Boolean(finalMailbox.passwordSecretName),
+          changedFields: Object.keys(input),
+        },
+      });
+      return redactMailbox(finalMailbox);
     },
 
-    deleteMailbox: async (companyId: string, mailboxId: string) => {
+    deleteMailbox: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
       const mailbox = await loadMailbox(companyId, mailboxId);
-      if (mailbox.passwordSecretName) {
-        await clearMailboxSecret(companyId, mailbox.passwordSecretName);
-      }
       await db
         .delete(inboundEmailMailboxes)
         .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)));
+      let cleanupFailed = false;
+      let cleanupError: string | null = null;
+      if (mailbox.passwordSecretName) {
+        try {
+          await clearMailboxSecret(companyId, mailbox.passwordSecretName);
+        } catch (error) {
+          cleanupFailed = true;
+          cleanupError = truncateSourceDeleteError(error);
+          logger.warn(
+            { err: error, mailboxId, companyId, secretName: mailbox.passwordSecretName },
+            "failed to clear inbound mailbox secret after mailbox deletion",
+          );
+        }
+      }
       await logActivity(db, {
         companyId,
-        ...INBOUND_EMAIL_ACTOR,
+        ...inboundEmailMutationActor(actor),
         action: "inbound_email.mailbox_deleted",
         entityType: "inbound_email_mailbox",
         entityId: mailboxId,
-        details: { name: mailbox.name, host: mailbox.host, username: mailbox.username },
+        details: {
+          name: mailbox.name,
+          host: mailbox.host,
+          username: mailbox.username,
+          cleanupFailed,
+          cleanupError,
+        },
       });
     },
 
@@ -1729,10 +1966,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }, options);
     },
 
-    createRule: async (companyId: string, input: CreateInboundEmailRule) => {
+    createRule: async (
+      companyId: string,
+      input: CreateInboundEmailRule,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
       if (input.mailboxId) await loadMailbox(companyId, input.mailboxId);
-      await assertProjectBelongsToCompany(companyId, input.targetProjectId);
-      await assertLabelsBelongToCompany(companyId, input.labelIds);
+      const labelIds = normalizeRuleLabelIds(input.labelIds);
+      await assertLabelsBelongToCompany(companyId, labelIds);
+      assertRuleHasProcessingEffect({ ...input, labelIds });
       const [rule] = await db
         .insert(inboundEmailRules)
         .values({
@@ -1741,51 +1983,117 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: input.enabled,
           senderPattern: asNullableString(input.senderPattern),
           subjectPattern: asNullableString(input.subjectPattern),
-          targetProjectId: input.targetProjectId ?? null,
-          createMode: input.createMode,
           priority: input.priority,
-          labelIds: input.labelIds ?? [],
+          labelIds,
         })
         .returning();
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.rule_created",
+        entityType: "inbound_email_rule",
+        entityId: rule.id,
+        details: {
+          mailboxId: rule.mailboxId,
+          enabled: rule.enabled,
+          senderPattern: rule.senderPattern,
+          subjectPattern: rule.subjectPattern,
+          priority: rule.priority,
+          labelIds: rule.labelIds,
+        },
+      });
       return rule;
     },
 
-    updateRule: async (companyId: string, ruleId: string, input: UpdateInboundEmailRule) => {
+    updateRule: async (
+      companyId: string,
+      ruleId: string,
+      input: UpdateInboundEmailRule,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      const existing = await db
+        .select()
+        .from(inboundEmailRules)
+        .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!existing) throw notFound("Inbound email rule not found");
       if (input.mailboxId) await loadMailbox(companyId, input.mailboxId);
-      await assertProjectBelongsToCompany(companyId, input.targetProjectId);
-      await assertLabelsBelongToCompany(companyId, input.labelIds);
+      const labelIds = input.labelIds === undefined ? undefined : normalizeRuleLabelIds(input.labelIds);
+      if (labelIds !== undefined) await assertLabelsBelongToCompany(companyId, labelIds);
+      assertRuleHasProcessingEffect({
+        priority: input.priority ?? existing.priority,
+        labelIds: labelIds ?? existing.labelIds,
+      });
       const [rule] = await db
         .update(inboundEmailRules)
         .set({
           ...input,
+          labelIds,
           senderPattern: input.senderPattern === undefined ? undefined : asNullableString(input.senderPattern),
           subjectPattern: input.subjectPattern === undefined ? undefined : asNullableString(input.subjectPattern),
           updatedAt: new Date(),
         })
         .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
         .returning();
-      if (!rule) throw notFound("Inbound email rule not found");
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.rule_updated",
+        entityType: "inbound_email_rule",
+        entityId: rule.id,
+        details: {
+          mailboxId: rule.mailboxId,
+          enabled: rule.enabled,
+          senderPattern: rule.senderPattern,
+          subjectPattern: rule.subjectPattern,
+          priority: rule.priority,
+          labelIds: rule.labelIds,
+          changedFields: Object.keys(input),
+        },
+      });
       return rule;
+    },
+
+    deleteRule: async (
+      companyId: string,
+      ruleId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      const [rule] = await db
+        .delete(inboundEmailRules)
+        .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
+        .returning();
+      if (!rule) throw notFound("Inbound email rule not found");
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.rule_deleted",
+        entityType: "inbound_email_rule",
+        entityId: ruleId,
+        details: {
+          mailboxId: rule.mailboxId,
+          senderPattern: rule.senderPattern,
+          subjectPattern: rule.subjectPattern,
+          priority: rule.priority,
+          labelIds: rule.labelIds,
+        },
+      });
     },
 
     listMessages: async (
       companyId: string,
       options?: ListInboundEmailMessagesOptions,
     ) => {
+      const filters = normalizeListMessagesOptions(options);
       return paginated(async (limit, cursor) => {
         const conditions = [eq(inboundEmailMessages.companyId, companyId)];
-        if (options?.status) {
-          conditions.push(
-            eq(
-              inboundEmailMessages.status,
-              options.status as typeof inboundEmailMessages.$inferSelect.status,
-            ),
-          );
+        if (filters?.status) {
+          conditions.push(eq(inboundEmailMessages.status, filters.status));
         }
-        if (options?.mailboxId) {
-          conditions.push(eq(inboundEmailMessages.mailboxId, options.mailboxId));
+        if (filters?.mailboxId) {
+          conditions.push(eq(inboundEmailMessages.mailboxId, filters.mailboxId));
         }
-        const query = options?.q?.trim().toLowerCase();
+        const query = filters?.q?.trim().toLowerCase();
         if (query) {
           const likeQuery = `%${query}%`;
           conditions.push(
@@ -1797,7 +2105,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           );
         }
         if (cursor) {
-          const descOrder = options?.order === "desc";
+          const descOrder = filters?.order === "desc";
           conditions.push(
             descOrder
               ? or(
@@ -1821,11 +2129,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           .from(inboundEmailMessages)
           .where(and(...conditions))
           .orderBy(
-            options?.order === "desc" ? desc(inboundEmailMessages.createdAt) : asc(inboundEmailMessages.createdAt),
-            options?.order === "desc" ? desc(inboundEmailMessages.id) : asc(inboundEmailMessages.id),
+            filters?.order === "desc" ? desc(inboundEmailMessages.createdAt) : asc(inboundEmailMessages.createdAt),
+            filters?.order === "desc" ? desc(inboundEmailMessages.id) : asc(inboundEmailMessages.id),
           )
           .limit(limit);
-      }, options);
+      }, filters);
     },
 
     enqueueDueMailboxPollJobs: async (now = new Date()) => {
@@ -1837,27 +2145,40 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       for (const mailbox of mailboxes) {
         const intervalMs = mailbox.pollIntervalSeconds * 1000;
         if (mailbox.lastPollAt && now.getTime() - mailbox.lastPollAt.getTime() < intervalMs) continue;
-        await jobs.enqueue({
+        const result = await jobs.enqueueWithDisposition({
           companyId: mailbox.companyId,
           kind: EMAIL_POLL_MAILBOX_JOB_KIND,
           payload: { mailboxId: mailbox.id },
           dedupeKey: `${mailbox.id}:${Math.floor(now.getTime() / intervalMs)}`,
           maxAttempts: 3,
         });
-        enqueued += 1;
+        if (result.inserted) enqueued += 1;
       }
       return enqueued;
     },
 
-    enqueueMailboxPoll: async (companyId: string, mailboxId: string) => {
+    enqueueMailboxPoll: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
       await loadMailbox(companyId, mailboxId);
-      return jobs.enqueue({
+      const result = await jobs.enqueueWithDisposition({
         companyId,
         kind: EMAIL_POLL_MAILBOX_JOB_KIND,
         payload: { mailboxId },
         dedupeKey: `${mailboxId}:manual`,
         maxAttempts: 3,
       });
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.mailbox_poll_requested",
+        entityType: "inbound_email_mailbox",
+        entityId: mailboxId,
+        details: { jobId: result.job.id, reusedActiveJob: !result.inserted },
+      });
+      return result.job;
     },
 
     testMailboxConnection: async (companyId: string, mailboxId: string) => {
@@ -1976,14 +2297,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       providerUid?: string | null;
       rawEmail: Buffer | string;
       processAfterImport?: boolean;
+      actor?: { userId?: string | null; agentId?: string | null };
     }) => {
       await loadMailbox(input.companyId, input.mailboxId);
       const raw = Buffer.isBuffer(input.rawEmail) ? input.rawEmail : Buffer.from(input.rawEmail, "utf8");
       const parsed = await parseInboundEmail(raw);
+      const providerUid = asNullableString(input.providerUid);
       const duplicate = await findDuplicate({
         companyId: input.companyId,
         mailboxId: input.mailboxId,
-        providerUid: input.providerUid,
+        providerUid,
         rawSha256: parsed.rawSha256,
         messageId: parsed.messageId,
       });
@@ -1991,8 +2314,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         // A message row already exists but never reached "processed". This
         // happens when a prior import insert succeeded but a later step
         // (attachment storage, activity log, or job enqueue) failed before
-        // the process job was scheduled. Re-enqueue so the worker retry
-        // doesn't strand the message.
+        // the process job was scheduled. Reconcile attachments from this raw
+        // email before re-enqueueing so processing does not finalize a partial
+        // import with missing attachment rows.
+        await reconcileMessageAttachmentsFromParsed(duplicate, parsed.attachments);
         if (
           input.processAfterImport !== false &&
           (
@@ -2015,7 +2340,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .values({
           companyId: input.companyId,
           mailboxId: input.mailboxId,
-          providerUid: input.providerUid ?? null,
+          providerUid,
           messageId: parsed.messageId,
           rawSha256: parsed.rawSha256,
           fromAddress: parsed.fromAddress,
@@ -2039,7 +2364,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }
       await logActivity(db, {
         companyId: input.companyId,
-        ...INBOUND_EMAIL_ACTOR,
+        ...inboundEmailMutationActor(input.actor),
         action: "inbound_email.message_imported",
         entityType: "inbound_email_message",
         entityId: message.id,
@@ -2065,6 +2390,17 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       if (!message) throw notFound("Inbound email message not found");
       if (message.status === "processed" || message.status === "duplicate" || message.status === "skipped") {
         return applySourceDispositionIfEligible(message, ops);
+      }
+      if (message.createdIssueId) {
+        const [updated] = await db
+          .update(inboundEmailMessages)
+          .set({ status: "processed", error: null, updatedAt: new Date() })
+          .where(eq(inboundEmailMessages.id, message.id))
+          .returning();
+        return applySourceDispositionIfEligible(
+          updated ?? { ...message, status: "processed" as const, error: null },
+          ops,
+        );
       }
       await db
         .update(inboundEmailMessages)
@@ -2114,7 +2450,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             details: {
               senderEmail: identity.senderEmail,
               clientId: identity.client?.id,
-              targetProjectId: null,
+              projectId: null,
             },
           });
         } else if (isRegistrationCommand(message)) {
@@ -2139,14 +2475,26 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 senderEmail: authorization.senderEmail,
                 clientId: authorization.client?.id,
                 employeeId: authorization.employee?.id,
-                targetProjectId: authorization.project?.id ?? null,
+                projectId: authorization.project?.id ?? null,
               },
             });
           } else {
-            const issue = await createIssueFromMessage(message, {
-              ...context,
-              targetProjectId: authorization.project?.id ?? null,
-            });
+            const issue = await db
+              .select()
+              .from(issueRows)
+              .where(
+                and(
+                  eq(issueRows.companyId, message.companyId),
+                  eq(issueRows.originKind, "inbound_email"),
+                  eq(issueRows.originId, message.id),
+                ),
+              )
+              .then((rows) => rows[0] ?? null)
+              ?? await createIssueFromMessage(message, {
+                ...context,
+                projectId: authorization.project?.id ?? null,
+              });
+            await linkIssueAttachmentsFromMessage(message, issue.id);
             const [updated] = await db
               .update(inboundEmailMessages)
               .set({
@@ -2183,7 +2531,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return applySourceDispositionIfEligible(completedMessage, ops);
     },
 
-    retryMessage: async (companyId: string, messageId: string) => {
+    retryMessage: async (
+      companyId: string,
+      messageId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
       const message = await db
         .select()
         .from(inboundEmailMessages)
@@ -2200,7 +2552,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const job = await enqueueProcessMessage(companyId, message.id);
       await logActivity(db, {
         companyId,
-        ...INBOUND_EMAIL_ACTOR,
+        ...inboundEmailMutationActor(actor),
         action: "inbound_email.message_retried",
         entityType: "inbound_email_message",
         entityId: message.id,
@@ -2209,7 +2561,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return job;
     },
 
-    retryJob: async (companyId: string, jobId: string) => {
+    retryJob: async (
+      companyId: string,
+      jobId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
       const job = await db
         .select()
         .from(backgroundJobs)
@@ -2221,6 +2577,37 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }
       if (job.status !== "failed" && job.status !== "dead") {
         throw unprocessable(`Only failed or dead jobs can be retried (current status: ${job.status})`);
+      }
+      if (job.dedupeKey) {
+        const activePeer = await db
+          .select()
+          .from(backgroundJobs)
+          .where(
+            and(
+              eq(backgroundJobs.companyId, job.companyId),
+              eq(backgroundJobs.kind, job.kind),
+              eq(backgroundJobs.dedupeKey, job.dedupeKey),
+              ne(backgroundJobs.id, job.id),
+              inArray(backgroundJobs.status, ["pending", "running", "retrying"]),
+            ),
+          )
+          .then((rows) => rows[0] ?? null);
+        if (activePeer) {
+          await logActivity(db, {
+            companyId,
+            ...inboundEmailMutationActor(actor),
+            action: "inbound_email.job_retried",
+            entityType: "background_job",
+            entityId: job.id,
+            details: {
+              kind: job.kind,
+              previousStatus: job.status,
+              activeJobId: activePeer.id,
+              reusedActiveJob: true,
+            },
+          });
+          return activePeer;
+        }
       }
       const now = new Date();
       const [updated] = await db
@@ -2238,7 +2625,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         .returning();
       await logActivity(db, {
         companyId,
-        ...INBOUND_EMAIL_ACTOR,
+        ...inboundEmailMutationActor(actor),
         action: "inbound_email.job_retried",
         entityType: "background_job",
         entityId: job.id,

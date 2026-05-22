@@ -83,7 +83,6 @@ function makeDashboard(): InboundEmailOpsDashboard {
           id: "mailbox-1",
           companyId: "company-1",
           name: "Support inbox",
-          provider: "imap",
           enabled: true,
           host: "imap.example.com",
           port: 993,
@@ -92,9 +91,6 @@ function makeDashboard(): InboundEmailOpsDashboard {
           folder: "INBOX",
           tls: true,
           pollIntervalSeconds: 60,
-          targetProjectId: "project-1",
-          createMode: "issue",
-          markSeen: true,
           lastPollAt: new Date("2026-05-19T11:55:00.000Z"),
           lastSuccessAt: new Date("2026-05-19T11:50:00.000Z"),
           lastError: "IMAP authentication failed",
@@ -403,7 +399,27 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Message is no longer retryable");
   });
 
+  it("refreshes inbound email state after retrying a failure", async () => {
+    mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(withRecentFailures(makeDashboard()));
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await renderPage();
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Retry"));
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.retryInboundEmailMessage).toHaveBeenCalledWith("company-1", "new-message-1");
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
+  });
+
   it("queues an immediate mailbox poll from the mailbox row", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     await renderPage();
 
     const pollButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Poll now"));
@@ -415,5 +431,8 @@ describe("InboundEmailOps", () => {
     await flushReact();
 
     expect(mockCompaniesApi.pollInboundEmailMailbox).toHaveBeenCalledWith("company-1", "mailbox-1");
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
   });
 });

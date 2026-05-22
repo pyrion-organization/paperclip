@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import express from "express";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backgroundJobs,
   activityLog,
+  assets,
   clientEmailDomains,
   clientEmployeeProjectLinks,
   clientEmployees,
@@ -19,6 +20,7 @@ import {
   inboundEmailMailboxes,
   inboundEmailMessages,
   inboundEmailRules,
+  issueAttachments,
   issues,
   labels,
   projects,
@@ -72,6 +74,37 @@ function rawEmail(input?: { subject?: string; messageId?: string; from?: string;
   ].join("\r\n");
 }
 
+function rawEmailWithDuplicateAttachments(input?: { messageId?: string }) {
+  const attachmentBody = Buffer.from("same attachment bytes").toString("base64");
+  return [
+    `Message-ID: ${input?.messageId ?? `<${randomUUID()}@example.com>`}`,
+    "From: Customer <customer@example.com>",
+    "To: intake@example.com",
+    "Subject: Duplicate attachments",
+    "Date: Tue, 12 May 2026 10:00:00 +0000",
+    'Content-Type: multipart/mixed; boundary="dup-boundary"',
+    "",
+    "--dup-boundary",
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    "Please review these attachments.",
+    "--dup-boundary",
+    'Content-Type: application/octet-stream; name="first.bin"',
+    'Content-Disposition: attachment; filename="first.bin"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    attachmentBody,
+    "--dup-boundary",
+    'Content-Type: application/octet-stream; name="second.bin"',
+    'Content-Disposition: attachment; filename="second.bin"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    attachmentBody,
+    "--dup-boundary--",
+    "",
+  ].join("\r\n");
+}
+
 describeEmbeddedPostgres("inbound email service", () => {
   let db!: ReturnType<typeof createDb>;
   let svc!: ReturnType<typeof inboundEmailService>;
@@ -96,6 +129,7 @@ describeEmbeddedPostgres("inbound email service", () => {
   afterEach(async () => {
     await db.delete(backgroundJobs);
     await db.delete(activityLog);
+    await db.delete(issueAttachments);
     await db.delete(inboundEmailAttachments);
     await db.delete(inboundEmailRules);
     await db.delete(inboundEmailMessages);
@@ -108,6 +142,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     await db.delete(clientProjects);
     await db.delete(clients);
     await db.delete(projects);
+    await db.delete(assets);
     await db.delete(companySecretVersions);
     await db.delete(companySecrets);
     await db.delete(companies);
@@ -210,10 +245,9 @@ describeEmbeddedPostgres("inbound email service", () => {
     return clientProject;
   }
 
-  async function createMailbox(companyId: string, targetProjectId: string | null = null) {
+  async function createMailbox(companyId: string) {
     return svc.createMailbox(companyId, {
       name: "Support inbox",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -222,16 +256,12 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId,
-      createMode: "issue",
-      markSeen: true,
     });
   }
 
   async function createNamedMailbox(companyId: string, name: string) {
     return svc.createMailbox(companyId, {
       name,
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -240,9 +270,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
   }
 
@@ -255,7 +282,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       companyId,
       {
         name: "Support inbox",
-        provider: "imap",
         enabled: false,
         host: "imap.example.com",
         port: 993,
@@ -264,9 +290,6 @@ describeEmbeddedPostgres("inbound email service", () => {
         folder: "INBOX",
         tls: true,
         pollIntervalSeconds: 60,
-        targetProjectId: null,
-        createMode: "issue",
-        markSeen: true,
       },
       { userId: "board-user" },
     );
@@ -317,6 +340,229 @@ describeEmbeddedPostgres("inbound email service", () => {
       expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
       "101",
     );
+  }, 20_000);
+
+  it("normalizes mailbox text fields before persistence", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "  Support inbox  ",
+      enabled: false,
+      host: "  imap.example.com  ",
+      port: 993,
+      username: "  support@example.com  ",
+      password: "mailbox-secret",
+      folder: "  INBOX  ",
+      tls: true,
+      pollIntervalSeconds: 60,
+    });
+
+    expect(mailbox).toMatchObject({
+      name: "Support inbox",
+      host: "imap.example.com",
+      username: "support@example.com",
+      folder: "INBOX",
+    });
+
+    await expect(svc.createMailbox(companyId, {
+      name: "Support inbox",
+      enabled: false,
+      host: "imap2.example.com",
+      port: 993,
+      username: "support2@example.com",
+      password: "mailbox-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+    })).rejects.toThrow();
+
+    const updated = await svc.updateMailbox(companyId, mailbox.id, {
+      name: "  Support ops  ",
+      host: "  mail.example.com  ",
+      username: "  ops@example.com  ",
+      folder: "  Support  ",
+    });
+    expect(updated).toMatchObject({
+      name: "Support ops",
+      host: "mail.example.com",
+      username: "ops@example.com",
+      folder: "Support",
+    });
+
+    const [stored] = await db.select().from(inboundEmailMailboxes).where(eq(inboundEmailMailboxes.id, mailbox.id));
+    expect(stored).toMatchObject({
+      name: "Support ops",
+      host: "mail.example.com",
+      username: "ops@example.com",
+      folder: "Support",
+    });
+  }, 20_000);
+
+  it("normalizes blank provider UIDs to null for manual imports", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    const first = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<manual-one@example.com>", subject: "Manual import one" }),
+      providerUid: "",
+      processAfterImport: false,
+    });
+    const second = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<manual-two@example.com>", subject: "Manual import two" }),
+      providerUid: "   ",
+      processAfterImport: false,
+    });
+
+    expect(first.status).toBe("persisted");
+    expect(second.status).toBe("persisted");
+    expect(first.message.id).not.toBe(second.message.id);
+    expect(first.message.providerUid).toBeNull();
+    expect(second.message.providerUid).toBeNull();
+  }, 20_000);
+
+  it("imports same-content attachments from a single message", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmailWithDuplicateAttachments({ messageId: "<duplicate-attachments@example.com>" }),
+      providerUid: "duplicate-attachments",
+      processAfterImport: false,
+    });
+
+    expect(imported.status).toBe("persisted");
+    const storedAttachments = await db
+      .select()
+      .from(inboundEmailAttachments)
+      .where(eq(inboundEmailAttachments.messageId, imported.message.id));
+    expect(storedAttachments).toHaveLength(2);
+    expect(storedAttachments.map((attachment) => attachment.filename).sort()).toEqual(["first.bin", "second.bin"]);
+    expect(new Set(storedAttachments.map((attachment) => attachment.sha256)).size).toBe(1);
+  }, 20_000);
+
+  it("restores missing attachments before enqueueing an incomplete duplicate import", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const raw = rawEmailWithDuplicateAttachments({ messageId: "<duplicate-restore-attachments@example.com>" });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "duplicate-restore-attachments",
+      processAfterImport: false,
+    });
+    await db
+      .delete(inboundEmailAttachments)
+      .where(eq(inboundEmailAttachments.messageId, imported.message.id));
+
+    const duplicate = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: raw,
+      providerUid: "duplicate-restore-attachments",
+      processAfterImport: false,
+    });
+
+    expect(duplicate.status).toBe("duplicate");
+    const restoredAttachments = await db
+      .select()
+      .from(inboundEmailAttachments)
+      .where(eq(inboundEmailAttachments.messageId, imported.message.id));
+    expect(restoredAttachments).toHaveLength(2);
+    expect(restoredAttachments.map((attachment) => attachment.filename).sort()).toEqual(["first.bin", "second.bin"]);
+    expect(new Set(restoredAttachments.map((attachment) => attachment.sha256)).size).toBe(1);
+  }, 20_000);
+
+  it("links missing inbound attachments when a retry reuses an existing issue", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production Deploy");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<retry-link-attachment@example.com>", subject: "ProductionDeploy failure" }),
+      providerUid: "retry-link-attachment",
+      processAfterImport: false,
+    });
+    const [asset] = await db
+      .insert(assets)
+      .values({
+        companyId,
+        provider: "local_disk",
+        objectKey: `inbound-test/${randomUUID()}.txt`,
+        contentType: "text/plain",
+        byteSize: 11,
+        sha256: "retry-attachment-sha",
+        originalFilename: "failure-log.txt",
+      })
+      .returning();
+    await db.insert(inboundEmailAttachments).values({
+      companyId,
+      messageId: imported.message.id,
+      assetId: asset.id,
+      filename: "failure-log.txt",
+      contentType: "text/plain",
+      byteSize: 11,
+      sha256: "retry-attachment-sha",
+      status: "stored",
+    });
+    const [existingIssue] = await db
+      .insert(issues)
+      .values({
+        companyId,
+        projectId: project.id,
+        title: "ProductionDeploy failure",
+        originKind: "inbound_email",
+        originId: imported.message.id,
+        originFingerprint: imported.message.rawSha256,
+      })
+      .returning();
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db
+      .select()
+      .from(inboundEmailMessages)
+      .where(eq(inboundEmailMessages.id, imported.message.id));
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.createdIssueId).toBe(existingIssue.id);
+    const linkedAttachments = await db
+      .select()
+      .from(issueAttachments)
+      .where(eq(issueAttachments.issueId, existingIssue.id));
+    expect(linkedAttachments).toHaveLength(1);
+    expect(linkedAttachments[0]!.assetId).toBe(asset.id);
+  }, 20_000);
+
+  it("logs manual raw imports with the board actor", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<manual-import-actor@example.com>" }),
+      processAfterImport: false,
+      actor: { userId: "board-user" },
+    });
+
+    const [event] = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "inbound_email.message_imported"));
+    expect(event).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_message",
+      entityId: imported.message.id,
+    });
   }, 20_000);
 
   it("skips unknown sender domains without sending a reply", async () => {
@@ -1110,6 +1356,61 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(deleteMessageFromMailboxMock).toHaveBeenCalledTimes(2);
   }, 20_000);
 
+  it("retries a post-issue failure without creating a duplicate issue", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Issue Retry");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<post-issue-retry@example.com>", subject: "IssueRetry incident" }),
+      providerUid: "post-issue-retry",
+      processAfterImport: false,
+    });
+    await db.execute(sql`
+      create or replace function fail_inbound_processed_update()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.status = 'processed' then
+          raise exception 'processed update failed';
+        end if;
+        return new;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_processed_update
+      before update of status on inbound_email_messages
+      for each row
+      execute function fail_inbound_processed_update();
+    `);
+
+    try {
+      await expect(svc.processMessage(companyId, imported.message.id)).rejects.toThrow(/Failed query: update "inbound_email_messages"/);
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_processed_update on inbound_email_messages;`);
+      await db.execute(sql`drop function if exists fail_inbound_processed_update();`);
+    }
+
+    let storedIssues = await db.select().from(issues);
+    let [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedIssues).toHaveLength(1);
+    expect(storedMessage.status).toBe("failed");
+    expect(storedMessage.createdIssueId).toBeNull();
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    storedIssues = await db.select().from(issues);
+    [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedIssues).toHaveLength(1);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.createdIssueId).toBe(storedIssues[0].id);
+  }, 20_000);
+
   it("replies with no-project guidance when the only named client project link is inactive", async () => {
     const companyId = await seedCompany();
     await db
@@ -1306,7 +1607,6 @@ describeEmbeddedPostgres("inbound email service", () => {
     const companyId = await seedCompany();
     const mailbox = await svc.createMailbox(companyId, {
       name: "Dedupe inbox",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1315,9 +1615,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
 
     const results = await Promise.all([
@@ -1332,6 +1629,15 @@ describeEmbeddedPostgres("inbound email service", () => {
       r.status === "pending" || r.status === "running" || r.status === "retrying",
     );
     expect(active.length).toBe(1);
+    const pollEvents = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "inbound_email.mailbox_poll_requested"));
+    expect(pollEvents).toHaveLength(3);
+    const pollDetails = pollEvents.map((event) => event.details as { jobId?: string; reusedActiveJob?: boolean });
+    expect(pollDetails.every((details) => details.jobId === results[0].id)).toBe(true);
+    expect(pollDetails.filter((details) => details.reusedActiveJob === false)).toHaveLength(1);
+    expect(pollDetails.filter((details) => details.reusedActiveJob === true)).toHaveLength(2);
   }, 20_000);
 
   it("rolls back the mailbox secret if mailbox insert fails", async () => {
@@ -1339,7 +1645,6 @@ describeEmbeddedPostgres("inbound email service", () => {
     // Create a mailbox using the unique (company_id, name) name first.
     await svc.createMailbox(companyId, {
       name: "Duplicate name",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1348,9 +1653,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
     const secretCountBefore = (
       await db.select().from(companySecrets)
@@ -1358,7 +1660,6 @@ describeEmbeddedPostgres("inbound email service", () => {
 
     await expect(svc.createMailbox(companyId, {
       name: "Duplicate name",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1367,9 +1668,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     })).rejects.toThrow();
 
     const secretCountAfter = (
@@ -1378,11 +1676,57 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(secretCountAfter).toBe(secretCountBefore);
   }, 20_000);
 
+  it("rolls back mailbox creation and secret when post-insert activity logging fails", async () => {
+    const companyId = await seedCompany();
+    await db.execute(sql`
+      create or replace function fail_inbound_mailbox_created_activity()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.action = 'inbound_email.mailbox_created' then
+          raise exception 'activity log failed';
+        end if;
+        return new;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_mailbox_created_activity
+      before insert on activity_log
+      for each row
+      execute function fail_inbound_mailbox_created_activity();
+    `);
+
+    try {
+      await expect(svc.createMailbox(companyId, {
+        name: "Activity log failure",
+        enabled: false,
+        host: "imap.example.com",
+        port: 993,
+        username: "activity-log-failure@example.com",
+        password: "secret",
+        folder: "INBOX",
+        tls: true,
+        pollIntervalSeconds: 60,
+      })).rejects.toThrow(/Failed query: insert into "activity_log"/);
+
+      const [mailbox] = await db
+        .select()
+        .from(inboundEmailMailboxes)
+        .where(eq(inboundEmailMailboxes.name, "Activity log failure"));
+      expect(mailbox).toBeUndefined();
+      expect(await db.select().from(companySecrets).where(eq(companySecrets.companyId, companyId))).toEqual([]);
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_mailbox_created_activity on activity_log;`);
+      await db.execute(sql`drop function if exists fail_inbound_mailbox_created_activity();`);
+    }
+  }, 20_000);
+
   it("re-enqueues the process job when a retry sees a persisted orphan", async () => {
     const companyId = await seedCompany();
     const mailbox = await svc.createMailbox(companyId, {
       name: "Retry inbox",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1391,9 +1735,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
 
     const raw = rawEmail({ messageId: "<orphan@example.com>" });
@@ -1424,7 +1765,6 @@ describeEmbeddedPostgres("inbound email service", () => {
     const companyId = await seedCompany();
     const first = await svc.createMailbox(companyId, {
       name: "First inbox",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1433,13 +1773,9 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
     await svc.createMailbox(companyId, {
       name: "Second inbox",
-      provider: "imap",
       enabled: false,
       host: "imap.example.com",
       port: 993,
@@ -1448,9 +1784,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
 
     const secretsBefore = await db.select().from(companySecretVersions);
@@ -1469,33 +1802,137 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
-  it("rejects mailbox project targets from another company", async () => {
-    const companyId = await seedCompany("Acme");
-    const otherCompanyId = await seedCompany("Other");
-    const [otherProject] = await db
-      .insert(projects)
-      .values({
-        companyId: otherCompanyId,
-        name: "Other project",
-        status: "planned",
-      })
-      .returning();
-
-    await expect(svc.createMailbox(companyId, {
-      name: "Unsafe inbox",
-      provider: "imap",
+  it("rolls back mailbox row changes when password rotation fails", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Rotation rollback",
       enabled: false,
       host: "imap.example.com",
       port: 993,
-      username: "unsafe@example.com",
+      username: "rollback@example.com",
+      password: "first-secret",
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: otherProject.id,
-      createMode: "issue",
-      markSeen: true,
-    })).rejects.toThrow("targetProjectId must belong to the same company");
-  });
+    });
+    await db.execute(sql`
+      create or replace function fail_inbound_mailbox_secret_rotation()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.version = 2 then
+          raise exception 'secret rotation failed';
+        end if;
+        return new;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_mailbox_secret_rotation
+      before insert on company_secret_versions
+      for each row
+      execute function fail_inbound_mailbox_secret_rotation();
+    `);
+
+    try {
+      await expect(
+        svc.updateMailbox(companyId, mailbox.id, {
+          name: "Rotation changed",
+          host: "mail.example.com",
+          password: "rotated-secret",
+        }),
+      ).rejects.toThrow(/Failed query: insert into "company_secret_versions"/);
+
+      const [stored] = await db
+        .select()
+        .from(inboundEmailMailboxes)
+        .where(eq(inboundEmailMailboxes.id, mailbox.id));
+      expect(stored).toMatchObject({
+        name: "Rotation rollback",
+        host: "imap.example.com",
+        username: "rollback@example.com",
+        passwordSecretName: `__inbound_email_password__:${mailbox.id}`,
+      });
+      const versions = await db
+        .select()
+        .from(companySecretVersions)
+        .where(eq(companySecretVersions.secretId, (await db
+          .select()
+          .from(companySecrets)
+          .where(eq(companySecrets.name, `__inbound_email_password__:${mailbox.id}`)))[0]!.id));
+      expect(versions).toHaveLength(1);
+      expect(versions[0].version).toBe(1);
+      expect(versions[0].status).toBe("current");
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_mailbox_secret_rotation on company_secret_versions;`);
+      await db.execute(sql`drop function if exists fail_inbound_mailbox_secret_rotation();`);
+    }
+  }, 20_000);
+
+  it("does not clear the mailbox secret when password clear reflection fails", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Clear rollback",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "clear@example.com",
+      password: "first-secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+    });
+    await db.execute(sql`
+      create or replace function fail_inbound_mailbox_password_clear()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.password_secret_name is null then
+          raise exception 'password clear reflection failed';
+        end if;
+        return new;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_mailbox_password_clear
+      before update of password_secret_name on inbound_email_mailboxes
+      for each row
+      execute function fail_inbound_mailbox_password_clear();
+    `);
+
+    try {
+      await expect(
+        svc.updateMailbox(companyId, mailbox.id, {
+          name: "Clear changed",
+          host: "mail.example.com",
+          password: null,
+        }),
+      ).rejects.toThrow(/Failed query: update "inbound_email_mailboxes"/);
+
+      const [stored] = await db
+        .select()
+        .from(inboundEmailMailboxes)
+        .where(eq(inboundEmailMailboxes.id, mailbox.id));
+      expect(stored).toMatchObject({
+        name: "Clear rollback",
+        host: "imap.example.com",
+        username: "clear@example.com",
+        passwordSecretName: `__inbound_email_password__:${mailbox.id}`,
+      });
+      const storedSecrets = await db
+        .select()
+        .from(companySecrets)
+        .where(eq(companySecrets.name, stored.passwordSecretName!));
+      expect(storedSecrets).toHaveLength(1);
+      expect(storedSecrets[0].status).toBe("active");
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_mailbox_password_clear on inbound_email_mailboxes;`);
+      await db.execute(sql`drop function if exists fail_inbound_mailbox_password_clear();`);
+    }
+  }, 20_000);
 
   it("reuses one IMAP session for in-poll disposition instead of reconnecting per message", async () => {
     const companyId = await seedCompany();
@@ -1674,15 +2111,13 @@ describeEmbeddedPostgres("inbound email service", () => {
         enabled: true,
         senderPattern: null,
         subjectPattern: null,
-        targetProjectId: null,
-        createMode: "issue",
         priority: "medium",
         labelIds: [foreignLabel.id],
       }),
     ).rejects.toThrow("labels are invalid");
   });
 
-  it("accepts rules whose labelIds all belong to the company", async () => {
+  it("accepts and normalizes rules whose labelIds all belong to the company", async () => {
     const companyId = await seedCompany();
     const [ownLabel] = await db
       .insert(labels)
@@ -1693,12 +2128,219 @@ describeEmbeddedPostgres("inbound email service", () => {
       enabled: true,
       senderPattern: null,
       subjectPattern: null,
-      targetProjectId: null,
-      createMode: "issue",
       priority: "medium",
-      labelIds: [ownLabel.id],
+      labelIds: [ownLabel.id, ownLabel.id],
     });
     expect(rule.labelIds).toEqual([ownLabel.id]);
+
+    const updated = await svc.updateRule(companyId, rule.id, { labelIds: [ownLabel.id, ownLabel.id] });
+    expect(updated.labelIds).toEqual([ownLabel.id]);
+  });
+
+  it("rejects rules that would not change processing", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    await expect(svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "client@example.com",
+      subjectPattern: null,
+      priority: "medium",
+      labelIds: [],
+    })).rejects.toThrow("must change priority or apply at least one label");
+
+    const rule = await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "client@example.com",
+      subjectPattern: null,
+      priority: "high",
+      labelIds: [],
+    });
+    await expect(svc.updateRule(companyId, rule.id, { priority: "medium", labelIds: [] }))
+      .rejects.toThrow("must change priority or apply at least one label");
+  });
+
+  it("skips legacy no-effect rules when selecting a matching processing rule", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "OC Importer");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    await db.insert(inboundEmailRules).values({
+      companyId,
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "oc-importer",
+      priority: "medium",
+      labelIds: [],
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "oc-importer",
+      priority: "high",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<legacy-noop-shadow@example.com>", subject: "Issue in oc-importer" }),
+      providerUid: "legacy-noop-shadow",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.priority).toBe("high");
+  }, 20_000);
+
+  it("rejects invalid inbound message list filters before querying", async () => {
+    const companyId = await seedCompany();
+
+    await expect(svc.listMessages(companyId, { status: "waiting" }))
+      .rejects.toMatchObject({ status: 422, message: "Invalid inbound email message status" });
+    await expect(svc.listMessages(companyId, { mailboxId: "not-a-uuid" }))
+      .rejects.toMatchObject({ status: 422, message: "Invalid inbound email mailbox filter" });
+  });
+
+  it("paginates inbound messages in newest-first order", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const first = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<oldest@example.com>", subject: "Oldest message" }),
+      providerUid: "oldest",
+      processAfterImport: false,
+    });
+    const second = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<middle@example.com>", subject: "Middle message" }),
+      providerUid: "middle",
+      processAfterImport: false,
+    });
+    const third = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<newest@example.com>", subject: "Newest message" }),
+      providerUid: "newest",
+      processAfterImport: false,
+    });
+    await db
+      .update(inboundEmailMessages)
+      .set({ createdAt: new Date("2026-05-21T10:00:00.000Z") })
+      .where(eq(inboundEmailMessages.id, first.message.id));
+    await db
+      .update(inboundEmailMessages)
+      .set({ createdAt: new Date("2026-05-21T11:00:00.000Z") })
+      .where(eq(inboundEmailMessages.id, second.message.id));
+    await db
+      .update(inboundEmailMessages)
+      .set({ createdAt: new Date("2026-05-21T12:00:00.000Z") })
+      .where(eq(inboundEmailMessages.id, third.message.id));
+
+    const pageOne = await svc.listMessages(companyId, { limit: 2, order: "desc" });
+
+    expect(pageOne.items.map((message) => message.subject)).toEqual([
+      "Newest message",
+      "Middle message",
+    ]);
+    expect(pageOne.nextCursor).toBeTruthy();
+
+    const pageTwo = await svc.listMessages(companyId, {
+      limit: 2,
+      order: "desc",
+      cursor: pageOne.nextCursor,
+    });
+    expect(pageTwo.items.map((message) => message.subject)).toEqual(["Oldest message"]);
+    expect(pageTwo.nextCursor).toBeNull();
+  }, 20_000);
+
+  it("logs mailbox and rule configuration mutations", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await svc.createMailbox(companyId, {
+      name: "Audited inbox",
+      enabled: false,
+      host: "imap.example.com",
+      port: 993,
+      username: "audit@example.com",
+      password: "secret",
+      folder: "INBOX",
+      tls: true,
+      pollIntervalSeconds: 60,
+    }, { userId: "board-user" });
+    await svc.updateMailbox(companyId, mailbox.id, { enabled: true }, { userId: "board-user" });
+    const rule = await svc.createRule(companyId, {
+      enabled: true,
+      senderPattern: "client@example.com",
+      subjectPattern: null,
+      priority: "high",
+      labelIds: [],
+    }, { userId: "board-user" });
+    await svc.updateRule(companyId, rule.id, { subjectPattern: "urgent" }, { userId: "board-user" });
+
+    const logs = await db.select().from(activityLog).where(eq(activityLog.companyId, companyId));
+    const byAction = new Map(logs.map((log) => [log.action, log]));
+
+    expect(byAction.get("inbound_email.mailbox_created")).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_mailbox",
+      entityId: mailbox.id,
+    });
+    expect(byAction.get("inbound_email.mailbox_updated")).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_mailbox",
+      entityId: mailbox.id,
+    });
+    expect(byAction.get("inbound_email.rule_created")).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_rule",
+      entityId: rule.id,
+    });
+    expect(byAction.get("inbound_email.rule_updated")).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_rule",
+      entityId: rule.id,
+    });
+  });
+
+  it("deletes inbound rules within the company boundary", async () => {
+    const companyId = await seedCompany();
+    const otherCompanyId = await seedCompany("Other Co");
+    const rule = await svc.createRule(companyId, {
+      enabled: true,
+      senderPattern: "client@example.com",
+      subjectPattern: null,
+      priority: "high",
+      labelIds: [],
+    });
+
+    await expect(svc.deleteRule(otherCompanyId, rule.id, { userId: "board-user" })).rejects.toThrow("Inbound email rule not found");
+    await svc.deleteRule(companyId, rule.id, { userId: "board-user" });
+
+    expect(await db.select().from(inboundEmailRules).where(eq(inboundEmailRules.id, rule.id))).toEqual([]);
+    const [event] = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "inbound_email.rule_deleted"));
+    expect(event).toMatchObject({
+      companyId,
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "inbound_email_rule",
+      entityId: rule.id,
+    });
   });
 
   it("builds a company-scoped inbound email ops dashboard from mailboxes, messages, and jobs", async () => {
@@ -1886,9 +2528,7 @@ describeEmbeddedPostgres("inbound email service", () => {
       enabled: true,
       senderPattern: null,
       subjectPattern: null,
-      targetProjectId: null,
-      createMode: "issue",
-      priority: "medium",
+      priority: "high",
       labelIds: [],
     });
     await svc.submitRawMessage({
@@ -1914,6 +2554,103 @@ describeEmbeddedPostgres("inbound email service", () => {
       .from(companySecrets)
       .where(eq(companySecrets.companyId, companyId));
     expect(liveSecretsAfter.find((s) => s.status === "active" && s.name === `__inbound_email_password__:${mailbox.id}`)).toBeUndefined();
+  }, 20_000);
+
+  it("does not clear the mailbox secret when mailbox deletion fails", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    await db.execute(sql`
+      create or replace function fail_inbound_mailbox_delete()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        raise exception 'mailbox delete failed';
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_mailbox_delete
+      before delete on inbound_email_mailboxes
+      for each row
+      execute function fail_inbound_mailbox_delete();
+    `);
+
+    try {
+      await expect(svc.deleteMailbox(companyId, mailbox.id)).rejects.toThrow(/Failed query: delete from "inbound_email_mailboxes"/);
+
+      const [storedMailbox] = await db
+        .select()
+        .from(inboundEmailMailboxes)
+        .where(eq(inboundEmailMailboxes.id, mailbox.id));
+      expect(storedMailbox.passwordSecretName).toBe(`__inbound_email_password__:${mailbox.id}`);
+      const storedSecrets = await db
+        .select()
+        .from(companySecrets)
+        .where(eq(companySecrets.name, storedMailbox.passwordSecretName!));
+      expect(storedSecrets).toHaveLength(1);
+      expect(storedSecrets[0].status).toBe("active");
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_mailbox_delete on inbound_email_mailboxes;`);
+      await db.execute(sql`drop function if exists fail_inbound_mailbox_delete();`);
+    }
+  }, 20_000);
+
+  it("does not fail mailbox deletion when post-delete secret cleanup fails", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    await db.execute(sql`
+      create or replace function fail_inbound_mailbox_secret_cleanup()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if old.name like '__inbound_email_password__:%__deleted__%' then
+          raise exception 'secret cleanup failed';
+        end if;
+        return old;
+      end;
+      $$;
+    `);
+    await db.execute(sql`
+      create trigger fail_inbound_mailbox_secret_cleanup
+      before delete on company_secrets
+      for each row
+      execute function fail_inbound_mailbox_secret_cleanup();
+    `);
+
+    try {
+      await expect(svc.deleteMailbox(companyId, mailbox.id, { userId: "board-user" })).resolves.toBeUndefined();
+
+      expect(await db.select().from(inboundEmailMailboxes).where(eq(inboundEmailMailboxes.id, mailbox.id))).toEqual([]);
+      const storedSecrets = await db
+        .select()
+        .from(companySecrets)
+        .where(eq(companySecrets.companyId, companyId));
+      const storedSecret = storedSecrets.find((secret) =>
+        secret.name.startsWith(`__inbound_email_password__:${mailbox.id}__deleted__`),
+      );
+      expect(storedSecret).toMatchObject({
+        status: "deleted",
+        name: expect.stringMatching(new RegExp(`^__inbound_email_password__:${mailbox.id}__deleted__`)),
+      });
+      const [event] = await db
+        .select()
+        .from(activityLog)
+        .where(eq(activityLog.action, "inbound_email.mailbox_deleted"));
+      expect(event).toMatchObject({
+        actorType: "user",
+        actorId: "board-user",
+        entityId: mailbox.id,
+        details: expect.objectContaining({
+          cleanupFailed: true,
+          cleanupError: expect.stringContaining("Failed query: delete from \"company_secrets\""),
+        }),
+      });
+    } finally {
+      await db.execute(sql`drop trigger if exists fail_inbound_mailbox_secret_cleanup on company_secrets;`);
+      await db.execute(sql`drop function if exists fail_inbound_mailbox_secret_cleanup();`);
+    }
   }, 20_000);
 
   it("retries a failed message by enqueueing a new process job", async () => {
@@ -1980,6 +2717,91 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(updated.lockedAt).toBeNull();
   }, 20_000);
 
+  it("logs operator attribution for manual poll, retry, and mailbox delete actions", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<operator-actions@example.com>" }),
+      providerUid: "operator-actions",
+      processAfterImport: false,
+    });
+    await db
+      .update(inboundEmailMessages)
+      .set({ status: "failed", error: "boom" })
+      .where(eq(inboundEmailMessages.id, imported.message.id));
+    const [failedJob] = await db
+      .insert(backgroundJobs)
+      .values({
+        companyId,
+        kind: "email.poll_mailbox",
+        status: "dead",
+        payload: { mailboxId: mailbox.id },
+        attempts: 3,
+        maxAttempts: 3,
+        lastError: "poll failed",
+      })
+      .returning();
+
+    await svc.enqueueMailboxPoll(companyId, mailbox.id, { userId: "board-user" });
+    await svc.retryMessage(companyId, imported.message.id, { userId: "board-user" });
+    await svc.retryJob(companyId, failedJob.id, { userId: "board-user" });
+    await svc.deleteMailbox(companyId, mailbox.id, { userId: "board-user" });
+
+    const logs = await db.select().from(activityLog).where(eq(activityLog.companyId, companyId));
+    for (const action of [
+      "inbound_email.mailbox_poll_requested",
+      "inbound_email.message_retried",
+      "inbound_email.job_retried",
+      "inbound_email.mailbox_deleted",
+    ]) {
+      expect(logs.find((log) => log.action === action)).toMatchObject({
+        actorType: "user",
+        actorId: "board-user",
+      });
+    }
+  }, 20_000);
+
+  it("returns the active dedupe peer when retrying an obsolete failed job", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const [failedJob] = await db
+      .insert(backgroundJobs)
+      .values({
+        companyId,
+        kind: "email.poll_mailbox",
+        status: "failed",
+        dedupeKey: `${mailbox.id}:manual`,
+        payload: { mailboxId: mailbox.id },
+        attempts: 3,
+        maxAttempts: 3,
+        lastError: "older failure",
+      })
+      .returning();
+    const activeJob = await svc.enqueueMailboxPoll(companyId, mailbox.id);
+
+    const retried = await svc.retryJob(companyId, failedJob.id, { userId: "board-user" });
+
+    expect(retried.id).toBe(activeJob.id);
+    const [storedFailedJob] = await db.select().from(backgroundJobs).where(eq(backgroundJobs.id, failedJob.id));
+    expect(storedFailedJob.status).toBe("failed");
+    const [event] = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.action, "inbound_email.job_retried"));
+    expect(event).toMatchObject({
+      actorType: "user",
+      actorId: "board-user",
+      entityType: "background_job",
+      entityId: failedJob.id,
+      details: expect.objectContaining({
+        activeJobId: activeJob.id,
+        reusedActiveJob: true,
+      }),
+    });
+  }, 20_000);
+
   it("rejects retryJob for a job that is not failed or dead", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
@@ -1988,11 +2810,10 @@ describeEmbeddedPostgres("inbound email service", () => {
     await expect(svc.retryJob(companyId, job.id)).rejects.toThrow(/Only failed or dead jobs/);
   }, 20_000);
 
-  it("dedupes mailbox poll scheduling within a single poll interval window", async () => {
+  it("dedupes mailbox poll scheduling and reports only newly inserted jobs", async () => {
     const companyId = await seedCompany();
     await svc.createMailbox(companyId, {
       name: "Scheduler dedupe",
-      provider: "imap",
       enabled: true,
       host: "imap.example.com",
       port: 993,
@@ -2001,9 +2822,6 @@ describeEmbeddedPostgres("inbound email service", () => {
       folder: "INBOX",
       tls: true,
       pollIntervalSeconds: 60,
-      targetProjectId: null,
-      createMode: "issue",
-      markSeen: true,
     });
 
     const fixedNow = new Date("2026-05-19T10:00:30Z");
@@ -2011,7 +2829,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     const enqueued2 = await svc.enqueueDueMailboxPollJobs(new Date(fixedNow.getTime() + 5_000));
 
     expect(enqueued1).toBe(1);
-    expect(enqueued2).toBe(1);
+    expect(enqueued2).toBe(0);
     const activeRows = await db.select().from(backgroundJobs);
     const active = activeRows.filter((r) => r.kind === "email.poll_mailbox" && (r.status === "pending" || r.status === "running" || r.status === "retrying"));
     expect(active.length).toBe(1);
@@ -2087,6 +2905,33 @@ describeEmbeddedPostgres("inbound email service", () => {
 });
 
 describe("inbound email validators", () => {
+  it("rejects removed legacy fields instead of silently stripping them", async () => {
+    const {
+      createInboundEmailMailboxSchema,
+      updateInboundEmailMailboxSchema,
+      createInboundEmailRuleSchema,
+      updateInboundEmailRuleSchema,
+      importInboundEmailMessageSchema,
+    } = await import("@paperclipai/shared");
+
+    const mailboxPayload = {
+      name: "Support",
+      host: "imap.example.com",
+      username: "support@example.com",
+    };
+    expect(createInboundEmailMailboxSchema.safeParse({ ...mailboxPayload, provider: "imap" }).success).toBe(false);
+    expect(updateInboundEmailMailboxSchema.safeParse({ markSeen: true }).success).toBe(false);
+    expect(createInboundEmailRuleSchema.safeParse({ targetProjectId: randomUUID() }).success).toBe(false);
+    expect(updateInboundEmailRuleSchema.safeParse({ createMode: "always" }).success).toBe(false);
+    expect(
+      importInboundEmailMessageSchema.safeParse({
+        mailboxId: "00000000-0000-0000-0000-000000000000",
+        rawEmail: "From: support@example.com\n\nhello",
+        provider: "imap",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects rawEmail payloads larger than 10MB", async () => {
     const { importInboundEmailMessageSchema } = await import("@paperclipai/shared");
     const oversized = "a".repeat(10_000_001);

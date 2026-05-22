@@ -219,12 +219,6 @@ function MailboxRow({
             {polling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Poll now
           </Button>
-          {item.mailbox.targetProjectId ? (
-            <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/projects/${item.mailbox.targetProjectId}`}>
-              <ExternalLink className="h-3 w-3" />
-              Project
-            </Link>
-          ) : null}
         </div>
       </div>
 
@@ -698,22 +692,29 @@ export function InboundEmailOps() {
     refetchInterval: 15_000,
   });
 
+  const invalidateInboundEmailState = (groups: Array<"ops" | "messages" | "jobs">) => {
+    if (!selectedCompanyId) return;
+    for (const group of groups) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail[group](selectedCompanyId) });
+    }
+  };
+
   const retryMessageMutation = useMutation({
     mutationFn: (messageId: string) => companiesApi.retryInboundEmailMessage(selectedCompanyId!, messageId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+      invalidateInboundEmailState(["ops", "messages", "jobs"]);
     },
   });
   const retryJobMutation = useMutation({
     mutationFn: (jobId: string) => companiesApi.retryInboundEmailJob(selectedCompanyId!, jobId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+      invalidateInboundEmailState(["ops", "messages", "jobs"]);
     },
   });
   const pollMailboxMutation = useMutation({
     mutationFn: (mailboxId: string) => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, mailboxId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.ops(selectedCompanyId ?? "") });
+      invalidateInboundEmailState(["ops", "messages", "jobs"]);
     },
   });
   const retryingId =

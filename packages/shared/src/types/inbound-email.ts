@@ -1,5 +1,3 @@
-export type InboundEmailProvider = "imap";
-export type InboundEmailCreateMode = "issue";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -18,7 +16,6 @@ export interface InboundEmailMailbox {
   id: string;
   companyId: string;
   name: string;
-  provider: InboundEmailProvider;
   enabled: boolean;
   host: string;
   port: number;
@@ -27,9 +24,6 @@ export interface InboundEmailMailbox {
   folder: string;
   tls: boolean;
   pollIntervalSeconds: number;
-  targetProjectId: string | null;
-  createMode: InboundEmailCreateMode;
-  markSeen: boolean;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;
@@ -46,8 +40,6 @@ export interface InboundEmailRule {
   enabled: boolean;
   senderPattern: string | null;
   subjectPattern: string | null;
-  targetProjectId: string | null;
-  createMode: InboundEmailCreateMode;
   priority: "critical" | "high" | "medium" | "low";
   labelIds: string[];
   createdAt: Date;
