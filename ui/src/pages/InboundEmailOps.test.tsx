@@ -762,6 +762,7 @@ describe("InboundEmailOps", () => {
           items: [
             makeExternalIntakeRecord({
               id: "external-intake-failed",
+              sourceKind: "object_storage",
               sourceId: "backup/failed.eml",
               sourceLocation: "s3://support-backup/failed.eml",
               status: "failed",
@@ -808,6 +809,48 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("backup/failed.eml");
     expect(container.textContent).toContain("s3://support-backup/failed.eml");
     expect(container.textContent).toContain("Message could not be parsed");
+    expect(container.textContent).toContain("Retry source");
+
+    const retrySourceButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Retry source"));
+    expect(retrySourceButton).toBeTruthy();
+
+    await act(async () => {
+      retrySourceButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const sourceIdInput = container.querySelector("#external-intake-source-id") as HTMLInputElement | null;
+    const sourceLocationInput = container.querySelector("#external-intake-source-location") as HTMLInputElement | null;
+    const rawEmailInput = container.querySelector("#external-intake-raw-email") as HTMLTextAreaElement | null;
+    expect(sourceIdInput?.value).toBe("backup/failed.eml");
+    expect(sourceLocationInput?.value).toBe("s3://support-backup/failed.eml");
+    expect(rawEmailInput).toBeTruthy();
+    expect(document.activeElement).toBe(rawEmailInput);
+
+    await act(async () => {
+      setTextareaValue(
+        rawEmailInput!,
+        "Message-ID: <retry-failed@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Retry\n\nBody",
+      );
+    });
+
+    const importButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Import preserved email"));
+    expect(importButton).toBeTruthy();
+
+    await act(async () => {
+      importButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.importExternalInboundEmailMessage).toHaveBeenCalledWith("company-1", {
+      mailboxId: "mailbox-1",
+      sourceKind: "object_storage",
+      sourceId: "backup/failed.eml",
+      sourceLocation: "s3://support-backup/failed.eml",
+      rawEmail: "Message-ID: <retry-failed@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Retry\n\nBody",
+    });
 
     const olderButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Older"));

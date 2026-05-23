@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -673,6 +673,7 @@ function ExternalIntakeRecovery({
   const [intakeStatus, setIntakeStatus] = useState<InboundEmailExternalIntakeStatus | "all">("all");
   const [intakeMailboxId, setIntakeMailboxId] = useState("all");
   const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const rawEmailRef = useRef<HTMLTextAreaElement | null>(null);
   const cursor = cursorStack[cursorStack.length - 1] ?? null;
 
   useEffect(() => {
@@ -736,6 +737,16 @@ function ExternalIntakeRecovery({
     event.preventDefault();
     batchImportMutation.reset();
     batchImportMutation.mutate();
+  };
+
+  const prepareRetry = (record: InboundEmailExternalIntakeRecord) => {
+    setMailboxId(record.mailboxId);
+    setSourceKind(record.sourceKind);
+    setSourceId(record.sourceId);
+    setSourceLocation(record.sourceLocation ?? "");
+    setRawEmail("");
+    importMutation.reset();
+    rawEmailRef.current?.focus();
   };
 
   const canSubmit = Boolean(mailboxId && sourceId.trim() && rawEmail.trim()) && !importMutation.isPending;
@@ -803,6 +814,7 @@ function ExternalIntakeRecovery({
             <label className="text-xs text-muted-foreground" htmlFor="external-intake-raw-email">Raw email</label>
             <Textarea
               id="external-intake-raw-email"
+              ref={rawEmailRef}
               className="min-h-36 font-mono text-xs"
               value={rawEmail}
               onChange={(event) => setRawEmail(event.target.value)}
@@ -970,8 +982,20 @@ function ExternalIntakeRecovery({
                   {record.sourceLocation ? <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{record.sourceLocation}</div> : null}
                   {record.error ? <div className="mt-1 break-words text-[11px] text-destructive">{record.error}</div> : null}
                 </div>
-                <div className="min-w-0 text-xs text-muted-foreground sm:text-right">
-                  {record.messageId ?? record.rawSha256.slice(0, 12)}
+                <div className="min-w-0 space-y-1 text-xs text-muted-foreground sm:text-right">
+                  <div>{record.messageId ?? record.rawSha256.slice(0, 12)}</div>
+                  {record.status === "failed" ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => prepareRetry(record)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Retry source
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}

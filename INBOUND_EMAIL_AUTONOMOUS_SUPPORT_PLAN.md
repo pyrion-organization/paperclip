@@ -965,6 +965,9 @@ foundation:
 - added an Inbound Email Ops recovery panel for operator paste/import, bounded
   batch JSON recovery, per-item batch result review, and filtered/paginated
   intake review,
+- added a failed-record retry handoff that preloads the mailbox, source kind,
+  source ID, and source location into the recovery form so operators can paste
+  the preserved raw `.eml` without retyping evidence fields,
 - routed imports through the existing raw inbound email importer so message
   dedupe, attachment recovery, processing jobs, classification, support replies,
   and issue creation stay centralized,

@@ -233,7 +233,8 @@ The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, recei
 5. Paste the raw `.eml` content into `Raw email`; optionally add the object path as `Source location`.
 6. For multiple preserved messages, paste batch JSON as either an array of message objects or `{ "messages": [...] }`. Items may omit `mailboxId` and `sourceKind` to inherit the selected defaults, but each item must include a stable `sourceId` and raw `.eml` `rawEmail`.
 7. Submit the import and confirm the batch item results and external intake records are `imported` or `duplicate`. Use the `Failed` filter and `Older` pagination to investigate any failed preserved messages before deleting the external backup.
-8. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
+8. For a failed external intake record, use **Retry source** to preload its mailbox, source ID, source kind, and source location, then paste the preserved raw `.eml` again.
+9. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
 
 Repeated imports are safe when the source ID and raw bytes are unchanged. Different backup sources that contain the same raw email are recorded separately as evidence but link to one inbound message through the existing message fingerprint dedupe.
 
