@@ -38,6 +38,11 @@ export const inboundEmailExternalIntakeSourceKindSchema = z.enum([
   "object_storage",
   "manual_recovery",
 ]);
+export const inboundEmailExternalSubmissionSourceKindSchema = z.enum([
+  "webhook",
+  "queue",
+  "object_storage",
+]);
 
 const DNS_HOSTNAME_RE =
   /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
@@ -137,3 +142,14 @@ export const importExternalInboundEmailMessagesBatchSchema = z.object({
 }).strict();
 
 export type ImportExternalInboundEmailMessagesBatch = z.infer<typeof importExternalInboundEmailMessagesBatchSchema>;
+
+export const submitExternalInboundEmailIntakeSchema = z.object({
+  sourceKind: inboundEmailExternalSubmissionSourceKindSchema,
+  sourceId: z.string().trim().min(1).max(500),
+  sourceLocation: z.string().trim().min(1).max(2000).nullable().optional(),
+  rawEmail: z.string().min(1).max(10_000_000),
+  receivedAt: z.coerce.date().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
+}).strict();
+
+export type SubmitExternalInboundEmailIntake = z.infer<typeof submitExternalInboundEmailIntakeSchema>;

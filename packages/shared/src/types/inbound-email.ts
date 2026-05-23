@@ -86,6 +86,8 @@ export interface InboundEmailMailbox {
   agentAutomationAssigneeId: string | null;
   agentAutomationMinConfidence: number;
   agentAutomationWakeEnabled: boolean;
+  externalIntakeEnabled: boolean;
+  externalIntakeTokenHint: string | null;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;

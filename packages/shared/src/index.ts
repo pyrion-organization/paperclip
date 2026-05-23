@@ -1246,6 +1246,7 @@ export {
   inboundEmailProjectFallbackModeSchema,
   inboundEmailMessageStatusSchema,
   inboundEmailExternalIntakeSourceKindSchema,
+  inboundEmailExternalSubmissionSourceKindSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
   createInboundEmailRuleSchema,
@@ -1253,6 +1254,7 @@ export {
   importInboundEmailMessageSchema,
   importExternalInboundEmailMessageSchema,
   importExternalInboundEmailMessagesBatchSchema,
+  submitExternalInboundEmailIntakeSchema,
   type CreateInboundEmailMailbox,
   type UpdateInboundEmailMailbox,
   type CreateInboundEmailRule,
@@ -1260,6 +1262,7 @@ export {
   type ImportInboundEmailMessage,
   type ImportExternalInboundEmailMessage,
   type ImportExternalInboundEmailMessagesBatch,
+  type SubmitExternalInboundEmailIntake,
 } from "./validators/inbound-email.js";
 
 export type {

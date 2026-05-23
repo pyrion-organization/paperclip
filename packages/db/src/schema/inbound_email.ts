@@ -83,6 +83,8 @@ export const inboundEmailMailboxes = pgTable(
     agentAutomationAssigneeId: uuid("agent_automation_assignee_id").references(() => agents.id, { onDelete: "set null" }),
     agentAutomationMinConfidence: integer("agent_automation_min_confidence").notNull().default(80),
     agentAutomationWakeEnabled: boolean("agent_automation_wake_enabled").notNull().default(true),
+    externalIntakeTokenHash: text("external_intake_token_hash"),
+    externalIntakeTokenHint: text("external_intake_token_hint"),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -96,6 +98,9 @@ export const inboundEmailMailboxes = pgTable(
       table.lastPollAt,
     ),
     companyNameUq: uniqueIndex("inbound_email_mailboxes_company_name_uq").on(table.companyId, table.name),
+    externalIntakeTokenHashUq: uniqueIndex("inbound_email_mailboxes_external_intake_token_hash_uq").on(
+      table.externalIntakeTokenHash,
+    ),
   }),
 );
 

@@ -144,6 +144,8 @@ function makeDashboard(): InboundEmailOpsDashboard {
           agentAutomationAssigneeId: null,
           agentAutomationMinConfidence: 80,
           agentAutomationWakeEnabled: true,
+          externalIntakeEnabled: false,
+          externalIntakeTokenHint: null,
           lastPollAt: new Date("2026-05-19T11:55:00.000Z"),
           lastSuccessAt: new Date("2026-05-19T11:50:00.000Z"),
           lastError: "IMAP authentication failed",

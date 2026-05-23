@@ -15,6 +15,8 @@ const mockCompaniesApi = vi.hoisted(() => ({
   saveInboundEmailMailbox: vi.fn(),
   testInboundEmailMailbox: vi.fn(),
   deleteInboundEmailMailbox: vi.fn(),
+  rotateInboundEmailExternalIntakeToken: vi.fn(),
+  revokeInboundEmailExternalIntakeToken: vi.fn(),
   pollInboundEmailMailbox: vi.fn(),
   listInboundEmailMessages: vi.fn(),
   listInboundEmailRules: vi.fn(),
@@ -110,6 +112,8 @@ function makeMailbox(overrides: Partial<InboundEmailMailbox> = {}): InboundEmail
     agentAutomationAssigneeId: null,
     agentAutomationMinConfidence: 80,
     agentAutomationWakeEnabled: true,
+    externalIntakeEnabled: false,
+    externalIntakeTokenHint: null,
     lastPollAt: null,
     lastSuccessAt: null,
     lastError: null,
@@ -169,6 +173,11 @@ describe("CompanyEmailSettings", () => {
     }));
     mockCompaniesApi.testInboundEmailMailbox.mockResolvedValue({ ok: true });
     mockCompaniesApi.deleteInboundEmailMailbox.mockResolvedValue(undefined);
+    mockCompaniesApi.rotateInboundEmailExternalIntakeToken.mockResolvedValue({
+      mailbox: makeMailbox({ externalIntakeEnabled: true, externalIntakeTokenHint: "toknhint" }),
+      token: "pcemail_test_token_with_enough_entropy",
+    });
+    mockCompaniesApi.revokeInboundEmailExternalIntakeToken.mockResolvedValue(makeMailbox());
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "job-1", status: "pending" });
     mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({ items: [], nextCursor: null });
     mockCompaniesApi.listInboundEmailRules.mockResolvedValue({ items: [], nextCursor: null });
@@ -346,6 +355,50 @@ describe("CompanyEmailSettings", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "rules"] });
+  });
+
+  it("rotates and revokes an external intake token", async () => {
+    let currentMailbox = makeMailbox();
+    mockCompaniesApi.listInboundEmailMailboxes.mockImplementation(async () => ({
+      items: [currentMailbox],
+      nextCursor: null,
+    }));
+    mockCompaniesApi.rotateInboundEmailExternalIntakeToken.mockImplementation(async () => {
+      currentMailbox = makeMailbox({ externalIntakeEnabled: true, externalIntakeTokenHint: "toknhint" });
+      return {
+        mailbox: currentMailbox,
+        token: "pcemail_test_token_with_enough_entropy",
+      };
+    });
+    mockCompaniesApi.revokeInboundEmailExternalIntakeToken.mockImplementation(async () => {
+      currentMailbox = makeMailbox();
+      return currentMailbox;
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await renderPage();
+
+    expect((container.querySelector("[data-testid='company-settings-inbound-external-intake-endpoint']") as HTMLInputElement).value)
+      .toBe("/api/external/inbound-email/mailboxes/mailbox-1/intake");
+
+    await act(async () => {
+      (container.querySelector("[data-testid='company-settings-inbound-external-intake-rotate']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.rotateInboundEmailExternalIntakeToken).toHaveBeenCalledWith("company-1", "mailbox-1");
+    expect(container.textContent).toContain("Enabled, token ending toknhint");
+    expect((container.querySelector("[data-testid='company-settings-inbound-external-intake-token']") as HTMLInputElement).value)
+      .toBe("pcemail_test_token_with_enough_entropy");
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "mailboxes"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+
+    await act(async () => {
+      (container.querySelector("[data-testid='company-settings-inbound-external-intake-revoke']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.revokeInboundEmailExternalIntakeToken).toHaveBeenCalledWith("company-1", "mailbox-1");
+    expect(container.textContent).toContain("Disabled");
   });
 
   it("disables mailbox actions that the inbound email API would reject", async () => {

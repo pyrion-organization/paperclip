@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -38,6 +38,7 @@ import type {
   InboundEmailOpsMailboxHealth,
   InboundEmailOpsMessage,
   InboundEmailOpsMessageSummary,
+  SubmitExternalInboundEmailIntake,
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
@@ -248,14 +249,29 @@ function secretNameForMailbox(mailboxId: string): string {
   return `${INBOUND_EMAIL_PASSWORD_SECRET_PREFIX}:${mailboxId}`;
 }
 
+function hashExternalIntakeToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function externalIntakeTokenMatches(expectedHash: string | null | undefined, token: string) {
+  if (!expectedHash || !token) return false;
+  const actual = Buffer.from(hashExternalIntakeToken(token), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function generateExternalIntakeToken() {
+  return `pcemail_${randomBytes(32).toString("base64url")}`;
+}
+
 function scheduledMailboxPollDedupeKey(mailboxId: string): string {
   return `${mailboxId}:scheduled`;
 }
 
 type RawMailboxRow = typeof inboundEmailMailboxes.$inferSelect;
 type RedactedMailbox =
-  & Omit<RawMailboxRow, "passwordSecretName">
-  & { passwordSet: boolean };
+  & Omit<RawMailboxRow, "passwordSecretName" | "externalIntakeTokenHash">
+  & { passwordSet: boolean; externalIntakeEnabled: boolean };
 type SenderClient = { id: string; name: string };
 type SenderEmployee = { id: string; name: string; role: string; email: string; projectScope: string };
 type SenderIdentity =
@@ -282,10 +298,11 @@ const SUPPORT_REPLY_REASON_BY_CATEGORY: Partial<Record<InboundEmailClassificatio
 };
 
 function redactMailbox(row: RawMailboxRow): RedactedMailbox {
-  const { passwordSecretName, ...safeRow } = row;
+  const { passwordSecretName, externalIntakeTokenHash, ...safeRow } = row;
   return {
     ...safeRow,
     passwordSet: Boolean(passwordSecretName),
+    externalIntakeEnabled: Boolean(externalIntakeTokenHash),
   };
 }
 
@@ -927,6 +944,14 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       .then((rows) => rows[0] ?? null);
     if (!mailbox) throw notFound("Inbound email mailbox not found");
     return mailbox;
+  }
+
+  async function findMailboxById(mailboxId: string) {
+    return db
+      .select()
+      .from(inboundEmailMailboxes)
+      .where(eq(inboundEmailMailboxes.id, mailboxId))
+      .then((rows) => rows[0] ?? null);
   }
 
   async function resolveMailboxPassword(mailbox: typeof inboundEmailMailboxes.$inferSelect): Promise<string | null> {
@@ -2566,6 +2591,69 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return redactMailbox(finalMailbox);
     },
 
+    rotateExternalIntakeToken: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ): Promise<{ mailbox: MailboxView; token: string }> => {
+      await loadMailbox(companyId, mailboxId);
+      const token = generateExternalIntakeToken();
+      const tokenHint = token.slice(-8);
+      const [mailbox] = await db
+        .update(inboundEmailMailboxes)
+        .set({
+          externalIntakeTokenHash: hashExternalIntakeToken(token),
+          externalIntakeTokenHint: tokenHint,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
+        .returning();
+      if (!mailbox) throw notFound("Inbound email mailbox not found");
+
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.external_intake_token_rotated",
+        entityType: "inbound_email_mailbox",
+        entityId: mailbox.id,
+        details: {
+          mailboxId: mailbox.id,
+          tokenHint,
+        },
+      });
+
+      return { mailbox: redactMailbox(mailbox), token };
+    },
+
+    revokeExternalIntakeToken: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ): Promise<MailboxView> => {
+      await loadMailbox(companyId, mailboxId);
+      const [mailbox] = await db
+        .update(inboundEmailMailboxes)
+        .set({
+          externalIntakeTokenHash: null,
+          externalIntakeTokenHint: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
+        .returning();
+      if (!mailbox) throw notFound("Inbound email mailbox not found");
+
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.external_intake_token_revoked",
+        entityType: "inbound_email_mailbox",
+        entityId: mailbox.id,
+        details: { mailboxId: mailbox.id },
+      });
+
+      return redactMailbox(mailbox);
+    },
+
     deleteMailbox: async (
       companyId: string,
       mailboxId: string,
@@ -3259,6 +3347,28 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           status: "failed" as const,
         };
       }
+    },
+
+    submitExternalIntakeMessageWithToken: async (
+      mailboxId: string,
+      token: string,
+      input: SubmitExternalInboundEmailIntake,
+    ) => {
+      const mailbox = await findMailboxById(mailboxId);
+      if (!mailbox || !externalIntakeTokenMatches(mailbox.externalIntakeTokenHash, token)) {
+        return null;
+      }
+
+      return api.submitExternalIntakeMessage(mailbox.companyId, {
+        mailboxId: mailbox.id,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation: input.sourceLocation ?? null,
+        rawEmail: input.rawEmail,
+        receivedAt: input.receivedAt ?? null,
+        processAfterImport: true,
+        metadata: input.metadata ?? {},
+      });
     },
 
     submitExternalIntakeMessagesBatch: async (

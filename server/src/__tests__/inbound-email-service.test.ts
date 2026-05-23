@@ -35,6 +35,7 @@ import {
 } from "./helpers/embedded-postgres.js";
 import { inboundEmailService } from "../services/inbound-email.ts";
 import { inboundEmailRoutes } from "../routes/inbound-email.ts";
+import { errorHandler } from "../middleware/error-handler.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
@@ -3751,6 +3752,118 @@ describeEmbeddedPostgres("inbound email service", () => {
         { sourceId: "operator-recovery-batch-2", status: "imported" },
       ],
     });
+  });
+
+  it("accepts token-protected external intake submissions through the public route", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const app = express();
+    app.use(express.json({ limit: "11mb" }));
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db));
+    app.use(errorHandler);
+
+    const tokenRes = await request(app)
+      .post(`/companies/${companyId}/inbound-email/mailboxes/${mailbox.id}/external-intake-token`)
+      .expect(201);
+
+    expect(tokenRes.body.token).toMatch(/^pcemail_/);
+    expect(tokenRes.body.mailbox).toMatchObject({
+      id: mailbox.id,
+      externalIntakeEnabled: true,
+      externalIntakeTokenHint: tokenRes.body.token.slice(-8),
+    });
+    expect(tokenRes.body.mailbox).not.toHaveProperty("externalIntakeTokenHash");
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-missing-token",
+        rawEmail: rawEmail({ messageId: "<external-missing-token@example.com>" }),
+      })
+      .expect(401);
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", "Bearer wrong-token")
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-wrong-token",
+        rawEmail: rawEmail({ messageId: "<external-wrong-token@example.com>" }),
+      })
+      .expect(404);
+
+    const importRes = await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-event-1",
+        sourceLocation: "https://backup.example.com/events/webhook-event-1",
+        rawEmail: rawEmail({ messageId: "<external-webhook-1@example.com>" }),
+        metadata: { provider: "backup-webhook" },
+      })
+      .expect(201);
+
+    expect(importRes.body).toMatchObject({
+      status: "imported",
+      intakeRecord: {
+        sourceKind: "webhook",
+        sourceId: "webhook-event-1",
+        sourceLocation: "https://backup.example.com/events/webhook-event-1",
+        status: "imported",
+        metadata: { provider: "backup-webhook" },
+      },
+    });
+
+    const duplicateRes = await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("X-Paperclip-External-Intake-Token", tokenRes.body.token)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-event-1",
+        rawEmail: rawEmail({ messageId: "<external-webhook-1@example.com>" }),
+      })
+      .expect(201);
+
+    expect(duplicateRes.body).toMatchObject({
+      status: "imported",
+      intakeRecord: { id: importRes.body.intakeRecord.id },
+      message: { id: importRes.body.message.id },
+    });
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "manual_recovery",
+        sourceId: "not-allowed-publicly",
+        rawEmail: rawEmail({ messageId: "<manual-not-allowed@example.com>" }),
+      })
+      .expect(400);
+
+    await request(app)
+      .delete(`/companies/${companyId}/inbound-email/mailboxes/${mailbox.id}/external-intake-token`)
+      .expect(200);
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "queue",
+        sourceId: "queue-after-revoke",
+        rawEmail: rawEmail({ messageId: "<queue-after-revoke@example.com>" }),
+      })
+      .expect(404);
   });
 
   it("deletes a mailbox, soft-deletes its secret, and cascades dependent rows", async () => {

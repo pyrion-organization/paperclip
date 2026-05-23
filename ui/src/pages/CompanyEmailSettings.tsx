@@ -119,6 +119,7 @@ export function CompanyEmailSettings() {
   const [inboundAgentAutomationAssigneeId, setInboundAgentAutomationAssigneeId] = useState("");
   const [inboundAgentAutomationMinConfidence, setInboundAgentAutomationMinConfidence] = useState("80");
   const [inboundAgentAutomationWakeEnabled, setInboundAgentAutomationWakeEnabled] = useState(true);
+  const [externalIntakeToken, setExternalIntakeToken] = useState("");
 
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>(emptyRuleDraft);
 
@@ -192,6 +193,7 @@ export function CompanyEmailSettings() {
       setInboundAgentAutomationAssigneeId("");
       setInboundAgentAutomationMinConfidence("80");
       setInboundAgentAutomationWakeEnabled(true);
+      setExternalIntakeToken("");
       return;
     }
     setInboundName(mailbox.name);
@@ -211,6 +213,7 @@ export function CompanyEmailSettings() {
     setInboundAgentAutomationAssigneeId(mailbox.agentAutomationAssigneeId ?? "");
     setInboundAgentAutomationMinConfidence(String(mailbox.agentAutomationMinConfidence));
     setInboundAgentAutomationWakeEnabled(mailbox.agentAutomationWakeEnabled);
+    setExternalIntakeToken("");
   };
 
   useEffect(() => {
@@ -323,6 +326,18 @@ export function CompanyEmailSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail[group](selectedCompanyId) });
     }
   };
+  const replaceInboundMailboxInCache = (mailbox: InboundEmailMailbox) => {
+    if (!selectedCompanyId) return;
+    queryClient.setQueryData(
+      queryKeys.inboundEmail.mailboxes(selectedCompanyId),
+      (current: { items: InboundEmailMailbox[]; nextCursor: string | null } | undefined) => current
+        ? {
+          ...current,
+          items: current.items.map((item) => item.id === mailbox.id ? mailbox : item),
+        }
+        : current,
+    );
+  };
 
   const inboundSaveMutation = useMutation({
     mutationFn: () => {
@@ -364,6 +379,24 @@ export function CompanyEmailSettings() {
     mutationFn: () => companiesApi.deleteInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: () => {
       invalidateInboundEmailState(["mailboxes", "messages", "jobs", "ops", "rules"]);
+    },
+  });
+  const rotateExternalIntakeTokenMutation = useMutation({
+    mutationFn: () => companiesApi.rotateInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: (result) => {
+      replaceInboundMailboxInCache(result.mailbox);
+      applyInboundMailboxToForm(result.mailbox);
+      setExternalIntakeToken(result.token);
+      invalidateInboundEmailState(["mailboxes", "ops"]);
+    },
+  });
+  const revokeExternalIntakeTokenMutation = useMutation({
+    mutationFn: () => companiesApi.revokeInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: (mailbox) => {
+      replaceInboundMailboxInCache(mailbox);
+      setExternalIntakeToken("");
+      applyInboundMailboxToForm(mailbox);
+      invalidateInboundEmailState(["mailboxes", "ops"]);
     },
   });
 
@@ -417,6 +450,9 @@ export function CompanyEmailSettings() {
   const labelNameById = useMemo(() => new Map(labelOptions.map((label) => [label.id, label.name])), [labelOptions]);
   const canTestInboundMailbox = Boolean(primaryInboundMailbox?.passwordSet);
   const canPollInboundMailbox = Boolean(primaryInboundMailbox?.enabled && primaryInboundMailbox.passwordSet);
+  const externalIntakeEndpoint = primaryInboundMailbox
+    ? `/api/external/inbound-email/mailboxes/${primaryInboundMailbox.id}/intake`
+    : "";
 
   if (!selectedCompany) {
     return (
@@ -620,6 +656,72 @@ export function CompanyEmailSettings() {
                   disabled={!inboundAgentAutomationEnabled}
                 />
               </Field>
+            </div>
+          </div>
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-medium">External intake endpoint</div>
+              <p className="text-xs text-muted-foreground">
+                Token-protected webhook, queue, or object-storage backups can submit preserved raw emails here. The token is shown once when rotated.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  data-testid="company-settings-inbound-external-intake-endpoint"
+                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none"
+                  type="text"
+                  readOnly
+                  value={externalIntakeEndpoint}
+                  placeholder="Save an inbound mailbox to create an endpoint"
+                />
+                <Button
+                  data-testid="company-settings-inbound-external-intake-rotate"
+                  size="sm"
+                  variant="outline"
+                  disabled={!primaryInboundMailbox || rotateExternalIntakeTokenMutation.isPending}
+                  onClick={() => rotateExternalIntakeTokenMutation.mutate()}
+                >
+                  {primaryInboundMailbox?.externalIntakeEnabled ? "Rotate token" : "Create token"}
+                </Button>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <span className="text-xs text-muted-foreground">
+                  {primaryInboundMailbox?.externalIntakeEnabled
+                    ? `Enabled, token ending ${primaryInboundMailbox.externalIntakeTokenHint ?? "unknown"}`
+                    : "Disabled"}
+                </span>
+                {primaryInboundMailbox?.externalIntakeEnabled ? (
+                  <Button
+                    data-testid="company-settings-inbound-external-intake-revoke"
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-destructive sm:w-auto"
+                    disabled={revokeExternalIntakeTokenMutation.isPending}
+                    onClick={() => revokeExternalIntakeTokenMutation.mutate()}
+                  >
+                    Revoke token
+                  </Button>
+                ) : null}
+              </div>
+              {externalIntakeToken ? (
+                <Field label="New token" hint="Store it in the external backup system now. It will not be shown again.">
+                  <input
+                    data-testid="company-settings-inbound-external-intake-token"
+                    className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none"
+                    type="text"
+                    readOnly
+                    value={externalIntakeToken}
+                  />
+                </Field>
+              ) : null}
+              {rotateExternalIntakeTokenMutation.isError || revokeExternalIntakeTokenMutation.isError ? (
+                <span className="block min-w-0 break-words text-xs text-destructive">
+                  {(rotateExternalIntakeTokenMutation.error ?? revokeExternalIntakeTokenMutation.error) instanceof Error
+                    ? (rotateExternalIntakeTokenMutation.error ?? revokeExternalIntakeTokenMutation.error)?.message
+                    : "External intake token action failed"}
+                </span>
+              ) : null}
             </div>
           </div>
           {!inboundValid && <span className="text-xs text-destructive">Enter valid mailbox settings. Agent automation also requires an assignee and a confidence from 0 to 100 when enabled.</span>}

@@ -953,6 +953,11 @@ foundation:
 - added `webhook`, `queue`, `object_storage`, and `manual_recovery` source
   kinds,
 - added board API import/list endpoints for external intake records,
+- added per-mailbox external intake tokens with one-time token reveal, stored
+  hash/hint, and board rotate/revoke controls,
+- added a narrow public external intake endpoint for webhook, queue, and
+  object-storage backup systems to submit preserved raw emails without board,
+  agent, deploy, or infra authority,
 - added an Inbound Email Ops recovery panel for operator paste/import, bounded
   batch JSON recovery, and recent intake review,
 - routed imports through the existing raw inbound email importer so message

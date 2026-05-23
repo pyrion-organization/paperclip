@@ -6,6 +6,7 @@ import {
   importExternalInboundEmailMessageSchema,
   importExternalInboundEmailMessagesBatchSchema,
   importInboundEmailMessageSchema,
+  submitExternalInboundEmailIntakeSchema,
   updateInboundEmailMailboxSchema,
   updateInboundEmailRuleSchema,
 } from "@paperclipai/shared";
@@ -42,9 +43,38 @@ function pageOptions(req: Request): ListPageOptions {
   };
 }
 
+function externalIntakeTokenFromRequest(req: Request) {
+  const auth = req.header("authorization");
+  if (auth?.toLowerCase().startsWith("bearer ")) {
+    return auth.slice("bearer ".length).trim();
+  }
+  return req.header("x-paperclip-external-intake-token")?.trim() ?? "";
+}
+
 export function inboundEmailRoutes(db: Db, storage?: StorageService) {
   const router = Router();
   const svc = inboundEmailService(db, storage);
+
+  router.post(
+    "/external/inbound-email/mailboxes/:mailboxId/intake",
+    validate(submitExternalInboundEmailIntakeSchema),
+    async (req, res) => {
+      const mailboxId = req.params.mailboxId as string;
+      const token = externalIntakeTokenFromRequest(req);
+      if (!token) {
+        res.status(401).json({ error: "External inbound email intake token required" });
+        return;
+      }
+
+      const result = await svc.submitExternalIntakeMessageWithToken(mailboxId, token, req.body);
+      if (!result) {
+        res.status(404).json({ error: "Inbound email mailbox not found" });
+        return;
+      }
+      const statusCode = EXTERNAL_INTAKE_STATUS_CODES[result.status as keyof typeof EXTERNAL_INTAKE_STATUS_CODES] ?? 500;
+      res.status(statusCode).json(result);
+    },
+  );
 
   router.get("/companies/:companyId/inbound-email/mailboxes", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -91,6 +121,24 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     assertBoard(req);
     await svc.deleteMailbox(companyId, mailboxId, inboundEmailActorFromRequest(req));
     res.status(204).end();
+  });
+
+  router.post("/companies/:companyId/inbound-email/mailboxes/:mailboxId/external-intake-token", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const mailboxId = req.params.mailboxId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const result = await svc.rotateExternalIntakeToken(companyId, mailboxId, inboundEmailActorFromRequest(req));
+    res.status(201).json(result);
+  });
+
+  router.delete("/companies/:companyId/inbound-email/mailboxes/:mailboxId/external-intake-token", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const mailboxId = req.params.mailboxId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const mailbox = await svc.revokeExternalIntakeToken(companyId, mailboxId, inboundEmailActorFromRequest(req));
+    res.json(mailbox);
   });
 
   router.post(

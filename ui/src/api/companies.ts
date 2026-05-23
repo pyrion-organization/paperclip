@@ -157,6 +157,15 @@ export const companiesApi = {
     api.post<{ ok: true }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/test`, {}),
   deleteInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.delete<void>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}`),
+  rotateInboundEmailExternalIntakeToken: (companyId: string, mailboxId: string) =>
+    api.post<{ mailbox: InboundEmailMailbox; token: string }>(
+      `/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/external-intake-token`,
+      {},
+    ),
+  revokeInboundEmailExternalIntakeToken: (companyId: string, mailboxId: string) =>
+    api.delete<InboundEmailMailbox>(
+      `/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/external-intake-token`,
+    ),
   retryInboundEmailMessage: (companyId: string, messageId: string) =>
     api.post<{ id: string; status: string }>(
       `/companies/${companyId}/inbound-email/messages/${messageId}/retry`,
