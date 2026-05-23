@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, index, uniqueIndex, boolean } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { projects } from "./projects.js";
 import { issues } from "./issues.js";
@@ -18,6 +18,8 @@ export const projectDeploymentTargets = pgTable(
     healthCheckUrl: text("health_check_url"),
     deployNotes: text("deploy_notes"),
     rollbackInstructions: text("rollback_instructions"),
+    maintenanceUpdatesEnabled: boolean("maintenance_updates_enabled").notNull().default(false),
+    maintenanceRecipients: jsonb("maintenance_recipients").$type<string[]>().notNull().default([]),
     status: text("status").notNull().default("active"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -50,6 +52,11 @@ export const projectDeployEvents = pgTable(
     testsRun: jsonb("tests_run").$type<string[]>().notNull().default([]),
     rollbackPlan: text("rollback_plan").notNull(),
     maintenanceMessage: text("maintenance_message"),
+    maintenanceMessageStatus: text("maintenance_message_status"),
+    maintenanceMessageRecipients: jsonb("maintenance_message_recipients").$type<string[]>().notNull().default([]),
+    maintenanceMessageAttemptedAt: timestamp("maintenance_message_attempted_at", { withTimezone: true }),
+    maintenanceMessageSentAt: timestamp("maintenance_message_sent_at", { withTimezone: true }),
+    maintenanceMessageError: text("maintenance_message_error"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdByAgentId: uuid("created_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
     createdByUserId: text("created_by_user_id"),

@@ -14,6 +14,7 @@ import {
   projectFileSaveSchema,
   projectFilesPathSchema,
   recordProjectDeployEventStatusSchema,
+  sendProjectDeployMaintenanceMessageSchema,
   createProjectWorkspaceSchema,
   findWorkspaceCommandDefinition,
   isUuidLike,
@@ -43,6 +44,7 @@ import {
   collectProjectWorkspaceCommandPaths,
 } from "./workspace-command-authz.js";
 import { assertCanManageProjectWorkspaceRuntimeServices } from "./workspace-runtime-service-authz.js";
+import { sendProjectDeployMaintenanceEmailWithResult } from "../services/email.js";
 import { getTelemetryClient } from "../telemetry.js";
 import { appendWithCap } from "../adapters/utils.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
@@ -529,6 +531,125 @@ export function projectRoutes(db: Db) {
       });
 
       res.json(updated);
+    },
+  );
+
+  router.post(
+    "/projects/:id/deploy-events/:deployEventId/maintenance-message",
+    validate(sendProjectDeployMaintenanceMessageSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const deployEventId = req.params.deployEventId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const deployEvent = await svc.getDeployEvent(id, deployEventId);
+      if (!deployEvent || deployEvent.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deploy event not found" });
+        return;
+      }
+      if (deployEvent.maintenanceMessageStatus === "sent") {
+        res.json(deployEvent);
+        return;
+      }
+      if (!deployEvent.approvalId) {
+        res.status(422).json({ error: "Deploy event is not linked to an approval" });
+        return;
+      }
+      if (!deployEvent.deploymentTargetId) {
+        res.status(422).json({ error: "Deploy event is not linked to a deployment target" });
+        return;
+      }
+
+      const [approval, deploymentTarget, issue] = await Promise.all([
+        approvalsSvc.getById(deployEvent.approvalId),
+        svc.getDeploymentTarget(id, deployEvent.deploymentTargetId),
+        deployEvent.issueId ? issuesSvc.getById(deployEvent.issueId) : Promise.resolve(null),
+      ]);
+      if (!approval || approval.companyId !== project.companyId || approval.type !== "deploy_change") {
+        res.status(404).json({ error: "Deploy approval not found" });
+        return;
+      }
+      if (approval.status !== "approved") {
+        res.status(422).json({ error: "Deploy maintenance messages require approved deploy approval" });
+        return;
+      }
+      if (req.actor.type === "agent" && approval.requestedByAgentId !== req.actor.agentId) {
+        throw forbidden("Only the requesting agent can send this deploy maintenance message");
+      }
+      if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deployment target not found" });
+        return;
+      }
+      if (!deploymentTarget.maintenanceUpdatesEnabled) {
+        res.status(422).json({ error: "Maintenance updates are not enabled for this deployment target" });
+        return;
+      }
+      const recipients = deploymentTarget.maintenanceRecipients.filter((value) => value.trim().length > 0);
+      if (recipients.length === 0) {
+        res.status(422).json({ error: "Deployment target has no maintenance recipients" });
+        return;
+      }
+      const allowedStatuses = new Set(["deploying", "deployed", "failed", "rolled_back"]);
+      if (!allowedStatuses.has(deployEvent.status)) {
+        res.status(422).json({ error: `Cannot send maintenance message for deploy event status ${deployEvent.status}` });
+        return;
+      }
+      const message = String(req.body.message ?? deployEvent.maintenanceMessage ?? "").trim();
+      if (!message) {
+        res.status(422).json({ error: "Maintenance message is required" });
+        return;
+      }
+
+      const result = await sendProjectDeployMaintenanceEmailWithResult({
+        to: recipients,
+        projectName: project.name,
+        targetName: deploymentTarget.name,
+        targetEnvironment: deploymentTarget.environment,
+        deployStatus: deployEvent.status,
+        message,
+        issueIdentifier: issue?.identifier ?? null,
+        issueTitle: issue?.title ?? null,
+        approvalId: approval.id,
+        deployEventId: deployEvent.id,
+        db,
+        companyId: project.companyId,
+      });
+      const updated = await svc.recordDeployMaintenanceMessageDelivery(id, deployEvent.id, {
+        status: result.status === "sent" ? "sent" : result.status === "skipped" ? "skipped" : "failed",
+        recipients,
+        sentAt: result.status === "sent" ? new Date() : null,
+        error:
+          result.status === "failed"
+            ? result.error
+            : result.status === "skipped"
+              ? result.reason
+              : null,
+      });
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.deploy_maintenance_message_attempted",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          deployEventId: deployEvent.id,
+          approvalId: approval.id,
+          status: result.status,
+          recipientCount: recipients.length,
+          error: result.status === "failed" ? result.error : result.status === "skipped" ? result.reason : null,
+        },
+      });
+
+      res.json(updated ?? deployEvent);
     },
   );
 

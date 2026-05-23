@@ -9,6 +9,7 @@ const mockProjectService = vi.hoisted(() => ({
   getDeployEvent: vi.fn(),
   createDeployEvent: vi.fn(),
   updateDeployEventStatus: vi.fn(),
+  recordDeployMaintenanceMessageDelivery: vi.fn(),
   listDeploymentTargets: vi.fn(),
   listDeployEvents: vi.fn(),
 }));
@@ -23,6 +24,7 @@ const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));
 const mockLogActivity = vi.hoisted(() => vi.fn());
+const mockSendDeployMaintenanceEmail = vi.hoisted(() => vi.fn());
 
 vi.mock("../services/index.js", () => ({
   environmentService: () => ({ getById: vi.fn() }),
@@ -41,6 +43,9 @@ vi.mock("../services/issue-approvals.js", () => ({
 }));
 vi.mock("../services/issues.js", () => ({
   issueService: () => mockIssueService,
+}));
+vi.mock("../services/email.js", () => ({
+  sendProjectDeployMaintenanceEmailWithResult: mockSendDeployMaintenanceEmail,
 }));
 vi.mock("../services/environments.js", () => ({
   environmentService: () => ({ getById: vi.fn() }),
@@ -88,6 +93,8 @@ function buildTarget(overrides: Record<string, unknown> = {}) {
     targetUrl: "https://example.com",
     healthCheckUrl: "https://example.com/health",
     status: "active",
+    maintenanceUpdatesEnabled: true,
+    maintenanceRecipients: ["ops@example.com"],
     ...overrides,
   };
 }
@@ -106,6 +113,11 @@ function buildDeployEvent(overrides: Record<string, unknown> = {}) {
     testsRun: ["pnpm test checkout"],
     rollbackPlan: "Revert commit abc123.",
     maintenanceMessage: null,
+    maintenanceMessageStatus: null,
+    maintenanceMessageRecipients: [],
+    maintenanceMessageAttemptedAt: null,
+    maintenanceMessageSentAt: null,
+    maintenanceMessageError: null,
     ...overrides,
   };
 }
@@ -154,7 +166,14 @@ describe("project deploy workflow routes", () => {
     mockProjectService.updateDeployEventStatus.mockImplementation(async (_projectId, _eventId, data) =>
       buildDeployEvent({ status: data.status }),
     );
+    mockProjectService.recordDeployMaintenanceMessageDelivery.mockImplementation(async (_projectId, _eventId, data) =>
+      buildDeployEvent({
+        maintenanceMessageStatus: data.status,
+        maintenanceMessageRecipients: data.recipients,
+      }),
+    );
     mockIssueService.getById.mockResolvedValue(buildIssue());
+    mockSendDeployMaintenanceEmail.mockResolvedValue({ status: "sent" });
     mockApprovalService.create.mockResolvedValue({
       id: "44444444-4444-4444-8444-444444444444",
       companyId: "company-1",
@@ -287,5 +306,73 @@ describe("project deploy workflow routes", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
+  });
+
+  it("sends a maintenance message only after approval and eligible deploy status", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({
+      status: "deployed",
+      maintenanceMessage: "Deploy concluido.",
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/maintenance-message")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockSendDeployMaintenanceEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: ["ops@example.com"],
+        projectName: "Project",
+        targetName: "Production",
+        deployStatus: "deployed",
+        message: "Deploy concluido.",
+        approvalId: "44444444-4444-4444-8444-444444444444",
+      }),
+    );
+    expect(mockProjectService.recordDeployMaintenanceMessageDelivery).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({
+        status: "sent",
+        recipients: ["ops@example.com"],
+      }),
+    );
+  });
+
+  it("does not send duplicate maintenance messages once sent", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({
+      status: "deployed",
+      maintenanceMessage: "Deploy concluido.",
+      maintenanceMessageStatus: "sent",
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/maintenance-message")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockSendDeployMaintenanceEmail).not.toHaveBeenCalled();
+    expect(mockProjectService.recordDeployMaintenanceMessageDelivery).not.toHaveBeenCalled();
+  });
+
+  it("requires deployment target opt-in before sending maintenance messages", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({
+      status: "deployed",
+      maintenanceMessage: "Deploy concluido.",
+    }));
+    mockProjectService.getDeploymentTarget.mockResolvedValue(buildTarget({
+      maintenanceUpdatesEnabled: false,
+      maintenanceRecipients: ["ops@example.com"],
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/maintenance-message")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockSendDeployMaintenanceEmail).not.toHaveBeenCalled();
   });
 });

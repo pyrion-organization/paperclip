@@ -3,6 +3,7 @@ import type {
   ClientStatus,
   PauseReason,
   ProjectDeployEventStatus,
+  ProjectDeployMaintenanceMessageStatus,
   ProjectDeploymentTargetStatus,
   ProjectStatus,
 } from "../constants.js";
@@ -220,6 +221,8 @@ export interface ProjectDeploymentTarget {
   healthCheckUrl: string | null;
   deployNotes: string | null;
   rollbackInstructions: string | null;
+  maintenanceUpdatesEnabled: boolean;
+  maintenanceRecipients: string[];
   status: ProjectDeploymentTargetStatus;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
@@ -239,6 +242,11 @@ export interface ProjectDeployEvent {
   testsRun: string[];
   rollbackPlan: string;
   maintenanceMessage: string | null;
+  maintenanceMessageStatus: ProjectDeployMaintenanceMessageStatus | null;
+  maintenanceMessageRecipients: string[];
+  maintenanceMessageAttemptedAt: Date | null;
+  maintenanceMessageSentAt: Date | null;
+  maintenanceMessageError: string | null;
   metadata: Record<string, unknown> | null;
   createdByAgentId: string | null;
   createdByUserId: string | null;

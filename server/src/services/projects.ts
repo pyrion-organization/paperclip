@@ -80,6 +80,12 @@ type UpdateDeployEventStatusInput = {
     agentId?: string | null;
   };
 };
+type RecordDeployMaintenanceMessageInput = {
+  status: NonNullable<ProjectDeployEvent["maintenanceMessageStatus"]>;
+  recipients: string[];
+  error?: string | null;
+  sentAt?: Date | null;
+};
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -214,6 +220,8 @@ function toDeploymentTarget(row: ProjectDeploymentTargetRow): ProjectDeploymentT
     healthCheckUrl: row.healthCheckUrl ?? null,
     deployNotes: row.deployNotes ?? null,
     rollbackInstructions: row.rollbackInstructions ?? null,
+    maintenanceUpdatesEnabled: row.maintenanceUpdatesEnabled,
+    maintenanceRecipients: row.maintenanceRecipients ?? [],
     status: row.status as ProjectDeploymentTarget["status"],
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt,
@@ -235,6 +243,11 @@ function toDeployEvent(row: ProjectDeployEventRow): ProjectDeployEvent {
     testsRun: row.testsRun ?? [],
     rollbackPlan: row.rollbackPlan,
     maintenanceMessage: row.maintenanceMessage ?? null,
+    maintenanceMessageStatus: row.maintenanceMessageStatus as ProjectDeployEvent["maintenanceMessageStatus"] ?? null,
+    maintenanceMessageRecipients: row.maintenanceMessageRecipients ?? [],
+    maintenanceMessageAttemptedAt: row.maintenanceMessageAttemptedAt ?? null,
+    maintenanceMessageSentAt: row.maintenanceMessageSentAt ?? null,
+    maintenanceMessageError: row.maintenanceMessageError ?? null,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdByAgentId: row.createdByAgentId ?? null,
     createdByUserId: row.createdByUserId ?? null,
@@ -1088,6 +1101,33 @@ export function projectService(db: Db) {
           status: data.status,
           maintenanceMessage: data.maintenanceMessage ?? existing.maintenanceMessage ?? null,
           metadata: nextMetadata,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(projectDeployEvents.projectId, projectId),
+            eq(projectDeployEvents.id, deployEventId),
+          ),
+        )
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeployEvent(row) : null;
+    },
+
+    recordDeployMaintenanceMessageDelivery: async (
+      projectId: string,
+      deployEventId: string,
+      data: RecordDeployMaintenanceMessageInput,
+    ): Promise<ProjectDeployEvent | null> => {
+      const now = new Date();
+      const row = await db
+        .update(projectDeployEvents)
+        .set({
+          maintenanceMessageStatus: data.status,
+          maintenanceMessageRecipients: data.recipients,
+          maintenanceMessageAttemptedAt: now,
+          maintenanceMessageSentAt: data.sentAt ?? null,
+          maintenanceMessageError: data.error ?? null,
           updatedAt: now,
         })
         .where(

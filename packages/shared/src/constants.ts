@@ -306,6 +306,12 @@ export const PROJECT_STATUSES = [
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export const PROJECT_DEPLOYMENT_TARGET_STATUSES = ["active", "disabled"] as const;
 export type ProjectDeploymentTargetStatus = (typeof PROJECT_DEPLOYMENT_TARGET_STATUSES)[number];
+export const PROJECT_DEPLOY_MAINTENANCE_MESSAGE_STATUSES = [
+  "sent",
+  "skipped",
+  "failed",
+] as const;
+export type ProjectDeployMaintenanceMessageStatus = (typeof PROJECT_DEPLOY_MAINTENANCE_MESSAGE_STATUSES)[number];
 export const PROJECT_DEPLOY_EVENT_STATUSES = [
   "approval_requested",
   "approved",

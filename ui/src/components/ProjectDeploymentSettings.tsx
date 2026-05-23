@@ -15,6 +15,8 @@ const EMPTY_TARGET_FORM = {
   targetUrl: "",
   healthCheckUrl: "",
   rollbackInstructions: "",
+  maintenanceUpdatesEnabled: false,
+  maintenanceRecipients: "",
 };
 
 function StatusPill({ status }: { status: string }) {
@@ -67,6 +69,14 @@ function deployEventActions(event: ProjectDeployEvent): Array<{ status: "deployi
   return [];
 }
 
+function canSendMaintenanceUpdate(event: ProjectDeployEvent) {
+  return Boolean(
+    event.maintenanceMessage
+    && event.maintenanceMessageStatus !== "sent"
+    && ["deploying", "deployed", "failed", "rolled_back"].includes(event.status),
+  );
+}
+
 function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
   return {
     name: form.name.trim(),
@@ -75,6 +85,11 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
     targetUrl: form.targetUrl.trim() || null,
     healthCheckUrl: form.healthCheckUrl.trim() || null,
     rollbackInstructions: form.rollbackInstructions.trim() || null,
+    maintenanceUpdatesEnabled: form.maintenanceUpdatesEnabled,
+    maintenanceRecipients: form.maintenanceRecipients
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
   };
 }
 
@@ -124,6 +139,11 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
   const updateDeployEventStatus = useMutation({
     mutationFn: ({ eventId, status }: { eventId: string; status: "deploying" | "deployed" | "failed" | "rolled_back" }) =>
       projectsApi.recordDeployEventStatus(project.id, eventId, { status }, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
+  const sendMaintenanceMessage = useMutation({
+    mutationFn: (eventId: string) =>
+      projectsApi.sendDeployMaintenanceMessage(project.id, eventId, {}, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
 
@@ -189,6 +209,20 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             onChange={(event) => setForm((current) => ({ ...current, rollbackInstructions: event.target.value }))}
             placeholder="Rollback instructions"
           />
+          <label className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={form.maintenanceUpdatesEnabled}
+              onChange={(event) => setForm((current) => ({ ...current, maintenanceUpdatesEnabled: event.target.checked }))}
+            />
+            Maintenance updates
+          </label>
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.maintenanceRecipients}
+            onChange={(event) => setForm((current) => ({ ...current, maintenanceRecipients: event.target.value }))}
+            placeholder="updates@example.com, ops@example.com"
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -230,6 +264,11 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     {target.targetUrl ? <div className="break-all">Target: {target.targetUrl}</div> : null}
                     {target.healthCheckUrl ? <div className="break-all">Health: {target.healthCheckUrl}</div> : null}
                     {target.rollbackInstructions ? <div>Rollback: {target.rollbackInstructions}</div> : null}
+                    {target.maintenanceUpdatesEnabled ? (
+                      <div>
+                        Maintenance recipients: {target.maintenanceRecipients.length > 0 ? target.maintenanceRecipients.join(", ") : "none"}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -289,8 +328,11 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                 <span>{event.changedFiles.length} files</span>
                 <span>{event.testsRun.length} tests</span>
                 {event.approvalId ? <span>Approval {event.approvalId.slice(0, 8)}</span> : null}
+                {event.maintenanceMessageStatus ? (
+                  <span>Message {event.maintenanceMessageStatus}</span>
+                ) : null}
               </div>
-              {deployEventActions(event).length > 0 ? (
+              {deployEventActions(event).length > 0 || canSendMaintenanceUpdate(event) ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {deployEventActions(event).map((action) => (
                     <Button
@@ -308,6 +350,17 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                       {action.label}
                     </Button>
                   ))}
+                  {canSendMaintenanceUpdate(event) ? (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      className="h-6 px-2"
+                      disabled={sendMaintenanceMessage.isPending}
+                      onClick={() => sendMaintenanceMessage.mutate(event.id)}
+                    >
+                      Send update
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

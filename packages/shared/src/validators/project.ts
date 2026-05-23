@@ -18,6 +18,11 @@ const deployEvidenceListSchema = z
   .max(100)
   .default([]);
 
+const deployMaintenanceRecipientsSchema = z
+  .array(z.string().trim().email().max(320))
+  .max(25)
+  .default([]);
+
 const executionWorkspaceStrategySchema = z
   .object({
     type: z.enum(["project_primary", "git_worktree", "adapter_managed", "cloud_sandbox"]).optional(),
@@ -147,6 +152,8 @@ export const createProjectDeploymentTargetSchema = z.object({
   healthCheckUrl: optionalUrlSchema,
   deployNotes: optionalTrimmedText(),
   rollbackInstructions: optionalTrimmedText(),
+  maintenanceUpdatesEnabled: z.boolean().default(false),
+  maintenanceRecipients: deployMaintenanceRecipientsSchema,
   status: z.enum(PROJECT_DEPLOYMENT_TARGET_STATUSES).default("active"),
   metadata: z.record(z.unknown()).optional().nullable(),
 });
@@ -179,6 +186,12 @@ export const recordProjectDeployEventStatusSchema = z.object({
 });
 
 export type RecordProjectDeployEventStatus = z.infer<typeof recordProjectDeployEventStatusSchema>;
+
+export const sendProjectDeployMaintenanceMessageSchema = z.object({
+  message: optionalTrimmedText(4000),
+});
+
+export type SendProjectDeployMaintenanceMessage = z.infer<typeof sendProjectDeployMaintenanceMessageSchema>;
 
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),

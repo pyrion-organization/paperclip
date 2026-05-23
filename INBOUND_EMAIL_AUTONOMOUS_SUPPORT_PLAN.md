@@ -860,13 +860,14 @@ Implemented the approved-deploy foundation:
 - deploy event records for approval requested/approved/rejected visibility,
 - approved deploy event status transitions for manual/agent-assisted execution
   handoff (`deploying`, `deployed`, `failed`, `rolled_back`),
+- deployment target maintenance-update opt-in with explicit recipients,
+- approval-gated maintenance message sends with delivery status, recipients,
+  timestamps, and retry-safe duplicate prevention,
 - compact project configuration UI for targets and recent deploy events,
 - no automatic production deploy execution.
 
 Remaining Phase 5 work:
 
-- send maintenance/update messages only after an approved operator policy is in
-  place,
 - add rollback execution commands after deploy execution exists.
 
 ### Phase 6: Infra Agent
@@ -913,14 +914,14 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add approval-gated maintenance/update
-messaging around deploy events:
+The next implementation slice should add rollback/deploy command scaffolding
+without granting direct production authority:
 
-- keep maintenance text opt-in per project or deployment target,
-- send only after the deploy event reaches an allowed approved state,
-- record message delivery status on the deploy event,
-- avoid duplicate messages on retries,
-- preserve manual operator control until the deploy execution path is proven.
+- model explicit deploy and rollback command descriptors on deployment targets,
+- require approval for any command execution,
+- capture command output/status as deploy events,
+- keep dangerous rollback execution manual or separately approved until proven,
+- preserve the current no-auto-production-deploy boundary.
 
 Do not add automatic production deploys until the approval and rollback path is
 implemented and covered by focused tests.
