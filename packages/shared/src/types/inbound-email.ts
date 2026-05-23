@@ -28,6 +28,7 @@ export type InboundEmailSupportReplyReason =
   | "unsafe_or_spam"
   | "missing_sender"
   | "send_failed";
+export type InboundEmailProjectFallbackMode = "create_projectless_triage" | "request_clarification";
 export interface InboundEmailClassificationFields {
   classificationCategory: InboundEmailClassificationCategory | null;
   classificationConfidence: number | null;
@@ -73,6 +74,8 @@ export interface InboundEmailMailbox {
   tls: boolean;
   pollIntervalSeconds: number;
   supportRepliesEnabled: boolean;
+  allowProjectlessTriage: boolean;
+  projectFallbackMode: InboundEmailProjectFallbackMode;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;
@@ -89,6 +92,9 @@ export interface InboundEmailRule {
   enabled: boolean;
   senderPattern: string | null;
   subjectPattern: string | null;
+  bodyPattern: string | null;
+  classificationCategory: InboundEmailClassificationCategory | null;
+  projectFallbackMode: InboundEmailProjectFallbackMode | null;
   priority: "critical" | "high" | "medium" | "low";
   labelIds: string[];
   createdAt: Date;

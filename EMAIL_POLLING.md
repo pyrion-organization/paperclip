@@ -99,8 +99,18 @@ Classification is deterministic and conservative in V1. It does not call an LLM,
 - Safety patterns such as prompt-injection text, secret requests, dangerous commands, or immediate deploy instructions win before normal bug/infra/question matching.
 - `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` create triage issues for recognized senders. `code_bug` and `infra_incident` default to high priority when no rule priority applies; questions default to low. `unclear` keeps the existing project-clarification behavior when no project is identified.
 - `unsafe_or_prompt_injection` and `spam_or_irrelevant` are skipped/quarantined and marked seen so the worker does not keep reprocessing them.
-- If project matching fails with `project_not_identified`, classification can still create a projectless or configured-target triage issue for a recognized sender. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
+- If project matching fails with `project_not_identified`, classification can still create a projectless triage issue for a recognized sender when mailbox/rule policy allows it. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
 - Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
+
+## Support intake routing
+
+Support intake routing is configured on the inbound mailbox and can be refined by inbound rules.
+
+- Mailboxes default to allowing projectless triage (`allow_projectless_triage = true`) and using `create_projectless_triage` when a recognized support email does not identify a project.
+- Operators can set mailbox `project_fallback_mode` to `request_clarification` to preserve the existing clarification reply/skip behavior for projectless reports.
+- Inbound rules can now match classification category and body text in addition to sender and subject.
+- Inbound rules can override the missing-project fallback for matching mail. A rule can allow projectless triage for a specific support category/body pattern, or force clarification for risky matches.
+- `allow_projectless_triage = false` is a hard mailbox gate: matching rules cannot create projectless issues for that mailbox.
 
 ## Support replies V1
 
@@ -115,7 +125,7 @@ Support replies are per-mailbox opt-in via `support_replies_enabled`. When enabl
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
 
-- Rule (`selectRule(message)`) is still matched against `inboundEmailRules` for priority/labels. Project routing is not configured on mailboxes or rules; it comes from sender authorization plus client-project matching.
+- Rules (`selectRule(message)`) are matched against `inboundEmailRules` after classification so they can use sender, subject, body text, classification category, priority, labels, and missing-project fallback overrides.
 - Candidate projects are only active `client_projects` rows for the sender's active client.
 - The matcher searches subject + body text against project name, client project name override, and client project aliases.
 - Matching normalizes text by lowercasing, stripping accents, and removing spaces/punctuation, so `Oc Importer`, `oc-importer`, and `OCIMPORTER` all match.

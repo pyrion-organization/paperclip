@@ -23,6 +23,7 @@ import type {
   CreateInboundEmailRule,
   InboundEmailClassificationCategory,
   InboundEmailMessageStatus,
+  InboundEmailProjectFallbackMode,
   InboundEmailSupportReplyReason,
   InboundEmailSupportReplyStatus,
   InboundEmailMailbox as MailboxView,
@@ -461,6 +462,12 @@ function matchesPattern(value: string | null | undefined, pattern: string | null
   return (value ?? "").toLowerCase().includes(normalizedPattern);
 }
 
+function messageBodySearchText(message: Pick<typeof inboundEmailMessages.$inferSelect, "bodyText" | "bodyHtml">): string {
+  return [message.bodyText ?? "", message.bodyHtml ? htmlToPlain(message.bodyHtml) : ""]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function normalizeProjectMatchText(value: string | null | undefined): string {
   return (value ?? "")
     .normalize("NFD")
@@ -773,19 +780,40 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
   }
 
-  function ruleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+  function ruleHasIssueEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+  }) {
     const changesPriority = rule.priority !== undefined && rule.priority !== null && rule.priority !== "medium";
     const appliesLabels = (rule.labelIds?.length ?? 0) > 0;
     return changesPriority || appliesLabels;
+  }
+
+  function ruleHasFallbackEffect(rule: { projectFallbackMode?: string | null }) {
+    return Boolean(rule.projectFallbackMode);
+  }
+
+  function ruleHasProcessingEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+    projectFallbackMode?: string | null;
+  }) {
+    return ruleHasIssueEffect(rule) || ruleHasFallbackEffect(rule);
   }
 
   function rulePriorityOverride(rule: Pick<typeof inboundEmailRules.$inferSelect, "priority"> | null | undefined) {
     return rule && rule.priority !== "medium" ? rule.priority : null;
   }
 
-  function assertRuleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+  function assertRuleHasProcessingEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+    classificationCategory?: string | null;
+    bodyPattern?: string | null;
+    projectFallbackMode?: string | null;
+  }) {
     if (!ruleHasProcessingEffect(rule)) {
-      throw unprocessable("Inbound email rules must change priority or apply at least one label");
+      throw unprocessable("Inbound email rules must change priority, apply a label, or override project fallback");
     }
   }
 
@@ -1015,7 +1043,18 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
   }
 
-  async function selectRule(message: typeof inboundEmailMessages.$inferSelect) {
+  function ruleMatchesMessage(
+    rule: typeof inboundEmailRules.$inferSelect,
+    message: typeof inboundEmailMessages.$inferSelect,
+    bodySearchText: string,
+  ): boolean {
+    return matchesPattern(message.fromAddress, rule.senderPattern) &&
+      matchesPattern(message.subject, rule.subjectPattern) &&
+      matchesPattern(bodySearchText, rule.bodyPattern) &&
+      (!rule.classificationCategory || rule.classificationCategory === message.classificationCategory);
+  }
+
+  async function selectMatchingRules(message: typeof inboundEmailMessages.$inferSelect) {
     const rules = await db
       .select()
       .from(inboundEmailRules)
@@ -1027,21 +1066,26 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         ),
       )
       .orderBy(asc(inboundEmailRules.createdAt), asc(inboundEmailRules.id));
-    return rules.find((rule) =>
-      ruleHasProcessingEffect(rule) &&
-      matchesPattern(message.fromAddress, rule.senderPattern) &&
-      matchesPattern(message.subject, rule.subjectPattern),
-    ) ?? null;
+    const bodySearchText = messageBodySearchText(message);
+    return rules.filter((rule) => ruleMatchesMessage(rule, message, bodySearchText));
   }
 
-  async function resolveProcessingContext(message: typeof inboundEmailMessages.$inferSelect) {
-    const [mailbox, rule] = await Promise.all([
+  async function selectIssueRule(message: typeof inboundEmailMessages.$inferSelect) {
+    const matchingRules = await selectMatchingRules(message);
+    return matchingRules.find((rule) => ruleHasIssueEffect(rule)) ?? null;
+  }
+
+  async function resolveProcessingContext(
+    message: typeof inboundEmailMessages.$inferSelect,
+  ) {
+    const [mailbox, matchingRules] = await Promise.all([
       loadMailbox(message.companyId, message.mailboxId),
-      selectRule(message),
+      selectMatchingRules(message),
     ]);
     return {
       mailbox,
-      rule,
+      rule: matchingRules.find((rule) => ruleHasIssueEffect(rule)) ?? null,
+      fallbackRule: matchingRules.find((rule) => ruleHasFallbackEffect(rule)) ?? null,
     };
   }
 
@@ -1110,6 +1154,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
 
   function shouldCreateProjectlessIssue(classification: InboundEmailClassification): boolean {
     return !shouldQuarantineClassification(classification) && classification.category !== "unclear";
+  }
+
+  function effectiveProjectFallbackMode(
+    context: {
+      mailbox: typeof inboundEmailMailboxes.$inferSelect;
+      fallbackRule: typeof inboundEmailRules.$inferSelect | null;
+    },
+  ): InboundEmailProjectFallbackMode {
+    if (!context.mailbox.allowProjectlessTriage) return "request_clarification";
+    return context.fallbackRule?.projectFallbackMode ?? context.mailbox.projectFallbackMode;
   }
 
   function shouldPreserveClarificationThread(message: typeof inboundEmailMessages.$inferSelect): boolean {
@@ -2076,6 +2130,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: normalized.tls,
               pollIntervalSeconds: normalized.pollIntervalSeconds,
               supportRepliesEnabled: normalized.supportRepliesEnabled,
+              allowProjectlessTriage: normalized.allowProjectlessTriage,
+              projectFallbackMode: normalized.projectFallbackMode,
               passwordSecretName,
             })
             .returning();
@@ -2094,6 +2150,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: created.tls,
               pollIntervalSeconds: created.pollIntervalSeconds,
               supportRepliesEnabled: created.supportRepliesEnabled,
+              allowProjectlessTriage: created.allowProjectlessTriage,
+              projectFallbackMode: created.projectFallbackMode,
               passwordSet: Boolean(created.passwordSecretName),
             },
           });
@@ -2183,6 +2241,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: existing.tls,
               pollIntervalSeconds: existing.pollIntervalSeconds,
               supportRepliesEnabled: existing.supportRepliesEnabled,
+              allowProjectlessTriage: existing.allowProjectlessTriage,
+              projectFallbackMode: existing.projectFallbackMode,
               passwordSecretName: existing.passwordSecretName,
               updatedAt: new Date(),
             })
@@ -2211,6 +2271,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           folder: finalMailbox.folder,
           tls: finalMailbox.tls,
           pollIntervalSeconds: finalMailbox.pollIntervalSeconds,
+          supportRepliesEnabled: finalMailbox.supportRepliesEnabled,
+          allowProjectlessTriage: finalMailbox.allowProjectlessTriage,
+          projectFallbackMode: finalMailbox.projectFallbackMode,
           passwordSet: Boolean(finalMailbox.passwordSecretName),
           changedFields: Object.keys(input),
         },
@@ -2298,6 +2361,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: input.enabled,
           senderPattern: asNullableString(input.senderPattern),
           subjectPattern: asNullableString(input.subjectPattern),
+          bodyPattern: asNullableString(input.bodyPattern),
+          classificationCategory: input.classificationCategory ?? null,
+          projectFallbackMode: input.projectFallbackMode ?? null,
           priority: input.priority,
           labelIds,
         })
@@ -2313,6 +2379,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: rule.enabled,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
         },
@@ -2338,6 +2407,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       assertRuleHasProcessingEffect({
         priority: input.priority ?? existing.priority,
         labelIds: labelIds ?? existing.labelIds,
+        classificationCategory: input.classificationCategory === undefined ? existing.classificationCategory : input.classificationCategory,
+        bodyPattern: input.bodyPattern === undefined ? existing.bodyPattern : input.bodyPattern,
+        projectFallbackMode: input.projectFallbackMode === undefined ? existing.projectFallbackMode : input.projectFallbackMode,
       });
       const [rule] = await db
         .update(inboundEmailRules)
@@ -2346,6 +2418,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           labelIds,
           senderPattern: input.senderPattern === undefined ? undefined : asNullableString(input.senderPattern),
           subjectPattern: input.subjectPattern === undefined ? undefined : asNullableString(input.subjectPattern),
+          bodyPattern: input.bodyPattern === undefined ? undefined : asNullableString(input.bodyPattern),
+          classificationCategory: input.classificationCategory === undefined ? undefined : input.classificationCategory,
+          projectFallbackMode: input.projectFallbackMode === undefined ? undefined : input.projectFallbackMode,
           updatedAt: new Date(),
         })
         .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
@@ -2362,6 +2437,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: rule.enabled,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
           changedFields: Object.keys(input),
@@ -2390,6 +2468,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           mailboxId: rule.mailboxId,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
         },
@@ -2783,7 +2864,6 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             requester: identity.employee,
           });
         } else {
-          const context = await resolveProcessingContext(message);
           const authorization = await resolveSenderAuthorization(message, identity);
           const projectResolved = Boolean(authorization.allowed && authorization.project);
           const classifiedMessage = await classifyAndPersistMessage({
@@ -2792,6 +2872,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             projectResolved,
           });
           const classification = classificationFromMessage(classifiedMessage);
+          const context = await resolveProcessingContext(classifiedMessage);
 
           if (!authorization.allowed) {
             const reason = authorization.reason ?? "sender_not_authorized";
@@ -2799,6 +2880,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               reason === "project_not_identified" &&
               classification &&
               shouldCreateProjectlessIssue(classification) &&
+              effectiveProjectFallbackMode(context) === "create_projectless_triage" &&
               !shouldPreserveClarificationThread(message)
             ) {
               const issue = await db
@@ -3417,7 +3499,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     },
 
     // Exposed for tests.
-    _selectRule: selectRule,
+    _selectRule: selectIssueRule,
   };
   return api;
 }

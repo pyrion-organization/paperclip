@@ -77,6 +77,9 @@ function makeRule(overrides: Partial<InboundEmailRule> = {}): InboundEmailRule {
     enabled: true,
     senderPattern: "client.com",
     subjectPattern: "urgent",
+    bodyPattern: null,
+    classificationCategory: null,
+    projectFallbackMode: null,
     priority: "high",
     labelIds: ["label-1"],
     createdAt: new Date(),
@@ -99,6 +102,8 @@ function makeMailbox(overrides: Partial<InboundEmailMailbox> = {}): InboundEmail
     tls: true,
     pollIntervalSeconds: 60,
     supportRepliesEnabled: false,
+    allowProjectlessTriage: true,
+    projectFallbackMode: "create_projectless_triage",
     lastPollAt: null,
     lastSuccessAt: null,
     lastError: null,
@@ -248,6 +253,8 @@ describe("CompanyEmailSettings", () => {
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-password']") as HTMLInputElement, "mailbox-secret");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement, "  INBOX  ");
     (container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).click();
+    (container.querySelector("[data-testid='company-settings-inbound-allow-projectless-triage']") as HTMLInputElement).click();
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-project-fallback-mode']") as HTMLSelectElement, "request_clarification");
     await flushReact();
 
     await act(async () => {
@@ -265,6 +272,8 @@ describe("CompanyEmailSettings", () => {
       tls: true,
       pollIntervalSeconds: 60,
       supportRepliesEnabled: true,
+      allowProjectlessTriage: false,
+      projectFallbackMode: "request_clarification",
       password: "mailbox-secret",
     });
     expect((container.querySelector("[data-testid='company-settings-inbound-name']") as HTMLInputElement).value).toBe("Shared inbox");
@@ -272,6 +281,7 @@ describe("CompanyEmailSettings", () => {
     expect((container.querySelector("[data-testid='company-settings-inbound-username']") as HTMLInputElement).value).toBe("support@example.com");
     expect((container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement).value).toBe("INBOX");
     expect((container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).checked).toBe(true);
+    expect((container.querySelector("[data-testid='company-settings-inbound-allow-projectless-triage']") as HTMLInputElement).checked).toBe(false);
   });
 
   it("refreshes related inbound email caches after mailbox mutations", async () => {
@@ -361,6 +371,9 @@ describe("CompanyEmailSettings", () => {
 
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-sender']") as HTMLInputElement, "partner.com");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-subject']") as HTMLInputElement, "escalation");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-body']") as HTMLInputElement, "nginx");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-classification']") as HTMLSelectElement, "infra_incident");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-project-fallback-mode']") as HTMLSelectElement, "request_clarification");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-priority']") as HTMLSelectElement, "critical");
     await flushReact();
 
@@ -374,6 +387,9 @@ describe("CompanyEmailSettings", () => {
       enabled: true,
       senderPattern: "partner.com",
       subjectPattern: "escalation",
+      bodyPattern: "nginx",
+      classificationCategory: "infra_incident",
+      projectFallbackMode: "request_clarification",
       priority: "critical",
       labelIds: [],
     });
@@ -415,6 +431,9 @@ describe("CompanyEmailSettings", () => {
       enabled: true,
       senderPattern: "client.com",
       subjectPattern: "very urgent",
+      bodyPattern: null,
+      classificationCategory: null,
+      projectFallbackMode: null,
       priority: "high",
       labelIds: ["label-1"],
     });
@@ -430,7 +449,7 @@ describe("CompanyEmailSettings", () => {
 
     const saveButton = container.querySelector("[data-testid='company-settings-inbound-rule-save']") as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
-    expect(container.textContent).toContain("Choose a priority change or at least one label before saving.");
+    expect(container.textContent).toContain("Choose a priority change, label, or project fallback override before saving.");
 
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-sender']") as HTMLInputElement, "x@y.com");
     await flushReact();

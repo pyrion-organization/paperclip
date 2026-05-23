@@ -21,6 +21,7 @@ import {
   inboundEmailMessages,
   inboundEmailRules,
   issueAttachments,
+  issueLabels,
   issues,
   labels,
   projects,
@@ -246,7 +247,12 @@ describeEmbeddedPostgres("inbound email service", () => {
     return clientProject;
   }
 
-  async function createMailbox(companyId: string, input?: { enabled?: boolean; supportRepliesEnabled?: boolean }) {
+  async function createMailbox(companyId: string, input?: {
+    enabled?: boolean;
+    supportRepliesEnabled?: boolean;
+    allowProjectlessTriage?: boolean;
+    projectFallbackMode?: "create_projectless_triage" | "request_clarification";
+  }) {
     return svc.createMailbox(companyId, {
       name: "Support inbox",
       enabled: input?.enabled ?? false,
@@ -258,6 +264,8 @@ describeEmbeddedPostgres("inbound email service", () => {
       tls: true,
       pollIntervalSeconds: 60,
       supportRepliesEnabled: input?.supportRepliesEnabled ?? false,
+      allowProjectlessTriage: input?.allowProjectlessTriage ?? true,
+      projectFallbackMode: input?.projectFallbackMode ?? "create_projectless_triage",
     });
   }
 
@@ -1538,6 +1546,158 @@ describeEmbeddedPostgres("inbound email service", () => {
     );
   }, 20_000);
 
+  it("asks for clarification instead of creating projectless triage when the mailbox disables it", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { allowProjectlessTriage: false, supportRepliesEnabled: true });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({ messageId: "<projectless-disabled@example.com>" }),
+      providerUid: "projectless-disabled",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(storedMessage.classificationCategory).toBe("code_bug");
+    expect(storedMessage.supportReplyStatus).toBeNull();
+    expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const email = sendMailMock.mock.calls[0]?.[0] as { to?: string; text?: string } | undefined;
+    expect(email?.to).toBe("customer@example.com");
+    expect(email?.text).toContain("não conseguimos identificar com segurança");
+  }, 20_000);
+
+  it("uses a rule fallback override to create projectless triage when the mailbox asks for clarification", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { projectFallbackMode: "request_clarification" });
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: null,
+      subjectPattern: "checkout",
+      bodyPattern: null,
+      classificationCategory: "code_bug",
+      projectFallbackMode: "create_projectless_triage",
+      priority: "medium",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<projectless-rule-allow@example.com>",
+        subject: "Checkout failure",
+        body: "Checkout returns error 500.",
+      }),
+      providerUid: "projectless-rule-allow",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.createdIssueId).toBe(createdIssue.id);
+    expect(createdIssue.projectId).toBeNull();
+  }, 20_000);
+
+  it("does not let fallback-only rules shadow priority rules for projectless triage", async () => {
+    const companyId = await seedCompany();
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId, { projectFallbackMode: "request_clarification" });
+    await db.insert(inboundEmailRules).values({
+      companyId,
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: null,
+      bodyPattern: null,
+      classificationCategory: "code_bug",
+      projectFallbackMode: "create_projectless_triage",
+      priority: "medium",
+      labelIds: [],
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "checkout",
+      bodyPattern: null,
+      classificationCategory: "code_bug",
+      projectFallbackMode: null,
+      priority: "critical",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<projectless-fallback-priority@example.com>",
+        subject: "Checkout failure",
+        body: "Checkout returns error 500.",
+      }),
+      providerUid: "projectless-fallback-priority",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(createdIssue.projectId).toBeNull();
+    expect(createdIssue.priority).toBe("critical");
+  }, 20_000);
+
+  it("uses a rule fallback override to ask for clarification instead of projectless triage", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    await seedClientIdentity({ companyId });
+    const mailbox = await createMailbox(companyId);
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: null,
+      subjectPattern: null,
+      bodyPattern: "error 500",
+      classificationCategory: "code_bug",
+      projectFallbackMode: "request_clarification",
+      priority: "medium",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<projectless-rule-clarify@example.com>",
+        subject: "Checkout failure",
+        body: "Checkout returns error 500.",
+      }),
+      providerUid: "projectless-rule-clarify",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    expect(storedMessage.status).toBe("skipped");
+    expect(storedMessage.skipReason).toBe("project_not_identified");
+    expect(await db.select().from(issues)).toEqual([]);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
   it("sends a Portuguese support confirmation when mailbox replies are enabled", async () => {
     const companyId = await seedCompany();
     await db
@@ -2547,9 +2707,11 @@ describeEmbeddedPostgres("inbound email service", () => {
       enabled: true,
       senderPattern: "client@example.com",
       subjectPattern: null,
+      bodyPattern: "error",
+      classificationCategory: "code_bug",
       priority: "medium",
       labelIds: [],
-    })).rejects.toThrow("must change priority or apply at least one label");
+    })).rejects.toThrow("must change priority, apply a label, or override project fallback");
 
     const rule = await svc.createRule(companyId, {
       mailboxId: mailbox.id,
@@ -2560,7 +2722,7 @@ describeEmbeddedPostgres("inbound email service", () => {
       labelIds: [],
     });
     await expect(svc.updateRule(companyId, rule.id, { priority: "medium", labelIds: [] }))
-      .rejects.toThrow("must change priority or apply at least one label");
+      .rejects.toThrow("must change priority, apply a label, or override project fallback");
   });
 
   it("skips legacy no-effect rules when selecting a matching processing rule", async () => {
@@ -2601,6 +2763,101 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(createdIssue.priority).toBe("high");
   }, 20_000);
 
+  it("does not let matcher-only rules shadow later priority rules", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Checkout App");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    await db.insert(inboundEmailRules).values({
+      companyId,
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: null,
+      bodyPattern: "error 500",
+      classificationCategory: "code_bug",
+      priority: "medium",
+      labelIds: [],
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: null,
+      bodyPattern: "error 500",
+      classificationCategory: "code_bug",
+      priority: "critical",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<matcher-only-shadow@example.com>",
+        subject: "Checkout App failure",
+        body: "Checkout App returns error 500.",
+      }),
+      providerUid: "matcher-only-shadow",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.priority).toBe("critical");
+  }, 20_000);
+
+  it("does not let fallback-only rules shadow later priority rules when the project is resolved", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Checkout App");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    await db.insert(inboundEmailRules).values({
+      companyId,
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "Checkout App",
+      bodyPattern: null,
+      classificationCategory: null,
+      projectFallbackMode: "request_clarification",
+      priority: "medium",
+      labelIds: [],
+      createdAt: new Date("2026-05-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: "customer@example.com",
+      subjectPattern: "Checkout App",
+      bodyPattern: null,
+      classificationCategory: "code_bug",
+      projectFallbackMode: null,
+      priority: "critical",
+      labelIds: [],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<fallback-only-resolved-shadow@example.com>",
+        subject: "Checkout App failure",
+        body: "Checkout App returns error 500.",
+      }),
+      providerUid: "fallback-only-resolved-shadow",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(createdIssue.priority).toBe("critical");
+  }, 20_000);
+
   it("keeps classified high priority when a label-only rule matches", async () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });
@@ -2634,6 +2891,46 @@ describeEmbeddedPostgres("inbound email service", () => {
 
     const [createdIssue] = await db.select().from(issues);
     expect(createdIssue.priority).toBe("high");
+  }, 20_000);
+
+  it("applies category and body-specific routing rules to matching classified messages", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Checkout App");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const [label] = await db
+      .insert(labels)
+      .values({ companyId, name: "Infra review", color: "#00ff00" })
+      .returning();
+    await svc.createRule(companyId, {
+      mailboxId: mailbox.id,
+      enabled: true,
+      senderPattern: null,
+      subjectPattern: null,
+      bodyPattern: "nginx",
+      classificationCategory: "infra_incident",
+      projectFallbackMode: null,
+      priority: "critical",
+      labelIds: [label.id],
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<category-body-rule@example.com>",
+        subject: "Checkout App outage",
+        body: "Checkout App is down with nginx 502 errors.",
+      }),
+      providerUid: "category-body-rule",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [createdIssue] = await db.select().from(issues);
+    const linkedLabels = await db.select().from(issueLabels).where(eq(issueLabels.issueId, createdIssue.id));
+    expect(createdIssue.priority).toBe("critical");
+    expect(linkedLabels.map((row) => row.labelId)).toEqual([label.id]);
   }, 20_000);
 
   it("rejects invalid inbound message list filters before querying", async () => {
@@ -3404,9 +3701,21 @@ describe("inbound email validators", () => {
       host: "imap.example.com",
       username: "support@example.com",
     };
-    expect(createInboundEmailMailboxSchema.safeParse({ ...mailboxPayload, supportRepliesEnabled: true }).success).toBe(true);
+    expect(createInboundEmailMailboxSchema.safeParse({
+      ...mailboxPayload,
+      supportRepliesEnabled: true,
+      allowProjectlessTriage: false,
+      projectFallbackMode: "request_clarification",
+    }).success).toBe(true);
     expect(createInboundEmailMailboxSchema.safeParse({ ...mailboxPayload, provider: "imap" }).success).toBe(false);
     expect(updateInboundEmailMailboxSchema.safeParse({ markSeen: true }).success).toBe(false);
+    expect(updateInboundEmailMailboxSchema.safeParse({ projectFallbackMode: "auto_deploy" }).success).toBe(false);
+    expect(createInboundEmailRuleSchema.safeParse({
+      classificationCategory: "code_bug",
+      bodyPattern: "error",
+      projectFallbackMode: "create_projectless_triage",
+    }).success).toBe(true);
+    expect(createInboundEmailRuleSchema.safeParse({ classificationCategory: "billing" }).success).toBe(false);
     expect(createInboundEmailRuleSchema.safeParse({ targetProjectId: randomUUID() }).success).toBe(false);
     expect(updateInboundEmailRuleSchema.safeParse({ createMode: "always" }).success).toBe(false);
     expect(

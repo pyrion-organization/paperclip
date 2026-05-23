@@ -795,6 +795,14 @@ Deliverables:
 - support-specific inbound rules,
 - better project fallback handling.
 
+Implemented base support replies and the next routing-control layer:
+
+- mailbox-level projectless triage policy,
+- missing-project fallback mode,
+- category/body-aware inbound rules,
+- rule-level fallback overrides,
+- compact settings UI controls.
+
 ### Phase 3: LLM-Assisted Classification
 
 Add optional LLM classifier as advisory only.

@@ -19,6 +19,10 @@ export const inboundEmailRecommendedActionSchema = z.enum([
   "defer_future_infra_agent",
   "discard_or_quarantine",
 ]);
+export const inboundEmailProjectFallbackModeSchema = z.enum([
+  "create_projectless_triage",
+  "request_clarification",
+]);
 export const inboundEmailMessageStatusSchema = z.enum([
   "discovered",
   "persisted",
@@ -63,6 +67,8 @@ export const createInboundEmailMailboxSchema = z.object({
   tls: z.boolean().optional().default(true),
   pollIntervalSeconds: z.number().int().min(30).max(3600).optional().default(60),
   supportRepliesEnabled: z.boolean().optional().default(false),
+  allowProjectlessTriage: z.boolean().optional().default(true),
+  projectFallbackMode: inboundEmailProjectFallbackModeSchema.optional().default("create_projectless_triage"),
 }).strict();
 
 export type CreateInboundEmailMailbox = z.infer<typeof createInboundEmailMailboxSchema>;
@@ -81,6 +87,9 @@ export const createInboundEmailRuleSchema = z.object({
   enabled: z.boolean().optional().default(true),
   senderPattern: optionalPatternSchema,
   subjectPattern: optionalPatternSchema,
+  bodyPattern: optionalPatternSchema,
+  classificationCategory: inboundEmailClassificationCategorySchema.nullable().optional(),
+  projectFallbackMode: inboundEmailProjectFallbackModeSchema.nullable().optional(),
   priority: z.enum(["critical", "high", "medium", "low"]).optional().default("medium"),
   labelIds: labelIdsSchema.default([]),
 }).strict();

@@ -6,6 +6,7 @@ export type {
   InboundEmailClassificationFields,
   InboundEmailSupportReplyStatus,
   InboundEmailSupportReplyReason,
+  InboundEmailProjectFallbackMode,
   InboundEmailSupportReplyFields,
   InboundEmailMessageStatus,
   InboundEmailMailbox,

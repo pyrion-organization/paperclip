@@ -27,6 +27,10 @@ export {
   type UpdateCompanyBranding,
 } from "./company.js";
 export {
+  inboundEmailClassificationCategorySchema,
+  inboundEmailClassificationSeveritySchema,
+  inboundEmailRecommendedActionSchema,
+  inboundEmailProjectFallbackModeSchema,
   inboundEmailMessageStatusSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,

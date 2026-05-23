@@ -130,6 +130,8 @@ function makeDashboard(): InboundEmailOpsDashboard {
           tls: true,
           pollIntervalSeconds: 60,
           supportRepliesEnabled: true,
+          allowProjectlessTriage: true,
+          projectFallbackMode: "create_projectless_triage",
           lastPollAt: new Date("2026-05-19T11:55:00.000Z"),
           lastSuccessAt: new Date("2026-05-19T11:50:00.000Z"),
           lastError: "IMAP authentication failed",

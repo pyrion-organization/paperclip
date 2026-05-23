@@ -44,6 +44,7 @@ export type InboundEmailSupportReplyReason =
   | "unsafe_or_spam"
   | "missing_sender"
   | "send_failed";
+export type InboundEmailProjectFallbackMode = "create_projectless_triage" | "request_clarification";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -69,6 +70,8 @@ export const inboundEmailMailboxes = pgTable(
     tls: boolean("tls").notNull().default(true),
     pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(60),
     supportRepliesEnabled: boolean("support_replies_enabled").notNull().default(false),
+    allowProjectlessTriage: boolean("allow_projectless_triage").notNull().default(true),
+    projectFallbackMode: text("project_fallback_mode").$type<InboundEmailProjectFallbackMode>().notNull().default("create_projectless_triage"),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -94,6 +97,9 @@ export const inboundEmailRules = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     senderPattern: text("sender_pattern"),
     subjectPattern: text("subject_pattern"),
+    bodyPattern: text("body_pattern"),
+    classificationCategory: text("classification_category").$type<InboundEmailClassificationCategory>(),
+    projectFallbackMode: text("project_fallback_mode").$type<InboundEmailProjectFallbackMode>(),
     priority: text("priority").notNull().default("medium"),
     labelIds: jsonb("label_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
