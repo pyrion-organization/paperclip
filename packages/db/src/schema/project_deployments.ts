@@ -20,6 +20,7 @@ export const projectDeploymentTargets = pgTable(
     rollbackInstructions: text("rollback_instructions"),
     deployCommand: text("deploy_command"),
     rollbackCommand: text("rollback_command"),
+    commandExecutionEnabled: boolean("command_execution_enabled").notNull().default(false),
     maintenanceUpdatesEnabled: boolean("maintenance_updates_enabled").notNull().default(false),
     maintenanceRecipients: jsonb("maintenance_recipients").$type<string[]>().notNull().default([]),
     status: text("status").notNull().default("active"),

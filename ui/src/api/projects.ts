@@ -130,6 +130,11 @@ export const projectsApi = {
       projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-records`),
       data,
     ),
+  executeDeployCommand: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ record: ProjectDeployCommandRecord; deployEvent: ProjectDeployEvent }>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-executions`),
+      data,
+    ),
   recordDeployEventStatus: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<ProjectDeployEvent>(
       projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/status`),

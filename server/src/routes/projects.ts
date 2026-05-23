@@ -4,6 +4,7 @@ import {
   createProjectDeployApprovalSchema,
   createProjectDeployCommandRecordSchema,
   createProjectDeploymentTargetSchema,
+  executeProjectDeployCommandSchema,
   createProjectInfraHealthCheckSchema,
   createProjectInfraIncidentSchema,
   createProjectInfraActionEvidenceSchema,
@@ -81,6 +82,19 @@ function deployEventStatusForCommandRecord(
     return "rolled_back";
   }
   return null;
+}
+
+function deployCommandOutput(input: {
+  stdout: string | null | undefined;
+  stderr: string | null | undefined;
+  operationId?: string | null;
+}) {
+  const output = [
+    input.stdout?.trim() ? `stdout:\n${input.stdout.trim()}` : null,
+    input.stderr?.trim() ? `stderr:\n${input.stderr.trim()}` : null,
+  ].filter(Boolean).join("\n\n");
+  if (output) return output;
+  return input.operationId ? `Workspace operation ${input.operationId} completed without output.` : null;
 }
 
 export function projectRoutes(db: Db) {
@@ -1497,6 +1511,210 @@ export function projectRoutes(db: Db) {
     }
     res.json(await svc.listDeployCommandRecords(id, deployEvent.id));
   });
+
+  router.post(
+    "/projects/:id/deploy-events/:deployEventId/command-executions",
+    validate(executeProjectDeployCommandSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const deployEventId = req.params.deployEventId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const deployEvent = await svc.getDeployEvent(id, deployEventId);
+      if (!deployEvent || deployEvent.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deploy event not found" });
+        return;
+      }
+      if (!deployEvent.approvalId) {
+        res.status(422).json({ error: "Deploy event is not linked to an approval" });
+        return;
+      }
+      if (!deployEvent.deploymentTargetId) {
+        res.status(422).json({ error: "Deploy event is not linked to a deployment target" });
+        return;
+      }
+
+      const [approval, deploymentTarget, workspaces] = await Promise.all([
+        approvalsSvc.getById(deployEvent.approvalId),
+        svc.getDeploymentTarget(id, deployEvent.deploymentTargetId),
+        svc.listWorkspaces(id),
+      ]);
+      if (!approval || approval.companyId !== project.companyId || approval.type !== "deploy_change") {
+        res.status(404).json({ error: "Deploy approval not found" });
+        return;
+      }
+      if (approval.status !== "approved") {
+        res.status(422).json({ error: "Deploy command execution requires approved deploy approval" });
+        return;
+      }
+      if (req.actor.type === "agent" && approval.requestedByAgentId !== req.actor.agentId) {
+        throw forbidden("Only the requesting agent can execute this deploy command");
+      }
+      if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deployment target not found" });
+        return;
+      }
+      if (!deploymentTarget.commandExecutionEnabled) {
+        res.status(422).json({ error: "Deployment target has not enabled Paperclip command execution" });
+        return;
+      }
+
+      const commandType = req.body.commandType as "deploy" | "rollback";
+      const command = commandType === "deploy" ? deploymentTarget.deployCommand : deploymentTarget.rollbackCommand;
+      if (!command?.trim()) {
+        res.status(422).json({ error: `${commandType} command is not configured for this deployment target` });
+        return;
+      }
+      if (commandType === "deploy" && !new Set(["approved", "deploying", "failed"]).has(deployEvent.status)) {
+        res.status(422).json({ error: `Cannot execute deploy command for deploy event status ${deployEvent.status}` });
+        return;
+      }
+      if (commandType === "rollback" && !new Set(["deployed", "failed", "rolled_back"]).has(deployEvent.status)) {
+        res.status(422).json({ error: `Cannot execute rollback command for deploy event status ${deployEvent.status}` });
+        return;
+      }
+
+      const workspace = workspaces.find((entry) => entry.isPrimary) ?? workspaces[0] ?? null;
+      if (!workspace?.cwd) {
+        res.status(422).json({ error: "Project needs a local workspace before Paperclip can execute deploy commands" });
+        return;
+      }
+      if (workspace.sourceType === "remote_managed" || workspace.remoteWorkspaceRef) {
+        res.status(422).json({ error: "Paperclip command execution requires a local project workspace" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      if (commandType === "deploy" && deployEvent.status !== "deploying") {
+        await svc.updateDeployEventStatus(id, deployEvent.id, {
+          status: "deploying",
+          note: "Paperclip started approved deploy command execution",
+          maintenanceMessage: null,
+          metadata: {
+            commandType,
+            deploymentTargetId: deploymentTarget.id,
+          },
+          actor,
+        });
+      }
+
+      const recorder = workspaceOperations.createRecorder({ companyId: project.companyId });
+      let recordStatus: "succeeded" | "failed" = "succeeded";
+      let output: string | null = null;
+      let exitCode: string | null = null;
+      let note: string | null = null;
+
+      try {
+        const operation = await runWorkspaceJobForControl({
+          actor: {
+            id: actor.agentId ?? null,
+            name: actor.actorType === "user" ? "Board" : "Agent",
+            companyId: project.companyId,
+          },
+          issue: deployEvent.issueId ? { id: deployEvent.issueId, identifier: null, title: null } : null,
+          workspace: {
+            baseCwd: workspace.cwd,
+            source: "project_primary",
+            projectId: project.id,
+            workspaceId: workspace.id,
+            repoUrl: workspace.repoUrl,
+            repoRef: workspace.repoRef,
+            strategy: "project_primary",
+            cwd: workspace.cwd,
+            branchName: workspace.defaultRef ?? workspace.repoRef ?? null,
+            worktreePath: null,
+            warnings: [],
+            created: false,
+          },
+          command: {
+            name: `${commandType} command for ${deploymentTarget.name}`,
+            command,
+            cwd: ".",
+          },
+          adapterEnv: {},
+          recorder,
+          metadata: {
+            projectId: project.id,
+            deployEventId: deployEvent.id,
+            deploymentTargetId: deploymentTarget.id,
+            commandType,
+          },
+        });
+        output = deployCommandOutput({
+          stdout: operation?.stdoutExcerpt,
+          stderr: operation?.stderrExcerpt,
+          operationId: operation?.id,
+        });
+        exitCode = operation?.exitCode === null || operation?.exitCode === undefined ? null : String(operation.exitCode);
+        note = operation?.id ? `Executed by Paperclip workspace operation ${operation.id}` : "Executed by Paperclip";
+      } catch (error) {
+        recordStatus = "failed";
+        note = `Paperclip command execution failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      const record = await svc.createDeployCommandRecord(project.id, {
+        deployEventId: deployEvent.id,
+        deploymentTargetId: deploymentTarget.id,
+        approvalId: approval.id,
+        commandType,
+        status: recordStatus,
+        command,
+        output,
+        exitCode,
+        note,
+        recordedByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+        recordedByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+      if (!record) {
+        res.status(422).json({ error: "Invalid deploy command execution result" });
+        return;
+      }
+
+      const nextEventStatus = deployEventStatusForCommandRecord(commandType, record.status);
+      const updatedDeployEvent = nextEventStatus
+        ? await svc.updateDeployEventStatus(id, deployEvent.id, {
+            status: nextEventStatus,
+            note: `Paperclip executed ${record.commandType} command: ${record.status}`,
+            maintenanceMessage: null,
+            metadata: {
+              commandRecordId: record.id,
+              commandType: record.commandType,
+              commandStatus: record.status,
+            },
+            actor,
+          })
+        : null;
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.deploy_command_executed",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          deployEventId: deployEvent.id,
+          approvalId: approval.id,
+          commandRecordId: record.id,
+          commandType: record.commandType,
+          status: record.status,
+          exitCode: record.exitCode,
+          deployEventStatus: updatedDeployEvent?.status ?? deployEvent.status,
+        },
+      });
+
+      res.status(201).json({
+        record,
+        deployEvent: updatedDeployEvent ?? deployEvent,
+      });
+    },
+  );
 
   router.post(
     "/projects/:id/deploy-events/:deployEventId/command-records",

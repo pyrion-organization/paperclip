@@ -183,6 +183,7 @@ export const createProjectDeploymentTargetSchema = z.object({
   rollbackInstructions: optionalTrimmedText(),
   deployCommand: optionalTrimmedText(4000),
   rollbackCommand: optionalTrimmedText(4000),
+  commandExecutionEnabled: z.boolean().default(false),
   maintenanceUpdatesEnabled: z.boolean().default(false),
   maintenanceRecipients: deployMaintenanceRecipientsSchema,
   status: z.enum(PROJECT_DEPLOYMENT_TARGET_STATUSES).default("active"),
@@ -234,6 +235,12 @@ export const createProjectDeployCommandRecordSchema = z.object({
 });
 
 export type CreateProjectDeployCommandRecord = z.infer<typeof createProjectDeployCommandRecordSchema>;
+
+export const executeProjectDeployCommandSchema = z.object({
+  commandType: z.enum(PROJECT_DEPLOY_COMMAND_TYPES),
+});
+
+export type ExecuteProjectDeployCommand = z.infer<typeof executeProjectDeployCommandSchema>;
 
 export const createProjectInfraTargetSchema = z.object({
   deploymentTargetId: z.string().uuid().optional().nullable(),

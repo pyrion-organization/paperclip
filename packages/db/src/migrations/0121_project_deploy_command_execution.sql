@@ -1,0 +1,1 @@
+ALTER TABLE "project_deployment_targets" ADD COLUMN "command_execution_enabled" boolean DEFAULT false NOT NULL;

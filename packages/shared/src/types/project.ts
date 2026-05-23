@@ -235,6 +235,7 @@ export interface ProjectDeploymentTarget {
   rollbackInstructions: string | null;
   deployCommand: string | null;
   rollbackCommand: string | null;
+  commandExecutionEnabled: boolean;
   maintenanceUpdatesEnabled: boolean;
   maintenanceRecipients: string[];
   status: ProjectDeploymentTargetStatus;

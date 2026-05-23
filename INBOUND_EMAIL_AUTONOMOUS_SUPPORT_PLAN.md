@@ -865,8 +865,8 @@ Deliverables:
 Implemented the approved-deploy foundation:
 
 - project deployment targets with environment, provider, URLs, notes, rollback
-  instructions, deploy/rollback command descriptors, and active/disabled
-  status,
+  instructions, deploy/rollback command descriptors, explicit command-execution
+  opt-in, and active/disabled status,
 - `deploy_change` approvals linked to the project issue,
 - approval payload evidence for changed files, tests run, target snapshot,
   issue snapshot, risk, rollback plan, and optional maintenance text,
@@ -883,13 +883,16 @@ Implemented the approved-deploy foundation:
   state aligned with the recorded handoff,
 - terminal deploy/rollback command records require output, a note, or an exit
   code so manual execution evidence cannot be marked complete without proof,
+- approved deploy/rollback command descriptors can be executed from Paperclip
+  only when the deployment target explicitly enables command execution, the
+  approval is accepted, the actor is the requesting agent or board, the event
+  status is compatible, and the project has a primary local workspace,
+- Paperclip execution records a workspace operation, persists command evidence,
+  advances deploy event status, and logs activity; it does not add provider API,
+  DNS, or infra-repair authority,
 - compact project configuration UI for targets and recent deploy events,
-- no automatic production deploy execution.
-
-Remaining Phase 5 work:
-
-- add actual command execution only after manual command evidence and rollback
-  controls are proven.
+- no automatic production deploy execution without explicit approved-command
+  execution by an eligible actor.
 
 ### Phase 6: Infra Agent
 

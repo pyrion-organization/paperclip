@@ -137,18 +137,19 @@ Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enab
 
 ## Approved deploy workflow foundation
 
-Paperclip now stores deployment readiness metadata without executing production deploys automatically.
+Paperclip now stores deployment readiness metadata and can execute approved deploy commands only when a deployment target explicitly opts in.
 
-- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, deploy/rollback command descriptors, rollback instructions, and active/disabled status.
+- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, deploy/rollback command descriptors, rollback instructions, command-execution opt-in, and active/disabled status.
 - Deployment targets can opt in to maintenance updates with an explicit recipient list.
 - Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
 - Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
 - Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
 - After approval, the requesting agent or board can record the manual deploy handoff as `deploying`, `deployed`, `failed`, or `rolled_back`. These transitions append audit metadata to the deploy event and log project activity.
-- Approved deploy events can also store deploy/rollback command evidence. The command text must match the selected deployment target descriptor, the deploy approval must be approved, and rollback evidence is only accepted after the event is deployed, failed, or already rolled back. Deploy command evidence advances the deploy event to `deploying`, `deployed`, or `failed`; successful rollback evidence advances it to `rolled_back`. Terminal command records require output, a note, or an exit code. These records capture command type, status, output/note, and actor metadata; Paperclip still does not execute the command.
+- Approved deploy events can store deploy/rollback command evidence. The command text must match the selected deployment target descriptor, the deploy approval must be approved, and rollback evidence is only accepted after the event is deployed, failed, or already rolled back. Deploy command evidence advances the deploy event to `deploying`, `deployed`, or `failed`; successful rollback evidence advances it to `rolled_back`. Terminal command records require output, a note, or an exit code. These records capture command type, status, output/note, and actor metadata.
+- If a deployment target enables Paperclip command execution, the requesting agent or board can execute the approved deploy/rollback descriptor in the project's primary local workspace. Execution records a workspace operation, persists command evidence, updates deploy event status, and logs activity. This does not grant provider API, DNS, SSH, or infrastructure repair authority beyond whatever the approved local command itself does.
 - Maintenance messages are explicit sends, not automatic side effects. They require approved deploy approval, an eligible deploy event status, target opt-in, configured recipients, and a message body. Delivery status, recipients, attempted/sent timestamps, and errors are stored on the deploy event. A `sent` message is not sent again on retry.
 - Disabled targets cannot receive deploy approval requests.
-- This foundation is intentionally approval-gated. It does not SSH to servers, run deploy commands, change DNS, or send customer maintenance mail automatically.
+- This foundation is intentionally approval-gated. It does not automatically deploy, change DNS, repair infrastructure, or send customer maintenance mail as a side effect.
 
 ## Infrastructure topology and health foundation
 

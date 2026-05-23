@@ -26,6 +26,7 @@ const EMPTY_TARGET_FORM = {
   healthCheckUrl: "",
   deployCommand: "",
   rollbackCommand: "",
+  commandExecutionEnabled: false,
   rollbackInstructions: "",
   maintenanceUpdatesEnabled: false,
   maintenanceRecipients: "",
@@ -126,6 +127,7 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
     healthCheckUrl: form.healthCheckUrl.trim() || null,
     deployCommand: form.deployCommand.trim() || null,
     rollbackCommand: form.rollbackCommand.trim() || null,
+    commandExecutionEnabled: form.commandExecutionEnabled,
     rollbackInstructions: form.rollbackInstructions.trim() || null,
     maintenanceUpdatesEnabled: form.maintenanceUpdatesEnabled,
     maintenanceRecipients: form.maintenanceRecipients
@@ -202,6 +204,14 @@ function DeployCommandRecords({
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
+  const executeCommand = useMutation({
+    mutationFn: (commandType: "deploy" | "rollback") =>
+      projectsApi.executeDeployCommand(projectId, event.id, { commandType }, companyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.deployEvents(projectId, companyId) });
+    },
+  });
 
   const recordCommand = (commandType: "deploy" | "rollback", status: "running" | "succeeded" | "failed") => {
     const command = commandType === "deploy" ? target?.deployCommand : target?.rollbackCommand;
@@ -226,6 +236,8 @@ function DeployCommandRecords({
 
   const canRecordDeploy = Boolean(target?.deployCommand && canRecordDeployCommand(event));
   const canRecordRollback = Boolean(target?.rollbackCommand && canRecordRollbackCommand(event));
+  const canExecuteDeploy = Boolean(target?.commandExecutionEnabled && target.deployCommand && canRecordDeployCommand(event));
+  const canExecuteRollback = Boolean(target?.commandExecutionEnabled && target.rollbackCommand && canRecordRollbackCommand(event));
 
   if (!canRecordDeploy && !canRecordRollback && records.length === 0) {
     return null;
@@ -237,6 +249,18 @@ function DeployCommandRecords({
         <div className="flex flex-wrap gap-1.5">
           {canRecordDeploy ? (
             <>
+              {canExecuteDeploy ? (
+                <Button
+                  variant="default"
+                  size="xs"
+                  className="h-6 px-2"
+                  disabled={executeCommand.isPending}
+                  onClick={() => executeCommand.mutate("deploy")}
+                >
+                  {executeCommand.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Execute deploy
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="xs"
@@ -268,6 +292,18 @@ function DeployCommandRecords({
           ) : null}
           {canRecordRollback ? (
             <>
+              {canExecuteRollback ? (
+                <Button
+                  variant="default"
+                  size="xs"
+                  className="h-6 px-2"
+                  disabled={executeCommand.isPending}
+                  onClick={() => executeCommand.mutate("rollback")}
+                >
+                  {executeCommand.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Execute rollback
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="xs"
@@ -289,6 +325,7 @@ function DeployCommandRecords({
             </>
           ) : null}
           {createRecord.isError ? <span className="text-xs text-destructive">Failed to record command.</span> : null}
+          {executeCommand.isError ? <span className="text-xs text-destructive">Failed to execute command.</span> : null}
         </div>
       ) : null}
       {isLoading ? (
@@ -587,6 +624,14 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             onChange={(event) => setForm((current) => ({ ...current, rollbackCommand: event.target.value }))}
             placeholder="Rollback command descriptor"
           />
+          <label className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={form.commandExecutionEnabled}
+              onChange={(event) => setForm((current) => ({ ...current, commandExecutionEnabled: event.target.checked }))}
+            />
+            Allow approved command execution on Paperclip host
+          </label>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={form.rollbackInstructions}
@@ -649,6 +694,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     {target.healthCheckUrl ? <div className="break-all">Health: {target.healthCheckUrl}</div> : null}
                     {target.deployCommand ? <div className="break-all font-mono">Deploy: {target.deployCommand}</div> : null}
                     {target.rollbackCommand ? <div className="break-all font-mono">Rollback command: {target.rollbackCommand}</div> : null}
+                    {target.commandExecutionEnabled ? <div>Paperclip command execution enabled</div> : null}
                     {target.rollbackInstructions ? <div>Rollback: {target.rollbackInstructions}</div> : null}
                     {target.maintenanceUpdatesEnabled ? (
                       <div>

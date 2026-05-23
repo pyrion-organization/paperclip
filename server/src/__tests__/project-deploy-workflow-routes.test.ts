@@ -12,6 +12,7 @@ const mockProjectService = vi.hoisted(() => ({
   recordDeployMaintenanceMessageDelivery: vi.fn(),
   listDeployCommandRecords: vi.fn(),
   createDeployCommandRecord: vi.fn(),
+  listWorkspaces: vi.fn(),
   listInfraTargets: vi.fn(),
   getInfraTarget: vi.fn(),
   createInfraTarget: vi.fn(),
@@ -46,8 +47,12 @@ const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
   create: vi.fn(),
 }));
+const mockWorkspaceOperationService = vi.hoisted(() => ({
+  createRecorder: vi.fn(() => ({ recordOperation: vi.fn() })),
+}));
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockSendDeployMaintenanceEmail = vi.hoisted(() => vi.fn());
+const mockRunWorkspaceJobForControl = vi.hoisted(() => vi.fn());
 
 vi.mock("../services/index.js", () => ({
   environmentService: () => ({ getById: vi.fn() }),
@@ -56,7 +61,7 @@ vi.mock("../services/index.js", () => ({
   projectFilesService: () => ({}),
   projectService: () => mockProjectService,
   secretService: () => ({}),
-  workspaceOperationService: () => ({}),
+  workspaceOperationService: () => mockWorkspaceOperationService,
 }));
 vi.mock("../services/approvals.js", () => ({
   approvalService: () => mockApprovalService,
@@ -77,6 +82,7 @@ vi.mock("../services/secrets.js", () => ({
   secretService: () => ({}),
 }));
 vi.mock("../services/workspace-runtime.js", () => ({
+  runWorkspaceJobForControl: mockRunWorkspaceJobForControl,
   startRuntimeServicesForWorkspaceControl: vi.fn(),
   stopRuntimeServicesForProjectWorkspace: vi.fn(),
 }));
@@ -119,6 +125,7 @@ function buildTarget(overrides: Record<string, unknown> = {}) {
     rollbackInstructions: "Rollback with previous release.",
     deployCommand: "pnpm deploy:prod",
     rollbackCommand: "pnpm rollback:prod",
+    commandExecutionEnabled: true,
     status: "active",
     maintenanceUpdatesEnabled: true,
     maintenanceRecipients: ["ops@example.com"],
@@ -165,6 +172,33 @@ function buildDeployCommandRecord(overrides: Record<string, unknown> = {}) {
     note: "Manual deploy completed.",
     recordedByAgentId: "agent-1",
     recordedByUserId: null,
+    createdAt: new Date("2026-05-23T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-23T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function buildWorkspace(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "77777777-7777-4777-8777-777777777777",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    name: "Primary",
+    sourceType: "local_path",
+    cwd: "/tmp/project-workspace",
+    repoUrl: null,
+    repoRef: null,
+    defaultRef: "main",
+    visibility: "default",
+    setupCommand: null,
+    cleanupCommand: null,
+    remoteProvider: null,
+    remoteWorkspaceRef: null,
+    sharedWorkspaceKey: null,
+    metadata: null,
+    runtimeConfig: null,
+    isPrimary: true,
+    runtimeServices: [],
     createdAt: new Date("2026-05-23T00:00:00.000Z"),
     updatedAt: new Date("2026-05-23T00:00:00.000Z"),
     ...overrides,
@@ -345,6 +379,13 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createDeployCommandRecord.mockImplementation(async (_projectId, data) =>
       buildDeployCommandRecord(data),
     );
+    mockProjectService.listWorkspaces.mockResolvedValue([buildWorkspace()]);
+    mockRunWorkspaceJobForControl.mockResolvedValue({
+      id: "88888888-8888-4888-8888-888888888888",
+      stdoutExcerpt: "deploy ok",
+      stderrExcerpt: null,
+      exitCode: 0,
+    });
     mockProjectService.listInfraTargets.mockResolvedValue([buildInfraTarget()]);
     mockProjectService.getInfraTarget.mockResolvedValue(buildInfraTarget());
     mockProjectService.createInfraTarget.mockImplementation(async (_projectId, data) =>
@@ -654,6 +695,95 @@ describe("project deploy workflow routes", () => {
     expect(res.body.error).toBe("Terminal deploy command evidence requires output, note, or exit code");
     expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
     expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
+  });
+
+  it("executes an approved deploy command in the local project workspace", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-executions")
+      .send({ commandType: "deploy" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockRunWorkspaceJobForControl).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.objectContaining({
+        command: "pnpm deploy:prod",
+        name: "deploy command for Production",
+      }),
+      workspace: expect.objectContaining({
+        cwd: "/tmp/project-workspace",
+        workspaceId: "77777777-7777-4777-8777-777777777777",
+      }),
+      metadata: expect.objectContaining({
+        deployEventId: "55555555-5555-4555-8555-555555555555",
+        deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+        commandType: "deploy",
+      }),
+    }));
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({ status: "deploying" }),
+    );
+    expect(mockProjectService.createDeployCommandRecord).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:prod",
+        output: "stdout:\ndeploy ok",
+        exitCode: "0",
+        note: "Executed by Paperclip workspace operation 88888888-8888-4888-8888-888888888888",
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.deploy_command_executed",
+        details: expect.objectContaining({
+          commandType: "deploy",
+          status: "succeeded",
+          deployEventStatus: "deployed",
+        }),
+      }),
+    );
+  });
+
+  it("blocks deploy command execution unless the deployment target explicitly opts in", async () => {
+    mockProjectService.getDeploymentTarget.mockResolvedValue(buildTarget({ commandExecutionEnabled: false }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-executions")
+      .send({ commandType: "deploy" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockRunWorkspaceJobForControl).not.toHaveBeenCalled();
+    expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
+  });
+
+  it("records failed deploy command execution evidence when the workspace command fails", async () => {
+    mockRunWorkspaceJobForControl.mockRejectedValue(new Error("deploy failed"));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-executions")
+      .send({ commandType: "deploy" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.createDeployCommandRecord).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        commandType: "deploy",
+        status: "failed",
+        command: "pnpm deploy:prod",
+        note: "Paperclip command execution failed: deploy failed",
+      }),
+    );
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
   it("blocks command evidence before the deploy approval is accepted", async () => {

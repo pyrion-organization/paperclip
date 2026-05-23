@@ -281,6 +281,7 @@ function toDeploymentTarget(row: ProjectDeploymentTargetRow): ProjectDeploymentT
     rollbackInstructions: row.rollbackInstructions ?? null,
     deployCommand: row.deployCommand ?? null,
     rollbackCommand: row.rollbackCommand ?? null,
+    commandExecutionEnabled: row.commandExecutionEnabled,
     maintenanceUpdatesEnabled: row.maintenanceUpdatesEnabled,
     maintenanceRecipients: row.maintenanceRecipients ?? [],
     status: row.status as ProjectDeploymentTarget["status"],
