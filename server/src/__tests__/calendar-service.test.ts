@@ -1,0 +1,462 @@
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  activityLog,
+  calendarItemDocuments,
+  calendarItems,
+  clients,
+  companies,
+  createDb,
+  emailNotifications,
+  inboundEmailMailboxes,
+  inboundEmailMessages,
+  issues,
+  projects,
+} from "@paperclipai/db";
+import {
+  CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND,
+  CALENDAR_EMAIL_NOTIFICATION_KIND,
+  CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND,
+  CALENDAR_REMINDER_ISSUE_ORIGIN_KIND,
+  createCalendarItemSchema,
+} from "@paperclipai/shared";
+import {
+  getEmbeddedPostgresTestSupport,
+  startEmbeddedPostgresTestDatabase,
+} from "./helpers/embedded-postgres.js";
+import { calendarService, calculateNextDueDate } from "../services/calendar.ts";
+
+const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
+const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
+
+if (!embeddedPostgresSupport.supported) {
+  console.warn(
+    `Skipping embedded Postgres calendar service tests: ${embeddedPostgresSupport.reason ?? "unsupported environment"}`,
+  );
+}
+
+describeEmbeddedPostgres("calendarService", () => {
+  let db!: ReturnType<typeof createDb>;
+  let svc!: ReturnType<typeof calendarService>;
+  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+
+  const companyId = randomUUID();
+  const otherCompanyId = randomUUID();
+  const clientId = randomUUID();
+  const otherClientId = randomUUID();
+  const projectId = randomUUID();
+  const mailboxId = randomUUID();
+  const sourceEmailMessageId = randomUUID();
+
+  beforeAll(async () => {
+    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-calendar-service-");
+    db = createDb(tempDb.connectionString);
+    svc = calendarService(db);
+
+    await db.insert(companies).values([
+      {
+        id: companyId,
+        name: "Calendar Co",
+        issuePrefix: "CAL",
+        requireBoardApprovalForNewAgents: false,
+      },
+      {
+        id: otherCompanyId,
+        name: "Other Co",
+        issuePrefix: "OTH",
+        requireBoardApprovalForNewAgents: false,
+      },
+    ]);
+
+    await db.insert(clients).values([
+      { id: clientId, companyId, name: "Calendar Client" },
+      { id: otherClientId, companyId: otherCompanyId, name: "Other Client" },
+    ]);
+
+    await db.insert(projects).values({
+      id: projectId,
+      companyId,
+      name: "Calendar Project",
+      status: "in_progress",
+    });
+
+    await db.insert(inboundEmailMailboxes).values({
+      id: mailboxId,
+      companyId,
+      name: "Calendar inbox",
+      host: "imap.example.com",
+      username: "calendar@example.com",
+    });
+
+    await db.insert(inboundEmailMessages).values({
+      id: sourceEmailMessageId,
+      companyId,
+      mailboxId,
+      rawSha256: "calendar-source-message",
+      subject: "Renewal receipt",
+      toAddresses: ["calendar@example.com"],
+    });
+  }, 20_000);
+
+  afterEach(async () => {
+    await db.delete(calendarItemDocuments);
+    await db.delete(emailNotifications);
+    await db.delete(activityLog);
+    await db.delete(issues);
+    await db.delete(calendarItems);
+  });
+
+  afterAll(async () => {
+    await db.delete(inboundEmailMessages);
+    await db.delete(inboundEmailMailboxes);
+    await db.delete(projects);
+    await db.delete(clients);
+    await db.delete(companies);
+    await tempDb?.cleanup();
+  });
+
+  function item(input: Parameters<typeof createCalendarItemSchema.parse>[0]) {
+    return createCalendarItemSchema.parse(input);
+  }
+
+  it("creates, lists, and fetches company-scoped calendar items", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Domain renewal",
+      category: "domain",
+      riskLevel: "critical",
+      providerName: "Example Registrar",
+      relatedClientId: clientId,
+      relatedProjectId: projectId,
+      nextDueDate: "2026-06-30",
+      purchaseEmail: "owner@example.com",
+      serviceUrl: "https://example.com",
+      metadata: { registrar: "Example Registrar", domainName: "example.com" },
+    }));
+
+    const listed = await svc.list(companyId, { category: "domain" });
+    const detail = await svc.getById(companyId, created.id);
+
+    expect(listed.total).toBe(1);
+    expect(listed.items[0]!.id).toBe(created.id);
+    expect(detail.companyId).toBe(companyId);
+    expect(detail.documents).toEqual([]);
+    expect(detail.activity.some((entry) => entry.action === "calendar_item.created")).toBe(true);
+  });
+
+  it("filters by operational ownership, payment, renewal, and due fields", async () => {
+    const matching = await svc.create(companyId, item({
+      title: "Filtered SaaS renewal",
+      category: "software_subscription",
+      riskLevel: "medium",
+      providerName: "Filter Vendor",
+      relatedClientId: clientId,
+      relatedProjectId: projectId,
+      nextDueDate: "2026-06-15",
+      autoRenew: true,
+      paymentMethodLabel: "Company card",
+      purchaseEmail: "ops@example.com",
+      billingEmail: "billing@example.com",
+    }));
+    await svc.create(companyId, item({
+      title: "Other SaaS renewal",
+      category: "software_subscription",
+      riskLevel: "medium",
+      providerName: "Other Vendor",
+      nextDueDate: "2026-08-15",
+      autoRenew: false,
+      paymentMethodLabel: "Invoice",
+      purchaseEmail: "owner@example.com",
+      billingEmail: "ap@example.com",
+    }));
+
+    const listed = await svc.list(companyId, {
+      autoRenew: true,
+      paymentMethod: "company",
+      purchaseEmail: "ops@",
+      billingEmail: "billing@",
+      relatedClientId: clientId,
+      relatedProjectId: projectId,
+      dueFrom: "2026-06-01",
+      dueTo: "2026-06-30",
+    });
+
+    expect(listed.total).toBe(1);
+    expect(listed.items[0]!.id).toBe(matching.id);
+  });
+
+  it("rejects references that belong to another company", async () => {
+    await expect(
+      svc.create(companyId, item({
+        title: "Wrong client",
+        category: "software_subscription",
+        relatedClientId: otherClientId,
+        nextDueDate: "2026-06-01",
+        billingEmail: "billing@example.com",
+      })),
+    ).rejects.toThrow(/does not belong to company/);
+  });
+
+  it("advances recurring items when completed", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Monthly subscription",
+      category: "software_subscription",
+      recurrenceType: "monthly",
+      nextDueDate: "2026-01-31",
+      amountCents: 1200,
+      billingEmail: "billing@example.com",
+    }));
+
+    const completed = await svc.complete(companyId, created.id, {
+      completedAt: new Date("2026-01-31T12:00:00.000Z"),
+      notes: "Paid",
+    });
+
+    expect(calculateNextDueDate({
+      nextDueDate: "2026-01-31",
+      dueDate: null,
+      recurrenceType: "monthly",
+      recurrenceRule: null,
+    })).toBe("2026-02-28");
+    expect(completed.status).toBe("active");
+    expect(completed.nextDueDate).toBe("2026-02-28");
+    expect(completed.notes).toContain("Paid");
+  });
+
+  it("rejects governed mutations unless approval is explicitly confirmed", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Critical certificate",
+      category: "certificate",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-30",
+      billingEmail: "billing@example.com",
+    }));
+
+    await expect(
+      svc.update(companyId, created.id, { nextDueDate: "2026-07-30" }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.complete(companyId, created.id, { completedAt: new Date("2026-06-30T12:00:00.000Z") }),
+    ).rejects.toThrow(/requires approval/);
+
+    const updated = await svc.update(
+      companyId,
+      created.id,
+      { nextDueDate: "2026-07-30" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+    expect(updated.nextDueDate).toBe("2026-07-30");
+  });
+
+  it("creates deterministic reminder issues and queues reminder emails", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Critical domain renewal",
+      category: "domain",
+      riskLevel: "critical",
+      providerName: "Registrar",
+      nextDueDate: "2026-06-30",
+      purchaseEmail: "owner@example.com",
+      serviceUrl: "https://example.com",
+      metadata: { registrar: "Registrar", domainName: "example.com" },
+    }));
+
+    const first = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const second = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+
+    const reminderIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_REMINDER_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, created.id),
+      ));
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+
+    expect(first.createdIssues).toBe(1);
+    expect(first.queuedEmails).toBe(1);
+    expect(second.createdIssues).toBe(0);
+    expect(second.updatedIssues).toBe(1);
+    expect(second.queuedEmails).toBe(0);
+    expect(reminderIssues).toHaveLength(1);
+    expect(queuedEmails).toHaveLength(1);
+  });
+
+  it("dedupes reminder emails by calendar identity even without linked issues", async () => {
+    await svc.create(companyId, item({
+      title: "Shared SaaS renewal",
+      category: "software_subscription",
+      riskLevel: "medium",
+      nextDueDate: "2026-06-07",
+      billingEmail: "billing@example.com",
+    }));
+    await svc.create(companyId, item({
+      title: "Shared SaaS renewal",
+      category: "software_subscription",
+      riskLevel: "medium",
+      nextDueDate: "2026-06-07",
+      billingEmail: "billing@example.com",
+    }));
+
+    const first = await svc.runReminderScan(companyId, {
+      now: new Date("2026-06-04T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const second = await svc.runReminderScan(companyId, {
+      now: new Date("2026-06-04T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+
+    expect(first.queuedEmails).toBe(2);
+    expect(second.queuedEmails).toBe(0);
+    expect(queuedEmails).toHaveLength(2);
+  });
+
+  it("reports missing metadata through a weekly issue", async () => {
+    await svc.create(companyId, item({
+      title: "Incomplete domain",
+      category: "domain",
+      riskLevel: "high",
+      nextDueDate: "2026-07-01",
+    }));
+
+    const first = await svc.runMetadataScan(companyId, { now: new Date("2026-05-23T00:00:00.000Z") });
+    const second = await svc.runMetadataScan(companyId, { now: new Date("2026-05-23T01:00:00.000Z") });
+
+    const reportIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND),
+      ));
+
+    expect(first.findingCount).toBe(1);
+    expect(first.createdIssueId).toBeTruthy();
+    expect(second.updatedIssueId).toBe(first.createdIssueId);
+    expect(reportIssues).toHaveLength(1);
+  });
+
+  it("runs scheduled scans once per company day and metadata week", async () => {
+    await svc.create(companyId, item({
+      title: "Scheduled domain scan",
+      category: "domain",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-30",
+      purchaseEmail: "owner@example.com",
+      serviceUrl: "https://example.com",
+      metadata: { registrar: "Registrar", domainName: "example.com" },
+    }));
+
+    const first = await svc.runScheduledScans(new Date("2026-05-31T08:00:00.000Z"));
+    const second = await svc.runScheduledScans(new Date("2026-05-31T09:00:00.000Z"));
+
+    expect(first.companiesScanned).toBe(1);
+    expect(first.reminderScans).toBe(1);
+    expect(first.metadataScans).toBe(1);
+    expect(first.reminderIssuesCreated).toBe(1);
+    expect(second.reminderScans).toBe(0);
+    expect(second.metadataScans).toBe(0);
+  });
+
+  it("creates email proposals as pending-review items with review issues", async () => {
+    const proposal = await svc.createEmailProposal(companyId, {
+      ...item({
+        title: "Receipt renewal",
+        category: "software_subscription",
+        providerName: "Receipt Vendor",
+        nextDueDate: "2026-08-01",
+        billingEmail: "billing@example.com",
+        sourceKind: "email_agent",
+        sourceEmailMessageId,
+        confidenceScore: 72,
+      }),
+      sourceEmailMessageId,
+      confidenceScore: 72,
+      matchingKey: "receipt-vendor:2026-08-01",
+    });
+
+    const reviewIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, sourceEmailMessageId),
+      ));
+
+    expect(proposal.status).toBe("pending_review");
+    expect(proposal.sourceKind).toBe("email_agent");
+    expect(reviewIssues).toHaveLength(1);
+    expect(reviewIssues[0]!.priority).toBe("high");
+  });
+
+  it("dedupes repeated email proposals by source message and matching key", async () => {
+    const payload = {
+      ...item({
+        title: "Duplicate proposal renewal",
+        category: "software_subscription",
+        providerName: "Duplicate Vendor",
+        nextDueDate: "2026-08-01",
+        billingEmail: "billing@example.com",
+        sourceKind: "email_agent",
+        sourceEmailMessageId,
+        confidenceScore: 85,
+      }),
+      sourceEmailMessageId,
+      confidenceScore: 85,
+      matchingKey: "duplicate-vendor:2026-08-01",
+    };
+
+    const first = await svc.createEmailProposal(companyId, payload);
+    const second = await svc.createEmailProposal(companyId, payload);
+    const proposals = await db
+      .select()
+      .from(calendarItems)
+      .where(and(
+        eq(calendarItems.companyId, companyId),
+        eq(calendarItems.sourceKind, "email_agent"),
+        eq(calendarItems.sourceEmailMessageId, sourceEmailMessageId),
+      ));
+    const reviewIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, sourceEmailMessageId),
+      ));
+
+    expect(second.id).toBe(first.id);
+    expect(proposals).toHaveLength(1);
+    expect(reviewIssues).toHaveLength(1);
+  });
+});

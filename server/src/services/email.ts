@@ -332,6 +332,112 @@ export async function sendIssueCompletionEmail(params: IssueCompletionEmailParam
   await sendIssueCompletionEmailWithResult(params);
 }
 
+export type CalendarReminderEmailParams = {
+  to: string;
+  title: string;
+  category: string;
+  riskLevel: string;
+  dueDate: string | null;
+  providerName?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  purchaseEmail?: string | null;
+  accountLoginEmail?: string | null;
+  billingEmail?: string | null;
+  loginUrl?: string | null;
+  billingUrl?: string | null;
+  documentationUrl?: string | null;
+  notes?: string | null;
+  daysUntilDue: number;
+  db?: Db | null;
+  companyId?: string | null;
+};
+
+export type CalendarReminderEmailSendResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "smtp_not_configured" };
+
+export async function sendCalendarReminderEmailWithResult(
+  params: CalendarReminderEmailParams,
+): Promise<CalendarReminderEmailSendResult> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
+  const transport = buildTransport(config);
+  const dueLabel = params.dueDate ?? "not set";
+  const amount = params.amountCents == null
+    ? null
+    : `${params.currency ?? "USD"} ${(params.amountCents / 100).toFixed(2)}`;
+  const isOverdue = params.daysUntilDue < 0;
+  const subject = isOverdue
+    ? `[Calendar Paperclip] OVERDUE: ${params.title}`
+    : `[Calendar Paperclip] Upcoming deadline: ${params.title} - due ${dueLabel}`;
+
+  const body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    ${escapeHtml(isOverdue
+      ? `This calendar item is overdue by ${Math.abs(params.daysUntilDue)} day${Math.abs(params.daysUntilDue) === 1 ? "" : "s"}.`
+      : `This calendar item is due in ${params.daysUntilDue} day${params.daysUntilDue === 1 ? "" : "s"}.`)}
+  </p>
+  ${metaTable([
+    ["Item", params.title],
+    ["Category", params.category],
+    ["Risk", params.riskLevel],
+    ["Due date", dueLabel],
+    ["Provider", params.providerName ?? "Not set"],
+    ...(amount ? [["Amount", amount] as [string, string]] : []),
+    ["Purchase email", params.purchaseEmail ?? "Not set"],
+    ["Login email", params.accountLoginEmail ?? "Not set"],
+    ["Billing email", params.billingEmail ?? "Not set"],
+    ["Login URL", params.loginUrl ?? "Not set"],
+    ["Billing URL", params.billingUrl ?? "Not set"],
+    ["Documentation URL", params.documentationUrl ?? "Not set"],
+  ])}
+  ${params.notes ? quoteBlock("Notes", params.notes, isOverdue ? "#dc2626" : "#2563eb", 2000) : ""}
+  ${alertBox(
+    isOverdue ? "#991b1b" : "#1d4ed8",
+    isOverdue ? "#fef2f2" : "#eff6ff",
+    isOverdue ? "#dc2626" : "#2563eb",
+    isOverdue ? "Action required now: resolve the overdue obligation and update the calendar item." : "Action required: confirm ownership, payment, proof, and next due date.",
+  )}`;
+
+  const html = buildEmailWrapper({
+    headerColor: isOverdue ? "#dc2626" : "#2563eb",
+    headerIcon: isOverdue ? "!" : "C",
+    headerTitle: isOverdue ? "Calendar Item Overdue" : "Calendar Reminder",
+    headerSubtitle: `${params.title} - ${dueLabel}`,
+    body,
+    signatureHtml: config.signatureHtml,
+  });
+
+  const text = [
+    `Item: ${params.title}`,
+    `Category: ${params.category}`,
+    `Risk: ${params.riskLevel}`,
+    `Due date: ${dueLabel}`,
+    `Provider: ${params.providerName ?? "Not set"}`,
+    amount ? `Amount: ${amount}` : null,
+    "",
+    "Account / email information:",
+    `- Purchase email: ${params.purchaseEmail ?? "Not set"}`,
+    `- Login email: ${params.accountLoginEmail ?? "Not set"}`,
+    `- Billing email: ${params.billingEmail ?? "Not set"}`,
+    "",
+    "Useful links:",
+    `- Login: ${params.loginUrl ?? "Not set"}`,
+    `- Billing: ${params.billingUrl ?? "Not set"}`,
+    `- Documentation: ${params.documentationUrl ?? "Not set"}`,
+    params.notes ? `\nNotes:\n${params.notes}` : null,
+  ].filter(Boolean).join("\n");
+
+  await transport.sendMail({
+    from: config.from,
+    to: params.to,
+    subject,
+    text,
+    html,
+  });
+  return { status: "sent" };
+}
+
 export type InboundEmailAuthorizationReplyReason =
   | "employee_not_registered"
   | "project_not_authorized"
