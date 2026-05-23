@@ -155,8 +155,9 @@ type ManagedRoutine = {
   } | null;
 };
 
-type ManagedRoutineListItemWithDrift = ManagedRoutinesListItem & {
-  defaultDrift?: ManagedRoutine["defaultDrift"];
+type ManagedRoutineDefaultDrift = NonNullable<ManagedRoutine["defaultDrift"]>;
+type ManagedRoutinesListItemWithDrift = ManagedRoutinesListItem & {
+  defaultDrift?: ManagedRoutineDefaultDrift | null;
 };
 
 type ManagedSkill = {
@@ -5909,7 +5910,7 @@ function SettingsBody({ context, initialSection = "root" }: { context: { company
   const effectiveSelectedProjectId = selectedProjectId || data.managedProject.projectId || "";
   const currentProjectOption = projectOptions.find((project) => project.id === effectiveSelectedProjectId) ?? projectFallbackOption;
   const currentEventPolicy = eventPolicy ?? data.eventIngestion;
-  const managedRoutineItems: ManagedRoutineListItemWithDrift[] = managedRoutines.map((routine) => {
+  const managedRoutineItems: ManagedRoutinesListItemWithDrift[] = managedRoutines.map((routine) => {
     const fallback = routineFallbackFor(routine);
     const key = routine.resourceKey ?? routine.routineId ?? fallback.title;
     const status = managedRoutineStatus(routine);
@@ -6136,7 +6137,7 @@ function SettingsBody({ context, initialSection = "root" }: { context: { company
 
   async function resetManagedRoutineToDefaults(routine: ManagedRoutinesListItem) {
     if (!context.companyId || !routine.resourceKey) return;
-    const changedFields = (routine as ManagedRoutineListItemWithDrift).defaultDrift?.changedFields ?? [];
+    const changedFields = (routine as ManagedRoutinesListItemWithDrift).defaultDrift?.changedFields ?? [];
     const fieldList = changedFields.length > 0 ? changedFields.join(", ") : "managed defaults";
     const confirmed = typeof window === "undefined" || window.confirm(
       `Update "${routine.title}" to the current LLM Wiki plugin defaults? This replaces ${fieldList}. Cancel to keep the current custom routine text.`,

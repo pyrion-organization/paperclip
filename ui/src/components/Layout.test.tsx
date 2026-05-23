@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { act, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Layout } from "./Layout";
@@ -40,8 +41,11 @@ vi.mock("@/lib/router", () => ({
   useNavigate: () => mockNavigate,
   useNavigationType: () => "PUSH",
   useParams: () => {
-    const firstSegment = currentPathname.split("/").filter(Boolean)[0];
-    return { companyPrefix: firstSegment === "instance" ? undefined : firstSegment ?? "PAP" };
+    const [firstSegment, secondSegment] = currentPathname.split("/").filter(Boolean);
+    return {
+      companyPrefix: firstSegment === "instance" ? undefined : firstSegment ?? "PAP",
+      pluginRoutePath: firstSegment === "instance" ? undefined : secondSegment,
+    };
   },
 }));
 
@@ -227,6 +231,14 @@ vi.mock("../lib/main-content-focus", () => ({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+async function act(callback: () => void | Promise<void>) {
+  let result: void | Promise<void> = undefined;
+  flushSync(() => {
+    result = callback();
+  });
+  await result;
+}
+
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
@@ -377,6 +389,40 @@ describe("Layout", () => {
     });
   });
 
+  it("renders a mobile company settings selector on company settings routes", async () => {
+    currentPathname = "/PAP/company/settings/secrets";
+    mockSidebarState.isMobile = true;
+    mockSidebarState.sidebarOpen = false;
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    const selector = container.querySelector("select");
+    expect(selector).not.toBeNull();
+    expect(selector?.value).toBe("secrets");
+    expect(selector?.textContent).toContain("General");
+    expect(selector?.textContent).toContain("Environments");
+    expect(selector?.textContent).toContain("Cloud upstream");
+    expect(selector?.textContent).toContain("Members");
+    expect(selector?.textContent).toContain("Invites");
+    expect(selector?.textContent).toContain("Secrets");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("renders the instance settings sidebar on instance settings routes", async () => {
     currentPathname = "/instance/settings/general";
     const root = createRoot(container);
@@ -451,6 +497,61 @@ describe("Layout", () => {
     expect(container.textContent).not.toContain("Main company nav");
     expect(container.textContent).not.toContain("Company settings sidebar");
     expect(container.textContent).not.toContain("Instance sidebar");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the route-scoped plugin sidebar on nested plugin page routes", async () => {
+    currentPathname = "/PAP/wiki/page/templates";
+    mockPluginSlots.slots = [
+      {
+        type: "page",
+        id: "wiki-page",
+        displayName: "Wiki Page",
+        exportName: "WikiPage",
+        routePath: "wiki",
+        pluginId: "plugin-1",
+        pluginKey: "wiki-plugin",
+        pluginDisplayName: "Wiki Plugin",
+        pluginVersion: "1.0.0",
+      },
+      {
+        type: "routeSidebar",
+        id: "wiki-route-sidebar",
+        displayName: "Wiki Sidebar",
+        exportName: "WikiSidebar",
+        routePath: "wiki",
+        pluginId: "plugin-1",
+        pluginKey: "wiki-plugin",
+        pluginDisplayName: "Wiki Plugin",
+        pluginVersion: "1.0.0",
+      },
+    ];
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Layout />
+        </QueryClientProvider>,
+      );
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(mockUsePluginSlots).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "company-1",
+        enabled: true,
+      }),
+    );
+    expect(container.textContent).toContain("Plugin route sidebar: Wiki Sidebar");
+    expect(container.textContent).not.toContain("Main company nav");
 
     await act(async () => {
       root.unmount();

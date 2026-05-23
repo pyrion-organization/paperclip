@@ -35,6 +35,7 @@ import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { PluginSlotOutlet } from "@/plugins/slots";
+import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
 
 export function Sidebar() {
@@ -69,8 +70,8 @@ export function Sidebar() {
           variant="ghost"
           size="icon-sm"
           className="text-muted-foreground shrink-0"
-          aria-label="Search"
-          title="Search"
+          aria-label="Open search"
+          title="Open search"
         >
           <NavLink to="/search">
             <Search className="h-4 w-4" />
@@ -89,13 +90,14 @@ export function Sidebar() {
         </Button>
       </div>
 
-      <nav className="flex-1 min-h-0 overflow-y-auto scrollbar-auto-hide flex flex-col gap-4 px-2 py-2">
+      <nav className={cn("flex-1 min-h-0 overflow-y-auto scrollbar-auto-hide flex flex-col gap-4 pointer-coarse:gap-3 py-2", isCollapsed && !isMobile ? "px-2" : "px-3")}>
         <div className="flex flex-col gap-0.5">
           {/* New Issue button aligned with nav items */}
           <button
             onClick={() => openNewIssue()}
+            data-slot="icon-button"
             className={cn(
-              "flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors",
+              "flex items-center gap-2.5 px-3 py-2 pointer-coarse:py-1.5 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors",
               isCollapsed && "justify-center px-2",
             )}
             title="New Issue"
@@ -114,15 +116,6 @@ export function Sidebar() {
             badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
             alert={inboxBadge.failedRuns > 0}
           />
-          {!isCollapsed && (
-            <PluginSlotOutlet
-              slotTypes={["sidebar"]}
-              context={pluginContext}
-              className="flex flex-col gap-0.5"
-              itemClassName="text-[13px] font-medium"
-              missingBehavior="placeholder"
-            />
-          )}
         </div>
 
         <SidebarSection label="Work">
@@ -132,6 +125,19 @@ export function Sidebar() {
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
           ) : null}
+          <PluginSlotOutlet
+            slotTypes={["sidebar"]}
+            context={pluginContext}
+            className="flex flex-col gap-0.5"
+            itemClassName="text-[13px] font-medium"
+            missingBehavior="placeholder"
+          />
+          <PluginLauncherOutlet
+            placementZones={["sidebar"]}
+            context={pluginContext}
+            className="flex flex-col gap-0.5"
+            itemClassName="text-[13px] font-medium"
+          />
         </SidebarSection>
 
         <SidebarProjects />

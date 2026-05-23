@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent, type DragEvent, type RefObject } from "react";
+import { memo, useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent, type CSSProperties, type DragEvent, type RefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { IssueWorkMode } from "@paperclipai/shared";
 import { pickTextColorForSolidBg } from "@/lib/color-contrast";
@@ -70,6 +70,7 @@ import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySel
 
 const DRAFT_KEY = "paperclip:issue-draft";
 const DEBOUNCE_MS = 800;
+const MOBILE_DIALOG_HEIGHT = "calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom)))";
 
 
 interface IssueDraft {
@@ -456,6 +457,7 @@ export function NewIssueDialog() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [workModeOpen, setWorkModeOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
   const [pendingScheduledAtStr, setPendingScheduledAtStr] = useState("");
   const [companyOpen, setCompanyOpen] = useState(false);
@@ -1213,10 +1215,11 @@ export function NewIssueDialog() {
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
+        style={{ "--new-issue-dialog-height": MOBILE_DIALOG_HEIGHT } as CSSProperties}
         className={cn(
-          "flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-auto",
+          "flex h-[var(--new-issue-dialog-height)] max-h-[var(--new-issue-dialog-height)] flex-col gap-0 overflow-hidden p-0 sm:h-auto",
           expanded
-            ? "sm:max-w-2xl sm:h-[calc(100dvh-2rem)]"
+            ? "sm:max-w-2xl sm:h-[var(--new-issue-dialog-height)]"
             : "sm:max-w-lg"
         )}
         onKeyDown={handleKeyDown}
@@ -1232,12 +1235,12 @@ export function NewIssueDialog() {
           }
           // Radix Dialog's modal DismissableLayer calls preventDefault() on
           // pointerdown events that originate outside the Dialog DOM tree.
-          // Popover portals render at the body level (outside the Dialog), so
-          // touch events on popover content get their default prevented — which
-          // kills scroll gesture recognition on mobile.  Telling Radix "this
-          // event is handled" skips that preventDefault, restoring touch scroll.
+          // Popover and editor autocomplete portals render at the body level
+          // (outside the Dialog), so touch/click events on their content get
+          // their default prevented. Telling Radix "this event is handled" skips
+          // that preventDefault, restoring popover scroll and autocomplete taps.
           const target = event.detail.originalEvent.target as HTMLElement | null;
-          if (target?.closest("[data-radix-popper-content-wrapper]")) {
+          if (target?.closest("[data-radix-popper-content-wrapper], [data-paperclip-floating-ui]")) {
             event.preventDefault();
           }
         }}
@@ -1879,7 +1882,11 @@ export function NewIssueDialog() {
           {/* Priority chip */}
           <Popover open={priorityOpen} onOpenChange={setPriorityOpen}>
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+              <button
+                type="button"
+                data-testid="new-issue-priority-chip"
+                className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-accent/50 sm:inline-flex"
+              >
                 {currentPriority ? (
                   <>
                     <currentPriority.icon className={cn("h-3 w-3", currentPriority.color)} />
@@ -1975,92 +1982,136 @@ export function NewIssueDialog() {
             </PopoverContent>
           </Popover>
 
-          {/* Scheduled start */}
-          <Popover
-            open={scheduledAtOpen}
-            onOpenChange={(open) => {
-              if (open) setPendingScheduledAtStr(scheduledAt ? toDatetimeLocalValue(scheduledAt) : "");
-              setScheduledAtOpen(open);
-            }}
-          >
+          {/* More */}
+          <Popover open={moreOpen} onOpenChange={setMoreOpen}>
             <PopoverTrigger asChild>
               <button
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors",
-                  scheduledAt ? "text-foreground" : "text-muted-foreground",
-                )}
-                title="Schedule start time"
+                type="button"
+                data-testid="new-issue-more-menu-trigger"
+                className="inline-flex items-center justify-center rounded-md border border-border p-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50"
               >
-                <Calendar className="h-3 w-3 shrink-0" />
-                {scheduledAt
-                  ? scheduledAt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                  : "Schedule"}
-                {scheduledAt && (
-                  <span
-                    role="button"
-                    className="ml-0.5 hover:text-destructive"
-                    onClick={(e) => { e.stopPropagation(); setScheduledAt(null); }}
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </span>
-                )}
+                <MoreHorizontal className="h-3 w-3" />
               </button>
             </PopoverTrigger>
-            <PopoverContent
-              className="w-64 p-3 space-y-3"
-              align="start"
-              onInteractOutside={(e) => e.preventDefault()}
-            >
-              <p className="text-xs font-medium text-foreground">Schedule start</p>
-              <input
-                type="datetime-local"
-                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                value={pendingScheduledAtStr}
-                min={toDatetimeLocalValue(new Date())}
-                onChange={(e) => setPendingScheduledAtStr(e.target.value)}
-              />
-              <div className="grid grid-cols-2 gap-1">
-                {[
-                  { label: "In 1h", ms: 60 * 60 * 1000 },
-                  { label: "In 5h", ms: 5 * 60 * 60 * 1000 },
-                  { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
-                  { label: "Next week", ms: 7 * 24 * 60 * 60 * 1000 },
-                ].map(({ label, ms }) => (
+            <PopoverContent className="w-44 p-1" align="start" data-testid="new-issue-more-menu">
+              <div className="sm:hidden">
+                <div className="px-2 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+                  Priority
+                </div>
+                {priorities.map((p) => (
                   <button
-                    key={label}
-                    className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
-                    onClick={() => { setScheduledAt(new Date(Date.now() + ms)); setScheduledAtOpen(false); }}
+                    type="button"
+                    key={p.value}
+                    data-testid={`new-issue-more-priority-${p.value}`}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50",
+                      p.value === priority && "bg-accent",
+                    )}
+                    onClick={() => {
+                      setPriority(p.value);
+                      setMoreOpen(false);
+                    }}
                   >
-                    {label}
+                    <p.icon className={cn("h-3 w-3", p.color)} />
+                    {p.label}
                   </button>
                 ))}
+                <div className="my-1 border-t border-border" />
               </div>
-              <div className="flex gap-2">
-                <button
-                  className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                  disabled={!pendingScheduledAtStr}
-                  onClick={() => {
-                    setScheduledAt(new Date(pendingScheduledAtStr));
-                    setScheduledAtOpen(false);
-                  }}
+              <Popover
+                open={scheduledAtOpen}
+                onOpenChange={(open) => {
+                  if (open) setPendingScheduledAtStr(scheduledAt ? toDatetimeLocalValue(scheduledAt) : "");
+                  setScheduledAtOpen(open);
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50",
+                      scheduledAt ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <Calendar className="h-3 w-3" />
+                    <span className="flex-1 text-left">
+                      {scheduledAt
+                        ? scheduledAt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                        : "Schedule start"}
+                    </span>
+                    {scheduledAt && (
+                      <span
+                        role="button"
+                        className="hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setScheduledAt(null); }}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-64 p-3 space-y-3"
+                  align="start"
+                  onInteractOutside={(e) => e.preventDefault()}
                 >
-                  Set
-                </button>
-                <button
-                  className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
-                  onClick={() => setScheduledAtOpen(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-              {(scheduledAt || pendingScheduledAtStr) && (
-                <button
-                  className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
-                  onClick={() => { setScheduledAt(null); setPendingScheduledAtStr(""); setScheduledAtOpen(false); }}
-                >
-                  Clear schedule
-                </button>
-              )}
+                  <p className="text-xs font-medium text-foreground">Schedule start</p>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={pendingScheduledAtStr}
+                    min={toDatetimeLocalValue(new Date())}
+                    onChange={(e) => setPendingScheduledAtStr(e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-1">
+                    {[
+                      { label: "In 1h", ms: 60 * 60 * 1000 },
+                      { label: "In 5h", ms: 5 * 60 * 60 * 1000 },
+                      { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
+                      { label: "Next week", ms: 7 * 24 * 60 * 60 * 1000 },
+                    ].map(({ label, ms }) => (
+                      <button
+                        key={label}
+                        className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                        onClick={() => { setScheduledAt(new Date(Date.now() + ms)); setScheduledAtOpen(false); }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                      disabled={!pendingScheduledAtStr}
+                      onClick={() => {
+                        setScheduledAt(new Date(pendingScheduledAtStr));
+                        setScheduledAtOpen(false);
+                        setMoreOpen(false);
+                      }}
+                    >
+                      Set
+                    </button>
+                    <button
+                      className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
+                      onClick={() => setScheduledAtOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {(scheduledAt || pendingScheduledAtStr) && (
+                    <button
+                      className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
+                      onClick={() => { setScheduledAt(null); setPendingScheduledAtStr(""); setScheduledAtOpen(false); }}
+                    >
+                      Clear schedule
+                    </button>
+                  )}
+                </PopoverContent>
+              </Popover>
+              <button className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-muted-foreground">
+                <Calendar className="h-3 w-3" />
+                Due date
+              </button>
             </PopoverContent>
           </Popover>
         </div>

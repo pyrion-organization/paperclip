@@ -8,6 +8,7 @@ import {
   Clock3,
   Copy,
   History as HistoryIcon,
+  KeyRound,
   Play,
   RefreshCw,
   Repeat,
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 import { ApiError } from "../api/client";
 import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse, type RestoreRoutineRevisionResponse } from "../api/routines";
+import { secretsApi } from "../api/secrets";
+import { EnvVarEditor } from "../components/EnvVarEditor";
 import {
   RoutineHistoryTab,
   type RoutineHistoryDirtyFieldDescriptor,
@@ -66,7 +69,15 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import type { ProjectStatus, RoutineDetail as RoutineDetailType, RoutineTrigger, RoutineTriggerCondition, RoutineVariable } from "@paperclipai/shared";
+import type {
+  ProjectStatus,
+  EnvBinding,
+  RoutineDetail as RoutineDetailType,
+  RoutineEnvConfig,
+  RoutineTrigger,
+  RoutineTriggerCondition,
+  RoutineVariable,
+} from "@paperclipai/shared";
 
 const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
 type ExecutionMode = (typeof executionModes)[number];
@@ -91,7 +102,7 @@ const projectStatusOptions = [
 const triggerConditionTypeOptions = [
   { value: "project_status", label: "Project status" },
 ] as const satisfies ReadonlyArray<{ value: RoutineTriggerCondition["type"]; label: string }>;
-const routineTabs = ["triggers", "runs", "activity", "history"] as const;
+const routineTabs = ["triggers", "runs", "activity", "secrets", "history"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
   coalesce_if_active: "Keep one follow-up run queued while an active run is still working.",
   always_enqueue: "Queue every trigger occurrence, even if several runs stack up.",
@@ -411,6 +422,7 @@ function buildRoutineMutationPayload(input: {
   remediationEnabled: boolean;
   remediationAssigneeAgentId: string;
   notificationEmail: string;
+  env: RoutineEnvConfig | null;
 }) {
   return {
     ...input,
@@ -422,6 +434,7 @@ function buildRoutineMutationPayload(input: {
     remediationEnabled: input.remediationEnabled,
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
+    env: input.env && Object.keys(input.env).length > 0 ? input.env : null,
   };
 }
 
@@ -728,6 +741,7 @@ export function RoutineDetail() {
     remediationEnabled: boolean;
     remediationAssigneeAgentId: string;
     notificationEmail: string;
+    env: RoutineEnvConfig | null;
   }>({
     title: "",
     description: "",
@@ -744,6 +758,7 @@ export function RoutineDetail() {
     remediationEnabled: false,
     remediationAssigneeAgentId: "",
     notificationEmail: "",
+    env: null,
   });
   const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
 
@@ -797,6 +812,21 @@ export function RoutineDetail() {
     queryFn: () => accessApi.listUserDirectory(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
+  const { data: availableSecrets = [] } = useQuery({
+    queryKey: selectedCompanyId ? queryKeys.secrets.list(selectedCompanyId) : ["secrets", "none"],
+    queryFn: () => secretsApi.list(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
+  const createSecret = useMutation({
+    mutationFn: (input: { name: string; value: string }) => {
+      if (!selectedCompanyId) throw new Error("Select a company to create secrets");
+      return secretsApi.create(selectedCompanyId, input);
+    },
+    onSuccess: () => {
+      if (!selectedCompanyId) return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.secrets.list(selectedCompanyId) });
+    },
+  });
 
   const routineDefaults = useMemo(
     () =>
@@ -817,6 +847,7 @@ export function RoutineDetail() {
             remediationEnabled: routine.remediationEnabled ?? false,
             remediationAssigneeAgentId: routine.remediationAssigneeAgentId ?? "",
             notificationEmail: routine.notificationEmail ?? "",
+            env: routine.env ?? null,
           }
         : null,
     [routine],
@@ -866,6 +897,9 @@ export function RoutineDetail() {
     }
     if (editDraft.notificationEmail !== routineDefaults.notificationEmail) {
       result.push({ key: "notificationEmail", label: "the notification email" });
+    }
+    if (JSON.stringify(editDraft.env ?? null) !== JSON.stringify(routineDefaults.env ?? null)) {
+      result.push({ key: "env", label: "the secrets" });
     }
     return result;
   }, [editDraft, routineDefaults]);
@@ -1793,6 +1827,10 @@ export function RoutineDetail() {
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
+          <TabsTrigger value="secrets" className="gap-1.5">
+            <KeyRound className="h-3.5 w-3.5" />
+            Secrets
+          </TabsTrigger>
           <TabsTrigger value="history" className="gap-1.5">
             <HistoryIcon className="h-3.5 w-3.5" />
             History
@@ -2110,6 +2148,24 @@ export function RoutineDetail() {
           )}
         </TabsContent>
 
+        <TabsContent value="secrets" className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Routine secrets apply to every issue this routine creates. They override matching keys in
+            project and agent env. <span className="font-mono">PAPERCLIP_*</span> variables are reserved.
+          </p>
+          <EnvVarEditor
+            value={(editDraft.env ?? {}) as Record<string, EnvBinding>}
+            secrets={availableSecrets}
+            onCreateSecret={async (name, value) => {
+              const created = await createSecret.mutateAsync({ name, value });
+              return created;
+            }}
+            onChange={(env) =>
+              setEditDraft((current) => ({ ...current, env: env ?? null }))
+            }
+          />
+        </TabsContent>
+
         <TabsContent value="history">
           <RoutineHistoryTab
             routine={routine}
@@ -2125,6 +2181,7 @@ export function RoutineDetail() {
             }}
             agents={agentById}
             projects={projectById}
+            secrets={availableSecrets}
             onRestoreSecretMaterials={(response: RestoreRoutineRevisionResponse) => {
               if (response.secretMaterials.length > 0) {
                 setSecretMessage({
@@ -2168,6 +2225,7 @@ export function RoutineDetail() {
                 remediationEnabled: response.routine.remediationEnabled ?? false,
                 remediationAssigneeAgentId: response.routine.remediationAssigneeAgentId ?? "",
                 notificationEmail: response.routine.notificationEmail ?? "",
+                env: response.routine.env ?? null,
               });
               hydratedRoutineIdRef.current = response.routine.id;
             }}

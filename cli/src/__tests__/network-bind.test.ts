@@ -11,6 +11,8 @@ vi.mock("node:child_process", () => ({
 
 import { buildPresetServerConfig } from "../config/server-bind.js";
 
+const ORIGINAL_PATH = process.env.PATH;
+
 describe("network bind helpers", () => {
   beforeEach(() => {
     execFileSyncMock.mockReset();
@@ -69,13 +71,19 @@ describe("network bind helpers", () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error("tailscale unavailable");
     });
+    delete process.env.PAPERCLIP_TAILNET_BIND_HOST;
+    process.env.PATH = "";
 
-    const preset = buildPresetServerConfig("tailnet", {
-      port: 3100,
-      allowedHostnames: [],
-      serveUi: true,
-    });
+    try {
+      const preset = buildPresetServerConfig("tailnet", {
+        port: 3100,
+        allowedHostnames: [],
+        serveUi: true,
+      });
 
-    expect(preset.server.host).toBe("127.0.0.1");
+      expect(preset.server.host).toBe("127.0.0.1");
+    } finally {
+      process.env.PATH = ORIGINAL_PATH;
+    }
   });
 });

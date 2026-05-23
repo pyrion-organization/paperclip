@@ -764,6 +764,48 @@
       "when": 1779210183000,
       "tag": "0108_inbound_email_support_replies",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1778355326070,
+      "tag": "0109_issue_recovery_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1778787362162,
+      "tag": "0110_tranquil_the_executioner",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1778976000000,
+      "tag": "0111_routine_env_runtime_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1779360000000,
+      "tag": "0112_backfill_environment_manage_human_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1779446400000,
+      "tag": "0113_backfill_principal_access_compatibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1779129600000,
+      "tag": "0114_cloud_upstreams",
+      "breakpoints": true
     }
   ]
 }

@@ -537,6 +537,8 @@ function createRoutineDispatchFingerprint(input: {
   payload: Record<string, unknown> | null;
   projectId: string | null;
   assigneeAgentId: string | null;
+  routineRevisionId: string | null;
+  routineEnvFingerprint: string | null;
   executionWorkspaceId?: string | null;
   executionWorkspacePreference?: string | null;
   executionWorkspaceSettings?: Record<string, unknown> | null;
@@ -544,6 +546,11 @@ function createRoutineDispatchFingerprint(input: {
   description: string | null;
 }) {
   const canonical = JSON.stringify(normalizeRoutineDispatchFingerprintValue(input));
+  return crypto.createHash("sha256").update(canonical).digest("hex");
+}
+
+function createRoutineEnvFingerprint(env: unknown) {
+  const canonical = JSON.stringify(normalizeRoutineDispatchFingerprintValue(env ?? null));
   return crypto.createHash("sha256").update(canonical).digest("hex");
 }
 
@@ -582,8 +589,10 @@ function routineRevisionSnapshotRoutine(routine: RoutineRow): RoutineRevisionSna
     scriptCommandArgs: routine.scriptCommandArgs,
     scriptTimeoutSec: routine.scriptTimeoutSec,
     remediationEnabled: routine.remediationEnabled,
+    remediationPrompt: routine.remediationPrompt,
     remediationAssigneeAgentId: routine.remediationAssigneeAgentId,
     notificationEmail: routine.notificationEmail,
+    env: routine.env ?? null,
   };
 }
 
@@ -947,6 +956,7 @@ export function routineService(
         idempotencyKey: routineRuns.idempotencyKey,
         triggerPayload: routineRuns.triggerPayload,
         dispatchFingerprint: routineRuns.dispatchFingerprint,
+        routineRevisionId: routineRuns.routineRevisionId,
         linkedIssueId: routineRuns.linkedIssueId,
         coalescedIntoRunId: routineRuns.coalescedIntoRunId,
         failureReason: routineRuns.failureReason,
@@ -984,6 +994,7 @@ export function routineService(
         idempotencyKey: row.idempotencyKey,
         triggerPayload: row.triggerPayload as Record<string, unknown> | null,
         dispatchFingerprint: row.dispatchFingerprint,
+        routineRevisionId: row.routineRevisionId,
         linkedIssueId: row.linkedIssueId,
         coalescedIntoRunId: row.coalescedIntoRunId,
         failureReason: row.failureReason,
@@ -1425,6 +1436,8 @@ export function routineService(
       payload: triggerPayload,
       projectId,
       assigneeAgentId,
+      routineRevisionId: input.routine.latestRevisionId,
+      routineEnvFingerprint: createRoutineEnvFingerprint(input.routine.env),
       executionWorkspaceId: input.executionWorkspaceId ?? null,
       executionWorkspacePreference: input.executionWorkspacePreference ?? null,
       executionWorkspaceSettings: input.executionWorkspaceSettings ?? null,
@@ -1470,6 +1483,7 @@ export function routineService(
           idempotencyKey: input.idempotencyKey ?? null,
           triggerPayload,
           dispatchFingerprint,
+          routineRevisionId: input.routine.latestRevisionId,
         })
         .returning();
 
@@ -2100,6 +2114,7 @@ export function routineService(
             idempotencyKey: routineRuns.idempotencyKey,
             triggerPayload: routineRuns.triggerPayload,
             dispatchFingerprint: routineRuns.dispatchFingerprint,
+            routineRevisionId: routineRuns.routineRevisionId,
             linkedIssueId: routineRuns.linkedIssueId,
             coalescedIntoRunId: routineRuns.coalescedIntoRunId,
             failureReason: routineRuns.failureReason,
@@ -2136,6 +2151,7 @@ export function routineService(
               idempotencyKey: run.idempotencyKey,
               triggerPayload: run.triggerPayload as Record<string, unknown> | null,
               dispatchFingerprint: run.dispatchFingerprint,
+              routineRevisionId: run.routineRevisionId,
               linkedIssueId: run.linkedIssueId,
               coalescedIntoRunId: run.coalescedIntoRunId,
               failureReason: run.failureReason,
@@ -2189,13 +2205,19 @@ export function routineService(
       await assertAssignableAgent(companyId, input.assigneeAgentId ?? null);
       if (input.goalId) await assertGoal(companyId, input.goalId);
       if (input.parentIssueId) await assertParentIssue(companyId, input.parentIssueId);
+      const env = input.env === undefined || input.env === null
+        ? null
+        : await secretsSvc.normalizeEnvBindingsForPersistence(companyId, input.env, {
+            strictMode: process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true",
+            fieldPath: "env",
+          });
       const variables = syncRoutineVariablesWithTemplate(
         [input.title, input.description],
         sanitizeRoutineVariableInputs(input.variables),
       );
       assertRoutineVariableDefinitions(variables);
       const status = normalizeDraftRoutineStatus(input.status, input.assigneeAgentId, input.executionMode);
-      return db.transaction(async (tx) => {
+      const createdRoutine = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         const [created] = await txDb
           .insert(routines)
@@ -2219,6 +2241,7 @@ export function routineService(
             remediationEnabled: input.remediationEnabled ?? false,
             remediationAssigneeAgentId: input.remediationEnabled ? (input.remediationAssigneeAgentId ?? null) : null,
             notificationEmail: input.notificationEmail ?? null,
+            env,
             createdByAgentId: actor.agentId ?? null,
             createdByUserId: actor.userId ?? null,
             updatedByAgentId: actor.agentId ?? null,
@@ -2228,8 +2251,17 @@ export function routineService(
         const { routine } = await appendRoutineRevision(txDb, created, actor, {
           changeSummary: "Created routine",
         });
+        if (env) {
+          await secretsSvc.syncEnvBindingsForTarget(
+            companyId,
+            { targetType: "routine", targetId: routine.id },
+            env,
+            { db: tx },
+          );
+        }
         return routine;
       });
+      return createdRoutine;
     },
 
     update: async (id: string, patch: UpdateRoutine, actor: Actor): Promise<Routine | null> => {
@@ -2240,6 +2272,14 @@ export function routineService(
       const nextExecutionMode = patch.executionMode ?? existing.executionMode;
       const nextTitle = patch.title ?? existing.title;
       const nextDescription = patch.description === undefined ? existing.description : patch.description;
+      const nextEnv = patch.env === undefined
+        ? existing.env
+        : patch.env === null
+          ? null
+          : await secretsSvc.normalizeEnvBindingsForPersistence(existing.companyId, patch.env, {
+              strictMode: process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true",
+              fieldPath: "env",
+            });
       const requestedStatus = patch.status ?? existing.status;
       if (patch.status === "active") {
         assertRoutineCanEnable(patch.status, nextAssigneeAgentId, nextExecutionMode);
@@ -2274,7 +2314,7 @@ export function routineService(
       if (enabledScheduleTriggers) {
         assertScheduleCompatibleVariables(nextVariables);
       }
-      return db.transaction(async (tx) => {
+      const updatedRoutine = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         await tx.execute(sql`select id from ${routines} where ${routines.id} = ${id} for update`);
         const locked = await txDb
@@ -2312,6 +2352,7 @@ export function routineService(
             ? (patch.remediationAssigneeAgentId === undefined ? existing.remediationAssigneeAgentId : patch.remediationAssigneeAgentId ?? null)
             : null,
           notificationEmail: patch.notificationEmail === undefined ? existing.notificationEmail : patch.notificationEmail ?? null,
+          env: nextEnv,
           updatedByAgentId: actor.agentId ?? null,
           updatedByUserId: actor.userId ?? null,
         };
@@ -2335,6 +2376,14 @@ export function routineService(
             )
             .then((rows) => rows[0] ?? null);
           if (latestRevision && snapshotsMatch(nextSnapshot, latestRevision.snapshot as RoutineRevisionSnapshotV1)) {
+            if (patch.env !== undefined) {
+              await secretsSvc.syncEnvBindingsForTarget(
+                locked.companyId,
+                { targetType: "routine", targetId: locked.id },
+                candidate.env,
+                { db: tx },
+              );
+            }
             return locked;
           }
         }
@@ -2360,6 +2409,7 @@ export function routineService(
             remediationEnabled: candidate.remediationEnabled,
             remediationAssigneeAgentId: candidate.remediationAssigneeAgentId,
             notificationEmail: candidate.notificationEmail,
+            env: candidate.env,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: new Date(),
@@ -2370,8 +2420,17 @@ export function routineService(
         const { routine } = await appendRoutineRevision(txDb, updated, actor, {
           changeSummary: "Updated routine",
         });
+        if (patch.env !== undefined) {
+          await secretsSvc.syncEnvBindingsForTarget(
+            routine.companyId,
+            { targetType: "routine", targetId: routine.id },
+            routine.env,
+            { db: tx },
+          );
+        }
         return routine;
       });
+      return updatedRoutine;
     },
 
     createTrigger: async (
@@ -2573,7 +2632,7 @@ export function routineService(
         }
       }
 
-      return db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         await tx.execute(sql`select id from ${routines} where ${routines.id} = ${existing.routineId} for update`);
         const [updated] = await txDb
@@ -2612,6 +2671,7 @@ export function routineService(
         });
         return { trigger: updated as RoutineTrigger, revision: appended.revision };
       });
+      return result;
     },
 
     deleteRoutine: async (id: string): Promise<boolean> => {
@@ -2648,6 +2708,7 @@ export function routineService(
             remediationEnabled: source.remediationEnabled,
             remediationAssigneeAgentId: source.remediationAssigneeAgentId,
             notificationEmail: source.notificationEmail,
+            env: source.env,
             createdByAgentId: actor.agentId ?? null,
             createdByUserId: actor.userId ?? null,
             updatedByAgentId: actor.agentId ?? null,
@@ -2657,6 +2718,12 @@ export function routineService(
         await appendRoutineRevision(txDb, cloned, actor, {
           changeSummary: "Cloned routine",
         });
+        await secretsSvc.syncEnvBindingsForTarget(
+          cloned.companyId,
+          { targetType: "routine", targetId: cloned.id },
+          cloned.env,
+          { db: tx },
+        );
         return cloned;
       });
     },
@@ -2664,7 +2731,7 @@ export function routineService(
     deleteTrigger: async (id: string, actor: Actor = {}): Promise<{ deleted: boolean; revision: RoutineRevision | null }> => {
       const existing = await getTriggerById(id);
       if (!existing) return { deleted: false, revision: null };
-      return db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         await tx.execute(sql`select id from ${routines} where ${routines.id} = ${existing.routineId} for update`);
         await txDb.delete(routineTriggers).where(eq(routineTriggers.id, id));
@@ -2679,6 +2746,7 @@ export function routineService(
         });
         return { deleted: true, revision: appended.revision };
       });
+      return result;
     },
 
     rotateTriggerSecret: async (
@@ -2770,7 +2838,7 @@ export function routineService(
       const routineSnapshot = snapshot.routine;
       await assertRestorableAssignee(existingRoutine.companyId, routineSnapshot.assigneeAgentId, actor);
 
-      return db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const txDb = tx as unknown as Db;
         await tx.execute(sql`select id from ${routines} where ${routines.id} = ${existingRoutine.id} for update`);
         const locked = await txDb
@@ -2827,12 +2895,18 @@ export function routineService(
             scriptCommandArgs: routineSnapshot.scriptCommandArgs === undefined ? locked.scriptCommandArgs : routineSnapshot.scriptCommandArgs,
             scriptTimeoutSec: routineSnapshot.scriptTimeoutSec === undefined ? locked.scriptTimeoutSec : routineSnapshot.scriptTimeoutSec,
             remediationEnabled: routineSnapshot.remediationEnabled === undefined ? locked.remediationEnabled : routineSnapshot.remediationEnabled,
+            remediationPrompt: routineSnapshot.remediationPrompt === undefined
+              ? locked.remediationPrompt
+              : routineSnapshot.remediationEnabled === false
+                ? null
+                : routineSnapshot.remediationPrompt,
             remediationAssigneeAgentId: routineSnapshot.remediationEnabled === undefined
               ? locked.remediationAssigneeAgentId
               : routineSnapshot.remediationEnabled
                 ? (routineSnapshot.remediationAssigneeAgentId ?? null)
                 : null,
             notificationEmail: routineSnapshot.notificationEmail === undefined ? locked.notificationEmail : routineSnapshot.notificationEmail,
+            env: routineSnapshot.env,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: now,
@@ -2902,6 +2976,12 @@ export function routineService(
           changeSummary: `Restored from revision ${targetRevision.revisionNumber}`,
           restoredFromRevisionId: targetRevision.id,
         });
+        await secretsSvc.syncEnvBindingsForTarget(
+          locked.companyId,
+          { targetType: "routine", targetId: locked.id },
+          routineSnapshot.env,
+          { db: tx },
+        );
         return {
           routine: appended.routine,
           revision: appended.revision,
@@ -2910,6 +2990,7 @@ export function routineService(
           secretMaterials: [...recreatedWebhookSecrets.values()].map((entry) => entry.secretMaterial),
         };
       });
+      return result;
     },
 
     runRoutine: async (id: string, input: RunRoutine, actor?: Actor) => {
@@ -3041,6 +3122,7 @@ export function routineService(
           idempotencyKey: routineRuns.idempotencyKey,
           triggerPayload: routineRuns.triggerPayload,
           dispatchFingerprint: routineRuns.dispatchFingerprint,
+          routineRevisionId: routineRuns.routineRevisionId,
           linkedIssueId: routineRuns.linkedIssueId,
           coalescedIntoRunId: routineRuns.coalescedIntoRunId,
           failureReason: routineRuns.failureReason,
@@ -3075,6 +3157,7 @@ export function routineService(
         idempotencyKey: row.idempotencyKey,
         triggerPayload: row.triggerPayload as Record<string, unknown> | null,
         dispatchFingerprint: row.dispatchFingerprint,
+        routineRevisionId: row.routineRevisionId,
         linkedIssueId: row.linkedIssueId,
         coalescedIntoRunId: row.coalescedIntoRunId,
         failureReason: row.failureReason,

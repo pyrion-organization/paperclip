@@ -15,6 +15,7 @@ import {
   ISSUE_EXECUTION_WORKSPACE_PREFERENCES,
   issueExecutionWorkspaceSettingsSchema,
 } from "./issue.js";
+import { envConfigSchema } from "./secret.js";
 
 const routineVariableValueSchema = z.union([z.string(), z.number().finite(), z.boolean()]);
 
@@ -94,6 +95,7 @@ export const createRoutineSchema = z.object({
   remediationEnabled: z.boolean().optional().default(false),
   remediationAssigneeAgentId: z.string().uuid().optional().nullable(),
   notificationEmail: z.string().email().optional().nullable(),
+  env: envConfigSchema.optional().nullable(),
 });
 
 export type CreateRoutine = z.infer<typeof createRoutineSchema>;
@@ -122,8 +124,10 @@ export const routineRevisionSnapshotRoutineV1Schema = z.object({
   scriptCommandArgs: z.array(z.string().max(500)).max(100).nullable().optional(),
   scriptTimeoutSec: z.number().int().min(1).max(3600).optional(),
   remediationEnabled: z.boolean().optional(),
+  remediationPrompt: z.string().max(4000).nullable().optional(),
   remediationAssigneeAgentId: z.string().uuid().nullable().optional(),
   notificationEmail: z.string().email().nullable().optional(),
+  env: envConfigSchema.nullable().default(null),
 }).strict();
 
 export const routineRevisionSnapshotTriggerV1Schema = z.object({
@@ -231,8 +235,8 @@ export type UpdateRoutineTrigger = z.infer<typeof updateRoutineTriggerSchema>;
 
 export const runRoutineSchema = z.object({
   triggerId: z.string().uuid().optional().nullable(),
-  payload: z.record(z.unknown()).optional().nullable(),
-  variables: z.record(routineVariableValueSchema).optional().nullable(),
+  payload: z.record(z.string(), z.unknown()).optional().nullable(),
+  variables: z.record(z.string(), routineVariableValueSchema).optional().nullable(),
   projectId: z.string().uuid().optional().nullable(),
   assigneeAgentId: z.string().uuid().optional().nullable(),
   idempotencyKey: z.string().trim().max(255).optional().nullable(),

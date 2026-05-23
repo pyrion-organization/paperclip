@@ -1,5 +1,6 @@
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/i18n";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
@@ -35,7 +36,10 @@ import { CompanyEmailSettings } from "./pages/CompanyEmailSettings";
 import { InboundEmailOps } from "./pages/InboundEmailOps";
 import { CompanyInstructions } from "./pages/CompanyInstructions";
 import { CompanyEnvironments } from "./pages/CompanyEnvironments";
-import { CompanyAccess } from "./pages/CompanyAccess";
+import { CompanySettingsPluginPage } from "./pages/CompanySettingsPluginPage";
+import { CompanyAccess, CompanyAccessLegacyRoute } from "./pages/CompanyAccess";
+import { CloudUpstream } from "./pages/CloudUpstream";
+import { CloudUpstreamUxLab } from "./pages/CloudUpstreamUxLab";
 import { CompanyInvites } from "./pages/CompanyInvites";
 import { CompanySkills } from "./pages/CompanySkills";
 import { Secrets } from "./pages/Secrets";
@@ -77,11 +81,14 @@ function boardRoutes() {
       <Route path="company/settings/email/ops" element={<Navigate to="/email/ops" replace />} />
       <Route path="company/instructions" element={<CompanyInstructions />} />
       <Route path="company/settings/environments" element={<CompanyEnvironments />} />
-      <Route path="company/settings/access" element={<CompanyAccess />} />
+      <Route path="company/settings/members" element={<CompanyAccess />} />
+      <Route path="company/settings/access" element={<CompanyAccessLegacyRoute />} />
+      <Route path="company/settings/cloud-upstream" element={<CloudUpstream />} />
       <Route path="company/settings/invites" element={<CompanyInvites />} />
       <Route path="company/export/*" element={<CompanyExport />} />
       <Route path="company/import" element={<CompanyImport />} />
       <Route path="company/settings/secrets" element={<Secrets />} />
+      <Route path="company/settings/:settingsRoutePath/*" element={<CompanySettingsPluginPage />} />
       <Route path="skills/*" element={<CompanySkills />} />
       <Route path="settings" element={<LegacySettingsRedirect />} />
       <Route path="settings/*" element={<LegacySettingsRedirect />} />
@@ -142,6 +149,7 @@ function boardRoutes() {
       <Route path="inbox/mine" element={<Inbox />} />
       <Route path="inbox/recent" element={<Inbox />} />
       <Route path="inbox/unread" element={<Inbox />} />
+      <Route path="inbox/blocked" element={<Inbox />} />
       <Route path="inbox/all" element={<Inbox />} />
       <Route path="inbox/requests" element={<JoinRequestQueue />} />
       <Route path="inbox/new" element={<Navigate to="/inbox/mine" replace />} />
@@ -258,16 +266,21 @@ function UnprefixedBoardRedirect() {
 
 function NoCompaniesStartPage() {
   const { openOnboarding } = useDialogActions();
+  const { t } = useTranslation();
 
   return (
     <div className="mx-auto max-w-xl py-10">
       <div className="rounded-lg border border-border bg-card p-6">
-        <h1 className="text-xl font-semibold">Create your first company</h1>
+        <h1 className="text-xl font-semibold">
+          {t("app.noCompanies.title", { defaultValue: "Create your first company" })}
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Get started by creating a company.
+          {t("app.noCompanies.description", { defaultValue: "Get started by creating a company." })}
         </p>
         <div className="mt-4">
-          <Button onClick={() => openOnboarding()}>New Company</Button>
+          <Button onClick={() => openOnboarding()}>
+            {t("app.noCompanies.newCompany", { defaultValue: "New Company" })}
+          </Button>
         </div>
       </div>
     </div>
@@ -283,6 +296,7 @@ export function App() {
         <Route path="cli-auth/:id" element={<CliAuthPage />} />
         <Route path="invite/:token" element={<InviteLandingPage />} />
         <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
+        <Route path="ux-lab/cloud-upstream" element={<CloudUpstreamUxLab />} />
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />
