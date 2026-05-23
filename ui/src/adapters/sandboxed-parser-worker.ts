@@ -16,11 +16,12 @@
 /** Messages sent from the main thread to the worker. */
 export type SandboxRequest =
   | { type: "init"; source: string }
-  | { type: "parse"; id: number; line: string; ts: string };
+  | { type: "parse"; id: number; line: string; ts: string; parserId?: string }
+  | { type: "reset_parser"; parserId: string };
 
 /** Messages sent from the worker back to the main thread. */
 export type SandboxResponse =
-  | { type: "ready" }
+  | { type: "ready"; hasStdoutParserFactory?: boolean }
   | { type: "error"; message: string }
   | { type: "result"; id: number; entries: unknown[] };
 
@@ -83,7 +84,7 @@ self.IDBFactory = _undefined;
 
 let parseStdoutLine = null;
 let createStdoutParser = null;
-let fallbackParser = null;
+const parserSessions = new Map();
 
 // ── 3. Message handler ──────────────────────────────────────────────────────
 
@@ -123,19 +124,13 @@ self.onmessage = function (e) {
       if (typeof resolved.createStdoutParser === "function") {
         createStdoutParser = resolved.createStdoutParser;
       }
-      if (!parseStdoutLine && createStdoutParser) {
-        fallbackParser = createStdoutParser();
-        if (fallbackParser && typeof fallbackParser.parseLine === "function") {
-          parseStdoutLine = (line, ts) => fallbackParser.parseLine(line, ts);
-        }
-      }
 
-      if (!parseStdoutLine) {
+      if (!parseStdoutLine && !createStdoutParser) {
         self.postMessage({ type: "error", message: "Parser module exports no usable parseStdoutLine or createStdoutParser" });
         return;
       }
 
-      self.postMessage({ type: "ready" });
+      self.postMessage({ type: "ready", hasStdoutParserFactory: !!createStdoutParser });
     } catch (err) {
       self.postMessage({ type: "error", message: "Parser init failed: " + (err && err.message || String(err)) });
     }
@@ -144,11 +139,36 @@ self.onmessage = function (e) {
 
   if (msg.type === "parse") {
     try {
-      const entries = parseStdoutLine ? parseStdoutLine(msg.line, msg.ts) : [];
+      let entries = [];
+      if (msg.parserId && createStdoutParser) {
+        let parser = parserSessions.get(msg.parserId);
+        if (!parser) {
+          parser = createStdoutParser();
+          parserSessions.set(msg.parserId, parser);
+        }
+        entries = parser && typeof parser.parseLine === "function" ? parser.parseLine(msg.line, msg.ts) : [];
+      } else if (parseStdoutLine) {
+        entries = parseStdoutLine(msg.line, msg.ts);
+      } else if (createStdoutParser) {
+        const parser = createStdoutParser();
+        entries = parser && typeof parser.parseLine === "function" ? parser.parseLine(msg.line, msg.ts) : [];
+        if (parser && typeof parser.reset === "function") parser.reset();
+      }
       self.postMessage({ type: "result", id: msg.id, entries: entries || [] });
     } catch (err) {
+      if (msg.parserId) {
+        const parser = parserSessions.get(msg.parserId);
+        if (parser && typeof parser.reset === "function") parser.reset();
+      }
       self.postMessage({ type: "result", id: msg.id, entries: [] });
     }
+    return;
+  }
+
+  if (msg.type === "reset_parser") {
+    const parser = parserSessions.get(msg.parserId);
+    if (parser && typeof parser.reset === "function") parser.reset();
+    parserSessions.delete(msg.parserId);
     return;
   }
 

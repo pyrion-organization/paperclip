@@ -42,6 +42,7 @@ interface DynamicParserModule {
 interface SandboxedParser {
   worker: Worker;
   ready: boolean;
+  hasStdoutParserFactory: boolean;
   nextId: number;
   pendingResolves: Map<number, (entries: TranscriptEntry[]) => void>;
 }
@@ -88,12 +89,21 @@ function notifyResultReady(): void {
  * Parse a single line synchronously by delegating to the worker.
  * Returns a Promise that resolves with the TranscriptEntry[] from the worker.
  */
-function parseLineAsync(sandbox: SandboxedParser, line: string, ts: string): Promise<TranscriptEntry[]> {
+function parseLineAsync(
+  sandbox: SandboxedParser,
+  line: string,
+  ts: string,
+  parserId?: string,
+): Promise<TranscriptEntry[]> {
   return new Promise((resolve) => {
     const id = nextRequestId(sandbox);
     sandbox.pendingResolves.set(id, resolve);
-    sendToWorker(sandbox, { type: "parse", id, line, ts });
+    sendToWorker(sandbox, { type: "parse", id, line, ts, parserId });
   });
+}
+
+function resetWorkerParser(sandbox: SandboxedParser, parserId: string): void {
+  sendToWorker(sandbox, { type: "reset_parser", parserId });
 }
 
 function drainPendingRequests(sandbox: SandboxedParser): void {
@@ -112,6 +122,7 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
     const sandbox: SandboxedParser = {
       worker,
       ready: false,
+      hasStdoutParserFactory: false,
       nextId: 1,
       pendingResolves: new Map(),
     };
@@ -129,6 +140,7 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
       if (msg.type === "ready") {
         clearTimeout(timeout);
         sandbox.ready = true;
+        sandbox.hasStdoutParserFactory = msg.hasStdoutParserFactory === true;
 
         // Switch to the steady-state message handler.
         worker.onmessage = (ev: MessageEvent<SandboxResponse>) => {
@@ -186,25 +198,62 @@ function initSandboxedWorker(source: string): Promise<SandboxedParser> {
 function buildParserModule(sandbox: SandboxedParser): DynamicParserModule {
   const parseCache = new Map<string, TranscriptEntry[]>();
   const pendingParseKeys = new Set<string>();
+  let nextParserId = 1;
+
+  function queueParse(cacheKey: string, line: string, ts: string, parserId?: string): void {
+    const requestKey = `${parserId ?? "stateless"}\u0000${cacheKey}`;
+    if (pendingParseKeys.has(requestKey)) return;
+
+    const hadCachedValue = parseCache.has(cacheKey);
+    pendingParseKeys.add(requestKey);
+    parseLineAsync(sandbox, line, ts, parserId).then((entries) => {
+      pendingParseKeys.delete(requestKey);
+      if (!hadCachedValue) {
+        parseCache.set(cacheKey, entries);
+        notifyResultReady();
+      }
+    });
+  }
 
   const parseStdoutLine: StdoutLineParser = (line: string, ts: string) => {
-    const key = lineCacheKey(line, ts);
-    const cached = parseCache.get(key);
-    if (cached) return cached.slice();
-
-    if (!pendingParseKeys.has(key)) {
-      pendingParseKeys.add(key);
-      parseLineAsync(sandbox, line, ts).then((entries) => {
-        pendingParseKeys.delete(key);
-        parseCache.set(key, entries);
-        notifyResultReady();
-      });
+    const cacheKey = lineCacheKey(line, ts);
+    if (parseCache.has(cacheKey)) {
+      return parseCache.get(cacheKey)!.slice();
     }
 
+    queueParse(cacheKey, line, ts);
     return [];
   };
 
-  return { parseStdoutLine };
+  if (!sandbox.hasStdoutParserFactory) {
+    return { parseStdoutLine };
+  }
+
+  return {
+    parseStdoutLine,
+    createStdoutParser: () => {
+      const parserId = `parser-${nextParserId++}`;
+      let prefix = "";
+
+      return {
+        parseLine: (line: string, ts: string) => {
+          const cacheKey = lineCacheKey(`${prefix}\u0000${line}`, ts);
+          prefix = cacheKey;
+          if (parseCache.has(cacheKey)) {
+            queueParse(cacheKey, line, ts, parserId);
+            return parseCache.get(cacheKey)!.slice();
+          }
+
+          queueParse(cacheKey, line, ts, parserId);
+          return [];
+        },
+        reset: () => {
+          prefix = "";
+          resetWorkerParser(sandbox, parserId);
+        },
+      };
+    },
+  };
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────

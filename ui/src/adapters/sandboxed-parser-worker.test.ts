@@ -22,4 +22,13 @@ describe("sandboxed parser worker bootstrap", () => {
   it("does not include the unused parse_batch protocol branch", () => {
     expect(getWorkerBootstrapSource()).not.toContain("parse_batch");
   });
+
+  it("keeps stateful parser factories behind per-session parser ids", () => {
+    const source = getWorkerBootstrapSource();
+
+    expect(source).toContain("const parserSessions = new Map()");
+    expect(source).toContain('msg.type === "reset_parser"');
+    expect(source).toContain("msg.parserId && createStdoutParser");
+    expect(source).not.toContain("fallbackParser = createStdoutParser()");
+  });
 });
