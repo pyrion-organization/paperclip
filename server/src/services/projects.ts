@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   projects,
+  projectDeployCommandRecords,
   projectDeploymentTargets,
   projectDeployEvents,
   projectGoals,
@@ -18,6 +19,7 @@ import {
   isUuidLike,
   normalizeProjectUrlKey,
   type ProjectCodebase,
+  type ProjectDeployCommandRecord,
   type ProjectDeployEvent,
   type ProjectDeploymentTarget,
   type ProjectClientRef,
@@ -39,6 +41,7 @@ import { listActiveProjectClientLinks } from "./project-clients.js";
 type ProjectRow = typeof projects.$inferSelect;
 type ProjectDeploymentTargetRow = typeof projectDeploymentTargets.$inferSelect;
 type ProjectDeployEventRow = typeof projectDeployEvents.$inferSelect;
+type ProjectDeployCommandRecordRow = typeof projectDeployCommandRecords.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 type WorkspaceRuntimeServiceRow = typeof workspaceRuntimeServices.$inferSelect;
 const REPO_ONLY_CWD_SENTINEL = "/__paperclip_repo_only__";
@@ -86,6 +89,10 @@ type RecordDeployMaintenanceMessageInput = {
   error?: string | null;
   sentAt?: Date | null;
 };
+type CreateDeployCommandRecordInput = Omit<
+  typeof projectDeployCommandRecords.$inferInsert,
+  "companyId" | "projectId"
+>;
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -220,10 +227,33 @@ function toDeploymentTarget(row: ProjectDeploymentTargetRow): ProjectDeploymentT
     healthCheckUrl: row.healthCheckUrl ?? null,
     deployNotes: row.deployNotes ?? null,
     rollbackInstructions: row.rollbackInstructions ?? null,
+    deployCommand: row.deployCommand ?? null,
+    rollbackCommand: row.rollbackCommand ?? null,
     maintenanceUpdatesEnabled: row.maintenanceUpdatesEnabled,
     maintenanceRecipients: row.maintenanceRecipients ?? [],
     status: row.status as ProjectDeploymentTarget["status"],
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toDeployCommandRecord(row: ProjectDeployCommandRecordRow): ProjectDeployCommandRecord {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    deployEventId: row.deployEventId,
+    deploymentTargetId: row.deploymentTargetId ?? null,
+    approvalId: row.approvalId ?? null,
+    commandType: row.commandType as ProjectDeployCommandRecord["commandType"],
+    status: row.status as ProjectDeployCommandRecord["status"],
+    command: row.command,
+    output: row.output ?? null,
+    exitCode: row.exitCode ?? null,
+    note: row.note ?? null,
+    recordedByAgentId: row.recordedByAgentId ?? null,
+    recordedByUserId: row.recordedByUserId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -1139,6 +1169,47 @@ export function projectService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
       return row ? toDeployEvent(row) : null;
+    },
+
+    listDeployCommandRecords: async (
+      projectId: string,
+      deployEventId: string,
+    ): Promise<ProjectDeployCommandRecord[]> => {
+      const rows = await db
+        .select()
+        .from(projectDeployCommandRecords)
+        .where(
+          and(
+            eq(projectDeployCommandRecords.projectId, projectId),
+            eq(projectDeployCommandRecords.deployEventId, deployEventId),
+          ),
+        )
+        .orderBy(desc(projectDeployCommandRecords.createdAt), desc(projectDeployCommandRecords.id));
+      return rows.map(toDeployCommandRecord);
+    },
+
+    createDeployCommandRecord: async (
+      projectId: string,
+      data: CreateDeployCommandRecordInput,
+    ): Promise<ProjectDeployCommandRecord | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectDeployCommandRecords)
+        .values({
+          ...data,
+          companyId: project.companyId,
+          projectId,
+          updatedAt: new Date(),
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeployCommandRecord(row) : null;
     },
 
     listWorkspaces: async (projectId: string): Promise<ProjectWorkspace[]> => {

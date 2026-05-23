@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Project, ProjectDeployEvent, ProjectDeploymentTarget } from "@paperclipai/shared";
+import type {
+  Project,
+  ProjectDeployCommandRecord,
+  ProjectDeployEvent,
+  ProjectDeploymentTarget,
+} from "@paperclipai/shared";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { projectsApi } from "../api/projects";
@@ -14,6 +19,8 @@ const EMPTY_TARGET_FORM = {
   provider: "manual",
   targetUrl: "",
   healthCheckUrl: "",
+  deployCommand: "",
+  rollbackCommand: "",
   rollbackInstructions: "",
   maintenanceUpdatesEnabled: false,
   maintenanceRecipients: "",
@@ -21,13 +28,13 @@ const EMPTY_TARGET_FORM = {
 
 function StatusPill({ status }: { status: string }) {
   const tone =
-    status === "active" || status === "approved" || status === "deployed"
+    status === "active" || status === "approved" || status === "deployed" || status === "succeeded"
       ? "success"
-      : status === "deploying"
+      : status === "deploying" || status === "running"
         ? "running"
         : status === "failed" || status === "rejected"
           ? "danger"
-          : status === "rolled_back"
+          : status === "rolled_back" || status === "cancelled"
             ? "warning"
             : status === "approval_requested"
               ? "pending"
@@ -77,6 +84,14 @@ function canSendMaintenanceUpdate(event: ProjectDeployEvent) {
   );
 }
 
+function canRecordDeployCommand(event: ProjectDeployEvent) {
+  return ["approved", "deploying", "failed"].includes(event.status);
+}
+
+function canRecordRollbackCommand(event: ProjectDeployEvent) {
+  return ["deployed", "failed", "rolled_back"].includes(event.status);
+}
+
 function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
   return {
     name: form.name.trim(),
@@ -84,6 +99,8 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
     provider: form.provider.trim() || "manual",
     targetUrl: form.targetUrl.trim() || null,
     healthCheckUrl: form.healthCheckUrl.trim() || null,
+    deployCommand: form.deployCommand.trim() || null,
+    rollbackCommand: form.rollbackCommand.trim() || null,
     rollbackInstructions: form.rollbackInstructions.trim() || null,
     maintenanceUpdatesEnabled: form.maintenanceUpdatesEnabled,
     maintenanceRecipients: form.maintenanceRecipients
@@ -91,6 +108,157 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
       .map((value) => value.trim())
       .filter(Boolean),
   };
+}
+
+function DeployCommandRecords({
+  projectId,
+  event,
+  target,
+  companyId,
+}: {
+  projectId: string;
+  event: ProjectDeployEvent;
+  target: ProjectDeploymentTarget | null;
+  companyId?: string;
+}) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.projects.deployCommandRecords(projectId, event.id, companyId);
+  const { data: records = [], isLoading, isError } = useQuery({
+    queryKey,
+    queryFn: () => projectsApi.listDeployCommandRecords(projectId, event.id, companyId),
+  });
+  const createRecord = useMutation({
+    mutationFn: ({
+      commandType,
+      status,
+      command,
+      note,
+    }: {
+      commandType: "deploy" | "rollback";
+      status: "running" | "succeeded" | "failed";
+      command: string;
+      note: string | null;
+    }) =>
+      projectsApi.createDeployCommandRecord(
+        projectId,
+        event.id,
+        {
+          commandType,
+          status,
+          command,
+          note,
+        },
+        companyId,
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const recordCommand = (commandType: "deploy" | "rollback", status: "running" | "succeeded" | "failed") => {
+    const command = commandType === "deploy" ? target?.deployCommand : target?.rollbackCommand;
+    if (!command) return;
+    const note = window.prompt("Command output or note (optional)", "");
+    if (note === null) return;
+    createRecord.mutate({
+      commandType,
+      status,
+      command,
+      note: note.trim() || null,
+    });
+  };
+
+  const canRecordDeploy = Boolean(target?.deployCommand && canRecordDeployCommand(event));
+  const canRecordRollback = Boolean(target?.rollbackCommand && canRecordRollbackCommand(event));
+
+  if (!canRecordDeploy && !canRecordRollback && records.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-2 border-t border-border/60 pt-2">
+      {canRecordDeploy || canRecordRollback ? (
+        <div className="flex flex-wrap gap-1.5">
+          {canRecordDeploy ? (
+            <>
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-6 px-2"
+                disabled={createRecord.isPending}
+                onClick={() => recordCommand("deploy", "running")}
+              >
+                Deploy running
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-6 px-2"
+                disabled={createRecord.isPending}
+                onClick={() => recordCommand("deploy", "succeeded")}
+              >
+                Deploy succeeded
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-6 px-2"
+                disabled={createRecord.isPending}
+                onClick={() => recordCommand("deploy", "failed")}
+              >
+                Deploy failed
+              </Button>
+            </>
+          ) : null}
+          {canRecordRollback ? (
+            <>
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-6 px-2"
+                disabled={createRecord.isPending}
+                onClick={() => recordCommand("rollback", "succeeded")}
+              >
+                Rollback succeeded
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-6 px-2"
+                disabled={createRecord.isPending}
+                onClick={() => recordCommand("rollback", "failed")}
+              >
+                Rollback failed
+              </Button>
+            </>
+          ) : null}
+          {createRecord.isError ? <span className="text-xs text-destructive">Failed to record command.</span> : null}
+        </div>
+      ) : null}
+      {isLoading ? (
+        <div className="text-[11px] text-muted-foreground">Loading command records...</div>
+      ) : isError ? (
+        <div className="text-[11px] text-destructive">Failed to load command records.</div>
+      ) : records.length > 0 ? (
+        <div className="space-y-1">
+          {records.slice(0, 3).map((record: ProjectDeployCommandRecord) => (
+            <div key={record.id} className="rounded border border-border/60 px-2 py-1 text-[11px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={record.status} />
+                <span className="font-medium">{record.commandType}</span>
+                <span className="text-muted-foreground">{formatDate(record.createdAt)}</span>
+              </div>
+              <div className="mt-0.5 break-all font-mono text-muted-foreground">{record.command}</div>
+              {record.output || record.note || record.exitCode ? (
+                <div className="mt-0.5 break-words text-muted-foreground">
+                  {record.exitCode ? `exit ${record.exitCode}: ` : ""}
+                  {record.output ?? record.note}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function ProjectDeploymentSettings({ project }: { project: Project }) {
@@ -146,6 +314,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       projectsApi.sendDeployMaintenanceMessage(project.id, eventId, {}, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
+  const targetsById = new Map(targets.map((target) => [target.id, target]));
 
   const submitTarget = () => {
     const payload = normalizeTargetPayload(form);
@@ -202,6 +371,18 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={form.healthCheckUrl}
             onChange={(event) => setForm((current) => ({ ...current, healthCheckUrl: event.target.value }))}
             placeholder="https://app.example.com/health"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs font-mono outline-none"
+            value={form.deployCommand}
+            onChange={(event) => setForm((current) => ({ ...current, deployCommand: event.target.value }))}
+            placeholder="Deploy command descriptor"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs font-mono outline-none"
+            value={form.rollbackCommand}
+            onChange={(event) => setForm((current) => ({ ...current, rollbackCommand: event.target.value }))}
+            placeholder="Rollback command descriptor"
           />
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
@@ -263,6 +444,8 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                   <div className="space-y-0.5 text-[11px] text-muted-foreground">
                     {target.targetUrl ? <div className="break-all">Target: {target.targetUrl}</div> : null}
                     {target.healthCheckUrl ? <div className="break-all">Health: {target.healthCheckUrl}</div> : null}
+                    {target.deployCommand ? <div className="break-all font-mono">Deploy: {target.deployCommand}</div> : null}
+                    {target.rollbackCommand ? <div className="break-all font-mono">Rollback command: {target.rollbackCommand}</div> : null}
                     {target.rollbackInstructions ? <div>Rollback: {target.rollbackInstructions}</div> : null}
                     {target.maintenanceUpdatesEnabled ? (
                       <div>
@@ -363,6 +546,12 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                   ) : null}
                 </div>
               ) : null}
+              <DeployCommandRecords
+                projectId={project.id}
+                event={event}
+                target={event.deploymentTargetId ? targetsById.get(event.deploymentTargetId) ?? null : null}
+                companyId={selectedCompanyId ?? undefined}
+              />
             </div>
           ))
         )}

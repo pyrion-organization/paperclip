@@ -135,12 +135,13 @@ Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enab
 
 Paperclip now stores deployment readiness metadata without executing production deploys automatically.
 
-- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, rollback instructions, and active/disabled status.
+- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, deploy/rollback command descriptors, rollback instructions, and active/disabled status.
 - Deployment targets can opt in to maintenance updates with an explicit recipient list.
 - Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
 - Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
 - Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
 - After approval, the requesting agent or board can record the manual deploy handoff as `deploying`, `deployed`, `failed`, or `rolled_back`. These transitions append audit metadata to the deploy event and log project activity.
+- Approved deploy events can also store deploy/rollback command evidence. The command text must match the selected deployment target descriptor, the deploy approval must be approved, and rollback evidence is only accepted after the event is deployed, failed, or already rolled back. These records capture command type, status, optional output/note, and actor metadata; Paperclip still does not execute the command.
 - Maintenance messages are explicit sends, not automatic side effects. They require approved deploy approval, an eligible deploy event status, target opt-in, configured recipients, and a message body. Delivery status, recipients, attempted/sent timestamps, and errors are stored on the deploy event. A `sent` message is not sent again on retry.
 - Disabled targets cannot receive deploy approval requests.
 - This foundation is intentionally approval-gated. It does not SSH to servers, run deploy commands, change DNS, or send customer maintenance mail automatically.

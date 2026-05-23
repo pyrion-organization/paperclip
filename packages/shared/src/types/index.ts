@@ -114,6 +114,7 @@ export type {
   ProjectClientRef,
   ProjectCodebase,
   ProjectCodebaseOrigin,
+  ProjectDeployCommandRecord,
   ProjectDeployEvent,
   ProjectDeploymentTarget,
   ProjectGoalRef,

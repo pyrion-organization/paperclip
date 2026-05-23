@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import {
   createProjectDeployApprovalSchema,
+  createProjectDeployCommandRecordSchema,
   createProjectDeploymentTargetSchema,
   createProjectSchema,
   projectFileBranchCreateSchema,
@@ -650,6 +651,125 @@ export function projectRoutes(db: Db) {
       });
 
       res.json(updated ?? deployEvent);
+    },
+  );
+
+  router.get("/projects/:id/deploy-events/:deployEventId/command-records", async (req, res) => {
+    const id = req.params.id as string;
+    const deployEventId = req.params.deployEventId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const deployEvent = await svc.getDeployEvent(id, deployEventId);
+    if (!deployEvent || deployEvent.companyId !== project.companyId) {
+      res.status(404).json({ error: "Deploy event not found" });
+      return;
+    }
+    res.json(await svc.listDeployCommandRecords(id, deployEvent.id));
+  });
+
+  router.post(
+    "/projects/:id/deploy-events/:deployEventId/command-records",
+    validate(createProjectDeployCommandRecordSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const deployEventId = req.params.deployEventId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const deployEvent = await svc.getDeployEvent(id, deployEventId);
+      if (!deployEvent || deployEvent.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deploy event not found" });
+        return;
+      }
+      if (!deployEvent.approvalId) {
+        res.status(422).json({ error: "Deploy event is not linked to an approval" });
+        return;
+      }
+      if (!deployEvent.deploymentTargetId) {
+        res.status(422).json({ error: "Deploy event is not linked to a deployment target" });
+        return;
+      }
+
+      const [approval, deploymentTarget] = await Promise.all([
+        approvalsSvc.getById(deployEvent.approvalId),
+        svc.getDeploymentTarget(id, deployEvent.deploymentTargetId),
+      ]);
+      if (!approval || approval.companyId !== project.companyId || approval.type !== "deploy_change") {
+        res.status(404).json({ error: "Deploy approval not found" });
+        return;
+      }
+      if (approval.status !== "approved") {
+        res.status(422).json({ error: "Deploy command records require approved deploy approval" });
+        return;
+      }
+      if (req.actor.type === "agent" && approval.requestedByAgentId !== req.actor.agentId) {
+        throw forbidden("Only the requesting agent can record deploy command evidence");
+      }
+      if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deployment target not found" });
+        return;
+      }
+      const commandType = req.body.commandType as "deploy" | "rollback";
+      const configuredCommand = commandType === "deploy" ? deploymentTarget.deployCommand : deploymentTarget.rollbackCommand;
+      if (!configuredCommand || configuredCommand.trim() !== req.body.command.trim()) {
+        res.status(422).json({ error: `${commandType} command must match the approved deployment target descriptor` });
+        return;
+      }
+      if (commandType === "deploy" && !new Set(["approved", "deploying", "failed"]).has(deployEvent.status)) {
+        res.status(422).json({ error: `Cannot record deploy command for deploy event status ${deployEvent.status}` });
+        return;
+      }
+      if (commandType === "rollback" && !new Set(["deployed", "failed", "rolled_back"]).has(deployEvent.status)) {
+        res.status(422).json({ error: `Cannot record rollback command for deploy event status ${deployEvent.status}` });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      const record = await svc.createDeployCommandRecord(project.id, {
+        deployEventId: deployEvent.id,
+        deploymentTargetId: deploymentTarget.id,
+        approvalId: approval.id,
+        commandType,
+        status: req.body.status,
+        command: req.body.command,
+        output: req.body.output ?? null,
+        exitCode: req.body.exitCode ?? null,
+        note: req.body.note ?? null,
+        recordedByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+        recordedByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+      if (!record) {
+        res.status(422).json({ error: "Invalid deploy command record payload" });
+        return;
+      }
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.deploy_command_recorded",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          deployEventId: deployEvent.id,
+          approvalId: approval.id,
+          commandRecordId: record.id,
+          commandType: record.commandType,
+          status: record.status,
+          exitCode: record.exitCode,
+        },
+      });
+
+      res.status(201).json(record);
     },
   );
 

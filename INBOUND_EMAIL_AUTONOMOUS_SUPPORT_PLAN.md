@@ -853,7 +853,8 @@ Deliverables:
 Implemented the approved-deploy foundation:
 
 - project deployment targets with environment, provider, URLs, notes, rollback
-  instructions, and active/disabled status,
+  instructions, deploy/rollback command descriptors, and active/disabled
+  status,
 - `deploy_change` approvals linked to the project issue,
 - approval payload evidence for changed files, tests run, target snapshot,
   issue snapshot, risk, rollback plan, and optional maintenance text,
@@ -863,12 +864,15 @@ Implemented the approved-deploy foundation:
 - deployment target maintenance-update opt-in with explicit recipients,
 - approval-gated maintenance message sends with delivery status, recipients,
   timestamps, and retry-safe duplicate prevention,
+- approval-gated deploy/rollback command evidence records that require the
+  exact target command descriptor and compatible deploy-event status,
 - compact project configuration UI for targets and recent deploy events,
 - no automatic production deploy execution.
 
 Remaining Phase 5 work:
 
-- add rollback execution commands after deploy execution exists.
+- add actual command execution only after manual command evidence and rollback
+  controls are proven.
 
 ### Phase 6: Infra Agent
 
@@ -914,14 +918,16 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add rollback/deploy command scaffolding
-without granting direct production authority:
+The next implementation slice should add the first infra topology and health
+model without granting provider repair authority:
 
-- model explicit deploy and rollback command descriptors on deployment targets,
-- require approval for any command execution,
-- capture command output/status as deploy events,
-- keep dangerous rollback execution manual or separately approved until proven,
-- preserve the current no-auto-production-deploy boundary.
+- model provider/account/environment metadata per project,
+- add health-check definitions and last-known health status,
+- create infra-incident issue records from trusted reports or failed health
+  checks,
+- keep provider repair and failover actions approval-gated placeholders,
+- preserve the current no-auto-production-deploy and no-auto-infra-repair
+  boundary.
 
-Do not add automatic production deploys until the approval and rollback path is
-implemented and covered by focused tests.
+Do not add automatic production deploys or provider mutations until the approval,
+rollback, health, and incident paths are covered by focused tests.

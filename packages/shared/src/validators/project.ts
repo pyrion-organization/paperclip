@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { PROJECT_DEPLOYMENT_TARGET_STATUSES, PROJECT_STATUSES } from "../constants.js";
+import {
+  PROJECT_DEPLOY_COMMAND_STATUSES,
+  PROJECT_DEPLOY_COMMAND_TYPES,
+  PROJECT_DEPLOYMENT_TARGET_STATUSES,
+  PROJECT_STATUSES,
+} from "../constants.js";
 import { envConfigSchema } from "./secret.js";
 
 const optionalTrimmedText = (max = 4000) =>
@@ -152,6 +157,8 @@ export const createProjectDeploymentTargetSchema = z.object({
   healthCheckUrl: optionalUrlSchema,
   deployNotes: optionalTrimmedText(),
   rollbackInstructions: optionalTrimmedText(),
+  deployCommand: optionalTrimmedText(4000),
+  rollbackCommand: optionalTrimmedText(4000),
   maintenanceUpdatesEnabled: z.boolean().default(false),
   maintenanceRecipients: deployMaintenanceRecipientsSchema,
   status: z.enum(PROJECT_DEPLOYMENT_TARGET_STATUSES).default("active"),
@@ -192,6 +199,17 @@ export const sendProjectDeployMaintenanceMessageSchema = z.object({
 });
 
 export type SendProjectDeployMaintenanceMessage = z.infer<typeof sendProjectDeployMaintenanceMessageSchema>;
+
+export const createProjectDeployCommandRecordSchema = z.object({
+  commandType: z.enum(PROJECT_DEPLOY_COMMAND_TYPES),
+  status: z.enum(PROJECT_DEPLOY_COMMAND_STATUSES),
+  command: z.string().trim().min(1).max(4000),
+  output: optionalTrimmedText(20000),
+  exitCode: optionalTrimmedText(64),
+  note: optionalTrimmedText(2000),
+});
+
+export type CreateProjectDeployCommandRecord = z.infer<typeof createProjectDeployCommandRecordSchema>;
 
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),

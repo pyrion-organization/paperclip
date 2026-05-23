@@ -10,6 +10,8 @@ const mockProjectService = vi.hoisted(() => ({
   createDeployEvent: vi.fn(),
   updateDeployEventStatus: vi.fn(),
   recordDeployMaintenanceMessageDelivery: vi.fn(),
+  listDeployCommandRecords: vi.fn(),
+  createDeployCommandRecord: vi.fn(),
   listDeploymentTargets: vi.fn(),
   listDeployEvents: vi.fn(),
 }));
@@ -92,6 +94,10 @@ function buildTarget(overrides: Record<string, unknown> = {}) {
     provider: "manual",
     targetUrl: "https://example.com",
     healthCheckUrl: "https://example.com/health",
+    deployNotes: null,
+    rollbackInstructions: "Rollback with previous release.",
+    deployCommand: "pnpm deploy:prod",
+    rollbackCommand: "pnpm rollback:prod",
     status: "active",
     maintenanceUpdatesEnabled: true,
     maintenanceRecipients: ["ops@example.com"],
@@ -118,6 +124,28 @@ function buildDeployEvent(overrides: Record<string, unknown> = {}) {
     maintenanceMessageAttemptedAt: null,
     maintenanceMessageSentAt: null,
     maintenanceMessageError: null,
+    ...overrides,
+  };
+}
+
+function buildDeployCommandRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "66666666-6666-4666-8666-666666666666",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    deployEventId: "55555555-5555-4555-8555-555555555555",
+    deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+    approvalId: "44444444-4444-4444-8444-444444444444",
+    commandType: "deploy",
+    status: "succeeded",
+    command: "pnpm deploy:prod",
+    output: null,
+    exitCode: null,
+    note: "Manual deploy completed.",
+    recordedByAgentId: "agent-1",
+    recordedByUserId: null,
+    createdAt: new Date("2026-05-23T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-23T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -165,6 +193,10 @@ describe("project deploy workflow routes", () => {
     mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent());
     mockProjectService.updateDeployEventStatus.mockImplementation(async (_projectId, _eventId, data) =>
       buildDeployEvent({ status: data.status }),
+    );
+    mockProjectService.listDeployCommandRecords.mockResolvedValue([]);
+    mockProjectService.createDeployCommandRecord.mockImplementation(async (_projectId, data) =>
+      buildDeployCommandRecord(data),
     );
     mockProjectService.recordDeployMaintenanceMessageDelivery.mockImplementation(async (_projectId, _eventId, data) =>
       buildDeployEvent({
@@ -306,6 +338,88 @@ describe("project deploy workflow routes", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
+  });
+
+  it("records approved deploy command evidence when the command matches the target descriptor", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:prod",
+        note: "Manual deploy completed.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.createDeployCommandRecord).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        deployEventId: "55555555-5555-4555-8555-555555555555",
+        deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+        approvalId: "44444444-4444-4444-8444-444444444444",
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:prod",
+        note: "Manual deploy completed.",
+        recordedByAgentId: "agent-1",
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.deploy_command_recorded",
+        details: expect.objectContaining({
+          commandRecordId: "66666666-6666-4666-8666-666666666666",
+          commandType: "deploy",
+          status: "succeeded",
+        }),
+      }),
+    );
+  });
+
+  it("blocks command evidence before the deploy approval is accepted", async () => {
+    mockApprovalService.getById.mockResolvedValue(buildApproval({ status: "pending" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:prod",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects command evidence that does not match the deployment target descriptor", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:other",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects rollback command evidence before the deploy event reaches a rollback-eligible status", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "rollback",
+        status: "succeeded",
+        command: "pnpm rollback:prod",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
   });
 
   it("sends a maintenance message only after approval and eligible deploy status", async () => {

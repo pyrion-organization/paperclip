@@ -4,6 +4,7 @@ import type {
   GitPushResult,
   GitStatusResponse,
   Project,
+  ProjectDeployCommandRecord,
   ProjectDeployEvent,
   ProjectDeploymentTarget,
   ProjectFileDetail,
@@ -50,6 +51,15 @@ export const projectsApi = {
     ),
   listDeployEvents: (projectId: string, companyId?: string) =>
     api.get<ProjectDeployEvent[]>(projectPath(projectId, companyId, "/deploy-events")),
+  listDeployCommandRecords: (projectId: string, deployEventId: string, companyId?: string) =>
+    api.get<ProjectDeployCommandRecord[]>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-records`),
+    ),
+  createDeployCommandRecord: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectDeployCommandRecord>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-records`),
+      data,
+    ),
   recordDeployEventStatus: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<ProjectDeployEvent>(
       projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/status`),

@@ -18,6 +18,8 @@ export const projectDeploymentTargets = pgTable(
     healthCheckUrl: text("health_check_url"),
     deployNotes: text("deploy_notes"),
     rollbackInstructions: text("rollback_instructions"),
+    deployCommand: text("deploy_command"),
+    rollbackCommand: text("rollback_command"),
     maintenanceUpdatesEnabled: boolean("maintenance_updates_enabled").notNull().default(false),
     maintenanceRecipients: jsonb("maintenance_recipients").$type<string[]>().notNull().default([]),
     status: text("status").notNull().default("active"),
@@ -33,6 +35,35 @@ export const projectDeploymentTargets = pgTable(
     projectNameUq: uniqueIndex("project_deployment_targets_project_name_uq").on(
       table.projectId,
       table.name,
+    ),
+  }),
+);
+
+export const projectDeployCommandRecords = pgTable(
+  "project_deploy_command_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => companies.id),
+    projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    deployEventId: uuid("deploy_event_id").notNull().references(() => projectDeployEvents.id, { onDelete: "cascade" }),
+    deploymentTargetId: uuid("deployment_target_id").references(() => projectDeploymentTargets.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "set null" }),
+    commandType: text("command_type").notNull(),
+    status: text("status").notNull(),
+    command: text("command").notNull(),
+    output: text("output"),
+    exitCode: text("exit_code"),
+    note: text("note"),
+    recordedByAgentId: uuid("recorded_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    recordedByUserId: text("recorded_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    eventIdx: index("project_deploy_command_records_event_idx").on(table.deployEventId),
+    companyProjectIdx: index("project_deploy_command_records_company_project_idx").on(
+      table.companyId,
+      table.projectId,
     ),
   }),
 );

@@ -2,6 +2,8 @@ import type { ClientMetadata } from "./client.js";
 import type {
   ClientStatus,
   PauseReason,
+  ProjectDeployCommandStatus,
+  ProjectDeployCommandType,
   ProjectDeployEventStatus,
   ProjectDeployMaintenanceMessageStatus,
   ProjectDeploymentTargetStatus,
@@ -221,10 +223,31 @@ export interface ProjectDeploymentTarget {
   healthCheckUrl: string | null;
   deployNotes: string | null;
   rollbackInstructions: string | null;
+  deployCommand: string | null;
+  rollbackCommand: string | null;
   maintenanceUpdatesEnabled: boolean;
   maintenanceRecipients: string[];
   status: ProjectDeploymentTargetStatus;
   metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectDeployCommandRecord {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deployEventId: string;
+  deploymentTargetId: string | null;
+  approvalId: string | null;
+  commandType: ProjectDeployCommandType;
+  status: ProjectDeployCommandStatus;
+  command: string;
+  output: string | null;
+  exitCode: string | null;
+  note: string | null;
+  recordedByAgentId: string | null;
+  recordedByUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
