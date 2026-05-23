@@ -19,6 +19,7 @@ import {
   issues as issueRows,
   labels,
   projects,
+  projectWorkspaces,
 } from "@paperclipai/db";
 import type {
   CreateInboundEmailMailbox,
@@ -64,6 +65,7 @@ import { queueIssueAssignmentWakeup } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import { projectInfraIncidentService } from "./project-infra-incidents.js";
+import { budgetService } from "./budgets.js";
 import {
   sendInboundEmailAuthorizationReply,
   sendInboundEmailRegistrationReply,
@@ -833,6 +835,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   const issues = issueService(db);
   const heartbeat = heartbeatService(db);
   const infraIncidents = projectInfraIncidentService(db);
+  const budgets = budgetService(db);
 
   function normalizeRuleLabelIds(labelIds: string[] | undefined): string[] {
     return [...new Set(labelIds ?? [])];
@@ -1350,7 +1353,32 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return context.fallbackRule?.projectFallbackMode ?? context.mailbox.projectFallbackMode;
   }
 
-  function resolveAgentAutomationPolicy(input: {
+  async function projectHasAutomationWorkspace(companyId: string, projectId: string) {
+    const workspace = await db
+      .select({
+        id: projectWorkspaces.id,
+        cwd: projectWorkspaces.cwd,
+        repoUrl: projectWorkspaces.repoUrl,
+        remoteWorkspaceRef: projectWorkspaces.remoteWorkspaceRef,
+      })
+      .from(projectWorkspaces)
+      .where(
+        and(
+          eq(projectWorkspaces.companyId, companyId),
+          eq(projectWorkspaces.projectId, projectId),
+          or(
+            and(isNotNull(projectWorkspaces.cwd), ne(projectWorkspaces.cwd, "")),
+            and(isNotNull(projectWorkspaces.repoUrl), ne(projectWorkspaces.repoUrl, "")),
+            and(isNotNull(projectWorkspaces.remoteWorkspaceRef), ne(projectWorkspaces.remoteWorkspaceRef, "")),
+          ),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    return Boolean(workspace);
+  }
+
+  async function resolveAgentAutomationPolicy(input: {
     message: typeof inboundEmailMessages.$inferSelect;
     classification: InboundEmailClassification | null;
     context: Awaited<ReturnType<typeof resolveProcessingContext>>;
@@ -1363,6 +1391,13 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     if (input.classification.safetyFlags.length > 0) return null;
     if (input.classification.finalAction === "discard_or_quarantine") return null;
     if (!input.projectId) return null;
+    if (!(await projectHasAutomationWorkspace(input.message.companyId, input.projectId))) return null;
+    const budgetBlock = await budgets.getInvocationBlock(
+      input.message.companyId,
+      mailbox.agentAutomationAssigneeId,
+      { projectId: input.projectId },
+    );
+    if (budgetBlock) return null;
     return {
       assigneeAgentId: mailbox.agentAutomationAssigneeId,
       wakeEnabled: mailbox.agentAutomationWakeEnabled,
@@ -3594,7 +3629,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             });
           } else {
             const projectId = authorization.project?.id ?? null;
-            const automation = resolveAgentAutomationPolicy({
+            const automation = await resolveAgentAutomationPolicy({
               message: classifiedMessage,
               classification,
               context,

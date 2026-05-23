@@ -843,6 +843,8 @@ Implemented the first conservative agent automation layer:
 - configured assignable code-bug assignee,
 - minimum classifier confidence gate,
 - resolved-project requirement,
+- configured project workspace requirement,
+- budget hard-stop invocation gate,
 - safety-flag block,
 - sanitized assigned `todo` issue creation,
 - optional assignee wakeup,

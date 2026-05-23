@@ -130,8 +130,9 @@ Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enab
 
 - Only trusted `code_bug` reports with a resolved project are eligible.
 - The classifier confidence must be at or above `agent_automation_min_confidence` and the message must have no safety flags.
+- The resolved project must have a configured workspace (`cwd`, `repo_url`, or `remote_workspace_ref`) and the selected agent/project/company must pass budget hard-stop checks.
 - Eligible messages persist `classification_final_action = create_agent_task`, create a sanitized issue in `todo`, assign the configured agent, and optionally wake the agent when `agent_automation_wake_enabled` is true.
-- Projectless triage, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
+- Projectless triage, projects without an execution workspace, budget-blocked agents/projects/companies, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
 - The created issue description still treats the original email as untrusted evidence; agents receive the Paperclip issue, not raw email authority.
 
 ## Approved deploy workflow foundation

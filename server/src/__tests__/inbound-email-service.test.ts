@@ -27,6 +27,7 @@ import {
   issues,
   labels,
   projectInfraIncidents,
+  projectWorkspaces,
   projects,
 } from "@paperclipai/db";
 import {
@@ -239,6 +240,26 @@ describeEmbeddedPostgres("inbound email service", () => {
       })
       .returning();
     return project;
+  }
+
+  async function seedProjectWorkspace(
+    companyId: string,
+    projectId: string,
+    input?: { cwd?: string | null; repoUrl?: string | null; remoteWorkspaceRef?: string | null },
+  ) {
+    const [workspace] = await db
+      .insert(projectWorkspaces)
+      .values({
+        companyId,
+        projectId,
+        name: "Primary workspace",
+        cwd: input?.cwd ?? `/workspaces/${projectId}`,
+        repoUrl: input?.repoUrl ?? null,
+        remoteWorkspaceRef: input?.remoteWorkspaceRef ?? null,
+        isPrimary: true,
+      })
+      .returning();
+    return workspace;
   }
 
   async function seedAgent(companyId: string, input?: { name?: string; status?: string }) {
@@ -1380,6 +1401,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     const companyId = await seedCompany();
     const { client } = await seedClientIdentity({ companyId });
     const project = await seedProject(companyId, "Production");
+    await seedProjectWorkspace(companyId, project.id);
     await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
     const agent = await seedAgent(companyId);
     const mailbox = await createMailbox(companyId, {
@@ -1416,6 +1438,83 @@ describeEmbeddedPostgres("inbound email service", () => {
       triggerDetail: "system",
       payload: { issueId: createdIssue.id, mutation: "inbound_email_agent_automation" },
     }));
+  }, 20_000);
+
+  it("does not auto-assign code bug mail when the project has no execution workspace", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const agent = await seedAgent(companyId);
+    const mailbox = await createMailbox(companyId, {
+      agentAutomationEnabled: true,
+      agentAutomationAssigneeId: agent.id,
+      agentAutomationMinConfidence: 80,
+      agentAutomationWakeEnabled: true,
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<auto-agent-no-workspace@example.com>",
+        subject: "Production bug",
+        body: "Production checkout returns error 500 after payment.",
+      }),
+      providerUid: "auto-agent-no-workspace",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.classificationCategory).toBe("code_bug");
+    expect(storedMessage.classificationFinalAction).toBe("create_triage_issue");
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(createdIssue.assigneeAgentId).toBeNull();
+    expect(createdIssue.status).toBe("backlog");
+    expect(heartbeatWakeupMock).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("does not auto-assign code bug mail when the selected agent is budget-paused", async () => {
+    const companyId = await seedCompany();
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Production");
+    await seedProjectWorkspace(companyId, project.id);
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const agent = await seedAgent(companyId, { status: "paused" });
+    await db
+      .update(agents)
+      .set({ pauseReason: "budget", pausedAt: new Date() })
+      .where(eq(agents.id, agent.id));
+    const mailbox = await createMailbox(companyId, {
+      agentAutomationEnabled: true,
+      agentAutomationAssigneeId: agent.id,
+      agentAutomationMinConfidence: 80,
+      agentAutomationWakeEnabled: true,
+    });
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<auto-agent-budget-paused@example.com>",
+        subject: "Production bug",
+        body: "Production checkout returns error 500 after payment.",
+      }),
+      providerUid: "auto-agent-budget-paused",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    expect(storedMessage.status).toBe("processed");
+    expect(storedMessage.classificationCategory).toBe("code_bug");
+    expect(storedMessage.classificationFinalAction).toBe("create_triage_issue");
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(createdIssue.assigneeAgentId).toBeNull();
+    expect(createdIssue.status).toBe("backlog");
+    expect(heartbeatWakeupMock).not.toHaveBeenCalled();
   }, 20_000);
 
   it("does not match short project aliases inside unrelated words but still triages classified bug mail", async () => {
