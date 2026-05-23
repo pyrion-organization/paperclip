@@ -17,24 +17,11 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-// --- CLI args -----------------------------------------------------------
-const args = process.argv.slice(2);
-function flag(name, fallback) {
+function readFlag(args, name, fallback) {
   const i = args.indexOf(`--${name}`);
   if (i === -1) return fallback;
   const val = args.splice(i, 2)[1];
   return Number.isNaN(Number(val)) ? fallback : Number(val);
-}
-const width = flag("width", 1280);
-const height = flag("height", 800);
-const waitMs = flag("wait", 2000);
-
-const rawUrl = args[0];
-const outPath = args[1] || "/tmp/paperclip-screenshot.png";
-
-if (!rawUrl) {
-  console.error("Usage: node scripts/screenshot.cjs <url-or-path> [output.png]");
-  process.exit(1);
 }
 
 // --- Auth ----------------------------------------------------------------
@@ -51,20 +38,43 @@ function loadBoardToken() {
   return null;
 }
 
-const cred = loadBoardToken();
-if (!cred) {
-  console.error("No board token found in ~/.paperclip/auth.json");
-  process.exit(1);
+function resolveScreenshotUrl(rawUrl, apiBase) {
+  return rawUrl.startsWith("http") ? rawUrl : `${apiBase}${rawUrl}`;
 }
 
-// Resolve URL — if it starts with / treat as path relative to apiBase
-const url = rawUrl.startsWith("http") ? rawUrl : `${cred.apiBase}${rawUrl}`;
-
-// Validate URL before launching browser
-const origin = new URL(url).origin;
+function shouldAttachAuthorization(url, apiBase) {
+  return new URL(url).origin === new URL(apiBase).origin;
+}
 
 // --- Screenshot ----------------------------------------------------------
-(async () => {
+async function main() {
+  // --- CLI args -----------------------------------------------------------
+  const args = process.argv.slice(2);
+  const width = readFlag(args, "width", 1280);
+  const height = readFlag(args, "height", 800);
+  const waitMs = readFlag(args, "wait", 2000);
+
+  const rawUrl = args[0];
+  const outPath = args[1] || "/tmp/paperclip-screenshot.png";
+
+  if (!rawUrl) {
+    console.error("Usage: node scripts/screenshot.cjs <url-or-path> [output.png]");
+    process.exit(1);
+  }
+
+  const cred = loadBoardToken();
+  if (!cred) {
+    console.error("No board token found in ~/.paperclip/auth.json");
+    process.exit(1);
+  }
+
+  // Resolve URL — if it starts with / treat as path relative to apiBase
+  const url = resolveScreenshotUrl(rawUrl, cred.apiBase);
+
+  // Validate URL before launching browser
+  new URL(url);
+  const apiOrigin = new URL(cred.apiBase).origin;
+
   const { chromium } = require("playwright");
   const browser = await chromium.launch();
   try {
@@ -73,12 +83,14 @@ const origin = new URL(url).origin;
     });
 
     const page = await context.newPage();
-    // Scope the auth header to the Paperclip origin only
-    await page.route(`${origin}/**`, async (route) => {
-      await route.continue({
-        headers: { ...route.request().headers(), Authorization: `Bearer ${cred.token}` },
+    if (shouldAttachAuthorization(url, cred.apiBase)) {
+      // Scope the auth header to the saved Paperclip origin only.
+      await page.route(`${apiOrigin}/**`, async (route) => {
+        await route.continue({
+          headers: { ...route.request().headers(), Authorization: `Bearer ${cred.token}` },
+        });
       });
-    });
+    }
     await page.goto(url, { waitUntil: "networkidle", timeout: 20000 });
     await page.waitForTimeout(waitMs);
     await page.screenshot({ path: outPath, fullPage: false });
@@ -89,4 +101,13 @@ const origin = new URL(url).origin;
   } finally {
     await browser.close();
   }
-})();
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  resolveScreenshotUrl,
+  shouldAttachAuthorization,
+};
