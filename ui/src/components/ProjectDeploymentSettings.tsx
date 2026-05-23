@@ -206,8 +206,16 @@ function DeployCommandRecords({
   const recordCommand = (commandType: "deploy" | "rollback", status: "running" | "succeeded" | "failed") => {
     const command = commandType === "deploy" ? target?.deployCommand : target?.rollbackCommand;
     if (!command) return;
-    const note = window.prompt("Command output or note (optional)", "");
+    const evidenceRequired = status === "succeeded" || status === "failed";
+    const note = window.prompt(
+      evidenceRequired ? "Command output or note (required)" : "Command output or note (optional)",
+      "",
+    );
     if (note === null) return;
+    if (evidenceRequired && note.trim().length === 0) {
+      window.alert("Terminal deploy command records require output or a note.");
+      return;
+    }
     createRecord.mutate({
       commandType,
       status,

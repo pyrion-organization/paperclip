@@ -881,6 +881,8 @@ Implemented the approved-deploy foundation:
 - command evidence now advances deploy event status for deploy
   running/succeeded/failed and successful rollback outcomes, keeping operator
   state aligned with the recorded handoff,
+- terminal deploy/rollback command records require output, a note, or an exit
+  code so manual execution evidence cannot be marked complete without proof,
 - compact project configuration UI for targets and recent deploy events,
 - no automatic production deploy execution.
 

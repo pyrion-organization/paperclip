@@ -629,6 +629,7 @@ describe("project deploy workflow routes", () => {
         commandType: "rollback",
         status: "succeeded",
         command: "pnpm rollback:prod",
+        note: "Rollback completed and health checks recovered.",
       });
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -637,6 +638,22 @@ describe("project deploy workflow routes", () => {
       "55555555-5555-4555-8555-555555555555",
       expect.objectContaining({ status: "rolled_back" }),
     );
+  });
+
+  it("requires evidence for terminal deploy command records", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "deploy",
+        status: "succeeded",
+        command: "pnpm deploy:prod",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toBe("Terminal deploy command evidence requires output, note, or exit code");
+    expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
+    expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
   });
 
   it("blocks command evidence before the deploy approval is accepted", async () => {

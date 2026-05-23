@@ -1558,6 +1558,14 @@ export function projectRoutes(db: Db) {
         res.status(422).json({ error: `Cannot record rollback command for deploy event status ${deployEvent.status}` });
         return;
       }
+      const terminalCommandStatuses = new Set(["succeeded", "failed", "cancelled"]);
+      const hasCommandEvidence = [req.body.output, req.body.note, req.body.exitCode].some(
+        (value) => typeof value === "string" && value.trim().length > 0,
+      );
+      if (terminalCommandStatuses.has(req.body.status) && !hasCommandEvidence) {
+        res.status(422).json({ error: "Terminal deploy command evidence requires output, note, or exit code" });
+        return;
+      }
 
       const actor = getActorInfo(req);
       const record = await svc.createDeployCommandRecord(project.id, {
