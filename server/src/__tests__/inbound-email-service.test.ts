@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import express from "express";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,7 @@ import {
   createDb,
   agents,
   inboundEmailAttachments,
+  inboundEmailExternalIntakeRecords,
   inboundEmailMailboxes,
   inboundEmailMessages,
   inboundEmailRules,
@@ -144,6 +145,7 @@ describeEmbeddedPostgres("inbound email service", () => {
     await db.delete(activityLog);
     await db.delete(issueAttachments);
     await db.delete(inboundEmailAttachments);
+    await db.delete(inboundEmailExternalIntakeRecords);
     await db.delete(inboundEmailRules);
     await db.delete(inboundEmailMessages);
     await db.delete(inboundEmailMailboxes);
@@ -386,6 +388,81 @@ describeEmbeddedPostgres("inbound email service", () => {
       "101",
     );
   }, 20_000);
+
+  it("imports preserved external intake messages idempotently by source", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const message = rawEmail({ messageId: "<external-source@example.com>", subject: "Backup support copy" });
+
+    const first = await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "support-backup/2026-05-23/1",
+      rawEmail: message,
+      metadata: { queue: "support-backup" },
+    });
+    const second = await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "support-backup/2026-05-23/1",
+      rawEmail: message,
+      metadata: { queue: "support-backup" },
+    });
+
+    expect(first.status).toBe("imported");
+    expect(second.status).toBe("imported");
+    expect(second.intakeRecord.id).toBe(first.intakeRecord.id);
+    expect(second.message?.id).toBe(first.message?.id);
+
+    const records = await db.select().from(inboundEmailExternalIntakeRecords);
+    const messages = await db.select().from(inboundEmailMessages);
+    const jobs = await db.select().from(backgroundJobs);
+    expect(records).toHaveLength(1);
+    expect(messages).toHaveLength(1);
+    expect(jobs).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      companyId,
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "support-backup/2026-05-23/1",
+      status: "imported",
+      inboundMessageId: first.message?.id,
+    });
+  });
+
+  it("records duplicate external sources without duplicating the inbound message", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const message = rawEmail({ messageId: "<external-duplicate@example.com>", subject: "Preserved copy" });
+
+    const first = await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "object_storage",
+      sourceId: "s3://support-backup/first.eml",
+      sourceLocation: "s3://support-backup/first.eml",
+      rawEmail: message,
+    });
+    const second = await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "webhook",
+      sourceId: "mailgun-event-2",
+      rawEmail: message,
+    });
+
+    expect(first.status).toBe("imported");
+    expect(second.status).toBe("duplicate");
+    expect(second.message?.id).toBe(first.message?.id);
+
+    const records = await db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .orderBy(asc(inboundEmailExternalIntakeRecords.createdAt), asc(inboundEmailExternalIntakeRecords.id));
+    const messages = await db.select().from(inboundEmailMessages);
+    expect(records).toHaveLength(2);
+    expect(messages).toHaveLength(1);
+    expect(records.map((record) => record.status).sort()).toEqual(["duplicate", "imported"]);
+    expect(records.every((record) => record.inboundMessageId === first.message?.id)).toBe(true);
+  });
 
   it("normalizes mailbox text fields before persistence", async () => {
     const companyId = await seedCompany();
@@ -3408,6 +3485,54 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(res.body.mailboxes[0].mailbox).not.toHaveProperty("passwordSecretName");
   });
 
+  it("imports and lists external intake records through the board API route", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const app = express();
+    app.use(express.json({ limit: "11mb" }));
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db));
+
+    const importRes = await request(app)
+      .post(`/companies/${companyId}/inbound-email/external-intake/import`)
+      .send({
+        mailboxId: mailbox.id,
+        sourceKind: "manual_recovery",
+        sourceId: "operator-recovery-1",
+        rawEmail: rawEmail({ messageId: "<route-external-intake@example.com>" }),
+        metadata: { operator: "board-user" },
+      })
+      .expect(201);
+
+    expect(importRes.body).toMatchObject({
+      status: "imported",
+      intakeRecord: {
+        sourceKind: "manual_recovery",
+        sourceId: "operator-recovery-1",
+        status: "imported",
+      },
+    });
+
+    const listRes = await request(app)
+      .get(`/companies/${companyId}/inbound-email/external-intake`)
+      .expect(200);
+
+    expect(listRes.body.items).toHaveLength(1);
+    expect(listRes.body.items[0]).toMatchObject({
+      id: importRes.body.intakeRecord.id,
+      inboundMessageId: importRes.body.message.id,
+      sourceKind: "manual_recovery",
+    });
+  });
+
   it("deletes a mailbox, soft-deletes its secret, and cascades dependent rows", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
@@ -3849,6 +3974,7 @@ describe("inbound email validators", () => {
       createInboundEmailRuleSchema,
       updateInboundEmailRuleSchema,
       importInboundEmailMessageSchema,
+      importExternalInboundEmailMessageSchema,
     } = await import("@paperclipai/shared");
 
     const mailboxPayload = {
@@ -3885,6 +4011,26 @@ describe("inbound email validators", () => {
         provider: "imap",
       }).success,
     ).toBe(false);
+    expect(importExternalInboundEmailMessageSchema.safeParse({
+      mailboxId: "00000000-0000-0000-0000-000000000000",
+      sourceKind: "queue",
+      sourceId: "queue-message-1",
+      rawEmail: "From: support@example.com\n\nhello",
+      metadata: { queue: "support-backup" },
+    }).success).toBe(true);
+    expect(importExternalInboundEmailMessageSchema.safeParse({
+      mailboxId: "00000000-0000-0000-0000-000000000000",
+      sourceKind: "infra_repair",
+      sourceId: "queue-message-1",
+      rawEmail: "From: support@example.com\n\nhello",
+    }).success).toBe(false);
+    expect(importExternalInboundEmailMessageSchema.safeParse({
+      mailboxId: "00000000-0000-0000-0000-000000000000",
+      sourceKind: "queue",
+      sourceId: "queue-message-1",
+      rawEmail: "From: support@example.com\n\nhello",
+      autoRepair: true,
+    }).success).toBe(false);
   });
 
   it("rejects rawEmail payloads larger than 10MB", async () => {

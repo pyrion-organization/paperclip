@@ -32,6 +32,12 @@ export const inboundEmailMessageStatusSchema = z.enum([
   "failed",
   "duplicate",
 ]);
+export const inboundEmailExternalIntakeSourceKindSchema = z.enum([
+  "webhook",
+  "queue",
+  "object_storage",
+  "manual_recovery",
+]);
 
 const DNS_HOSTNAME_RE =
   /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
@@ -112,3 +118,16 @@ export const importInboundEmailMessageSchema = z.object({
 }).strict();
 
 export type ImportInboundEmailMessage = z.infer<typeof importInboundEmailMessageSchema>;
+
+export const importExternalInboundEmailMessageSchema = z.object({
+  mailboxId: z.string().uuid(),
+  sourceKind: inboundEmailExternalIntakeSourceKindSchema,
+  sourceId: z.string().trim().min(1).max(500),
+  sourceLocation: z.string().trim().min(1).max(2000).nullable().optional(),
+  rawEmail: z.string().min(1).max(10_000_000),
+  receivedAt: z.coerce.date().nullable().optional(),
+  processAfterImport: z.boolean().optional().default(true),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
+}).strict();
+
+export type ImportExternalInboundEmailMessage = z.infer<typeof importExternalInboundEmailMessageSchema>;

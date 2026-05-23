@@ -3,6 +3,7 @@ import type { Db } from "@paperclipai/db";
 import {
   createInboundEmailMailboxSchema,
   createInboundEmailRuleSchema,
+  importExternalInboundEmailMessageSchema,
   importInboundEmailMessageSchema,
   updateInboundEmailMailboxSchema,
   updateInboundEmailRuleSchema,
@@ -15,6 +16,12 @@ import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 const SUBMIT_STATUS_CODES = {
   persisted: 201,
   duplicate: 200,
+} as const;
+
+const EXTERNAL_INTAKE_STATUS_CODES = {
+  imported: 201,
+  duplicate: 200,
+  failed: 202,
 } as const;
 
 function inboundEmailActorFromRequest(req: Request): { userId: string | null; agentId: string | null } {
@@ -177,6 +184,19 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     res.json(await svc.listMessages(companyId, { ...pageOptions(req), status, mailboxId, q, order }));
   });
 
+  router.get("/companies/:companyId/inbound-email/external-intake", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const status =
+      req.query.status === "imported" || req.query.status === "duplicate" || req.query.status === "failed"
+        ? req.query.status
+        : undefined;
+    const mailboxId = typeof req.query.mailboxId === "string" ? req.query.mailboxId : undefined;
+    const order = req.query.order === "desc" ? "desc" : "asc";
+    res.json(await svc.listExternalIntakeRecords(companyId, { ...pageOptions(req), status, mailboxId, order }));
+  });
+
   router.get("/companies/:companyId/inbound-email/jobs", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -200,6 +220,23 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
         actor: inboundEmailActorFromRequest(req),
       });
       const statusCode = SUBMIT_STATUS_CODES[result.status as keyof typeof SUBMIT_STATUS_CODES] ?? 500;
+      res.status(statusCode).json(result);
+    },
+  );
+
+  router.post(
+    "/companies/:companyId/inbound-email/external-intake/import",
+    validate(importExternalInboundEmailMessageSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const result = await svc.submitExternalIntakeMessage(
+        companyId,
+        req.body,
+        inboundEmailActorFromRequest(req),
+      );
+      const statusCode = EXTERNAL_INTAKE_STATUS_CODES[result.status as keyof typeof EXTERNAL_INTAKE_STATUS_CODES] ?? 500;
       res.status(statusCode).json(result);
     },
   );

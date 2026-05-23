@@ -932,6 +932,22 @@ Deliverables:
 - recovery import,
 - operator fallback procedure.
 
+Implemented the first external intake preservation and recovery-import
+foundation:
+
+- added durable `inbound_email_external_intake_records` evidence records for
+  preserved raw messages,
+- added `webhook`, `queue`, `object_storage`, and `manual_recovery` source
+  kinds,
+- added board API import/list endpoints for external intake records,
+- routed imports through the existing raw inbound email importer so message
+  dedupe, attachment recovery, processing jobs, classification, support replies,
+  and issue creation stay centralized,
+- made retries idempotent by external source ID and by raw message fingerprint,
+- rejected source ID reuse when the raw message bytes differ,
+- kept external monitoring evidence-only and did not add provider mutations,
+  automatic repair, failover, or production deploy execution.
+
 ## Open Decisions
 
 These should be decided before later phases:
@@ -949,17 +965,15 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Continue toward external support intake resilience without broadening repair
-authority.
+Continue Phase 7 by turning the recovery foundation into a practical operator
+fallback workflow:
 
-The next implementation slice should start Phase 7 by adding an external intake
-preservation/recovery-import foundation:
-
-- define a durable external support intake record model,
-- support importing preserved raw messages from webhook/queue/object-storage
-  style sources into the existing inbound email processing path,
-- make recovery imports idempotent by source and message fingerprint,
-- keep external monitoring as evidence-only health status,
+- add an operator-visible recovery/import UI surface for preserved external
+  support messages,
+- add explicit external monitoring evidence records and alert notes without
+  provider mutations,
+- document the backup mailbox/object-storage handoff format operators should
+  use during Paperclip downtime,
 - keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.

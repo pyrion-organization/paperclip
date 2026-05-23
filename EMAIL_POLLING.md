@@ -163,6 +163,19 @@ Paperclip can now record project infrastructure metadata without mutating provid
 - Infra repair/failover proposals are explicit records linked to an infra incident and a normal `infra_repair` approval. They capture action type, rationale, proposed manual action, rollback plan, risk, provider/region context, and required evidence.
 - Approval decisions move infra proposals to approved/rejected/revision-requested through the standard approvals flow. Evidence for manual repair/failover attempts is accepted only after approval and records status, notes, optional output, and actor metadata.
 
+## External support intake recovery
+
+Paperclip can preserve and recover raw support messages captured outside the normal IMAP polling path.
+
+- External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, error, metadata, and timestamps.
+- Supported source kinds are `webhook`, `queue`, `object_storage`, and `manual_recovery`. They represent preserved raw messages from an external backup mailbox, webhook provider, queue, or operator recovery run.
+- Operators can import a preserved raw message through `POST /api/companies/:companyId/inbound-email/external-intake/import`. The payload supplies `mailboxId`, `sourceKind`, `sourceId`, optional `sourceLocation`, optional `metadata`, and `rawEmail`.
+- The import path calls the normal `submitRawMessage` flow with an external provider UID, so raw SHA/message-ID dedupe, attachment reconciliation, processing jobs, classification, issue creation, and support replies stay centralized.
+- Recovery imports are idempotent by source. Reposting the same `(company, sourceKind, sourceId)` returns the existing intake record and linked message. Reusing a source ID with different raw bytes is rejected.
+- Recovery imports are also idempotent by message fingerprint through the existing inbound email dedupe path. Different external sources that preserve the same raw email create separate intake evidence records but link to one inbound message.
+- Failed imports keep a durable failed intake record with the error text and can be retried with the same source ID and raw email.
+- This foundation does not fetch from external object storage, mutate mailbox provider state, repair infrastructure, fail over providers, or auto-deploy code. External monitoring remains evidence-only until explicit provider credentials, approvals, rollback, and alerting paths are added.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.

@@ -77,8 +77,11 @@ export {
   inboundEmailRules,
   inboundEmailMessages,
   inboundEmailAttachments,
+  inboundEmailExternalIntakeRecords,
   type InboundEmailMessageStatus,
   type InboundEmailAttachmentStatus,
+  type InboundEmailExternalIntakeSourceKind,
+  type InboundEmailExternalIntakeStatus,
 } from "./inbound_email.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";

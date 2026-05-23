@@ -11,6 +11,7 @@ import {
   clientProjects,
   clients,
   inboundEmailAttachments,
+  inboundEmailExternalIntakeRecords,
   inboundEmailMailboxes,
   inboundEmailMessages,
   inboundEmailRules,
@@ -22,6 +23,8 @@ import {
 import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
+  ImportExternalInboundEmailMessage,
+  InboundEmailExternalIntakeRecord,
   InboundEmailClassificationCategory,
   InboundEmailMessageStatus,
   InboundEmailProjectFallbackMode,
@@ -38,7 +41,7 @@ import type {
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
 import { inboundEmailMessageStatusSchema } from "@paperclipai/shared";
-import { notFound, unprocessable } from "../errors.js";
+import { conflict, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
 import { backgroundJobService } from "./background-jobs.js";
@@ -156,6 +159,12 @@ export type ListInboundEmailMessagesOptions = ListPageOptions & {
   status?: string;
   mailboxId?: string;
   q?: string;
+  order?: "asc" | "desc";
+};
+
+export type ListInboundEmailExternalIntakeOptions = ListPageOptions & {
+  status?: "imported" | "duplicate" | "failed";
+  mailboxId?: string;
   order?: "asc" | "desc";
 };
 
@@ -301,6 +310,21 @@ function hashBuffer(buffer: Buffer): string {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toExternalIntakeRecord(
+  row: typeof inboundEmailExternalIntakeRecords.$inferSelect,
+): InboundEmailExternalIntakeRecord {
+  return {
+    ...row,
+    metadata: asRecord(row.metadata),
+  };
 }
 
 function jobMailboxId(job: typeof backgroundJobs.$inferSelect, messageById: Map<string, typeof inboundEmailMessages.$inferSelect>): string | null {
@@ -949,6 +973,89 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         ),
       )
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function findExternalIntakeBySource(input: {
+    companyId: string;
+    sourceKind: ImportExternalInboundEmailMessage["sourceKind"];
+    sourceId: string;
+  }) {
+    return db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .where(and(
+        eq(inboundEmailExternalIntakeRecords.companyId, input.companyId),
+        eq(inboundEmailExternalIntakeRecords.sourceKind, input.sourceKind),
+        eq(inboundEmailExternalIntakeRecords.sourceId, input.sourceId),
+      ))
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function createOrGetExternalIntakeRecord(input: {
+    companyId: string;
+    mailboxId: string;
+    sourceKind: ImportExternalInboundEmailMessage["sourceKind"];
+    sourceId: string;
+    sourceLocation: string | null;
+    rawSha256: string;
+    messageId: string | null;
+    metadata: Record<string, unknown>;
+    receivedAt: Date | null;
+  }) {
+    const [inserted] = await db
+      .insert(inboundEmailExternalIntakeRecords)
+      .values({
+        companyId: input.companyId,
+        mailboxId: input.mailboxId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation: input.sourceLocation,
+        rawSha256: input.rawSha256,
+        messageId: input.messageId,
+        status: "failed",
+        metadata: input.metadata,
+        receivedAt: input.receivedAt,
+      })
+      .onConflictDoNothing({
+        target: [
+          inboundEmailExternalIntakeRecords.companyId,
+          inboundEmailExternalIntakeRecords.sourceKind,
+          inboundEmailExternalIntakeRecords.sourceId,
+        ],
+      })
+      .returning();
+    return inserted ?? await findExternalIntakeBySource({
+      companyId: input.companyId,
+      sourceKind: input.sourceKind,
+      sourceId: input.sourceId,
+    });
+  }
+
+  async function updateExternalIntakeRecord(input: {
+    id: string;
+    status: "imported" | "duplicate" | "failed";
+    inboundMessageId?: string | null;
+    error?: string | null;
+    receivedAt?: Date | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    const [record] = await db
+      .update(inboundEmailExternalIntakeRecords)
+      .set({
+        status: input.status,
+        inboundMessageId: input.inboundMessageId,
+        error: input.error ?? null,
+        receivedAt: input.receivedAt,
+        metadata: input.metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboundEmailExternalIntakeRecords.id, input.id))
+      .returning();
+    return record;
+  }
+
+  function externalIntakeProviderUid(sourceKind: ImportExternalInboundEmailMessage["sourceKind"], sourceId: string) {
+    return `external:${sourceKind}:${sourceId}`;
   }
 
   async function storeRawEmail(companyId: string, raw: Buffer, messageId: string | null): Promise<string | null> {
@@ -2689,6 +2796,58 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       }, filters);
     },
 
+    listExternalIntakeRecords: async (
+      companyId: string,
+      options?: ListInboundEmailExternalIntakeOptions,
+    ) => {
+      const page = await paginated(async (limit, cursor) => {
+        const conditions = [eq(inboundEmailExternalIntakeRecords.companyId, companyId)];
+        if (options?.status) {
+          conditions.push(eq(inboundEmailExternalIntakeRecords.status, options.status));
+        }
+        if (options?.mailboxId) {
+          conditions.push(eq(inboundEmailExternalIntakeRecords.mailboxId, options.mailboxId));
+        }
+        if (cursor) {
+          const descOrder = options?.order === "desc";
+          conditions.push(
+            descOrder
+              ? or(
+                sql`${inboundEmailExternalIntakeRecords.createdAt} < ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailExternalIntakeRecords.createdAt, cursor.createdAt),
+                  sql`${inboundEmailExternalIntakeRecords.id} < ${cursor.id}::uuid`,
+                ),
+              )!
+              : or(
+                sql`${inboundEmailExternalIntakeRecords.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailExternalIntakeRecords.createdAt, cursor.createdAt),
+                  sql`${inboundEmailExternalIntakeRecords.id} > ${cursor.id}::uuid`,
+                ),
+              )!,
+          );
+        }
+        return db
+          .select()
+          .from(inboundEmailExternalIntakeRecords)
+          .where(and(...conditions))
+          .orderBy(
+            options?.order === "desc"
+              ? desc(inboundEmailExternalIntakeRecords.createdAt)
+              : asc(inboundEmailExternalIntakeRecords.createdAt),
+            options?.order === "desc"
+              ? desc(inboundEmailExternalIntakeRecords.id)
+              : asc(inboundEmailExternalIntakeRecords.id),
+          )
+          .limit(limit);
+      }, options);
+      return {
+        items: page.items.map(toExternalIntakeRecord),
+        nextCursor: page.nextCursor,
+      };
+    },
+
     enqueueDueMailboxPollJobs: async (now = new Date()) => {
       const mailboxes = await db
         .select()
@@ -2938,6 +3097,134 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         await enqueueProcessMessage(input.companyId, message.id);
       }
       return { message, status: "persisted" as const };
+    },
+
+    submitExternalIntakeMessage: async (
+      companyId: string,
+      input: ImportExternalInboundEmailMessage,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      await loadMailbox(companyId, input.mailboxId);
+      const raw = Buffer.from(input.rawEmail, "utf8");
+      const rawSha256 = hashBuffer(raw);
+      const sourceLocation = asNullableString(input.sourceLocation);
+      const metadata = asRecord(input.metadata);
+      const existing = await findExternalIntakeBySource({
+        companyId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+      });
+      if (existing && existing.rawSha256 !== rawSha256) {
+        throw conflict("External inbound email source already points to a different raw message", {
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+        });
+      }
+      if (existing && existing.inboundMessageId && existing.status !== "failed") {
+        const message = await db
+          .select()
+          .from(inboundEmailMessages)
+          .where(eq(inboundEmailMessages.id, existing.inboundMessageId))
+          .then((rows) => rows[0] ?? null);
+        return {
+          intakeRecord: toExternalIntakeRecord(existing),
+          message,
+          status: existing.status,
+        };
+      }
+
+      let parsed: Awaited<ReturnType<typeof parseInboundEmail>>;
+      try {
+        parsed = await parseInboundEmail(raw);
+      } catch (error) {
+        const intakeRecord = await createOrGetExternalIntakeRecord({
+          companyId,
+          mailboxId: input.mailboxId,
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+          sourceLocation,
+          rawSha256,
+          messageId: null,
+          metadata,
+          receivedAt: input.receivedAt ?? null,
+        });
+        if (!intakeRecord) {
+          throw unprocessable("External inbound email intake record could not be created");
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: "failed",
+          error: message,
+          receivedAt: input.receivedAt ?? null,
+          metadata,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: null,
+          status: "failed" as const,
+        };
+      }
+
+      const receivedAt = input.receivedAt ?? parsed.receivedAt;
+      const intakeRecord = await createOrGetExternalIntakeRecord({
+        companyId,
+        mailboxId: input.mailboxId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation,
+        rawSha256,
+        messageId: parsed.messageId,
+        metadata,
+        receivedAt,
+      });
+      if (!intakeRecord) {
+        throw unprocessable("External inbound email intake record could not be created");
+      }
+      if (intakeRecord.rawSha256 !== rawSha256) {
+        throw conflict("External inbound email source already points to a different raw message", {
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+        });
+      }
+
+      try {
+        const imported = await api.submitRawMessage({
+          companyId,
+          mailboxId: input.mailboxId,
+          providerUid: externalIntakeProviderUid(input.sourceKind, input.sourceId),
+          rawEmail: raw,
+          processAfterImport: input.processAfterImport,
+          actor,
+        });
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: imported.status === "duplicate" ? "duplicate" : "imported",
+          inboundMessageId: imported.message.id,
+          error: null,
+          receivedAt,
+          metadata,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: imported.message,
+          status: imported.status === "duplicate" ? "duplicate" as const : "imported" as const,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: "failed",
+          error: message,
+          receivedAt,
+          metadata,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: null,
+          status: "failed" as const,
+        };
+      }
     },
 
     processMessage: async (companyId: string, messageId: string, ops?: SessionImapOps) => {

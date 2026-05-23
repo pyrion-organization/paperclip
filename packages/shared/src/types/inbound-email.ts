@@ -55,6 +55,12 @@ export type InboundEmailMessageStatus =
   | "skipped"
   | "failed"
   | "duplicate";
+export type InboundEmailExternalIntakeSourceKind =
+  | "webhook"
+  | "queue"
+  | "object_storage"
+  | "manual_recovery";
+export type InboundEmailExternalIntakeStatus = "imported" | "duplicate" | "failed";
 
 /**
  * View of an inbound email mailbox returned by the API. The persisted row has a
@@ -126,6 +132,24 @@ export interface InboundEmailMessage extends InboundEmailClassificationFields, I
   sourceDeleteError: string | null;
   sourceSeenAt: Date | null;
   sourceSeenError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface InboundEmailExternalIntakeRecord {
+  id: string;
+  companyId: string;
+  mailboxId: string;
+  sourceKind: InboundEmailExternalIntakeSourceKind;
+  sourceId: string;
+  sourceLocation: string | null;
+  rawSha256: string;
+  messageId: string | null;
+  status: InboundEmailExternalIntakeStatus;
+  inboundMessageId: string | null;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  receivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
