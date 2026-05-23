@@ -277,6 +277,14 @@ function isPluginLauncherBounds(value: unknown): value is PluginLauncherBounds {
   return typeof value === "string" && supportedLauncherBounds.has(value as PluginLauncherBounds);
 }
 
+function isIframeLauncher(launcher: ResolvedPluginLauncher): boolean {
+  return launcher.render?.environment === "iframe";
+}
+
+function launcherIframeSrc(launcher: ResolvedPluginLauncher): string {
+  return `/_plugins/${encodeURIComponent(launcher.pluginId)}/ui/${launcher.action.target}`;
+}
+
 /**
  * Discover launchers for the requested host placement zones from the normalized
  * `/api/plugins/ui-contributions` response.
@@ -443,17 +451,17 @@ function LauncherRenderContent({
     [instance.hostContext, renderEnvironment, userId],
   );
 
-  if (!component) {
-    if (renderEnvironment.environment === "iframe") {
-      return (
-        <iframe
-          src={`/_plugins/${encodeURIComponent(instance.launcher.pluginId)}/ui/${instance.launcher.action.target}`}
-          title={`${instance.launcher.pluginDisplayName} ${instance.launcher.displayName}`}
-          className="h-full min-h-[24rem] w-full rounded-md border border-border bg-background"
-        />
-      );
-    }
+  if (renderEnvironment.environment === "iframe") {
+    return (
+      <iframe
+        src={launcherIframeSrc(instance.launcher)}
+        title={`${instance.launcher.pluginDisplayName} ${instance.launcher.displayName}`}
+        className="h-full min-h-[24rem] w-full rounded-md border border-border bg-background"
+      />
+    );
+  }
 
+  if (!component) {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
         {instance.launcher.pluginDisplayName}: could not resolve launcher target "{instance.launcher.action.target}".
@@ -698,7 +706,9 @@ export function PluginLauncherProvider({ children }: { children: ReactNode }) {
         case "openModal":
         case "openDrawer":
         case "openPopover": {
-          const component = await resolveLauncherComponent(contribution, launcher);
+          const component = isIframeLauncher(launcher)
+            ? null
+            : await resolveLauncherComponent(contribution, launcher);
           const sourceRect = sourceEl?.getBoundingClientRect() ?? null;
           const nextEntry: LauncherInstance = {
             key: `${launcher.pluginId}:${launcher.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
