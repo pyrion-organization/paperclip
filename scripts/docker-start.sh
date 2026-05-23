@@ -57,7 +57,7 @@ while ! curl -fsS "$health_url" >/dev/null 2>&1; do
   elapsed=$((elapsed + 2))
 done
 
-node server/dist/email-worker.js &
+node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/email-worker.js &
 worker_pid="$!"
 
 while :; do
