@@ -99,8 +99,21 @@ Classification is deterministic and conservative in V1. It does not call an LLM,
 - Safety patterns such as prompt-injection text, secret requests, dangerous commands, or immediate deploy instructions win before normal bug/infra/question matching.
 - `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` create triage issues for recognized senders. `code_bug` and `infra_incident` default to high priority when no rule priority applies; questions default to low. `unclear` keeps the existing project-clarification behavior when no project is identified.
 - `unsafe_or_prompt_injection` and `spam_or_irrelevant` are skipped/quarantined and marked seen so the worker does not keep reprocessing them.
-- If project matching fails with `project_not_identified`, classification can still create a projectless or configured-target triage issue for a recognized sender. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
+- Email Ops exposes a Quarantine panel that lists the latest skipped unsafe and spam messages by classification category, including subject, sender, skip reason, summary, and safety flags. Quarantined messages are operator-visible but do not create issues or send support replies.
+- Email Ops exposes a Classification Review panel for classified messages that are `unclear` or have confidence at or below 60. The panel is for operator review and classifier/rule tuning; it does not grant extra authority or trigger automation.
+- The deterministic classifier has a focused eval corpus test covering unsafe input, infrastructure incidents, code bugs, account/access requests, feature requests, how-to questions, and vague low-confidence reports.
+- If project matching fails with `project_not_identified`, classification can still create a projectless triage issue for a recognized sender when mailbox/rule policy allows it. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
 - Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
+
+## Support intake routing
+
+Support intake routing is configured on the inbound mailbox and can be refined by inbound rules.
+
+- Mailboxes default to allowing projectless triage (`allow_projectless_triage = true`) and using `create_projectless_triage` when a recognized support email does not identify a project.
+- Operators can set mailbox `project_fallback_mode` to `request_clarification` to preserve the existing clarification reply/skip behavior for projectless reports.
+- Inbound rules can now match classification category and body text in addition to sender and subject.
+- Inbound rules can override the missing-project fallback for matching mail. A rule can allow projectless triage for a specific support category/body pattern, or force clarification for risky matches.
+- `allow_projectless_triage = false` is a hard mailbox gate: matching rules cannot create projectless issues for that mailbox.
 
 ## Support replies V1
 
@@ -111,11 +124,126 @@ Support replies are per-mailbox opt-in via `support_replies_enabled`. When enabl
 - `unsafe_or_prompt_injection` and `spam_or_irrelevant` never send a support reply.
 - Reply outcomes are stored on `inbound_email_messages` as status, reason, attempted/sent timestamps, and error text. SMTP-not-configured and send failures do not fail message processing or source cleanup, and sent replies are not duplicated by retries.
 
+## Code bug agent automation V1
+
+Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enabled, the mailbox must name an assignable `agent_automation_assignee_id`.
+
+- Only trusted `code_bug` reports with a resolved project are eligible.
+- The classifier confidence must be at or above `agent_automation_min_confidence` and the message must have no safety flags.
+- The resolved project must have a configured workspace (`cwd`, `repo_url`, or `remote_workspace_ref`) and the selected agent/project/company must pass budget hard-stop checks.
+- Eligible messages persist `classification_final_action = create_agent_task`, create a sanitized issue in `todo`, assign the configured agent, and optionally wake the agent when `agent_automation_wake_enabled` is true.
+- Projectless triage, projects without an execution workspace, budget-blocked agents/projects/companies, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
+- The created issue description still treats the original email as untrusted evidence; agents receive the Paperclip issue, not raw email authority.
+
+## Approved deploy workflow foundation
+
+Paperclip now stores deployment readiness metadata and can execute approved deploy commands only when a deployment target explicitly opts in.
+
+- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, deploy/rollback command descriptors, rollback instructions, command-execution opt-in, and active/disabled status.
+- Deployment targets can opt in to maintenance updates with an explicit recipient list.
+- Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
+- Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
+- Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
+- After approval, the requesting agent or board can record the manual deploy handoff as `deploying`, `deployed`, `failed`, or `rolled_back`. These transitions append audit metadata to the deploy event and log project activity.
+- Approved deploy events can store deploy/rollback command evidence. The command text must match the selected deployment target descriptor, the deploy approval must be approved, and rollback evidence is only accepted after the event is deployed, failed, or already rolled back. Deploy command evidence advances the deploy event to `deploying`, `deployed`, or `failed`; successful rollback evidence advances it to `rolled_back`. Terminal command records require output, a note, or an exit code. These records capture command type, status, output/note, and actor metadata.
+- If a deployment target enables Paperclip command execution, the requesting agent or board can execute the approved deploy/rollback descriptor in the project's primary local workspace. Execution records a workspace operation, persists command evidence, updates deploy event status, and logs activity. This does not grant provider API, DNS, SSH, or infrastructure repair authority beyond whatever the approved local command itself does.
+- Maintenance messages are explicit sends, not automatic side effects. They require approved deploy approval, an eligible deploy event status, target opt-in, configured recipients, and a message body. Delivery status, recipients, attempted/sent timestamps, and errors are stored on the deploy event. A `sent` message is not sent again on retry.
+- Disabled targets cannot receive deploy approval requests.
+- This foundation is intentionally approval-gated. It does not automatically deploy, change DNS, repair infrastructure, or send customer maintenance mail as a side effect.
+
+## Infrastructure topology and health foundation
+
+Paperclip can now record project infrastructure metadata without mutating provider state.
+
+- Project configuration can store infrastructure targets with environment, provider, provider account reference, region, role, host, failover group/rank, and active/disabled status.
+- Known infrastructure providers are described by a metadata-only capability catalog (`manual`, `generic_vps`, `hetzner`, `digitalocean`, `linode`, `vultr`, `aws_lightsail`, `fly_io`, `render`). The descriptor records known health, repair, failover, and provider-support capabilities for planning and UI visibility only.
+- Provider credentials, tokens, passwords, and API keys are rejected from infrastructure target metadata. Credentials must live in dedicated secret bindings before any future provider adapter can use them.
+- Infrastructure targets default to `repairActionsRequireApproval = true`; the current system records topology and incidents but does not run provider repair, failover, DNS, SSH, or VPS commands.
+- Project health checks can be configured as HTTP, TCP, or manual checks with target linkage, URL, expected status, interval, timeout, enabled flag, and last-known health result.
+- Operators or approved automation can record health results as `healthy`, `degraded`, or `unhealthy`. Degraded/unhealthy results can create an infra incident and linked Paperclip issue.
+- The server runs a conservative HTTP health-check scheduler by default. It evaluates due enabled HTTP checks, stores status/latency/error evidence, and creates or reuses open infra incidents for degraded/unhealthy results. Configure it with `PAPERCLIP_INFRA_HEALTH_SCHEDULER_ENABLED=false`, `PAPERCLIP_INFRA_HEALTH_SCHEDULER_INTERVAL_MS`, and `PAPERCLIP_INFRA_HEALTH_SCHEDULER_BATCH_SIZE`.
+- Health results store evidence-only source fields (`operator`, `paperclip_scheduler`, or `external_monitor`), optional source ID/detail, and optional source metadata. External monitor submissions update health evidence and may create incidents, but they do not execute provider repair, failover, DNS, SSH, or deploy actions.
+- Trusted inbound emails classified as `infra_incident` and resolved to a project create or reuse an active infrastructure incident record linked to the project. Projectless infra triage still creates only a triage issue until a project is identified.
+- Infra incident records track source, grouping key, occurrence count, last occurrence time, escalation marker/reason, severity, status, recommended action, related health check, related infra target, and optional approval reference for future repair actions.
+- Repeated active incidents are grouped by health check, target, or project-level inbound infra report. Escalation is evidence-only: by default urgent incidents escalate immediately and repeated incidents escalate after 3 occurrences. Tune with `PAPERCLIP_INFRA_INCIDENT_ESCALATION_REPEAT_THRESHOLD`, `PAPERCLIP_INFRA_INCIDENT_ESCALATE_URGENT_SEVERITY=false`, and `PAPERCLIP_INFRA_INCIDENT_ESCALATE_HIGH_SEVERITY=true`.
+- Infra repair/failover proposals are explicit records linked to an infra incident and a normal `infra_repair` approval. They capture action type, rationale, proposed manual action, rollback plan, risk, provider/region context, and required evidence.
+- Approval decisions move infra proposals to approved/rejected/revision-requested through the standard approvals flow. Evidence for manual repair/failover attempts is accepted only after approval and records status, notes, optional output, and actor metadata.
+
+## External support intake recovery
+
+Paperclip can preserve and recover raw support messages captured outside the normal IMAP polling path.
+
+- External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, non-secret metadata, error, and timestamps.
+- Each external intake outcome writes an activity event (`imported`, `duplicate`, `failed`, or source conflict) with source IDs, status, linked message, and metadata keys, but not raw email bodies or metadata values.
+- Supported source kinds are `webhook`, `queue`, `object_storage`, and `manual_recovery`. They represent preserved raw messages from an external backup mailbox, webhook provider, queue, or operator recovery run.
+- Operators can import a preserved raw message through `POST /api/companies/:companyId/inbound-email/external-intake/import`. The payload supplies `mailboxId`, `sourceKind`, `sourceId`, optional `sourceLocation`, optional `metadata`, and `rawEmail`.
+- Operators can import up to 50 preserved raw messages in one bounded recovery call through `POST /api/companies/:companyId/inbound-email/external-intake/import-batch` with `{ "messages": [...] }`. Each item uses the same single-message payload shape and reports its own imported, duplicate, or failed result, so one bad preserved message does not block the rest of the recovery batch.
+- Operators can also use **Inbound Email Ops → External Recovery Import** to paste one preserved raw message, paste batch JSON for multiple messages, choose the default source kind/mailbox, record backup source IDs, inspect per-item batch results, and review filtered/paginated external intake evidence.
+- Operators can create, rotate, or revoke a per-mailbox external intake token from **Email Settings → External intake endpoint**. The token is shown once and only a SHA-256 hash plus short hint is stored.
+- External backup systems can submit preserved raw emails to `POST /api/external/inbound-email/mailboxes/:mailboxId/intake` with `Authorization: Bearer <token>` or `X-Paperclip-External-Intake-Token`. Public submissions accept only `webhook`, `queue`, or `object_storage` source kinds; `manual_recovery` remains board-only.
+- The public external intake endpoint is rate-limited per mailbox and client IP before token checks, request-body validation, or import work is started. Limited responses return `429`, `Retry-After`, and `X-RateLimit-*` headers, and rotating invalid tokens or malformed payloads do not bypass the limit.
+- The import path calls the normal `submitRawMessage` flow with an external provider UID, so raw SHA/message-ID dedupe, attachment reconciliation, processing jobs, classification, issue creation, and support replies stay centralized.
+- Recovery imports are idempotent by source. Reposting the same `(company, sourceKind, sourceId)` returns the existing intake record and linked message. Reusing a source ID with different raw bytes is rejected.
+- Recovery imports are also idempotent by message fingerprint through the existing inbound email dedupe path. Different external sources that preserve the same raw email create separate intake evidence records but link to one inbound message.
+- Failed imports keep a durable failed intake record with the error text and can be retried with the same source ID and raw email.
+- This foundation does not fetch from external object storage, mutate mailbox provider state, repair infrastructure, fail over providers, or auto-deploy code. External monitoring remains evidence-only until explicit provider credentials, approvals, rollback, and alerting paths are added.
+
+## External monitor health evidence
+
+Project infrastructure health checks can accept evidence from an external monitor without granting board, agent, provider, deploy, or repair authority.
+
+- Operators create or rotate a per-health-check monitor token from the project deployment settings UI. The token is shown once; Paperclip stores only a SHA-256 hash and a short hint.
+- Operators can revoke the monitor token from the same UI. Revoked tokens stop accepting external monitor submissions.
+- External monitors submit evidence to `POST /api/external/infra-health-checks/:healthCheckId/results` with `Authorization: Bearer <token>` or `X-Paperclip-Monitor-Token: <token>`.
+- The request accepts health result fields such as `status`, `checkedAt`, `latencyMs`, `error`, `sourceId`, `sourceDetail`, and non-secret `sourceMetadata`.
+- External submissions are forced to `sourceKind = external_monitor`. They only update the health-check evidence and activity log; they cannot create approvals, execute repair actions, fail over providers, create deployment events, or run commands.
+- Operators can use the protected project health result route to turn degraded or unhealthy evidence into an infra incident after reviewing the result.
+
+### External backup handoff format
+
+During Paperclip downtime, the external support intake backup should preserve each original message as a raw RFC 822 `.eml` payload plus stable source metadata. The recovery importer expects operators or future webhook/queue adapters to provide:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `mailboxId` | yes | The Paperclip inbound mailbox that should own the recovered message. |
+| `sourceKind` | yes | One of `manual_recovery`, `webhook`, `queue`, or `object_storage`. |
+| `sourceId` | yes | Stable unique external ID, such as queue message ID, webhook event ID, or object key. Reusing the same source ID with different raw bytes is rejected. |
+| `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. Do not use presigned URLs or links containing tokens, signatures, credentials, cookies, sessions, passwords, or API keys. |
+| `rawEmail` | yes | The original raw email including headers and body. Do not paste a rendered or summarized email. |
+| `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. Keys that look like credentials, tokens, passwords, cookies, sessions, or API keys are rejected. |
+
+Recommended object-storage layout:
+
+```text
+support-backup/
+  company-<company-id>/
+    mailbox-<mailbox-id>/
+      YYYY/MM/DD/
+        <provider-message-id-or-random-id>.eml
+        <provider-message-id-or-random-id>.json
+```
+
+The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, receipt timestamp, provider, and mailbox address. It must not contain mailbox passwords, API keys, provider tokens, session cookies, presigned URLs, or customer secrets beyond the email content already present in the `.eml`.
+
+### Downtime recovery procedure
+
+1. Confirm Paperclip is back online and migrations have applied.
+2. Open **Inbound Email Ops → External Recovery Import**.
+3. Select the mailbox that normally receives the message.
+4. Choose the source kind and paste the stable source ID from the backup system.
+5. Paste the raw `.eml` content into `Raw email`; optionally add the object path as `Source location`.
+6. For multiple preserved messages, paste batch JSON as either an array of message objects or `{ "messages": [...] }`. Items may omit `mailboxId` and `sourceKind` to inherit the selected defaults, but each item must include a stable `sourceId` and raw `.eml` `rawEmail`.
+7. Submit the import and confirm the batch item results and external intake records are `imported` or `duplicate`. Use the `Failed` filter and `Older` pagination to investigate any failed preserved messages before deleting the external backup.
+8. For a failed external intake record, use **Retry source** to preload its mailbox, source ID, source kind, and source location, then paste the preserved raw `.eml` again.
+9. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
+
+Repeated imports are safe when the source ID and raw bytes are unchanged. Different backup sources that contain the same raw email are recorded separately as evidence but link to one inbound message through the existing message fingerprint dedupe.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
 
-- Rule (`selectRule(message)`) is still matched against `inboundEmailRules` for priority/labels. Project routing is not configured on mailboxes or rules; it comes from sender authorization plus client-project matching.
+- Rules (`selectRule(message)`) are matched against `inboundEmailRules` after classification so they can use sender, subject, body text, classification category, priority, labels, and missing-project fallback overrides.
 - Candidate projects are only active `client_projects` rows for the sender's active client.
 - The matcher searches subject + body text against project name, client project name override, and client project aliases.
 - Matching normalizes text by lowercasing, stripping accents, and removing spaces/punctuation, so `Oc Importer`, `oc-importer`, and `OCIMPORTER` all match.

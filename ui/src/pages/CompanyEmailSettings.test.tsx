@@ -15,17 +15,21 @@ const mockCompaniesApi = vi.hoisted(() => ({
   saveInboundEmailMailbox: vi.fn(),
   testInboundEmailMailbox: vi.fn(),
   deleteInboundEmailMailbox: vi.fn(),
+  rotateInboundEmailExternalIntakeToken: vi.fn(),
+  revokeInboundEmailExternalIntakeToken: vi.fn(),
   pollInboundEmailMailbox: vi.fn(),
   listInboundEmailMessages: vi.fn(),
   listInboundEmailRules: vi.fn(),
   saveInboundEmailRule: vi.fn(),
   deleteInboundEmailRule: vi.fn(),
 }));
+const mockAgentsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockIssuesApi = vi.hoisted(() => ({ listLabels: vi.fn() }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
 
 vi.mock("../api/companies", () => ({ companiesApi: mockCompaniesApi }));
+vi.mock("../api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("../api/issues", () => ({ issuesApi: mockIssuesApi }));
 vi.mock("../context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: mockSetBreadcrumbs }),
@@ -77,6 +81,9 @@ function makeRule(overrides: Partial<InboundEmailRule> = {}): InboundEmailRule {
     enabled: true,
     senderPattern: "client.com",
     subjectPattern: "urgent",
+    bodyPattern: null,
+    classificationCategory: null,
+    projectFallbackMode: null,
     priority: "high",
     labelIds: ["label-1"],
     createdAt: new Date(),
@@ -99,6 +106,14 @@ function makeMailbox(overrides: Partial<InboundEmailMailbox> = {}): InboundEmail
     tls: true,
     pollIntervalSeconds: 60,
     supportRepliesEnabled: false,
+    allowProjectlessTriage: true,
+    projectFallbackMode: "create_projectless_triage",
+    agentAutomationEnabled: false,
+    agentAutomationAssigneeId: null,
+    agentAutomationMinConfidence: 80,
+    agentAutomationWakeEnabled: true,
+    externalIntakeEnabled: false,
+    externalIntakeTokenHint: null,
     lastPollAt: null,
     lastSuccessAt: null,
     lastError: null,
@@ -158,9 +173,18 @@ describe("CompanyEmailSettings", () => {
     }));
     mockCompaniesApi.testInboundEmailMailbox.mockResolvedValue({ ok: true });
     mockCompaniesApi.deleteInboundEmailMailbox.mockResolvedValue(undefined);
+    mockCompaniesApi.rotateInboundEmailExternalIntakeToken.mockResolvedValue({
+      mailbox: makeMailbox({ externalIntakeEnabled: true, externalIntakeTokenHint: "toknhint" }),
+      token: "pcemail_test_token_with_enough_entropy",
+    });
+    mockCompaniesApi.revokeInboundEmailExternalIntakeToken.mockResolvedValue(makeMailbox());
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "job-1", status: "pending" });
     mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({ items: [], nextCursor: null });
     mockCompaniesApi.listInboundEmailRules.mockResolvedValue({ items: [], nextCursor: null });
+    mockAgentsApi.list.mockResolvedValue([
+      { id: "agent-1", name: "Engineer", status: "active" },
+      { id: "agent-terminated", name: "Terminated", status: "terminated" },
+    ]);
     mockCompaniesApi.saveInboundEmailRule.mockImplementation(async (_companyId: string, ruleId: string | null, payload: Record<string, unknown>) => ({
       id: ruleId ?? "rule-1",
       companyId: "company-1",
@@ -248,6 +272,11 @@ describe("CompanyEmailSettings", () => {
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-password']") as HTMLInputElement, "mailbox-secret");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement, "  INBOX  ");
     (container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).click();
+    (container.querySelector("[data-testid='company-settings-inbound-allow-projectless-triage']") as HTMLInputElement).click();
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-project-fallback-mode']") as HTMLSelectElement, "request_clarification");
+    (container.querySelector("[data-testid='company-settings-inbound-agent-automation-enabled']") as HTMLInputElement).click();
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-agent-automation-assignee']") as HTMLSelectElement, "agent-1");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-agent-automation-confidence']") as HTMLInputElement, "82");
     await flushReact();
 
     await act(async () => {
@@ -265,6 +294,12 @@ describe("CompanyEmailSettings", () => {
       tls: true,
       pollIntervalSeconds: 60,
       supportRepliesEnabled: true,
+      allowProjectlessTriage: false,
+      projectFallbackMode: "request_clarification",
+      agentAutomationEnabled: true,
+      agentAutomationAssigneeId: "agent-1",
+      agentAutomationMinConfidence: 82,
+      agentAutomationWakeEnabled: true,
       password: "mailbox-secret",
     });
     expect((container.querySelector("[data-testid='company-settings-inbound-name']") as HTMLInputElement).value).toBe("Shared inbox");
@@ -272,6 +307,7 @@ describe("CompanyEmailSettings", () => {
     expect((container.querySelector("[data-testid='company-settings-inbound-username']") as HTMLInputElement).value).toBe("support@example.com");
     expect((container.querySelector("[data-testid='company-settings-inbound-folder']") as HTMLInputElement).value).toBe("INBOX");
     expect((container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).checked).toBe(true);
+    expect((container.querySelector("[data-testid='company-settings-inbound-allow-projectless-triage']") as HTMLInputElement).checked).toBe(false);
   });
 
   it("refreshes related inbound email caches after mailbox mutations", async () => {
@@ -321,6 +357,50 @@ describe("CompanyEmailSettings", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "rules"] });
   });
 
+  it("rotates and revokes an external intake token", async () => {
+    let currentMailbox = makeMailbox();
+    mockCompaniesApi.listInboundEmailMailboxes.mockImplementation(async () => ({
+      items: [currentMailbox],
+      nextCursor: null,
+    }));
+    mockCompaniesApi.rotateInboundEmailExternalIntakeToken.mockImplementation(async () => {
+      currentMailbox = makeMailbox({ externalIntakeEnabled: true, externalIntakeTokenHint: "toknhint" });
+      return {
+        mailbox: currentMailbox,
+        token: "pcemail_test_token_with_enough_entropy",
+      };
+    });
+    mockCompaniesApi.revokeInboundEmailExternalIntakeToken.mockImplementation(async () => {
+      currentMailbox = makeMailbox();
+      return currentMailbox;
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await renderPage();
+
+    expect((container.querySelector("[data-testid='company-settings-inbound-external-intake-endpoint']") as HTMLInputElement).value)
+      .toBe("/api/external/inbound-email/mailboxes/mailbox-1/intake");
+
+    await act(async () => {
+      (container.querySelector("[data-testid='company-settings-inbound-external-intake-rotate']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.rotateInboundEmailExternalIntakeToken).toHaveBeenCalledWith("company-1", "mailbox-1");
+    expect(container.textContent).toContain("Enabled, token ending toknhint");
+    expect((container.querySelector("[data-testid='company-settings-inbound-external-intake-token']") as HTMLInputElement).value)
+      .toBe("pcemail_test_token_with_enough_entropy");
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "mailboxes"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+
+    await act(async () => {
+      (container.querySelector("[data-testid='company-settings-inbound-external-intake-revoke']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.revokeInboundEmailExternalIntakeToken).toHaveBeenCalledWith("company-1", "mailbox-1");
+    expect(container.textContent).toContain("Disabled");
+  });
+
   it("disables mailbox actions that the inbound email API would reject", async () => {
     mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue({
       items: [makeMailbox({ enabled: false, passwordSet: true })],
@@ -361,6 +441,9 @@ describe("CompanyEmailSettings", () => {
 
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-sender']") as HTMLInputElement, "partner.com");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-subject']") as HTMLInputElement, "escalation");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-body']") as HTMLInputElement, "nginx");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-classification']") as HTMLSelectElement, "infra_incident");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-project-fallback-mode']") as HTMLSelectElement, "request_clarification");
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-priority']") as HTMLSelectElement, "critical");
     await flushReact();
 
@@ -374,6 +457,9 @@ describe("CompanyEmailSettings", () => {
       enabled: true,
       senderPattern: "partner.com",
       subjectPattern: "escalation",
+      bodyPattern: "nginx",
+      classificationCategory: "infra_incident",
+      projectFallbackMode: "request_clarification",
       priority: "critical",
       labelIds: [],
     });
@@ -415,6 +501,9 @@ describe("CompanyEmailSettings", () => {
       enabled: true,
       senderPattern: "client.com",
       subjectPattern: "very urgent",
+      bodyPattern: null,
+      classificationCategory: null,
+      projectFallbackMode: null,
       priority: "high",
       labelIds: ["label-1"],
     });
@@ -430,7 +519,7 @@ describe("CompanyEmailSettings", () => {
 
     const saveButton = container.querySelector("[data-testid='company-settings-inbound-rule-save']") as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
-    expect(container.textContent).toContain("Choose a priority change or at least one label before saving.");
+    expect(container.textContent).toContain("Choose a priority change, label, or project fallback override before saving.");
 
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-rule-sender']") as HTMLInputElement, "x@y.com");
     await flushReact();

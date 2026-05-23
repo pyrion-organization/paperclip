@@ -4,11 +4,19 @@ import type {
   GitPushResult,
   GitStatusResponse,
   Project,
+  ProjectDeployCommandRecord,
+  ProjectDeployEvent,
+  ProjectDeploymentTarget,
   ProjectFileDetail,
   ProjectFilesBranchSyncResult,
   ProjectFilesSummary,
   ProjectFilesSyncResult,
   ProjectFilesTreeResponse,
+  ProjectInfraHealthCheck,
+  ProjectInfraIncident,
+  ProjectInfraActionEvidence,
+  ProjectInfraActionProposal,
+  ProjectInfraTarget,
   ProjectWorkspace,
   WorkspaceOperation,
   WorkspaceRuntimeControlTarget,
@@ -33,6 +41,115 @@ export const projectsApi = {
     api.post<Project>(`/companies/${companyId}/projects`, data),
   update: (id: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<Project>(projectPath(id, companyId), data),
+  listDeploymentTargets: (projectId: string, companyId?: string) =>
+    api.get<ProjectDeploymentTarget[]>(projectPath(projectId, companyId, "/deployment-targets")),
+  createDeploymentTarget: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectDeploymentTarget>(projectPath(projectId, companyId, "/deployment-targets"), data),
+  updateDeploymentTarget: (projectId: string, deploymentTargetId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectDeploymentTarget>(
+      projectPath(projectId, companyId, `/deployment-targets/${encodeURIComponent(deploymentTargetId)}`),
+      data,
+    ),
+  removeDeploymentTarget: (projectId: string, deploymentTargetId: string, companyId?: string) =>
+    api.delete<ProjectDeploymentTarget>(
+      projectPath(projectId, companyId, `/deployment-targets/${encodeURIComponent(deploymentTargetId)}`),
+    ),
+  listInfraTargets: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraTarget[]>(projectPath(projectId, companyId, "/infra-targets")),
+  createInfraTarget: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraTarget>(projectPath(projectId, companyId, "/infra-targets"), data),
+  updateInfraTarget: (projectId: string, infraTargetId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraTarget>(
+      projectPath(projectId, companyId, `/infra-targets/${encodeURIComponent(infraTargetId)}`),
+      data,
+    ),
+  removeInfraTarget: (projectId: string, infraTargetId: string, companyId?: string) =>
+    api.delete<ProjectInfraTarget>(
+      projectPath(projectId, companyId, `/infra-targets/${encodeURIComponent(infraTargetId)}`),
+    ),
+  listInfraHealthChecks: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraHealthCheck[]>(projectPath(projectId, companyId, "/infra-health-checks")),
+  createInfraHealthCheck: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraHealthCheck>(projectPath(projectId, companyId, "/infra-health-checks"), data),
+  updateInfraHealthCheck: (projectId: string, healthCheckId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}`),
+      data,
+    ),
+  recordInfraHealthResult: (projectId: string, healthCheckId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ healthCheck: ProjectInfraHealthCheck; incident: ProjectInfraIncident | null }>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/results`),
+      data,
+    ),
+  rotateInfraHealthExternalMonitorToken: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.post<{ healthCheck: ProjectInfraHealthCheck; token: string }>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/external-monitor-token`),
+      {},
+    ),
+  revokeInfraHealthExternalMonitorToken: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.delete<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/external-monitor-token`),
+    ),
+  removeInfraHealthCheck: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.delete<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}`),
+    ),
+  listInfraIncidents: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraIncident[]>(projectPath(projectId, companyId, "/infra-incidents")),
+  createInfraIncident: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraIncident>(projectPath(projectId, companyId, "/infra-incidents"), data),
+  updateInfraIncident: (projectId: string, incidentId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraIncident>(
+      projectPath(projectId, companyId, `/infra-incidents/${encodeURIComponent(incidentId)}`),
+      data,
+    ),
+  listInfraActionProposals: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraActionProposal[]>(projectPath(projectId, companyId, "/infra-action-proposals")),
+  createInfraActionProposal: (projectId: string, incidentId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ approval: import("@paperclipai/shared").Approval; proposal: ProjectInfraActionProposal }>(
+      projectPath(projectId, companyId, `/infra-incidents/${encodeURIComponent(incidentId)}/action-proposals`),
+      data,
+    ),
+  listInfraActionEvidence: (projectId: string, proposalId: string, companyId?: string) =>
+    api.get<ProjectInfraActionEvidence[]>(
+      projectPath(projectId, companyId, `/infra-action-proposals/${encodeURIComponent(proposalId)}/evidence`),
+    ),
+  createInfraActionEvidence: (projectId: string, proposalId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraActionEvidence>(
+      projectPath(projectId, companyId, `/infra-action-proposals/${encodeURIComponent(proposalId)}/evidence`),
+      data,
+    ),
+  listDeployEvents: (projectId: string, companyId?: string) =>
+    api.get<ProjectDeployEvent[]>(projectPath(projectId, companyId, "/deploy-events")),
+  listDeployCommandRecords: (projectId: string, deployEventId: string, companyId?: string) =>
+    api.get<ProjectDeployCommandRecord[]>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-records`),
+    ),
+  createDeployCommandRecord: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectDeployCommandRecord>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-records`),
+      data,
+    ),
+  executeDeployCommand: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ record: ProjectDeployCommandRecord; deployEvent: ProjectDeployEvent }>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/command-executions`),
+      data,
+    ),
+  recordDeployEventStatus: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectDeployEvent>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/status`),
+      data,
+    ),
+  sendDeployMaintenanceMessage: (projectId: string, deployEventId: string, data: Record<string, unknown> = {}, companyId?: string) =>
+    api.post<ProjectDeployEvent>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/maintenance-message`),
+      data,
+    ),
+  requestDeployApproval: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ approval: import("@paperclipai/shared").Approval; deployEvent: ProjectDeployEvent | null }>(
+      projectPath(projectId, companyId, "/deploy-approvals"),
+      data,
+    ),
   listWorkspaces: (projectId: string, companyId?: string) =>
     api.get<ProjectWorkspace[]>(projectPath(projectId, companyId, "/workspaces")),
   createWorkspace: (projectId: string, data: Record<string, unknown>, companyId?: string) =>

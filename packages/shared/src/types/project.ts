@@ -1,5 +1,24 @@
 import type { ClientMetadata } from "./client.js";
-import type { ClientStatus, PauseReason, ProjectStatus } from "../constants.js";
+import type {
+  ClientStatus,
+  PauseReason,
+  ProjectDeployCommandStatus,
+  ProjectDeployCommandType,
+  ProjectDeployEventStatus,
+  ProjectDeployMaintenanceMessageStatus,
+  ProjectDeploymentTargetStatus,
+  ProjectInfraHealthCheckType,
+  ProjectInfraHealthResultSourceKind,
+  ProjectInfraHealthStatus,
+  ProjectInfraActionEvidenceStatus,
+  ProjectInfraActionStatus,
+  ProjectInfraActionType,
+  ProjectInfraIncidentSeverity,
+  ProjectInfraIncidentStatus,
+  ProjectInfraProviderDescriptor,
+  ProjectInfraTargetStatus,
+  ProjectStatus,
+} from "../constants.js";
 import type {
   ProjectExecutionWorkspacePolicy,
   ProjectWorkspaceRuntimeConfig,
@@ -202,6 +221,186 @@ export interface ProjectManagedByPlugin {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface ProjectDeploymentTarget {
+  id: string;
+  companyId: string;
+  projectId: string;
+  name: string;
+  environment: string;
+  provider: string;
+  targetUrl: string | null;
+  healthCheckUrl: string | null;
+  deployNotes: string | null;
+  rollbackInstructions: string | null;
+  deployCommand: string | null;
+  rollbackCommand: string | null;
+  commandExecutionEnabled: boolean;
+  maintenanceUpdatesEnabled: boolean;
+  maintenanceRecipients: string[];
+  status: ProjectDeploymentTargetStatus;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectDeployCommandRecord {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deployEventId: string;
+  deploymentTargetId: string | null;
+  approvalId: string | null;
+  commandType: ProjectDeployCommandType;
+  status: ProjectDeployCommandStatus;
+  command: string;
+  output: string | null;
+  exitCode: string | null;
+  note: string | null;
+  recordedByAgentId: string | null;
+  recordedByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectDeployEvent {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deploymentTargetId: string | null;
+  issueId: string | null;
+  approvalId: string | null;
+  status: ProjectDeployEventStatus;
+  summary: string;
+  changedFiles: string[];
+  testsRun: string[];
+  rollbackPlan: string;
+  maintenanceMessage: string | null;
+  maintenanceMessageStatus: ProjectDeployMaintenanceMessageStatus | null;
+  maintenanceMessageRecipients: string[];
+  maintenanceMessageAttemptedAt: Date | null;
+  maintenanceMessageSentAt: Date | null;
+  maintenanceMessageError: string | null;
+  metadata: Record<string, unknown> | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraTarget {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deploymentTargetId: string | null;
+  name: string;
+  environment: string;
+  provider: string;
+  providerDescriptor?: ProjectInfraProviderDescriptor | null;
+  providerAccountRef: string | null;
+  region: string | null;
+  role: string;
+  host: string | null;
+  failoverGroup: string | null;
+  failoverRank: number | null;
+  status: ProjectInfraTargetStatus;
+  repairActionsRequireApproval: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraHealthCheck {
+  id: string;
+  companyId: string;
+  projectId: string;
+  infraTargetId: string | null;
+  name: string;
+  checkType: ProjectInfraHealthCheckType;
+  url: string | null;
+  expectedStatus: number | null;
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  status: ProjectInfraHealthStatus;
+  lastCheckedAt: Date | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+  lastSourceKind: ProjectInfraHealthResultSourceKind | null;
+  lastSourceId: string | null;
+  lastSourceDetail: string | null;
+  lastSourceMetadata: Record<string, unknown> | null;
+  externalMonitorEnabled: boolean;
+  externalMonitorTokenHint: string | null;
+  enabled: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraIncident {
+  id: string;
+  companyId: string;
+  projectId: string;
+  infraTargetId: string | null;
+  healthCheckId: string | null;
+  issueId: string | null;
+  groupKey: string | null;
+  sourceKind: string;
+  sourceId: string | null;
+  status: ProjectInfraIncidentStatus;
+  severity: ProjectInfraIncidentSeverity;
+  summary: string;
+  details: string | null;
+  recommendedAction: string | null;
+  occurrenceCount: number;
+  lastOccurredAt: Date;
+  escalatedAt: Date | null;
+  escalationReason: string | null;
+  repairApprovalId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraActionProposal {
+  id: string;
+  companyId: string;
+  projectId: string;
+  incidentId: string;
+  infraTargetId: string | null;
+  approvalId: string | null;
+  actionType: ProjectInfraActionType;
+  status: ProjectInfraActionStatus;
+  summary: string;
+  rationale: string;
+  proposedAction: string;
+  rollbackPlan: string | null;
+  risk: string | null;
+  provider: string | null;
+  region: string | null;
+  evidenceRequired: string | null;
+  metadata: Record<string, unknown> | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraActionEvidence {
+  id: string;
+  companyId: string;
+  projectId: string;
+  proposalId: string;
+  approvalId: string | null;
+  status: ProjectInfraActionEvidenceStatus;
+  evidence: string;
+  output: string | null;
+  recordedByAgentId: string | null;
+  recordedByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Project {
   id: string;
   companyId: string;

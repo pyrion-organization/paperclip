@@ -28,6 +28,7 @@ export type InboundEmailSupportReplyReason =
   | "unsafe_or_spam"
   | "missing_sender"
   | "send_failed";
+export type InboundEmailProjectFallbackMode = "create_projectless_triage" | "request_clarification";
 export interface InboundEmailClassificationFields {
   classificationCategory: InboundEmailClassificationCategory | null;
   classificationConfidence: number | null;
@@ -54,6 +55,12 @@ export type InboundEmailMessageStatus =
   | "skipped"
   | "failed"
   | "duplicate";
+export type InboundEmailExternalIntakeSourceKind =
+  | "webhook"
+  | "queue"
+  | "object_storage"
+  | "manual_recovery";
+export type InboundEmailExternalIntakeStatus = "imported" | "duplicate" | "failed";
 
 /**
  * View of an inbound email mailbox returned by the API. The persisted row has a
@@ -73,6 +80,14 @@ export interface InboundEmailMailbox {
   tls: boolean;
   pollIntervalSeconds: number;
   supportRepliesEnabled: boolean;
+  allowProjectlessTriage: boolean;
+  projectFallbackMode: InboundEmailProjectFallbackMode;
+  agentAutomationEnabled: boolean;
+  agentAutomationAssigneeId: string | null;
+  agentAutomationMinConfidence: number;
+  agentAutomationWakeEnabled: boolean;
+  externalIntakeEnabled: boolean;
+  externalIntakeTokenHint: string | null;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;
@@ -89,6 +104,9 @@ export interface InboundEmailRule {
   enabled: boolean;
   senderPattern: string | null;
   subjectPattern: string | null;
+  bodyPattern: string | null;
+  classificationCategory: InboundEmailClassificationCategory | null;
+  projectFallbackMode: InboundEmailProjectFallbackMode | null;
   priority: "critical" | "high" | "medium" | "low";
   labelIds: string[];
   createdAt: Date;
@@ -116,6 +134,24 @@ export interface InboundEmailMessage extends InboundEmailClassificationFields, I
   sourceDeleteError: string | null;
   sourceSeenAt: Date | null;
   sourceSeenError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface InboundEmailExternalIntakeRecord {
+  id: string;
+  companyId: string;
+  mailboxId: string;
+  sourceKind: InboundEmailExternalIntakeSourceKind;
+  sourceId: string;
+  sourceLocation: string | null;
+  rawSha256: string;
+  messageId: string | null;
+  status: InboundEmailExternalIntakeStatus;
+  inboundMessageId: string | null;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  receivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

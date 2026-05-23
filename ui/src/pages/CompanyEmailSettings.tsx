@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InboundEmailMailbox, InboundEmailRule } from "@paperclipai/shared";
+import type {
+  InboundEmailClassificationCategory,
+  InboundEmailMailbox,
+  InboundEmailProjectFallbackMode,
+  InboundEmailRule,
+} from "@paperclipai/shared";
 import { Mail, Plus, Trash2 } from "lucide-react";
+import { agentsApi } from "../api/agents";
 import { companiesApi } from "../api/companies";
 import { issuesApi } from "../api/issues";
 import { Button } from "@/components/ui/button";
@@ -16,6 +22,9 @@ type RuleDraft = {
   enabled: boolean;
   senderPattern: string;
   subjectPattern: string;
+  bodyPattern: string;
+  classificationCategory: InboundEmailClassificationCategory | "";
+  projectFallbackMode: InboundEmailProjectFallbackMode | "";
   priority: "critical" | "high" | "medium" | "low";
   labelIds: string[];
 };
@@ -26,9 +35,38 @@ const emptyRuleDraft: RuleDraft = {
   enabled: true,
   senderPattern: "",
   subjectPattern: "",
+  bodyPattern: "",
+  classificationCategory: "",
+  projectFallbackMode: "",
   priority: "medium",
   labelIds: [],
 };
+
+const classificationOptions: Array<{ value: InboundEmailClassificationCategory; label: string }> = [
+  { value: "code_bug", label: "Code bug" },
+  { value: "infra_incident", label: "Infra incident" },
+  { value: "how_to_question", label: "How-to question" },
+  { value: "feature_request", label: "Feature request" },
+  { value: "account_access", label: "Account/access" },
+  { value: "spam_or_irrelevant", label: "Spam/irrelevant" },
+  { value: "unsafe_or_prompt_injection", label: "Unsafe/prompt injection" },
+  { value: "unclear", label: "Unclear" },
+];
+
+const projectFallbackOptions: Array<{ value: InboundEmailProjectFallbackMode; label: string }> = [
+  { value: "create_projectless_triage", label: "Create projectless triage" },
+  { value: "request_clarification", label: "Ask for clarification" },
+];
+
+function classificationLabel(value: InboundEmailClassificationCategory | null) {
+  if (!value) return "Any";
+  return classificationOptions.find((option) => option.value === value)?.label ?? value;
+}
+
+function projectFallbackLabel(value: InboundEmailProjectFallbackMode | null) {
+  if (!value) return "Mailbox default";
+  return projectFallbackOptions.find((option) => option.value === value)?.label ?? value;
+}
 
 function ruleToDraft(rule: InboundEmailRule): RuleDraft {
   return {
@@ -37,6 +75,9 @@ function ruleToDraft(rule: InboundEmailRule): RuleDraft {
     enabled: rule.enabled,
     senderPattern: rule.senderPattern ?? "",
     subjectPattern: rule.subjectPattern ?? "",
+    bodyPattern: rule.bodyPattern ?? "",
+    classificationCategory: rule.classificationCategory ?? "",
+    projectFallbackMode: rule.projectFallbackMode ?? "",
     priority: rule.priority,
     labelIds: rule.labelIds ?? [],
   };
@@ -72,6 +113,13 @@ export function CompanyEmailSettings() {
   const [inboundTls, setInboundTls] = useState(true);
   const [inboundPollIntervalSeconds, setInboundPollIntervalSeconds] = useState("60");
   const [inboundSupportRepliesEnabled, setInboundSupportRepliesEnabled] = useState(false);
+  const [inboundAllowProjectlessTriage, setInboundAllowProjectlessTriage] = useState(true);
+  const [inboundProjectFallbackMode, setInboundProjectFallbackMode] = useState<InboundEmailProjectFallbackMode>("create_projectless_triage");
+  const [inboundAgentAutomationEnabled, setInboundAgentAutomationEnabled] = useState(false);
+  const [inboundAgentAutomationAssigneeId, setInboundAgentAutomationAssigneeId] = useState("");
+  const [inboundAgentAutomationMinConfidence, setInboundAgentAutomationMinConfidence] = useState("80");
+  const [inboundAgentAutomationWakeEnabled, setInboundAgentAutomationWakeEnabled] = useState(true);
+  const [externalIntakeToken, setExternalIntakeToken] = useState("");
 
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>(emptyRuleDraft);
 
@@ -112,6 +160,11 @@ export function CompanyEmailSettings() {
     queryFn: () => companiesApi.listInboundEmailRules(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
+  const agentsQuery = useQuery({
+    queryKey: queryKeys.agents.list(companyIdForKeys),
+    queryFn: () => agentsApi.list(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
   const rulesLoaded = (inboundRulesQuery.data?.items?.length ?? 0) > 0;
   const labelsQuery = useQuery({
     queryKey: queryKeys.issues.labels(companyIdForKeys),
@@ -134,6 +187,13 @@ export function CompanyEmailSettings() {
       setInboundTls(true);
       setInboundPollIntervalSeconds("60");
       setInboundSupportRepliesEnabled(false);
+      setInboundAllowProjectlessTriage(true);
+      setInboundProjectFallbackMode("create_projectless_triage");
+      setInboundAgentAutomationEnabled(false);
+      setInboundAgentAutomationAssigneeId("");
+      setInboundAgentAutomationMinConfidence("80");
+      setInboundAgentAutomationWakeEnabled(true);
+      setExternalIntakeToken("");
       return;
     }
     setInboundName(mailbox.name);
@@ -147,6 +207,13 @@ export function CompanyEmailSettings() {
     setInboundTls(mailbox.tls);
     setInboundPollIntervalSeconds(String(mailbox.pollIntervalSeconds));
     setInboundSupportRepliesEnabled(mailbox.supportRepliesEnabled);
+    setInboundAllowProjectlessTriage(mailbox.allowProjectlessTriage);
+    setInboundProjectFallbackMode(mailbox.projectFallbackMode);
+    setInboundAgentAutomationEnabled(mailbox.agentAutomationEnabled);
+    setInboundAgentAutomationAssigneeId(mailbox.agentAutomationAssigneeId ?? "");
+    setInboundAgentAutomationMinConfidence(String(mailbox.agentAutomationMinConfidence));
+    setInboundAgentAutomationWakeEnabled(mailbox.agentAutomationWakeEnabled);
+    setExternalIntakeToken("");
   };
 
   useEffect(() => {
@@ -209,6 +276,19 @@ export function CompanyEmailSettings() {
 
   const inboundPortNum = Number(inboundPort);
   const inboundPollIntervalNum = Number(inboundPollIntervalSeconds);
+  const inboundAgentAutomationMinConfidenceNum = Number(inboundAgentAutomationMinConfidence);
+  const inboundAgentAutomationValid =
+    !inboundAgentAutomationEnabled ||
+    (Boolean(inboundAgentAutomationAssigneeId) &&
+      Number.isInteger(inboundAgentAutomationMinConfidenceNum) &&
+      inboundAgentAutomationMinConfidenceNum >= 0 &&
+      inboundAgentAutomationMinConfidenceNum <= 100);
+  const inboundAgentAutomationMinConfidenceForSave =
+    Number.isInteger(inboundAgentAutomationMinConfidenceNum) &&
+    inboundAgentAutomationMinConfidenceNum >= 0 &&
+    inboundAgentAutomationMinConfidenceNum <= 100
+      ? inboundAgentAutomationMinConfidenceNum
+      : 80;
   const inboundValid =
     inboundName.trim().length > 0 &&
     inboundHost.trim().length > 0 &&
@@ -219,7 +299,8 @@ export function CompanyEmailSettings() {
     inboundPortNum <= 65535 &&
     Number.isInteger(inboundPollIntervalNum) &&
     inboundPollIntervalNum >= 30 &&
-    inboundPollIntervalNum <= 3600;
+    inboundPollIntervalNum <= 3600 &&
+    inboundAgentAutomationValid;
   const inboundDirty =
     !primaryInboundMailbox ||
     inboundName !== primaryInboundMailbox.name ||
@@ -231,6 +312,12 @@ export function CompanyEmailSettings() {
     inboundTls !== primaryInboundMailbox.tls ||
     inboundPollIntervalSeconds !== String(primaryInboundMailbox.pollIntervalSeconds) ||
     inboundSupportRepliesEnabled !== primaryInboundMailbox.supportRepliesEnabled ||
+    inboundAllowProjectlessTriage !== primaryInboundMailbox.allowProjectlessTriage ||
+    inboundProjectFallbackMode !== primaryInboundMailbox.projectFallbackMode ||
+    inboundAgentAutomationEnabled !== primaryInboundMailbox.agentAutomationEnabled ||
+    inboundAgentAutomationAssigneeId !== (primaryInboundMailbox.agentAutomationAssigneeId ?? "") ||
+    inboundAgentAutomationMinConfidence !== String(primaryInboundMailbox.agentAutomationMinConfidence) ||
+    inboundAgentAutomationWakeEnabled !== primaryInboundMailbox.agentAutomationWakeEnabled ||
     (inboundPasswordTouched && inboundPassword.trim().length > 0);
 
   const invalidateInboundEmailState = (groups: Array<"mailboxes" | "messages" | "jobs" | "ops" | "rules">) => {
@@ -238,6 +325,18 @@ export function CompanyEmailSettings() {
     for (const group of groups) {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail[group](selectedCompanyId) });
     }
+  };
+  const replaceInboundMailboxInCache = (mailbox: InboundEmailMailbox) => {
+    if (!selectedCompanyId) return;
+    queryClient.setQueryData(
+      queryKeys.inboundEmail.mailboxes(selectedCompanyId),
+      (current: { items: InboundEmailMailbox[]; nextCursor: string | null } | undefined) => current
+        ? {
+          ...current,
+          items: current.items.map((item) => item.id === mailbox.id ? mailbox : item),
+        }
+        : current,
+    );
   };
 
   const inboundSaveMutation = useMutation({
@@ -252,6 +351,12 @@ export function CompanyEmailSettings() {
         tls: inboundTls,
         pollIntervalSeconds: inboundPollIntervalNum,
         supportRepliesEnabled: inboundSupportRepliesEnabled,
+        allowProjectlessTriage: inboundAllowProjectlessTriage,
+        projectFallbackMode: inboundProjectFallbackMode,
+        agentAutomationEnabled: inboundAgentAutomationEnabled,
+        agentAutomationAssigneeId: inboundAgentAutomationAssigneeId || null,
+        agentAutomationMinConfidence: inboundAgentAutomationMinConfidenceForSave,
+        agentAutomationWakeEnabled: inboundAgentAutomationWakeEnabled,
         ...(inboundPasswordTouched && inboundPassword.trim().length > 0 ? { password: inboundPassword } : {}),
       };
       return companiesApi.saveInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox?.id ?? null, payload);
@@ -276,8 +381,29 @@ export function CompanyEmailSettings() {
       invalidateInboundEmailState(["mailboxes", "messages", "jobs", "ops", "rules"]);
     },
   });
+  const rotateExternalIntakeTokenMutation = useMutation({
+    mutationFn: () => companiesApi.rotateInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: (result) => {
+      replaceInboundMailboxInCache(result.mailbox);
+      applyInboundMailboxToForm(result.mailbox);
+      setExternalIntakeToken(result.token);
+      invalidateInboundEmailState(["mailboxes", "ops"]);
+    },
+  });
+  const revokeExternalIntakeTokenMutation = useMutation({
+    mutationFn: () => companiesApi.revokeInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
+    onSuccess: (mailbox) => {
+      replaceInboundMailboxInCache(mailbox);
+      setExternalIntakeToken("");
+      applyInboundMailboxToForm(mailbox);
+      invalidateInboundEmailState(["mailboxes", "ops"]);
+    },
+  });
 
-  const ruleDraftValid = ruleDraft.priority !== "medium" || ruleDraft.labelIds.length > 0;
+  const ruleDraftValid =
+    ruleDraft.priority !== "medium" ||
+    ruleDraft.labelIds.length > 0 ||
+    Boolean(ruleDraft.projectFallbackMode);
   const ruleSaveMutation = useMutation({
     mutationFn: () => {
       const basePayload = {
@@ -285,6 +411,9 @@ export function CompanyEmailSettings() {
         enabled: ruleDraft.enabled,
         senderPattern: ruleDraft.senderPattern.trim() || null,
         subjectPattern: ruleDraft.subjectPattern.trim() || null,
+        bodyPattern: ruleDraft.bodyPattern.trim() || null,
+        classificationCategory: ruleDraft.classificationCategory || null,
+        projectFallbackMode: ruleDraft.projectFallbackMode || null,
         priority: ruleDraft.priority,
         labelIds: ruleDraft.labelIds,
       };
@@ -317,9 +446,13 @@ export function CompanyEmailSettings() {
   const mailboxOptions = inboundMailboxesQuery.data?.items ?? [];
   const ruleRows = inboundRulesQuery.data?.items ?? [];
   const labelOptions = labelsQuery.data ?? [];
+  const agentOptions = (agentsQuery.data ?? []).filter((agent) => agent.status !== "pending_approval" && agent.status !== "terminated");
   const labelNameById = useMemo(() => new Map(labelOptions.map((label) => [label.id, label.name])), [labelOptions]);
   const canTestInboundMailbox = Boolean(primaryInboundMailbox?.passwordSet);
   const canPollInboundMailbox = Boolean(primaryInboundMailbox?.enabled && primaryInboundMailbox.passwordSet);
+  const externalIntakeEndpoint = primaryInboundMailbox
+    ? `/api/external/inbound-email/mailboxes/${primaryInboundMailbox.id}/intake`
+    : "";
 
   if (!selectedCompany) {
     return (
@@ -454,11 +587,144 @@ export function CompanyEmailSettings() {
               <input data-testid="company-settings-inbound-support-replies" type="checkbox" checked={inboundSupportRepliesEnabled} onChange={(e) => setInboundSupportRepliesEnabled(e.target.checked)} />
               Auto-reply to support emails
             </label>
+            <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+              <input data-testid="company-settings-inbound-allow-projectless-triage" type="checkbox" checked={inboundAllowProjectlessTriage} onChange={(e) => setInboundAllowProjectlessTriage(e.target.checked)} />
+              Allow projectless triage
+            </label>
             <Field label="Poll interval" hint="Seconds between mailbox polls.">
               <input data-testid="company-settings-inbound-poll-interval" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={30} max={3600} value={inboundPollIntervalSeconds} onChange={(e) => setInboundPollIntervalSeconds(e.target.value)} />
             </Field>
+            <Field label="Missing project" hint="Default handling when a trusted sender does not name a project.">
+              <select
+                data-testid="company-settings-inbound-project-fallback-mode"
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none"
+                value={inboundProjectFallbackMode}
+                onChange={(e) => setInboundProjectFallbackMode(e.target.value as InboundEmailProjectFallbackMode)}
+              >
+                {projectFallbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </Field>
           </div>
-          {!inboundValid && <span className="text-xs text-destructive">Enter a mailbox name, host, username, folder, a valid port, and a poll interval from 30 to 3600 seconds.</span>}
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-medium">Code bug agent automation</div>
+              <p className="text-xs text-muted-foreground">
+                Optional. Trusted code bug reports with a resolved project can create an assigned task and wake the selected agent.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-enabled"
+                  type="checkbox"
+                  checked={inboundAgentAutomationEnabled}
+                  onChange={(e) => setInboundAgentAutomationEnabled(e.target.checked)}
+                />
+                Auto-assign code bugs
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-wake"
+                  type="checkbox"
+                  checked={inboundAgentAutomationWakeEnabled}
+                  onChange={(e) => setInboundAgentAutomationWakeEnabled(e.target.checked)}
+                  disabled={!inboundAgentAutomationEnabled}
+                />
+                Wake assigned agent
+              </label>
+              <Field label="Assignee agent" hint="Agent that receives eligible code bug tasks.">
+                <select
+                  data-testid="company-settings-inbound-agent-automation-assignee"
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none"
+                  value={inboundAgentAutomationAssigneeId}
+                  onChange={(e) => setInboundAgentAutomationAssigneeId(e.target.value)}
+                  disabled={!inboundAgentAutomationEnabled}
+                >
+                  <option value="">Select agent</option>
+                  {agentOptions.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Minimum confidence" hint="Classifier confidence required before assignment.">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-confidence"
+                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={inboundAgentAutomationMinConfidence}
+                  onChange={(e) => setInboundAgentAutomationMinConfidence(e.target.value)}
+                  disabled={!inboundAgentAutomationEnabled}
+                />
+              </Field>
+            </div>
+          </div>
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-medium">External intake endpoint</div>
+              <p className="text-xs text-muted-foreground">
+                Token-protected webhook, queue, or object-storage backups can submit preserved raw emails here. The token is shown once when rotated.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  data-testid="company-settings-inbound-external-intake-endpoint"
+                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none"
+                  type="text"
+                  readOnly
+                  value={externalIntakeEndpoint}
+                  placeholder="Save an inbound mailbox to create an endpoint"
+                />
+                <Button
+                  data-testid="company-settings-inbound-external-intake-rotate"
+                  size="sm"
+                  variant="outline"
+                  disabled={!primaryInboundMailbox || rotateExternalIntakeTokenMutation.isPending}
+                  onClick={() => rotateExternalIntakeTokenMutation.mutate()}
+                >
+                  {primaryInboundMailbox?.externalIntakeEnabled ? "Rotate token" : "Create token"}
+                </Button>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <span className="text-xs text-muted-foreground">
+                  {primaryInboundMailbox?.externalIntakeEnabled
+                    ? `Enabled, token ending ${primaryInboundMailbox.externalIntakeTokenHint ?? "unknown"}`
+                    : "Disabled"}
+                </span>
+                {primaryInboundMailbox?.externalIntakeEnabled ? (
+                  <Button
+                    data-testid="company-settings-inbound-external-intake-revoke"
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-destructive sm:w-auto"
+                    disabled={revokeExternalIntakeTokenMutation.isPending}
+                    onClick={() => revokeExternalIntakeTokenMutation.mutate()}
+                  >
+                    Revoke token
+                  </Button>
+                ) : null}
+              </div>
+              {externalIntakeToken ? (
+                <Field label="New token" hint="Store it in the external backup system now. It will not be shown again.">
+                  <input
+                    data-testid="company-settings-inbound-external-intake-token"
+                    className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none"
+                    type="text"
+                    readOnly
+                    value={externalIntakeToken}
+                  />
+                </Field>
+              ) : null}
+              {rotateExternalIntakeTokenMutation.isError || revokeExternalIntakeTokenMutation.isError ? (
+                <span className="block min-w-0 break-words text-xs text-destructive">
+                  {(rotateExternalIntakeTokenMutation.error ?? revokeExternalIntakeTokenMutation.error) instanceof Error
+                    ? (rotateExternalIntakeTokenMutation.error ?? revokeExternalIntakeTokenMutation.error)?.message
+                    : "External intake token action failed"}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          {!inboundValid && <span className="text-xs text-destructive">Enter valid mailbox settings. Agent automation also requires an assignee and a confidence from 0 to 100 when enabled.</span>}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
             <Button data-testid="company-settings-inbound-save" size="sm" className="w-full sm:w-auto" onClick={() => inboundSaveMutation.mutate()} disabled={inboundSaveMutation.isPending || !inboundDirty || !inboundValid}>
               {inboundSaveMutation.isPending ? "Saving..." : "Save inbound mailbox"}
@@ -548,6 +814,21 @@ export function CompanyEmailSettings() {
                 <Field label="Subject contains" hint="Case-insensitive text match against the subject.">
                   <input data-testid="company-settings-inbound-rule-subject" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.subjectPattern} placeholder="urgent" onChange={(e) => setRuleDraft((current) => ({ ...current, subjectPattern: e.target.value }))} />
                 </Field>
+                <Field label="Body contains" hint="Case-insensitive text match against plain message body.">
+                  <input data-testid="company-settings-inbound-rule-body" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.bodyPattern} placeholder="error 500" onChange={(e) => setRuleDraft((current) => ({ ...current, bodyPattern: e.target.value }))} />
+                </Field>
+                <Field label="Classification" hint="Limit this rule to one support classification.">
+                  <select data-testid="company-settings-inbound-rule-classification" className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none" value={ruleDraft.classificationCategory} onChange={(e) => setRuleDraft((current) => ({ ...current, classificationCategory: e.target.value as RuleDraft["classificationCategory"] }))}>
+                    <option value="">Any classification</option>
+                    {classificationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Missing project" hint="Override mailbox fallback for matching mail.">
+                  <select data-testid="company-settings-inbound-rule-project-fallback-mode" className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none" value={ruleDraft.projectFallbackMode} onChange={(e) => setRuleDraft((current) => ({ ...current, projectFallbackMode: e.target.value as RuleDraft["projectFallbackMode"] }))}>
+                    <option value="">Mailbox default</option>
+                    {projectFallbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </Field>
                 <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
                   <input data-testid="company-settings-inbound-rule-enabled" type="checkbox" checked={ruleDraft.enabled} onChange={(e) => setRuleDraft((current) => ({ ...current, enabled: e.target.checked }))} />
                   Enabled
@@ -578,7 +859,7 @@ export function CompanyEmailSettings() {
                   </div>
                 </div>
               )}
-              {!ruleDraftValid && <span className="block text-xs text-destructive">Choose a priority change or at least one label before saving.</span>}
+              {!ruleDraftValid && <span className="block text-xs text-destructive">Choose a priority change, label, or project fallback override before saving.</span>}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Button data-testid="company-settings-inbound-rule-save" size="sm" onClick={() => ruleSaveMutation.mutate()} disabled={ruleSaveMutation.isPending || !ruleDraftValid}>
                   {ruleSaveMutation.isPending ? "Saving..." : ruleDraft.id ? "Save rule" : "Create rule"}
@@ -613,6 +894,12 @@ export function CompanyEmailSettings() {
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Sender: {rule.senderPattern || "any"} · Subject: {rule.subjectPattern || "any"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Body: {rule.bodyPattern || "any"} · Classification: {classificationLabel(rule.classificationCategory)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Missing project: {projectFallbackLabel(rule.projectFallbackMode)}
                       </div>
                       {rule.labelIds.length > 0 && (
                         <div className="text-xs text-muted-foreground">

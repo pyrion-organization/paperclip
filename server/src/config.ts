@@ -85,6 +85,9 @@ export interface Config {
   feedbackExportBackendToken: string | undefined;
   heartbeatSchedulerEnabled: boolean;
   heartbeatSchedulerIntervalMs: number;
+  infraHealthSchedulerEnabled: boolean;
+  infraHealthSchedulerIntervalMs: number;
+  infraHealthSchedulerBatchSize: number;
   companyDeletionEnabled: boolean;
   telemetryEnabled: boolean;
 }
@@ -331,6 +334,12 @@ export function loadConfig(): Config {
     feedbackExportBackendToken,
     heartbeatSchedulerEnabled: process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
+    infraHealthSchedulerEnabled: process.env.PAPERCLIP_INFRA_HEALTH_SCHEDULER_ENABLED !== "false",
+    infraHealthSchedulerIntervalMs: Math.max(
+      30000,
+      Number(process.env.PAPERCLIP_INFRA_HEALTH_SCHEDULER_INTERVAL_MS) || 60000,
+    ),
+    infraHealthSchedulerBatchSize: Math.max(1, Number(process.env.PAPERCLIP_INFRA_HEALTH_SCHEDULER_BATCH_SIZE) || 20),
     companyDeletionEnabled,
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
   };

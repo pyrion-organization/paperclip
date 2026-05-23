@@ -8,6 +8,7 @@ export const queryKeys = {
     mailboxes: (companyId: string) => ["companies", companyId, "inbound-email", "mailboxes"] as const,
     ops: (companyId: string) => ["companies", companyId, "inbound-email", "ops"] as const,
     messages: (companyId: string) => ["companies", companyId, "inbound-email", "messages"] as const,
+    externalIntake: (companyId: string) => ["companies", companyId, "inbound-email", "external-intake"] as const,
     rules: (companyId: string) => ["companies", companyId, "inbound-email", "rules"] as const,
     jobs: (companyId: string) => ["companies", companyId, "inbound-email", "jobs"] as const,
   },
@@ -122,6 +123,22 @@ export const queryKeys = {
   projects: {
     list: (companyId: string) => ["projects", companyId] as const,
     detail: (id: string) => ["projects", "detail", id] as const,
+    deploymentTargets: (projectId: string, companyId?: string) =>
+      ["projects", "deployment-targets", projectId, companyId ?? null] as const,
+    infraTargets: (projectId: string, companyId?: string) =>
+      ["projects", "infra-targets", projectId, companyId ?? null] as const,
+    infraHealthChecks: (projectId: string, companyId?: string) =>
+      ["projects", "infra-health-checks", projectId, companyId ?? null] as const,
+    infraIncidents: (projectId: string, companyId?: string) =>
+      ["projects", "infra-incidents", projectId, companyId ?? null] as const,
+    infraActionProposals: (projectId: string, companyId?: string) =>
+      ["projects", "infra-action-proposals", projectId, companyId ?? null] as const,
+    infraActionEvidence: (projectId: string, proposalId: string, companyId?: string) =>
+      ["projects", "infra-action-evidence", projectId, proposalId, companyId ?? null] as const,
+    deployEvents: (projectId: string, companyId?: string) =>
+      ["projects", "deploy-events", projectId, companyId ?? null] as const,
+    deployCommandRecords: (projectId: string, deployEventId: string, companyId?: string) =>
+      ["projects", "deploy-command-records", projectId, deployEventId, companyId ?? null] as const,
     filesSummary: (projectId: string, companyId?: string) =>
       ["projects", "files-summary", projectId, companyId ?? null] as const,
     filesTree: (projectId: string, relativePath: string, showIgnored: boolean, companyId?: string) =>

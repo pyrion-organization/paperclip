@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
+  agents,
   assets,
   backgroundJobs,
   clientEmailDomains,
@@ -10,6 +11,7 @@ import {
   clientProjects,
   clients,
   inboundEmailAttachments,
+  inboundEmailExternalIntakeRecords,
   inboundEmailMailboxes,
   inboundEmailMessages,
   inboundEmailRules,
@@ -17,12 +19,17 @@ import {
   issues as issueRows,
   labels,
   projects,
+  projectWorkspaces,
 } from "@paperclipai/db";
 import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
+  ImportExternalInboundEmailMessage,
+  ImportExternalInboundEmailMessagesBatch,
+  InboundEmailExternalIntakeRecord,
   InboundEmailClassificationCategory,
   InboundEmailMessageStatus,
+  InboundEmailProjectFallbackMode,
   InboundEmailSupportReplyReason,
   InboundEmailSupportReplyStatus,
   InboundEmailMailbox as MailboxView,
@@ -32,11 +39,17 @@ import type {
   InboundEmailOpsMailboxHealth,
   InboundEmailOpsMessage,
   InboundEmailOpsMessageSummary,
+  SubmitExternalInboundEmailIntake,
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
-import { inboundEmailMessageStatusSchema } from "@paperclipai/shared";
-import { notFound, unprocessable } from "../errors.js";
+import {
+  inboundEmailClassificationCategorySchema,
+  inboundEmailExternalIntakeMetadataSchema,
+  inboundEmailExternalIntakeSourceLocationSchema,
+  inboundEmailMessageStatusSchema,
+} from "@paperclipai/shared";
+import { conflict, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
 import { backgroundJobService } from "./background-jobs.js";
@@ -52,8 +65,12 @@ import {
 } from "./inbound-email-classifier.js";
 import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
+import { heartbeatService } from "./heartbeat.js";
+import { queueIssueAssignmentWakeup } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
+import { projectInfraIncidentService } from "./project-infra-incidents.js";
+import { budgetService } from "./budgets.js";
 import {
   sendInboundEmailAuthorizationReply,
   sendInboundEmailRegistrationReply,
@@ -149,13 +166,23 @@ export type ListPageOptions = {
 
 export type ListInboundEmailMessagesOptions = ListPageOptions & {
   status?: string;
+  classificationCategory?: string;
+  classificationReview?: string;
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
 };
 
+export type ListInboundEmailExternalIntakeOptions = ListPageOptions & {
+  status?: "imported" | "duplicate" | "failed";
+  mailboxId?: string;
+  order?: "asc" | "desc";
+};
+
 type NormalizedListInboundEmailMessagesOptions = ListPageOptions & {
   status?: InboundEmailMessageStatus;
+  classificationCategory?: InboundEmailClassificationCategory;
+  classificationReview?: "low_confidence";
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -165,6 +192,8 @@ export type ListPage<T> = {
   items: T[];
   nextCursor: string | null;
 };
+
+const INBOUND_EMAIL_CLASSIFICATION_REVIEW_CONFIDENCE_MAX = 60;
 
 export type EmailWorkerJobRunResult =
   | {
@@ -227,14 +256,29 @@ function secretNameForMailbox(mailboxId: string): string {
   return `${INBOUND_EMAIL_PASSWORD_SECRET_PREFIX}:${mailboxId}`;
 }
 
+function hashExternalIntakeToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function externalIntakeTokenMatches(expectedHash: string | null | undefined, token: string) {
+  if (!expectedHash || !token) return false;
+  const actual = Buffer.from(hashExternalIntakeToken(token), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function generateExternalIntakeToken() {
+  return `pcemail_${randomBytes(32).toString("base64url")}`;
+}
+
 function scheduledMailboxPollDedupeKey(mailboxId: string): string {
   return `${mailboxId}:scheduled`;
 }
 
 type RawMailboxRow = typeof inboundEmailMailboxes.$inferSelect;
 type RedactedMailbox =
-  & Omit<RawMailboxRow, "passwordSecretName">
-  & { passwordSet: boolean };
+  & Omit<RawMailboxRow, "passwordSecretName" | "externalIntakeTokenHash">
+  & { passwordSet: boolean; externalIntakeEnabled: boolean };
 type SenderClient = { id: string; name: string };
 type SenderEmployee = { id: string; name: string; role: string; email: string; projectScope: string };
 type SenderIdentity =
@@ -261,10 +305,11 @@ const SUPPORT_REPLY_REASON_BY_CATEGORY: Partial<Record<InboundEmailClassificatio
 };
 
 function redactMailbox(row: RawMailboxRow): RedactedMailbox {
-  const { passwordSecretName, ...safeRow } = row;
+  const { passwordSecretName, externalIntakeTokenHash, ...safeRow } = row;
   return {
     ...safeRow,
     passwordSet: Boolean(passwordSecretName),
+    externalIntakeEnabled: Boolean(externalIntakeTokenHash),
   };
 }
 
@@ -296,6 +341,21 @@ function hashBuffer(buffer: Buffer): string {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toExternalIntakeRecord(
+  row: typeof inboundEmailExternalIntakeRecords.$inferSelect,
+): InboundEmailExternalIntakeRecord {
+  return {
+    ...row,
+    metadata: asRecord(row.metadata),
+  };
 }
 
 function jobMailboxId(job: typeof backgroundJobs.$inferSelect, messageById: Map<string, typeof inboundEmailMessages.$inferSelect>): string | null {
@@ -459,6 +519,12 @@ function matchesPattern(value: string | null | undefined, pattern: string | null
   const normalizedPattern = pattern?.trim().toLowerCase();
   if (!normalizedPattern) return true;
   return (value ?? "").toLowerCase().includes(normalizedPattern);
+}
+
+function messageBodySearchText(message: Pick<typeof inboundEmailMessages.$inferSelect, "bodyText" | "bodyHtml">): string {
+  return [message.bodyText ?? "", message.bodyHtml ? htmlToPlain(message.bodyHtml) : ""]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function normalizeProjectMatchText(value: string | null | undefined): string {
@@ -704,6 +770,19 @@ function normalizeListMessagesOptions(
     throw unprocessable("Invalid inbound email message status");
   }
 
+  const classificationCategoryInput = options?.classificationCategory?.trim();
+  const classificationCategoryResult = classificationCategoryInput
+    ? inboundEmailClassificationCategorySchema.safeParse(classificationCategoryInput)
+    : null;
+  if (classificationCategoryResult && !classificationCategoryResult.success) {
+    throw unprocessable("Invalid inbound email classification category");
+  }
+
+  const classificationReviewInput = options?.classificationReview?.trim();
+  if (classificationReviewInput && classificationReviewInput !== "low_confidence") {
+    throw unprocessable("Invalid inbound email classification review filter");
+  }
+
   const mailboxId = options?.mailboxId?.trim();
   if (mailboxId && !UUID_RE.test(mailboxId)) {
     throw unprocessable("Invalid inbound email mailbox filter");
@@ -712,6 +791,8 @@ function normalizeListMessagesOptions(
   return {
     ...options,
     status: statusResult?.success ? statusResult.data : undefined,
+    classificationCategory: classificationCategoryResult?.success ? classificationCategoryResult.data : undefined,
+    classificationReview: classificationReviewInput === "low_confidence" ? "low_confidence" : undefined,
     mailboxId: mailboxId || undefined,
   };
 }
@@ -757,6 +838,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   const jobs = backgroundJobService(db);
   const secrets = secretService(db);
   const issues = issueService(db);
+  const heartbeat = heartbeatService(db);
+  const infraIncidents = projectInfraIncidentService(db);
+  const budgets = budgetService(db);
 
   function normalizeRuleLabelIds(labelIds: string[] | undefined): string[] {
     return [...new Set(labelIds ?? [])];
@@ -773,19 +857,40 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
   }
 
-  function ruleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+  function ruleHasIssueEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+  }) {
     const changesPriority = rule.priority !== undefined && rule.priority !== null && rule.priority !== "medium";
     const appliesLabels = (rule.labelIds?.length ?? 0) > 0;
     return changesPriority || appliesLabels;
+  }
+
+  function ruleHasFallbackEffect(rule: { projectFallbackMode?: string | null }) {
+    return Boolean(rule.projectFallbackMode);
+  }
+
+  function ruleHasProcessingEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+    projectFallbackMode?: string | null;
+  }) {
+    return ruleHasIssueEffect(rule) || ruleHasFallbackEffect(rule);
   }
 
   function rulePriorityOverride(rule: Pick<typeof inboundEmailRules.$inferSelect, "priority"> | null | undefined) {
     return rule && rule.priority !== "medium" ? rule.priority : null;
   }
 
-  function assertRuleHasProcessingEffect(rule: { priority?: string | null; labelIds?: string[] | null }) {
+  function assertRuleHasProcessingEffect(rule: {
+    priority?: string | null;
+    labelIds?: string[] | null;
+    classificationCategory?: string | null;
+    bodyPattern?: string | null;
+    projectFallbackMode?: string | null;
+  }) {
     if (!ruleHasProcessingEffect(rule)) {
-      throw unprocessable("Inbound email rules must change priority or apply at least one label");
+      throw unprocessable("Inbound email rules must change priority, apply a label, or override project fallback");
     }
   }
 
@@ -815,6 +920,30 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     };
   }
 
+  async function assertAgentAutomationAssignee(companyId: string, agentId: string | null | undefined) {
+    if (!agentId) return;
+    const agent = await db
+      .select({ id: agents.id, companyId: agents.companyId, status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .then((rows) => rows[0] ?? null);
+    if (!agent || agent.companyId !== companyId) {
+      throw unprocessable("Inbound email agent automation assignee must belong to this company");
+    }
+    if (agent.status === "pending_approval" || agent.status === "terminated") {
+      throw unprocessable("Inbound email agent automation assignee must be an assignable agent");
+    }
+  }
+
+  function assertAgentAutomationConfig(input: {
+    enabled: boolean;
+    assigneeId: string | null | undefined;
+  }) {
+    if (input.enabled && !input.assigneeId) {
+      throw unprocessable("Inbound email agent automation requires an assignee agent");
+    }
+  }
+
   async function loadMailbox(companyId: string, mailboxId: string) {
     const mailbox = await db
       .select()
@@ -823,6 +952,14 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       .then((rows) => rows[0] ?? null);
     if (!mailbox) throw notFound("Inbound email mailbox not found");
     return mailbox;
+  }
+
+  async function findMailboxById(mailboxId: string) {
+    return db
+      .select()
+      .from(inboundEmailMailboxes)
+      .where(eq(inboundEmailMailboxes.id, mailboxId))
+      .then((rows) => rows[0] ?? null);
   }
 
   async function resolveMailboxPassword(mailbox: typeof inboundEmailMailboxes.$inferSelect): Promise<string | null> {
@@ -891,6 +1028,122 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         ),
       )
       .then((rows) => rows[0] ?? null);
+  }
+
+  async function findExternalIntakeBySource(input: {
+    companyId: string;
+    sourceKind: ImportExternalInboundEmailMessage["sourceKind"];
+    sourceId: string;
+  }) {
+    return db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .where(and(
+        eq(inboundEmailExternalIntakeRecords.companyId, input.companyId),
+        eq(inboundEmailExternalIntakeRecords.sourceKind, input.sourceKind),
+        eq(inboundEmailExternalIntakeRecords.sourceId, input.sourceId),
+      ))
+      .then((rows) => rows[0] ?? null);
+  }
+
+  async function createOrGetExternalIntakeRecord(input: {
+    companyId: string;
+    mailboxId: string;
+    sourceKind: ImportExternalInboundEmailMessage["sourceKind"];
+    sourceId: string;
+    sourceLocation: string | null;
+    rawSha256: string;
+    messageId: string | null;
+    metadata: Record<string, unknown>;
+    receivedAt: Date | null;
+  }) {
+    const [inserted] = await db
+      .insert(inboundEmailExternalIntakeRecords)
+      .values({
+        companyId: input.companyId,
+        mailboxId: input.mailboxId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation: input.sourceLocation,
+        rawSha256: input.rawSha256,
+        messageId: input.messageId,
+        status: "failed",
+        metadata: input.metadata,
+        receivedAt: input.receivedAt,
+      })
+      .onConflictDoNothing({
+        target: [
+          inboundEmailExternalIntakeRecords.companyId,
+          inboundEmailExternalIntakeRecords.sourceKind,
+          inboundEmailExternalIntakeRecords.sourceId,
+        ],
+      })
+      .returning();
+    return inserted ?? await findExternalIntakeBySource({
+      companyId: input.companyId,
+      sourceKind: input.sourceKind,
+      sourceId: input.sourceId,
+    });
+  }
+
+  async function updateExternalIntakeRecord(input: {
+    id: string;
+    status: "imported" | "duplicate" | "failed";
+    inboundMessageId?: string | null;
+    error?: string | null;
+    receivedAt?: Date | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    const [record] = await db
+      .update(inboundEmailExternalIntakeRecords)
+      .set({
+        status: input.status,
+        inboundMessageId: input.inboundMessageId,
+        error: input.error ?? null,
+        receivedAt: input.receivedAt,
+        metadata: input.metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboundEmailExternalIntakeRecords.id, input.id))
+      .returning();
+    return record;
+  }
+
+  function externalIntakeActivityAction(status: "imported" | "duplicate" | "failed" | "conflict") {
+    return `inbound_email.external_intake_${status}`;
+  }
+
+  async function logExternalIntakeActivity(input: {
+    record: typeof inboundEmailExternalIntakeRecords.$inferSelect;
+    status: "imported" | "duplicate" | "failed" | "conflict";
+    actor?: { userId?: string | null; agentId?: string | null };
+    error?: string | null;
+  }) {
+    const metadata = asRecord(input.record.metadata);
+    await logActivity(db, {
+      companyId: input.record.companyId,
+      ...inboundEmailMutationActor(input.actor),
+      action: externalIntakeActivityAction(input.status),
+      entityType: "inbound_email_external_intake",
+      entityId: input.record.id,
+      details: {
+        mailboxId: input.record.mailboxId,
+        sourceKind: input.record.sourceKind,
+        sourceId: input.record.sourceId,
+        sourceLocation: input.record.sourceLocation,
+        rawSha256: input.record.rawSha256,
+        messageId: input.record.messageId,
+        inboundMessageId: input.record.inboundMessageId,
+        status: input.status,
+        error: input.error ?? input.record.error ?? null,
+        receivedAt: input.record.receivedAt?.toISOString() ?? null,
+        metadataKeys: Object.keys(metadata).sort(),
+      },
+    });
+  }
+
+  function externalIntakeProviderUid(sourceKind: ImportExternalInboundEmailMessage["sourceKind"], sourceId: string) {
+    return `external:${sourceKind}:${sourceId}`;
   }
 
   async function storeRawEmail(companyId: string, raw: Buffer, messageId: string | null): Promise<string | null> {
@@ -1015,7 +1268,18 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
   }
 
-  async function selectRule(message: typeof inboundEmailMessages.$inferSelect) {
+  function ruleMatchesMessage(
+    rule: typeof inboundEmailRules.$inferSelect,
+    message: typeof inboundEmailMessages.$inferSelect,
+    bodySearchText: string,
+  ): boolean {
+    return matchesPattern(message.fromAddress, rule.senderPattern) &&
+      matchesPattern(message.subject, rule.subjectPattern) &&
+      matchesPattern(bodySearchText, rule.bodyPattern) &&
+      (!rule.classificationCategory || rule.classificationCategory === message.classificationCategory);
+  }
+
+  async function selectMatchingRules(message: typeof inboundEmailMessages.$inferSelect) {
     const rules = await db
       .select()
       .from(inboundEmailRules)
@@ -1027,21 +1291,26 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         ),
       )
       .orderBy(asc(inboundEmailRules.createdAt), asc(inboundEmailRules.id));
-    return rules.find((rule) =>
-      ruleHasProcessingEffect(rule) &&
-      matchesPattern(message.fromAddress, rule.senderPattern) &&
-      matchesPattern(message.subject, rule.subjectPattern),
-    ) ?? null;
+    const bodySearchText = messageBodySearchText(message);
+    return rules.filter((rule) => ruleMatchesMessage(rule, message, bodySearchText));
   }
 
-  async function resolveProcessingContext(message: typeof inboundEmailMessages.$inferSelect) {
-    const [mailbox, rule] = await Promise.all([
+  async function selectIssueRule(message: typeof inboundEmailMessages.$inferSelect) {
+    const matchingRules = await selectMatchingRules(message);
+    return matchingRules.find((rule) => ruleHasIssueEffect(rule)) ?? null;
+  }
+
+  async function resolveProcessingContext(
+    message: typeof inboundEmailMessages.$inferSelect,
+  ) {
+    const [mailbox, matchingRules] = await Promise.all([
       loadMailbox(message.companyId, message.mailboxId),
-      selectRule(message),
+      selectMatchingRules(message),
     ]);
     return {
       mailbox,
-      rule,
+      rule: matchingRules.find((rule) => ruleHasIssueEffect(rule)) ?? null,
+      fallbackRule: matchingRules.find((rule) => ruleHasFallbackEffect(rule)) ?? null,
     };
   }
 
@@ -1110,6 +1379,116 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
 
   function shouldCreateProjectlessIssue(classification: InboundEmailClassification): boolean {
     return !shouldQuarantineClassification(classification) && classification.category !== "unclear";
+  }
+
+  function effectiveProjectFallbackMode(
+    context: {
+      mailbox: typeof inboundEmailMailboxes.$inferSelect;
+      fallbackRule: typeof inboundEmailRules.$inferSelect | null;
+    },
+  ): InboundEmailProjectFallbackMode {
+    if (!context.mailbox.allowProjectlessTriage) return "request_clarification";
+    return context.fallbackRule?.projectFallbackMode ?? context.mailbox.projectFallbackMode;
+  }
+
+  async function projectHasAutomationWorkspace(companyId: string, projectId: string) {
+    const workspace = await db
+      .select({
+        id: projectWorkspaces.id,
+        cwd: projectWorkspaces.cwd,
+        repoUrl: projectWorkspaces.repoUrl,
+        remoteWorkspaceRef: projectWorkspaces.remoteWorkspaceRef,
+      })
+      .from(projectWorkspaces)
+      .where(
+        and(
+          eq(projectWorkspaces.companyId, companyId),
+          eq(projectWorkspaces.projectId, projectId),
+          or(
+            and(isNotNull(projectWorkspaces.cwd), ne(projectWorkspaces.cwd, "")),
+            and(isNotNull(projectWorkspaces.repoUrl), ne(projectWorkspaces.repoUrl, "")),
+            and(isNotNull(projectWorkspaces.remoteWorkspaceRef), ne(projectWorkspaces.remoteWorkspaceRef, "")),
+          ),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    return Boolean(workspace);
+  }
+
+  async function resolveAgentAutomationPolicy(input: {
+    message: typeof inboundEmailMessages.$inferSelect;
+    classification: InboundEmailClassification | null;
+    context: Awaited<ReturnType<typeof resolveProcessingContext>>;
+    projectId: string | null;
+  }) {
+    const mailbox = input.context.mailbox;
+    if (!mailbox.agentAutomationEnabled || !mailbox.agentAutomationAssigneeId) return null;
+    if (!input.classification || input.classification.category !== "code_bug") return null;
+    if (input.classification.confidence < mailbox.agentAutomationMinConfidence) return null;
+    if (input.classification.safetyFlags.length > 0) return null;
+    if (input.classification.finalAction === "discard_or_quarantine") return null;
+    if (!input.projectId) return null;
+    if (!(await projectHasAutomationWorkspace(input.message.companyId, input.projectId))) return null;
+    const budgetBlock = await budgets.getInvocationBlock(
+      input.message.companyId,
+      mailbox.agentAutomationAssigneeId,
+      { projectId: input.projectId },
+    );
+    if (budgetBlock) return null;
+    return {
+      assigneeAgentId: mailbox.agentAutomationAssigneeId,
+      wakeEnabled: mailbox.agentAutomationWakeEnabled,
+    };
+  }
+
+  async function setMessageClassificationFinalAction(
+    message: typeof inboundEmailMessages.$inferSelect,
+    finalAction: "create_agent_task" | "create_triage_issue",
+  ) {
+    if (message.classificationFinalAction === finalAction) return message;
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({
+        classificationFinalAction: finalAction,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboundEmailMessages.id, message.id))
+      .returning();
+    return updated ?? {
+      ...message,
+      classificationFinalAction: finalAction,
+      updatedAt: new Date(),
+    };
+  }
+
+  async function maybeWakeAssignedInboundIssue(input: {
+    issue: { id: string; assigneeAgentId: string | null; status: string };
+    message: typeof inboundEmailMessages.$inferSelect;
+    wakeEnabled: boolean;
+  }) {
+    if (!input.wakeEnabled || !input.issue.assigneeAgentId) return;
+    const wakeup = await queueIssueAssignmentWakeup({
+      heartbeat,
+      issue: input.issue,
+      reason: "Inbound support code bug auto-assignment",
+      mutation: "inbound_email_agent_automation",
+      contextSource: "inbound-email-agent-automation",
+      requestedByActorType: "system",
+      requestedByActorId: INBOUND_EMAIL_ACTOR.actorId,
+    });
+    await logActivity(db, {
+      companyId: input.message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.agent_wakeup_requested",
+      entityType: "issue",
+      entityId: input.issue.id,
+      details: {
+        messageId: input.message.id,
+        assigneeAgentId: input.issue.assigneeAgentId,
+        queued: Boolean(wakeup),
+      },
+    });
   }
 
   function shouldPreserveClarificationThread(message: typeof inboundEmailMessages.$inferSelect): boolean {
@@ -1361,6 +1740,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   async function createIssueFromMessage(
     message: typeof inboundEmailMessages.$inferSelect,
     context: Awaited<ReturnType<typeof resolveProcessingContext>> & { projectId: string | null },
+    automation?: { assigneeAgentId: string; wakeEnabled: boolean } | null,
   ) {
     const attachmentRows = await db
       .select()
@@ -1369,15 +1749,17 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     const issue = await issues.create(message.companyId, {
       title: (message.subject?.trim() || `Inbound email from ${message.fromAddress ?? "unknown sender"}`).slice(0, 300),
       description: formatIssueDescription({ message, attachmentCount: attachmentRows.length }),
-      status: "backlog",
+      status: automation ? "todo" : "backlog",
       priority: rulePriorityOverride(context.rule) ?? defaultPriorityForClassification(message.classificationCategory),
       projectId: context.projectId,
+      assigneeAgentId: automation?.assigneeAgentId,
       labelIds: context.rule?.labelIds ?? [],
       originKind: "inbound_email",
       originId: message.id,
       originFingerprint: message.rawSha256,
     });
     await linkIssueAttachmentsFromMessage(message, issue.id, attachmentRows);
+    await maybeWakeAssignedInboundIssue({ issue, message, wakeEnabled: automation?.wakeEnabled ?? false });
     return issue;
   }
 
@@ -1404,6 +1786,31 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         )
         .onConflictDoNothing({ target: issueAttachments.assetId });
     }
+  }
+
+  async function recordInfraIncidentFromMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+    projectId: string | null,
+    issue: typeof issueRows.$inferSelect,
+  ) {
+    if (message.classificationCategory !== "infra_incident" || !projectId) return null;
+    const summary = (
+      message.classificationSummary?.trim() ||
+      message.subject?.trim() ||
+      `Infrastructure incident reported by ${message.fromAddress ?? "unknown sender"}`
+    ).slice(0, 300);
+    const result = await infraIncidents.recordOccurrence(projectId, {
+      issueId: issue.id,
+      sourceKind: "inbound_email",
+      sourceId: message.id,
+      status: "open",
+      severity: message.classificationSeverity ?? "high",
+      summary,
+      details: message.classificationSummary ?? null,
+      recommendedAction: "Triage the reported infrastructure incident. Provider repair and failover actions require separate approval.",
+      metadata: { latestInboundEmailMessageId: message.id },
+    });
+    return result?.incident ?? null;
   }
 
   async function resolveSenderIdentity(
@@ -2051,6 +2458,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     ): Promise<MailboxView> => {
       const mailboxId = randomUUID();
       const normalized = normalizeCreateMailboxInput(input);
+      assertAgentAutomationConfig({
+        enabled: normalized.agentAutomationEnabled,
+        assigneeId: normalized.agentAutomationAssigneeId,
+      });
+      await assertAgentAutomationAssignee(companyId, normalized.agentAutomationAssigneeId);
       const trimmedPassword = normalized.password?.trim() ?? "";
       let passwordSecretName: string | null = null;
 
@@ -2076,6 +2488,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: normalized.tls,
               pollIntervalSeconds: normalized.pollIntervalSeconds,
               supportRepliesEnabled: normalized.supportRepliesEnabled,
+              allowProjectlessTriage: normalized.allowProjectlessTriage,
+              projectFallbackMode: normalized.projectFallbackMode,
+              agentAutomationEnabled: normalized.agentAutomationEnabled,
+              agentAutomationAssigneeId: normalized.agentAutomationAssigneeId ?? null,
+              agentAutomationMinConfidence: normalized.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: normalized.agentAutomationWakeEnabled,
               passwordSecretName,
             })
             .returning();
@@ -2094,6 +2512,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: created.tls,
               pollIntervalSeconds: created.pollIntervalSeconds,
               supportRepliesEnabled: created.supportRepliesEnabled,
+              allowProjectlessTriage: created.allowProjectlessTriage,
+              projectFallbackMode: created.projectFallbackMode,
+              agentAutomationEnabled: created.agentAutomationEnabled,
+              agentAutomationAssigneeId: created.agentAutomationAssigneeId,
+              agentAutomationMinConfidence: created.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: created.agentAutomationWakeEnabled,
               passwordSet: Boolean(created.passwordSecretName),
             },
           });
@@ -2121,6 +2545,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     ): Promise<MailboxView> => {
       const existing = await loadMailbox(companyId, mailboxId);
       const normalized = normalizeUpdateMailboxInput(input);
+      const nextAgentAutomationAssigneeId =
+        normalized.agentAutomationAssigneeId === undefined
+          ? existing.agentAutomationAssigneeId
+          : normalized.agentAutomationAssigneeId;
+      assertAgentAutomationConfig({
+        enabled: normalized.agentAutomationEnabled ?? existing.agentAutomationEnabled,
+        assigneeId: nextAgentAutomationAssigneeId,
+      });
+      await assertAgentAutomationAssignee(companyId, nextAgentAutomationAssigneeId);
 
       // Update the row first so a validation failure (unique name, FK, etc.)
       // surfaces before we mutate the stored secret. The password field is
@@ -2183,6 +2616,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               tls: existing.tls,
               pollIntervalSeconds: existing.pollIntervalSeconds,
               supportRepliesEnabled: existing.supportRepliesEnabled,
+              allowProjectlessTriage: existing.allowProjectlessTriage,
+              projectFallbackMode: existing.projectFallbackMode,
+              agentAutomationEnabled: existing.agentAutomationEnabled,
+              agentAutomationAssigneeId: existing.agentAutomationAssigneeId,
+              agentAutomationMinConfidence: existing.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: existing.agentAutomationWakeEnabled,
               passwordSecretName: existing.passwordSecretName,
               updatedAt: new Date(),
             })
@@ -2211,11 +2650,81 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           folder: finalMailbox.folder,
           tls: finalMailbox.tls,
           pollIntervalSeconds: finalMailbox.pollIntervalSeconds,
+          supportRepliesEnabled: finalMailbox.supportRepliesEnabled,
+          allowProjectlessTriage: finalMailbox.allowProjectlessTriage,
+          projectFallbackMode: finalMailbox.projectFallbackMode,
+          agentAutomationEnabled: finalMailbox.agentAutomationEnabled,
+          agentAutomationAssigneeId: finalMailbox.agentAutomationAssigneeId,
+          agentAutomationMinConfidence: finalMailbox.agentAutomationMinConfidence,
+          agentAutomationWakeEnabled: finalMailbox.agentAutomationWakeEnabled,
           passwordSet: Boolean(finalMailbox.passwordSecretName),
           changedFields: Object.keys(input),
         },
       });
       return redactMailbox(finalMailbox);
+    },
+
+    rotateExternalIntakeToken: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ): Promise<{ mailbox: MailboxView; token: string }> => {
+      await loadMailbox(companyId, mailboxId);
+      const token = generateExternalIntakeToken();
+      const tokenHint = token.slice(-8);
+      const [mailbox] = await db
+        .update(inboundEmailMailboxes)
+        .set({
+          externalIntakeTokenHash: hashExternalIntakeToken(token),
+          externalIntakeTokenHint: tokenHint,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
+        .returning();
+      if (!mailbox) throw notFound("Inbound email mailbox not found");
+
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.external_intake_token_rotated",
+        entityType: "inbound_email_mailbox",
+        entityId: mailbox.id,
+        details: {
+          mailboxId: mailbox.id,
+          tokenHint,
+        },
+      });
+
+      return { mailbox: redactMailbox(mailbox), token };
+    },
+
+    revokeExternalIntakeToken: async (
+      companyId: string,
+      mailboxId: string,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ): Promise<MailboxView> => {
+      await loadMailbox(companyId, mailboxId);
+      const [mailbox] = await db
+        .update(inboundEmailMailboxes)
+        .set({
+          externalIntakeTokenHash: null,
+          externalIntakeTokenHint: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(inboundEmailMailboxes.id, mailboxId), eq(inboundEmailMailboxes.companyId, companyId)))
+        .returning();
+      if (!mailbox) throw notFound("Inbound email mailbox not found");
+
+      await logActivity(db, {
+        companyId,
+        ...inboundEmailMutationActor(actor),
+        action: "inbound_email.external_intake_token_revoked",
+        entityType: "inbound_email_mailbox",
+        entityId: mailbox.id,
+        details: { mailboxId: mailbox.id },
+      });
+
+      return redactMailbox(mailbox);
     },
 
     deleteMailbox: async (
@@ -2298,6 +2807,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: input.enabled,
           senderPattern: asNullableString(input.senderPattern),
           subjectPattern: asNullableString(input.subjectPattern),
+          bodyPattern: asNullableString(input.bodyPattern),
+          classificationCategory: input.classificationCategory ?? null,
+          projectFallbackMode: input.projectFallbackMode ?? null,
           priority: input.priority,
           labelIds,
         })
@@ -2313,6 +2825,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: rule.enabled,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
         },
@@ -2338,6 +2853,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       assertRuleHasProcessingEffect({
         priority: input.priority ?? existing.priority,
         labelIds: labelIds ?? existing.labelIds,
+        classificationCategory: input.classificationCategory === undefined ? existing.classificationCategory : input.classificationCategory,
+        bodyPattern: input.bodyPattern === undefined ? existing.bodyPattern : input.bodyPattern,
+        projectFallbackMode: input.projectFallbackMode === undefined ? existing.projectFallbackMode : input.projectFallbackMode,
       });
       const [rule] = await db
         .update(inboundEmailRules)
@@ -2346,6 +2864,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           labelIds,
           senderPattern: input.senderPattern === undefined ? undefined : asNullableString(input.senderPattern),
           subjectPattern: input.subjectPattern === undefined ? undefined : asNullableString(input.subjectPattern),
+          bodyPattern: input.bodyPattern === undefined ? undefined : asNullableString(input.bodyPattern),
+          classificationCategory: input.classificationCategory === undefined ? undefined : input.classificationCategory,
+          projectFallbackMode: input.projectFallbackMode === undefined ? undefined : input.projectFallbackMode,
           updatedAt: new Date(),
         })
         .where(and(eq(inboundEmailRules.id, ruleId), eq(inboundEmailRules.companyId, companyId)))
@@ -2362,6 +2883,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           enabled: rule.enabled,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
           changedFields: Object.keys(input),
@@ -2390,6 +2914,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           mailboxId: rule.mailboxId,
           senderPattern: rule.senderPattern,
           subjectPattern: rule.subjectPattern,
+          bodyPattern: rule.bodyPattern,
+          classificationCategory: rule.classificationCategory,
+          projectFallbackMode: rule.projectFallbackMode,
           priority: rule.priority,
           labelIds: rule.labelIds,
         },
@@ -2405,6 +2932,18 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         const conditions = [eq(inboundEmailMessages.companyId, companyId)];
         if (filters?.status) {
           conditions.push(eq(inboundEmailMessages.status, filters.status));
+        }
+        if (filters?.classificationCategory) {
+          conditions.push(eq(inboundEmailMessages.classificationCategory, filters.classificationCategory));
+        }
+        if (filters?.classificationReview === "low_confidence") {
+          conditions.push(sql`(
+            ${inboundEmailMessages.classifiedAt} is not null
+            and (
+              ${inboundEmailMessages.classificationCategory} = 'unclear'
+              or coalesce(${inboundEmailMessages.classificationConfidence}, 0) <= ${INBOUND_EMAIL_CLASSIFICATION_REVIEW_CONFIDENCE_MAX}
+            )
+          )`);
         }
         if (filters?.mailboxId) {
           conditions.push(eq(inboundEmailMessages.mailboxId, filters.mailboxId));
@@ -2450,6 +2989,58 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           )
           .limit(limit);
       }, filters);
+    },
+
+    listExternalIntakeRecords: async (
+      companyId: string,
+      options?: ListInboundEmailExternalIntakeOptions,
+    ) => {
+      const page = await paginated(async (limit, cursor) => {
+        const conditions = [eq(inboundEmailExternalIntakeRecords.companyId, companyId)];
+        if (options?.status) {
+          conditions.push(eq(inboundEmailExternalIntakeRecords.status, options.status));
+        }
+        if (options?.mailboxId) {
+          conditions.push(eq(inboundEmailExternalIntakeRecords.mailboxId, options.mailboxId));
+        }
+        if (cursor) {
+          const descOrder = options?.order === "desc";
+          conditions.push(
+            descOrder
+              ? or(
+                sql`${inboundEmailExternalIntakeRecords.createdAt} < ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailExternalIntakeRecords.createdAt, cursor.createdAt),
+                  sql`${inboundEmailExternalIntakeRecords.id} < ${cursor.id}::uuid`,
+                ),
+              )!
+              : or(
+                sql`${inboundEmailExternalIntakeRecords.createdAt} > ${cursor.createdAt.toISOString()}::timestamptz`,
+                and(
+                  eq(inboundEmailExternalIntakeRecords.createdAt, cursor.createdAt),
+                  sql`${inboundEmailExternalIntakeRecords.id} > ${cursor.id}::uuid`,
+                ),
+              )!,
+          );
+        }
+        return db
+          .select()
+          .from(inboundEmailExternalIntakeRecords)
+          .where(and(...conditions))
+          .orderBy(
+            options?.order === "desc"
+              ? desc(inboundEmailExternalIntakeRecords.createdAt)
+              : asc(inboundEmailExternalIntakeRecords.createdAt),
+            options?.order === "desc"
+              ? desc(inboundEmailExternalIntakeRecords.id)
+              : asc(inboundEmailExternalIntakeRecords.id),
+          )
+          .limit(limit);
+      }, options);
+      return {
+        items: page.items.map(toExternalIntakeRecord),
+        nextCursor: page.nextCursor,
+      };
     },
 
     enqueueDueMailboxPollJobs: async (now = new Date()) => {
@@ -2703,6 +3294,218 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       return { message, status: "persisted" as const };
     },
 
+    submitExternalIntakeMessage: async (
+      companyId: string,
+      input: ImportExternalInboundEmailMessage,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      await loadMailbox(companyId, input.mailboxId);
+      const raw = Buffer.from(input.rawEmail, "utf8");
+      const rawSha256 = hashBuffer(raw);
+      const sourceLocation =
+        inboundEmailExternalIntakeSourceLocationSchema.parse(asNullableString(input.sourceLocation)) ?? null;
+      const metadata = inboundEmailExternalIntakeMetadataSchema.parse(asRecord(input.metadata));
+      const existing = await findExternalIntakeBySource({
+        companyId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+      });
+      if (existing && existing.rawSha256 !== rawSha256) {
+        await logExternalIntakeActivity({
+          record: existing,
+          status: "conflict",
+          actor,
+          error: "External inbound email source already points to a different raw message",
+        });
+        throw conflict("External inbound email source already points to a different raw message", {
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+        });
+      }
+      if (existing && existing.inboundMessageId && existing.status !== "failed") {
+        const message = await db
+          .select()
+          .from(inboundEmailMessages)
+          .where(eq(inboundEmailMessages.id, existing.inboundMessageId))
+          .then((rows) => rows[0] ?? null);
+        return {
+          intakeRecord: toExternalIntakeRecord(existing),
+          message,
+          status: existing.status,
+        };
+      }
+
+      let parsed: Awaited<ReturnType<typeof parseInboundEmail>>;
+      try {
+        parsed = await parseInboundEmail(raw);
+      } catch (error) {
+        const intakeRecord = await createOrGetExternalIntakeRecord({
+          companyId,
+          mailboxId: input.mailboxId,
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+          sourceLocation,
+          rawSha256,
+          messageId: null,
+          metadata,
+          receivedAt: input.receivedAt ?? null,
+        });
+        if (!intakeRecord) {
+          throw unprocessable("External inbound email intake record could not be created");
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: "failed",
+          error: message,
+          receivedAt: input.receivedAt ?? null,
+          metadata,
+        });
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status: "failed",
+          actor,
+          error: message,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: null,
+          status: "failed" as const,
+        };
+      }
+
+      const receivedAt = input.receivedAt ?? parsed.receivedAt;
+      const intakeRecord = await createOrGetExternalIntakeRecord({
+        companyId,
+        mailboxId: input.mailboxId,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation,
+        rawSha256,
+        messageId: parsed.messageId,
+        metadata,
+        receivedAt,
+      });
+      if (!intakeRecord) {
+        throw unprocessable("External inbound email intake record could not be created");
+      }
+      if (intakeRecord.rawSha256 !== rawSha256) {
+        throw conflict("External inbound email source already points to a different raw message", {
+          sourceKind: input.sourceKind,
+          sourceId: input.sourceId,
+        });
+      }
+
+      try {
+        const imported = await api.submitRawMessage({
+          companyId,
+          mailboxId: input.mailboxId,
+          providerUid: externalIntakeProviderUid(input.sourceKind, input.sourceId),
+          rawEmail: raw,
+          processAfterImport: input.processAfterImport,
+          actor,
+        });
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: imported.status === "duplicate" ? "duplicate" : "imported",
+          inboundMessageId: imported.message.id,
+          error: null,
+          receivedAt,
+          metadata,
+        });
+        const status = imported.status === "duplicate" ? "duplicate" as const : "imported" as const;
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status,
+          actor,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: imported.message,
+          status,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const updated = await updateExternalIntakeRecord({
+          id: intakeRecord.id,
+          status: "failed",
+          error: message,
+          receivedAt,
+          metadata,
+        });
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status: "failed",
+          actor,
+          error: message,
+        });
+        return {
+          intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
+          message: null,
+          status: "failed" as const,
+        };
+      }
+    },
+
+    submitExternalIntakeMessageWithToken: async (
+      mailboxId: string,
+      token: string,
+      input: SubmitExternalInboundEmailIntake,
+    ) => {
+      const mailbox = await findMailboxById(mailboxId);
+      if (!mailbox || !externalIntakeTokenMatches(mailbox.externalIntakeTokenHash, token)) {
+        return null;
+      }
+
+      return api.submitExternalIntakeMessage(mailbox.companyId, {
+        mailboxId: mailbox.id,
+        sourceKind: input.sourceKind,
+        sourceId: input.sourceId,
+        sourceLocation: input.sourceLocation ?? null,
+        rawEmail: input.rawEmail,
+        receivedAt: input.receivedAt ?? null,
+        processAfterImport: true,
+        metadata: input.metadata ?? {},
+      });
+    },
+
+    submitExternalIntakeMessagesBatch: async (
+      companyId: string,
+      input: ImportExternalInboundEmailMessagesBatch,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      const results = [];
+      for (const messageInput of input.messages) {
+        try {
+          const result = await api.submitExternalIntakeMessage(companyId, messageInput, actor);
+          results.push({
+            sourceKind: messageInput.sourceKind,
+            sourceId: messageInput.sourceId,
+            status: result.status,
+            intakeRecord: result.intakeRecord,
+            message: result.message,
+            error: null,
+          });
+        } catch (error) {
+          results.push({
+            sourceKind: messageInput.sourceKind,
+            sourceId: messageInput.sourceId,
+            status: "failed" as const,
+            intakeRecord: null,
+            message: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      return {
+        importedCount: results.filter((result) => result.status === "imported").length,
+        duplicateCount: results.filter((result) => result.status === "duplicate").length,
+        failedCount: results.filter((result) => result.status === "failed").length,
+        results,
+      };
+    },
+
     processMessage: async (companyId: string, messageId: string, ops?: SessionImapOps) => {
       const message = await db
         .select()
@@ -2783,7 +3586,6 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             requester: identity.employee,
           });
         } else {
-          const context = await resolveProcessingContext(message);
           const authorization = await resolveSenderAuthorization(message, identity);
           const projectResolved = Boolean(authorization.allowed && authorization.project);
           const classifiedMessage = await classifyAndPersistMessage({
@@ -2792,6 +3594,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
             projectResolved,
           });
           const classification = classificationFromMessage(classifiedMessage);
+          const context = await resolveProcessingContext(classifiedMessage);
 
           if (!authorization.allowed) {
             const reason = authorization.reason ?? "sender_not_authorized";
@@ -2799,6 +3602,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               reason === "project_not_identified" &&
               classification &&
               shouldCreateProjectlessIssue(classification) &&
+              effectiveProjectFallbackMode(context) === "create_projectless_triage" &&
               !shouldPreserveClarificationThread(message)
             ) {
               const issue = await db
@@ -2810,10 +3614,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                     eq(issueRows.originKind, "inbound_email"),
                     eq(issueRows.originId, message.id),
                   ),
-                )
-                .then((rows) => rows[0] ?? null)
-                ?? await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
+              )
+              .then((rows) => rows[0] ?? null)
+              ?? await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
               await linkIssueAttachmentsFromMessage(classifiedMessage, issue.id);
+              await recordInfraIncidentFromMessage(classifiedMessage, null, issue);
               const [updated] = await db
                 .update(inboundEmailMessages)
                 .set({
@@ -2886,6 +3691,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               },
             });
           } else {
+            const projectId = authorization.project?.id ?? null;
+            const automation = await resolveAgentAutomationPolicy({
+              message: classifiedMessage,
+              classification,
+              context,
+              projectId,
+            });
+            const issueMessage = automation
+              ? await setMessageClassificationFinalAction(classifiedMessage, "create_agent_task")
+              : classifiedMessage;
             const issue = await db
               .select()
               .from(issueRows)
@@ -2897,11 +3712,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 ),
               )
               .then((rows) => rows[0] ?? null)
-              ?? await createIssueFromMessage(classifiedMessage, {
+              ?? await createIssueFromMessage(issueMessage, {
                 ...context,
-                projectId: authorization.project?.id ?? null,
-              });
-            await linkIssueAttachmentsFromMessage(classifiedMessage, issue.id);
+                projectId,
+              }, automation);
+            await linkIssueAttachmentsFromMessage(issueMessage, issue.id);
+            await recordInfraIncidentFromMessage(issueMessage, projectId, issue);
             const [updated] = await db
               .update(inboundEmailMessages)
               .set({
@@ -2923,11 +3739,13 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 identifier: issue.identifier,
                 subject: message.subject,
                 classificationCategory: classification?.category ?? null,
-                classificationFinalAction: classification?.finalAction ?? null,
+                classificationFinalAction: issueMessage.classificationFinalAction ?? classification?.finalAction ?? null,
+                agentAutomationAssigneeId: automation?.assigneeAgentId ?? null,
+                agentAutomationWakeEnabled: automation?.wakeEnabled ?? false,
               },
             });
             completedMessage = updated ?? {
-              ...classifiedMessage,
+              ...issueMessage,
               status: "processed" as const,
               createdIssueId: issue.id,
               error: null,
@@ -3417,7 +4235,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     },
 
     // Exposed for tests.
-    _selectRule: selectRule,
+    _selectRule: selectIssueRule,
   };
   return api;
 }

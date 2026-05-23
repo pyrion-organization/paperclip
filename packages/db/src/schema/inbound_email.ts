@@ -13,6 +13,7 @@ import {
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
 import { assets } from "./assets.js";
+import { agents } from "./agents.js";
 
 export type InboundEmailClassificationCategory =
   | "code_bug"
@@ -44,6 +45,7 @@ export type InboundEmailSupportReplyReason =
   | "unsafe_or_spam"
   | "missing_sender"
   | "send_failed";
+export type InboundEmailProjectFallbackMode = "create_projectless_triage" | "request_clarification";
 export type InboundEmailMessageStatus =
   | "discovered"
   | "persisted"
@@ -53,6 +55,12 @@ export type InboundEmailMessageStatus =
   | "failed"
   | "duplicate";
 export type InboundEmailAttachmentStatus = "stored" | "failed";
+export type InboundEmailExternalIntakeSourceKind =
+  | "webhook"
+  | "queue"
+  | "object_storage"
+  | "manual_recovery";
+export type InboundEmailExternalIntakeStatus = "imported" | "duplicate" | "failed";
 
 export const inboundEmailMailboxes = pgTable(
   "inbound_email_mailboxes",
@@ -69,6 +77,14 @@ export const inboundEmailMailboxes = pgTable(
     tls: boolean("tls").notNull().default(true),
     pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(60),
     supportRepliesEnabled: boolean("support_replies_enabled").notNull().default(false),
+    allowProjectlessTriage: boolean("allow_projectless_triage").notNull().default(true),
+    projectFallbackMode: text("project_fallback_mode").$type<InboundEmailProjectFallbackMode>().notNull().default("create_projectless_triage"),
+    agentAutomationEnabled: boolean("agent_automation_enabled").notNull().default(false),
+    agentAutomationAssigneeId: uuid("agent_automation_assignee_id").references(() => agents.id, { onDelete: "set null" }),
+    agentAutomationMinConfidence: integer("agent_automation_min_confidence").notNull().default(80),
+    agentAutomationWakeEnabled: boolean("agent_automation_wake_enabled").notNull().default(true),
+    externalIntakeTokenHash: text("external_intake_token_hash"),
+    externalIntakeTokenHint: text("external_intake_token_hint"),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -82,6 +98,9 @@ export const inboundEmailMailboxes = pgTable(
       table.lastPollAt,
     ),
     companyNameUq: uniqueIndex("inbound_email_mailboxes_company_name_uq").on(table.companyId, table.name),
+    externalIntakeTokenHashUq: uniqueIndex("inbound_email_mailboxes_external_intake_token_hash_uq").on(
+      table.externalIntakeTokenHash,
+    ),
   }),
 );
 
@@ -94,6 +113,9 @@ export const inboundEmailRules = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     senderPattern: text("sender_pattern"),
     subjectPattern: text("subject_pattern"),
+    bodyPattern: text("body_pattern"),
+    classificationCategory: text("classification_category").$type<InboundEmailClassificationCategory>(),
+    projectFallbackMode: text("project_fallback_mode").$type<InboundEmailProjectFallbackMode>(),
     priority: text("priority").notNull().default("medium"),
     labelIds: jsonb("label_ids").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -186,5 +208,41 @@ export const inboundEmailAttachments = pgTable(
     companyMessageIdx: index("inbound_email_attachments_company_message_idx").on(table.companyId, table.messageId),
     assetIdx: index("inbound_email_attachments_asset_idx").on(table.assetId),
     messageShaIdx: index("inbound_email_attachments_message_sha_idx").on(table.messageId, table.sha256),
+  }),
+);
+
+export const inboundEmailExternalIntakeRecords = pgTable(
+  "inbound_email_external_intake_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    mailboxId: uuid("mailbox_id").notNull().references(() => inboundEmailMailboxes.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind").$type<InboundEmailExternalIntakeSourceKind>().notNull(),
+    sourceId: text("source_id").notNull(),
+    sourceLocation: text("source_location"),
+    rawSha256: text("raw_sha256").notNull(),
+    messageId: text("message_id"),
+    status: text("status").$type<InboundEmailExternalIntakeStatus>().notNull(),
+    inboundMessageId: uuid("inbound_message_id").references(() => inboundEmailMessages.id, { onDelete: "set null" }),
+    error: text("error"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    companyStatusIdx: index("inbound_email_external_intake_company_status_idx").on(table.companyId, table.status),
+    companyMailboxCreatedIdx: index("inbound_email_external_intake_mailbox_created_idx").on(
+      table.companyId,
+      table.mailboxId,
+      table.createdAt,
+    ),
+    companyRawShaIdx: index("inbound_email_external_intake_raw_sha_idx").on(table.companyId, table.rawSha256),
+    inboundMessageIdx: index("inbound_email_external_intake_message_idx").on(table.inboundMessageId),
+    companySourceUq: uniqueIndex("inbound_email_external_intake_source_uq").on(
+      table.companyId,
+      table.sourceKind,
+      table.sourceId,
+    ),
   }),
 );

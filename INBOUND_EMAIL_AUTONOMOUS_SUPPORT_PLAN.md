@@ -780,7 +780,7 @@ Deliverables:
 - classifier helper,
 - policy gate,
 - issue description classification block,
-- unsafe skip/quarantine behavior,
+- unsafe skip/quarantine behavior and Email Ops quarantine visibility,
 - tests.
 
 ### Phase 2: Better Support Intake
@@ -795,6 +795,14 @@ Deliverables:
 - support-specific inbound rules,
 - better project fallback handling.
 
+Implemented base support replies and the next routing-control layer:
+
+- mailbox-level projectless triage policy,
+- missing-project fallback mode,
+- category/body-aware inbound rules,
+- rule-level fallback overrides,
+- compact settings UI controls.
+
 ### Phase 3: LLM-Assisted Classification
 
 Add optional LLM classifier as advisory only.
@@ -806,6 +814,16 @@ Deliverables:
 - confidence thresholds,
 - sample/eval corpus,
 - human-review queue for low-confidence cases.
+
+Implemented Phase 3 foundation without adding an LLM call path:
+
+- deterministic classifier remains the authoritative fallback and policy input,
+- low-confidence threshold is represented by the Email Ops Classification Review
+  queue for `unclear` or confidence <= 60 classified messages,
+- classifier eval corpus covers unsafe input, infra incidents, code bugs,
+  account/access, feature requests, how-to questions, and vague reports,
+- no classifier output can directly run agents, deploy code, or repair
+  infrastructure.
 
 ### Phase 4: Coding Agent Automation
 
@@ -819,6 +837,19 @@ Deliverables:
 - focused verification requirements,
 - operator visibility.
 
+Implemented the first conservative agent automation layer:
+
+- mailbox-level opt-in agent automation,
+- configured assignable code-bug assignee,
+- minimum classifier confidence gate,
+- resolved-project requirement,
+- configured project workspace requirement,
+- budget hard-stop invocation gate,
+- safety-flag block,
+- sanitized assigned `todo` issue creation,
+- optional assignee wakeup,
+- no auto-deploy.
+
 ### Phase 5: Deploy Workflow
 
 Connect fixed code to deployment.
@@ -830,6 +861,38 @@ Deliverables:
 - deploy logs,
 - rollback instructions,
 - user maintenance updates.
+
+Implemented the approved-deploy foundation:
+
+- project deployment targets with environment, provider, URLs, notes, rollback
+  instructions, deploy/rollback command descriptors, explicit command-execution
+  opt-in, and active/disabled status,
+- `deploy_change` approvals linked to the project issue,
+- approval payload evidence for changed files, tests run, target snapshot,
+  issue snapshot, risk, rollback plan, and optional maintenance text,
+- deploy event records for approval requested/approved/rejected visibility,
+- approved deploy event status transitions for manual/agent-assisted execution
+  handoff (`deploying`, `deployed`, `failed`, `rolled_back`),
+- deployment target maintenance-update opt-in with explicit recipients,
+- approval-gated maintenance message sends with delivery status, recipients,
+  timestamps, and retry-safe duplicate prevention,
+- approval-gated deploy/rollback command evidence records that require the
+  exact target command descriptor and compatible deploy-event status,
+- command evidence now advances deploy event status for deploy
+  running/succeeded/failed and successful rollback outcomes, keeping operator
+  state aligned with the recorded handoff,
+- terminal deploy/rollback command records require output, a note, or an exit
+  code so manual execution evidence cannot be marked complete without proof,
+- approved deploy/rollback command descriptors can be executed from Paperclip
+  only when the deployment target explicitly enables command execution, the
+  approval is accepted, the actor is the requesting agent or board, the event
+  status is compatible, and the project has a primary local workspace,
+- Paperclip execution records a workspace operation, persists command evidence,
+  advances deploy event status, and logs activity; it does not add provider API,
+  DNS, or infra-repair authority,
+- compact project configuration UI for targets and recent deploy events,
+- no automatic production deploy execution without explicit approved-command
+  execution by an eligible actor.
 
 ### Phase 6: Infra Agent
 
@@ -844,6 +907,42 @@ Deliverables:
 - approval-gated repair actions,
 - redundant provider failover plan.
 
+Implemented the first infra topology and health foundation:
+
+- project infrastructure targets with provider/account/environment/region/host
+  metadata,
+- failover group and rank metadata for future redundant provider planning,
+- explicit `repairActionsRequireApproval` boundary on infra targets,
+- project health-check records with last-known health result,
+- health-result recording that can create a linked infra incident issue for
+  degraded/unhealthy checks,
+- trusted `infra_incident` support emails that resolve to a project now create
+  infra incident records linked to the triage issue,
+- compact project UI for infra targets, health checks, and incidents,
+- approval-gated infra repair/failover proposals linked to infra incidents,
+- manual action evidence records that require approved `infra_repair`
+  approval,
+- scheduled HTTP health-check runner that evaluates due enabled checks, stores
+  status/latency/error evidence, and creates or reuses open infra incidents for
+  degraded/unhealthy checks,
+- active infra incident grouping by health check, infra target, or
+  project-level inbound infra report, with occurrence counts and last occurrence
+  timestamps,
+- configurable evidence-only incident escalation for urgent/high-severity or
+  repeated active incidents,
+- metadata-only provider capability descriptors for common VPS/cloud/PaaS
+  providers, exposed on infra targets for planning and UI visibility,
+- validation that rejects provider credentials, tokens, passwords, and API keys
+  from ordinary infrastructure target metadata,
+- per-health-check external monitor tokens that accept evidence-only status
+  reports through a narrow public endpoint without board, provider, deploy, or
+  repair authority,
+- no automatic provider repair, failover, DNS, SSH, or VPS mutation.
+
+Phase 6 is now implemented as a safe foundation. Provider repair and failover
+execution remain intentionally out of scope until explicit credentials,
+approval, rollback, and evidence controls are designed for a later phase.
+
 ### Phase 7: External Resilience
 
 Make support intake survive Paperclip downtime.
@@ -855,6 +954,50 @@ Deliverables:
 - webhook/queue import,
 - recovery import,
 - operator fallback procedure.
+
+Implemented the first external intake preservation and recovery-import
+foundation:
+
+- added durable `inbound_email_external_intake_records` evidence records for
+  preserved raw messages,
+- added `webhook`, `queue`, `object_storage`, and `manual_recovery` source
+  kinds,
+- added board API import/list endpoints for external intake records,
+- added per-mailbox external intake tokens with one-time token reveal, stored
+  hash/hint, and board rotate/revoke controls,
+- added a narrow public external intake endpoint for webhook, queue, and
+  object-storage backup systems to submit preserved raw emails without board,
+  agent, deploy, or infra authority,
+- rate-limited public external intake by mailbox and client IP before token
+  checks, request-body validation, or import work starts, including
+  invalid-token rotation and malformed payloads,
+- added an Inbound Email Ops recovery panel for operator paste/import, bounded
+  batch JSON recovery, per-item batch result review, and filtered/paginated
+  intake review,
+- added a failed-record retry handoff that preloads the mailbox, source kind,
+  source ID, and source location into the recovery form so operators can paste
+  the preserved raw `.eml` without retyping evidence fields,
+- routed imports through the existing raw inbound email importer so message
+  dedupe, attachment recovery, processing jobs, classification, support replies,
+  and issue creation stay centralized,
+- added external intake activity events for imported, duplicate, failed, and
+  conflicting source records without logging raw email bodies or metadata values,
+- rejected external intake metadata keys that look like credentials, tokens,
+  passwords, cookies, sessions, or API keys,
+- rejected external intake source locations that include signed URL parameters,
+  tokens, credentials, cookies, sessions, passwords, or API keys,
+- added a bounded board-only batch import endpoint with per-message imported,
+  duplicate, and failed results so one bad preserved `.eml` does not block a
+  downtime recovery batch,
+- made retries idempotent by external source ID and by raw message fingerprint,
+- rejected source ID reuse when the raw message bytes differ,
+- kept external monitoring evidence-only and did not add provider mutations,
+  automatic repair, failover, or production deploy execution.
+- added evidence-only health result source fields and token-protected external
+  monitor ingestion so external monitors can submit status, source ID/detail,
+  and metadata without gaining provider repair authority.
+- documented the external backup handoff format and operator downtime recovery
+  procedure for preserved raw `.eml` messages.
 
 ## Open Decisions
 
@@ -873,18 +1016,13 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Implement Phase 1 only.
+Run a deployment-readiness audit before handoff:
 
-The first PR should be intentionally conservative:
+- verify every implemented phase against current schema, server, worker, UI,
+  docs, and tests,
+- run the PR-ready verification suite,
+- keep provider repair and failover execution as a non-goal until explicit
+  credentials, approval, rollback, and evidence controls are designed.
 
-- deterministic classifier,
-- persisted classification metadata,
-- policy gate,
-- classified issue creation,
-- unsafe skip behavior,
-- compact ops UI visibility,
-- focused tests.
-
-After that lands and real support emails are observed, use the data to tune
-classification rules and decide when to add LLM assistance, auto-replies, agent
-assignment, and deploy automation.
+Do not add automatic provider mutations, DNS changes, or infra repair until the
+approval, rollback, health, and incident paths are covered by focused tests.

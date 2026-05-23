@@ -23,6 +23,7 @@ import { DraftInput } from "./agent-config-primitives";
 import { InlineEditor } from "./InlineEditor";
 import { EnvVarEditor } from "./EnvVarEditor";
 import { ProjectClientList } from "./ProjectClientList";
+import { ProjectDeploymentSettings } from "./ProjectDeploymentSettings";
 
 const PROJECT_STATUSES = [
   { value: "backlog", label: "Backlog" },
@@ -657,6 +658,10 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
           </PropertyRow>
         )}
       </div>
+
+      <Separator className="my-4" />
+
+      <ProjectDeploymentSettings project={project} />
 
       <Separator className="my-4" />
 

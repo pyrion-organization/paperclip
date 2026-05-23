@@ -717,6 +717,94 @@ export async function sendInboundEmailRegistrationReply(params: {
   return { status: "sent" };
 }
 
+export type ProjectDeployMaintenanceEmailResult =
+  | { status: "sent" }
+  | { status: "skipped"; reason: "smtp_not_configured" }
+  | { status: "failed"; reason: "send_failed"; error: string };
+
+export async function sendProjectDeployMaintenanceEmailWithResult(params: {
+  to: string[];
+  projectName: string;
+  targetName: string;
+  targetEnvironment: string;
+  deployStatus: string;
+  message: string;
+  issueIdentifier?: string | null;
+  issueTitle?: string | null;
+  approvalId?: string | null;
+  deployEventId?: string | null;
+  db?: Db | null;
+  companyId?: string | null;
+}): Promise<ProjectDeployMaintenanceEmailResult> {
+  const config = await loadSmtpConfig(params.db ?? null, params.companyId);
+  if (!config) return { status: "skipped", reason: "smtp_not_configured" };
+  const transport = buildTransport(config);
+  const from = config.from;
+  const recipients = params.to.map((value) => value.trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  const statusLabel = params.deployStatus.replace(/_/g, " ");
+  const issueLabel = nonEmpty(params.issueIdentifier) ?? nonEmpty(params.issueTitle) ?? null;
+
+  const bodyParts: string[] = [];
+  bodyParts.push(`<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+    Atualização de manutenção para <strong>${escapeHtml(params.projectName)}</strong>.
+  </p>`);
+  bodyParts.push(quoteBlock("Mensagem", params.message, "#0ea5e9", null));
+  bodyParts.push(metaTable([
+    ["Projeto", params.projectName],
+    ["Alvo", params.targetName],
+    ["Ambiente", params.targetEnvironment],
+    ["Status", statusLabel],
+    ["Issue", issueLabel ?? "—"],
+    ["Approval", params.approvalId ?? "—"],
+    ["Deploy event", params.deployEventId ?? "—"],
+    ["Time", now],
+  ]));
+  bodyParts.push(`<p style="color:#6b7280;font-size:13px;margin:20px 0 0;">
+    Esta mensagem foi enviada por um fluxo aprovado de atualização de deploy no Paperclip.
+  </p>`);
+
+  const html = buildEmailWrapper({
+    headerColor: params.deployStatus === "failed" ? "#dc2626" : "#2563eb",
+    headerIcon: params.deployStatus === "failed" ? "!" : "i",
+    headerTitle: "Atualização de manutenção",
+    headerSubtitle: `${params.projectName} · ${statusLabel}`,
+    body: bodyParts.join("\n"),
+    signatureHtml: config.signatureHtml,
+  });
+
+  const text = [
+    `Atualização de manutenção para ${params.projectName}.`,
+    ``,
+    params.message,
+    ``,
+    `Projeto: ${params.projectName}`,
+    `Alvo: ${params.targetName}`,
+    `Ambiente: ${params.targetEnvironment}`,
+    `Status: ${statusLabel}`,
+    `Issue: ${issueLabel ?? "—"}`,
+    `Approval: ${params.approvalId ?? "—"}`,
+    `Deploy event: ${params.deployEventId ?? "—"}`,
+    `Time: ${now}`,
+  ].join("\n");
+
+  try {
+    await transport.sendMail({
+      from,
+      to: recipients,
+      subject: `Atualização de manutenção: ${params.projectName}`.slice(0, 200),
+      text,
+      html,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn({ err, to: recipients, deployEventId: params.deployEventId }, "deploy maintenance email send failed");
+    return { status: "failed", reason: "send_failed", error: message };
+  }
+
+  return { status: "sent" };
+}
+
 function formatDurationMs(startedAt: Date, completedAt: Date): string {
   const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
   if (durationMs < 1_000) return `${durationMs}ms`;

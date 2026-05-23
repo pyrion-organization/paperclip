@@ -11,6 +11,10 @@ import type {
   CompanyPortabilityPreviewResult,
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
+  ImportExternalInboundEmailMessage,
+  ImportExternalInboundEmailMessagesBatch,
+  InboundEmailClassificationCategory,
+  InboundEmailExternalIntakeRecord,
   InboundEmailMailbox,
   InboundEmailMessage,
   InboundEmailOpsDashboard,
@@ -30,6 +34,8 @@ export interface InboundEmailListPage<T> {
 
 export interface InboundEmailMessageListParams {
   status?: string;
+  classificationCategory?: InboundEmailClassificationCategory;
+  classificationReview?: "low_confidence";
   mailboxId?: string;
   q?: string;
   cursor?: string | null;
@@ -37,11 +43,59 @@ export interface InboundEmailMessageListParams {
   order?: "asc" | "desc";
 }
 
+export interface InboundEmailExternalIntakeListParams {
+  status?: "imported" | "duplicate" | "failed";
+  mailboxId?: string;
+  cursor?: string | null;
+  limit?: number;
+  order?: "asc" | "desc";
+}
+
+export type ImportExternalInboundEmailMessageRequest = Omit<
+  ImportExternalInboundEmailMessage,
+  "metadata" | "processAfterImport" | "receivedAt"
+> & {
+  metadata?: Record<string, unknown>;
+  processAfterImport?: boolean;
+  receivedAt?: string | null;
+};
+
+export type ImportExternalInboundEmailMessagesBatchRequest = {
+  messages: ImportExternalInboundEmailMessageRequest[];
+};
+
+export type ImportExternalInboundEmailMessagesBatchResult = {
+  importedCount: number;
+  duplicateCount: number;
+  failedCount: number;
+  results: Array<{
+    sourceKind: ImportExternalInboundEmailMessagesBatch["messages"][number]["sourceKind"];
+    sourceId: string;
+    status: InboundEmailExternalIntakeRecord["status"];
+    intakeRecord: InboundEmailExternalIntakeRecord | null;
+    message: InboundEmailMessage | null;
+    error: string | null;
+  }>;
+};
+
 function inboundEmailQuery(params?: InboundEmailMessageListParams): string {
   const query = new URLSearchParams();
   if (params?.status) query.set("status", params.status);
+  if (params?.classificationCategory) query.set("classificationCategory", params.classificationCategory);
+  if (params?.classificationReview) query.set("classificationReview", params.classificationReview);
   if (params?.mailboxId) query.set("mailboxId", params.mailboxId);
   if (params?.q?.trim()) query.set("q", params.q.trim());
+  if (params?.cursor) query.set("cursor", params.cursor);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.order) query.set("order", params.order);
+  const value = query.toString();
+  return value ? `?${value}` : "";
+}
+
+function inboundEmailExternalIntakeQuery(params?: InboundEmailExternalIntakeListParams): string {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.mailboxId) query.set("mailboxId", params.mailboxId);
   if (params?.cursor) query.set("cursor", params.cursor);
   if (params?.limit) query.set("limit", String(params.limit));
   if (params?.order) query.set("order", params.order);
@@ -103,6 +157,15 @@ export const companiesApi = {
     api.post<{ ok: true }>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/test`, {}),
   deleteInboundEmailMailbox: (companyId: string, mailboxId: string) =>
     api.delete<void>(`/companies/${companyId}/inbound-email/mailboxes/${mailboxId}`),
+  rotateInboundEmailExternalIntakeToken: (companyId: string, mailboxId: string) =>
+    api.post<{ mailbox: InboundEmailMailbox; token: string }>(
+      `/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/external-intake-token`,
+      {},
+    ),
+  revokeInboundEmailExternalIntakeToken: (companyId: string, mailboxId: string) =>
+    api.delete<InboundEmailMailbox>(
+      `/companies/${companyId}/inbound-email/mailboxes/${mailboxId}/external-intake-token`,
+    ),
   retryInboundEmailMessage: (companyId: string, messageId: string) =>
     api.post<{ id: string; status: string }>(
       `/companies/${companyId}/inbound-email/messages/${messageId}/retry`,
@@ -132,6 +195,24 @@ export const companiesApi = {
   listInboundEmailMessages: (companyId: string, params?: InboundEmailMessageListParams) =>
     api.get<InboundEmailListPage<InboundEmailMessage>>(
       `/companies/${companyId}/inbound-email/messages${inboundEmailQuery(params)}`,
+    ),
+  listExternalInboundEmailIntake: (companyId: string, params?: InboundEmailExternalIntakeListParams) =>
+    api.get<InboundEmailListPage<InboundEmailExternalIntakeRecord>>(
+      `/companies/${companyId}/inbound-email/external-intake${inboundEmailExternalIntakeQuery(params)}`,
+    ),
+  importExternalInboundEmailMessage: (companyId: string, data: ImportExternalInboundEmailMessageRequest) =>
+    api.post<{
+      intakeRecord: InboundEmailExternalIntakeRecord;
+      message: InboundEmailMessage | null;
+      status: InboundEmailExternalIntakeRecord["status"];
+    }>(`/companies/${companyId}/inbound-email/external-intake/import`, data),
+  importExternalInboundEmailMessagesBatch: (
+    companyId: string,
+    data: ImportExternalInboundEmailMessagesBatchRequest,
+  ) =>
+    api.post<ImportExternalInboundEmailMessagesBatchResult>(
+      `/companies/${companyId}/inbound-email/external-intake/import-batch`,
+      data,
     ),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
