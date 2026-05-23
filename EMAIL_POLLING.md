@@ -146,6 +146,17 @@ Paperclip now stores deployment readiness metadata without executing production 
 - Disabled targets cannot receive deploy approval requests.
 - This foundation is intentionally approval-gated. It does not SSH to servers, run deploy commands, change DNS, or send customer maintenance mail automatically.
 
+## Infrastructure topology and health foundation
+
+Paperclip can now record project infrastructure metadata without mutating provider state.
+
+- Project configuration can store infrastructure targets with environment, provider, provider account reference, region, role, host, failover group/rank, and active/disabled status.
+- Infrastructure targets default to `repairActionsRequireApproval = true`; the current system records topology and incidents but does not run provider repair, failover, DNS, SSH, or VPS commands.
+- Project health checks can be configured as HTTP, TCP, or manual checks with target linkage, URL, expected status, interval, timeout, enabled flag, and last-known health result.
+- Operators or approved automation can record health results as `healthy`, `degraded`, or `unhealthy`. Degraded/unhealthy results can create an infra incident and linked Paperclip issue.
+- Trusted inbound emails classified as `infra_incident` and resolved to a project create an infrastructure incident record linked to the created issue. Projectless infra triage still creates only a triage issue until a project is identified.
+- Infra incident records track source, severity, status, recommended action, related health check, related infra target, and optional approval reference for future repair actions.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.

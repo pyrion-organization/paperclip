@@ -115,6 +115,12 @@ export const queryKeys = {
     detail: (id: string) => ["projects", "detail", id] as const,
     deploymentTargets: (projectId: string, companyId?: string) =>
       ["projects", "deployment-targets", projectId, companyId ?? null] as const,
+    infraTargets: (projectId: string, companyId?: string) =>
+      ["projects", "infra-targets", projectId, companyId ?? null] as const,
+    infraHealthChecks: (projectId: string, companyId?: string) =>
+      ["projects", "infra-health-checks", projectId, companyId ?? null] as const,
+    infraIncidents: (projectId: string, companyId?: string) =>
+      ["projects", "infra-incidents", projectId, companyId ?? null] as const,
     deployEvents: (projectId: string, companyId?: string) =>
       ["projects", "deploy-events", projectId, companyId ?? null] as const,
     deployCommandRecords: (projectId: string, deployEventId: string, companyId?: string) =>

@@ -4,6 +4,9 @@ import {
   createProjectDeployApprovalSchema,
   createProjectDeployCommandRecordSchema,
   createProjectDeploymentTargetSchema,
+  createProjectInfraHealthCheckSchema,
+  createProjectInfraIncidentSchema,
+  createProjectInfraTargetSchema,
   createProjectSchema,
   projectFileBranchCreateSchema,
   projectFileBranchPushSchema,
@@ -15,6 +18,7 @@ import {
   projectFileSaveSchema,
   projectFilesPathSchema,
   recordProjectDeployEventStatusSchema,
+  recordProjectInfraHealthResultSchema,
   sendProjectDeployMaintenanceMessageSchema,
   createProjectWorkspaceSchema,
   findWorkspaceCommandDefinition,
@@ -22,6 +26,9 @@ import {
   matchWorkspaceRuntimeServiceToCommand,
   updateProjectSchema,
   updateProjectDeploymentTargetSchema,
+  updateProjectInfraHealthCheckSchema,
+  updateProjectInfraIncidentSchema,
+  updateProjectInfraTargetSchema,
   updateProjectWorkspaceSchema,
   workspaceRuntimeControlTargetSchema,
 } from "@paperclipai/shared";
@@ -437,6 +444,455 @@ export function projectRoutes(db: Db) {
 
     res.json(target);
   });
+
+  router.get("/projects/:id/infra-targets", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listInfraTargets(id));
+  });
+
+  router.post("/projects/:id/infra-targets", validate(createProjectInfraTargetSchema), async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.body.deploymentTargetId) {
+      const deploymentTarget = await svc.getDeploymentTarget(id, req.body.deploymentTargetId);
+      if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+        res.status(422).json({ error: "Infrastructure target deployment target is invalid" });
+        return;
+      }
+    }
+
+    const target = await svc.createInfraTarget(id, req.body);
+    if (!target) {
+      res.status(422).json({ error: "Invalid infrastructure target payload" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_target_created",
+      entityType: "project",
+      entityId: id,
+      details: {
+        infraTargetId: target.id,
+        name: target.name,
+        provider: target.provider,
+        environment: target.environment,
+      },
+    });
+
+    res.status(201).json(target);
+  });
+
+  router.patch("/projects/:id/infra-targets/:infraTargetId", validate(updateProjectInfraTargetSchema), async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const infraTargetId = req.params.infraTargetId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.body.deploymentTargetId) {
+      const deploymentTarget = await svc.getDeploymentTarget(id, req.body.deploymentTargetId);
+      if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+        res.status(422).json({ error: "Infrastructure target deployment target is invalid" });
+        return;
+      }
+    }
+
+    const target = await svc.updateInfraTarget(id, infraTargetId, req.body);
+    if (!target) {
+      res.status(404).json({ error: "Infrastructure target not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_target_updated",
+      entityType: "project",
+      entityId: id,
+      details: { infraTargetId: target.id, changedKeys: Object.keys(req.body).sort() },
+    });
+
+    res.json(target);
+  });
+
+  router.delete("/projects/:id/infra-targets/:infraTargetId", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const infraTargetId = req.params.infraTargetId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const target = await svc.removeInfraTarget(id, infraTargetId);
+    if (!target) {
+      res.status(404).json({ error: "Infrastructure target not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_target_deleted",
+      entityType: "project",
+      entityId: id,
+      details: { infraTargetId: target.id, name: target.name },
+    });
+
+    res.json(target);
+  });
+
+  router.get("/projects/:id/infra-health-checks", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listInfraHealthChecks(id));
+  });
+
+  router.post("/projects/:id/infra-health-checks", validate(createProjectInfraHealthCheckSchema), async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.body.infraTargetId) {
+      const infraTarget = await svc.getInfraTarget(id, req.body.infraTargetId);
+      if (!infraTarget || infraTarget.companyId !== project.companyId) {
+        res.status(422).json({ error: "Infrastructure health check target is invalid" });
+        return;
+      }
+    }
+
+    const healthCheck = await svc.createInfraHealthCheck(id, req.body);
+    if (!healthCheck) {
+      res.status(422).json({ error: "Invalid infrastructure health check payload" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_health_check_created",
+      entityType: "project",
+      entityId: id,
+      details: { healthCheckId: healthCheck.id, name: healthCheck.name, checkType: healthCheck.checkType },
+    });
+
+    res.status(201).json(healthCheck);
+  });
+
+  router.patch(
+    "/projects/:id/infra-health-checks/:healthCheckId",
+    validate(updateProjectInfraHealthCheckSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const healthCheckId = req.params.healthCheckId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+      if (req.body.infraTargetId) {
+        const infraTarget = await svc.getInfraTarget(id, req.body.infraTargetId);
+        if (!infraTarget || infraTarget.companyId !== project.companyId) {
+          res.status(422).json({ error: "Infrastructure health check target is invalid" });
+          return;
+        }
+      }
+
+      const healthCheck = await svc.updateInfraHealthCheck(id, healthCheckId, req.body);
+      if (!healthCheck) {
+        res.status(404).json({ error: "Infrastructure health check not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.infra_health_check_updated",
+        entityType: "project",
+        entityId: id,
+        details: { healthCheckId: healthCheck.id, changedKeys: Object.keys(req.body).sort() },
+      });
+
+      res.json(healthCheck);
+    },
+  );
+
+  router.post(
+    "/projects/:id/infra-health-checks/:healthCheckId/results",
+    validate(recordProjectInfraHealthResultSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const healthCheckId = req.params.healthCheckId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const existing = await svc.getInfraHealthCheck(id, healthCheckId);
+      if (!existing || existing.companyId !== project.companyId) {
+        res.status(404).json({ error: "Infrastructure health check not found" });
+        return;
+      }
+
+      const healthCheck = await svc.recordInfraHealthResult(id, healthCheckId, {
+        status: req.body.status,
+        checkedAt: req.body.checkedAt,
+        latencyMs: req.body.latencyMs ?? null,
+        error: req.body.error ?? null,
+      });
+      if (!healthCheck) {
+        res.status(404).json({ error: "Infrastructure health check not found" });
+        return;
+      }
+
+      let incident = null;
+      if (req.body.createIncident) {
+        if (!["degraded", "unhealthy"].includes(healthCheck.status)) {
+          res.status(422).json({ error: "Only degraded or unhealthy health results can create infra incidents" });
+          return;
+        }
+        const openExisting = (await svc.listInfraIncidents(id)).find(
+          (candidate) =>
+            candidate.sourceKind === "health_check" &&
+            candidate.sourceId === healthCheck.id &&
+            (candidate.status === "open" || candidate.status === "investigating"),
+        );
+        if (openExisting) {
+          incident = openExisting;
+        } else {
+          const summary = req.body.incidentSummary
+            ?? `${healthCheck.name} reported ${healthCheck.status}`;
+          const issue = await issuesSvc.create(project.companyId, {
+            title: `[Infra] ${summary}`.slice(0, 300),
+            description: [
+              "Created from an infrastructure health check result.",
+              "",
+              `Project: ${project.name}`,
+              `Health check: ${healthCheck.name}`,
+              `Status: ${healthCheck.status}`,
+              `Checked at: ${healthCheck.lastCheckedAt?.toISOString() ?? "unknown"}`,
+              healthCheck.url ? `URL: ${healthCheck.url}` : null,
+              healthCheck.lastError ? `Error: ${healthCheck.lastError}` : null,
+              "",
+              "Provider repair and failover actions require explicit approval and are not executed automatically.",
+            ].filter(Boolean).join("\n"),
+            status: "backlog",
+            priority: req.body.severity === "urgent" ? "critical" : "high",
+            projectId: project.id,
+            originKind: "infra_health_check",
+            originId: healthCheck.id,
+            originFingerprint: `${healthCheck.id}:${healthCheck.status}:${healthCheck.lastCheckedAt?.toISOString() ?? "unknown"}`,
+          });
+          incident = await svc.createInfraIncident(id, {
+            infraTargetId: healthCheck.infraTargetId,
+            healthCheckId: healthCheck.id,
+            issueId: issue.id,
+            sourceKind: "health_check",
+            sourceId: healthCheck.id,
+            status: "open",
+            severity: req.body.severity,
+            summary,
+            details: req.body.incidentDetails ?? healthCheck.lastError ?? null,
+            recommendedAction: "Investigate health check failure. Provider repair and failover require separate approval.",
+          });
+        }
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.infra_health_result_recorded",
+        entityType: "project",
+        entityId: id,
+        details: {
+          healthCheckId: healthCheck.id,
+          status: healthCheck.status,
+          incidentId: incident?.id ?? null,
+        },
+      });
+
+      res.json({ healthCheck, incident });
+    },
+  );
+
+  router.delete("/projects/:id/infra-health-checks/:healthCheckId", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const healthCheckId = req.params.healthCheckId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const healthCheck = await svc.removeInfraHealthCheck(id, healthCheckId);
+    if (!healthCheck) {
+      res.status(404).json({ error: "Infrastructure health check not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_health_check_deleted",
+      entityType: "project",
+      entityId: id,
+      details: { healthCheckId: healthCheck.id, name: healthCheck.name },
+    });
+
+    res.json(healthCheck);
+  });
+
+  router.get("/projects/:id/infra-incidents", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listInfraIncidents(id));
+  });
+
+  router.post("/projects/:id/infra-incidents", validate(createProjectInfraIncidentSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.body.infraTargetId) {
+      const infraTarget = await svc.getInfraTarget(id, req.body.infraTargetId);
+      if (!infraTarget || infraTarget.companyId !== project.companyId) {
+        res.status(422).json({ error: "Infrastructure incident target is invalid" });
+        return;
+      }
+    }
+    if (req.body.healthCheckId) {
+      const healthCheck = await svc.getInfraHealthCheck(id, req.body.healthCheckId);
+      if (!healthCheck || healthCheck.companyId !== project.companyId) {
+        res.status(422).json({ error: "Infrastructure incident health check is invalid" });
+        return;
+      }
+    }
+    if (req.body.issueId) {
+      const issue = await issuesSvc.getById(req.body.issueId);
+      if (!issue || issue.companyId !== project.companyId || issue.projectId !== project.id) {
+        res.status(422).json({ error: "Infrastructure incident issue is invalid" });
+        return;
+      }
+    }
+
+    const incident = await svc.createInfraIncident(id, req.body);
+    if (!incident) {
+      res.status(422).json({ error: "Invalid infrastructure incident payload" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_incident_created",
+      entityType: "project",
+      entityId: id,
+      details: { infraIncidentId: incident.id, sourceKind: incident.sourceKind, severity: incident.severity },
+    });
+
+    res.status(201).json(incident);
+  });
+
+  router.patch(
+    "/projects/:id/infra-incidents/:incidentId",
+    validate(updateProjectInfraIncidentSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const incidentId = req.params.incidentId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const incident = await svc.updateInfraIncident(id, incidentId, req.body);
+      if (!incident) {
+        res.status(404).json({ error: "Infrastructure incident not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.infra_incident_updated",
+        entityType: "project",
+        entityId: id,
+        details: { infraIncidentId: incident.id, changedKeys: Object.keys(req.body).sort() },
+      });
+
+      res.json(incident);
+    },
+  );
 
   router.get("/projects/:id/deploy-events", async (req, res) => {
     const id = req.params.id as string;

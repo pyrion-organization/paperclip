@@ -12,6 +12,15 @@ const mockProjectService = vi.hoisted(() => ({
   recordDeployMaintenanceMessageDelivery: vi.fn(),
   listDeployCommandRecords: vi.fn(),
   createDeployCommandRecord: vi.fn(),
+  listInfraTargets: vi.fn(),
+  getInfraTarget: vi.fn(),
+  createInfraTarget: vi.fn(),
+  listInfraHealthChecks: vi.fn(),
+  getInfraHealthCheck: vi.fn(),
+  createInfraHealthCheck: vi.fn(),
+  recordInfraHealthResult: vi.fn(),
+  listInfraIncidents: vi.fn(),
+  createInfraIncident: vi.fn(),
   listDeploymentTargets: vi.fn(),
   listDeployEvents: vi.fn(),
 }));
@@ -24,6 +33,7 @@ const mockIssueApprovalService = vi.hoisted(() => ({
 }));
 const mockIssueService = vi.hoisted(() => ({
   getById: vi.fn(),
+  create: vi.fn(),
 }));
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockSendDeployMaintenanceEmail = vi.hoisted(() => vi.fn());
@@ -150,6 +160,73 @@ function buildDeployCommandRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildInfraTarget(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "77777777-7777-4777-8777-777777777777",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+    name: "Primary VPS",
+    environment: "production",
+    provider: "hetzner",
+    providerAccountRef: "acct-prod",
+    region: "fsn1",
+    role: "app",
+    host: "app-1",
+    failoverGroup: "prod-app",
+    failoverRank: 1,
+    status: "active",
+    repairActionsRequireApproval: true,
+    metadata: null,
+    ...overrides,
+  };
+}
+
+function buildInfraHealthCheck(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "88888888-8888-4888-8888-888888888888",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    infraTargetId: "77777777-7777-4777-8777-777777777777",
+    name: "Production health",
+    checkType: "http",
+    url: "https://example.com/health",
+    expectedStatus: 200,
+    intervalSeconds: 300,
+    timeoutSeconds: 10,
+    status: "unknown",
+    lastCheckedAt: null,
+    lastLatencyMs: null,
+    lastError: null,
+    enabled: true,
+    metadata: null,
+    ...overrides,
+  };
+}
+
+function buildInfraIncident(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "99999999-9999-4999-8999-999999999999",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    infraTargetId: "77777777-7777-4777-8777-777777777777",
+    healthCheckId: "88888888-8888-4888-8888-888888888888",
+    issueId: "22222222-2222-4222-8222-222222222222",
+    sourceKind: "health_check",
+    sourceId: "88888888-8888-4888-8888-888888888888",
+    status: "open",
+    severity: "high",
+    summary: "Production health reported unhealthy",
+    details: "Timeout",
+    recommendedAction: "Investigate health check failure.",
+    repairApprovalId: null,
+    metadata: null,
+    createdAt: new Date("2026-05-23T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-23T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 function buildApproval(overrides: Record<string, unknown> = {}) {
   return {
     id: "44444444-4444-4444-8444-444444444444",
@@ -163,7 +240,7 @@ function buildApproval(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function createApp() {
+async function createApp(actorType: "agent" | "board" = "agent") {
   const [{ projectRoutes }, { errorHandler }] = await Promise.all([
     import("../routes/projects.js"),
     import("../middleware/index.js"),
@@ -171,12 +248,20 @@ async function createApp() {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).actor = {
-      type: "agent",
-      agentId: "agent-1",
-      companyId: "company-1",
-      source: "api_key",
-    };
+    (req as any).actor = actorType === "board"
+      ? {
+          type: "board",
+          userId: "user-1",
+          companyIds: ["company-1"],
+          isInstanceAdmin: true,
+          source: "local_implicit",
+        }
+      : {
+          type: "agent",
+          agentId: "agent-1",
+          companyId: "company-1",
+          source: "api_key",
+        };
     next();
   });
   app.use("/api", projectRoutes({} as any));
@@ -198,6 +283,28 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createDeployCommandRecord.mockImplementation(async (_projectId, data) =>
       buildDeployCommandRecord(data),
     );
+    mockProjectService.listInfraTargets.mockResolvedValue([buildInfraTarget()]);
+    mockProjectService.getInfraTarget.mockResolvedValue(buildInfraTarget());
+    mockProjectService.createInfraTarget.mockImplementation(async (_projectId, data) =>
+      buildInfraTarget(data),
+    );
+    mockProjectService.listInfraHealthChecks.mockResolvedValue([buildInfraHealthCheck()]);
+    mockProjectService.getInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
+    mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
+      buildInfraHealthCheck(data),
+    );
+    mockProjectService.recordInfraHealthResult.mockImplementation(async (_projectId, _healthCheckId, data) =>
+      buildInfraHealthCheck({
+        status: data.status,
+        lastCheckedAt: data.checkedAt ?? new Date("2026-05-23T00:00:00.000Z"),
+        lastLatencyMs: data.latencyMs ?? null,
+        lastError: data.error ?? null,
+      }),
+    );
+    mockProjectService.listInfraIncidents.mockResolvedValue([]);
+    mockProjectService.createInfraIncident.mockImplementation(async (_projectId, data) =>
+      buildInfraIncident(data),
+    );
     mockProjectService.recordDeployMaintenanceMessageDelivery.mockImplementation(async (_projectId, _eventId, data) =>
       buildDeployEvent({
         maintenanceMessageStatus: data.status,
@@ -205,6 +312,11 @@ describe("project deploy workflow routes", () => {
       }),
     );
     mockIssueService.getById.mockResolvedValue(buildIssue());
+    mockIssueService.create.mockResolvedValue(buildIssue({
+      id: "22222222-2222-4222-8222-222222222222",
+      originKind: "infra_health_check",
+      originId: "88888888-8888-4888-8888-888888888888",
+    }));
     mockSendDeployMaintenanceEmail.mockResolvedValue({ status: "sent" });
     mockApprovalService.create.mockResolvedValue({
       id: "44444444-4444-4444-8444-444444444444",
@@ -420,6 +532,91 @@ describe("project deploy workflow routes", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockProjectService.createDeployCommandRecord).not.toHaveBeenCalled();
+  });
+
+  it("creates project infrastructure targets without enabling provider repair", async () => {
+    const app = await createApp("board");
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets")
+      .send({
+        deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+        name: "Primary VPS",
+        provider: "hetzner",
+        providerAccountRef: "acct-prod",
+        region: "fsn1",
+        failoverGroup: "prod-app",
+        failoverRank: 1,
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.createInfraTarget).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        name: "Primary VPS",
+        provider: "hetzner",
+        repairActionsRequireApproval: true,
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "project.infra_target_created" }),
+    );
+  });
+
+  it("records an unhealthy health result and creates an infra incident issue", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888/results")
+      .send({
+        status: "unhealthy",
+        error: "Timeout",
+        createIncident: true,
+        incidentSummary: "Production health reported unhealthy",
+        severity: "urgent",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.recordInfraHealthResult).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "88888888-8888-4888-8888-888888888888",
+      expect.objectContaining({
+        status: "unhealthy",
+        error: "Timeout",
+      }),
+    );
+    expect(mockIssueService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        title: "[Infra] Production health reported unhealthy",
+        priority: "critical",
+        projectId: "11111111-1111-4111-8111-111111111111",
+        originKind: "infra_health_check",
+        originId: "88888888-8888-4888-8888-888888888888",
+      }),
+    );
+    expect(mockProjectService.createInfraIncident).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        healthCheckId: "88888888-8888-4888-8888-888888888888",
+        issueId: "22222222-2222-4222-8222-222222222222",
+        sourceKind: "health_check",
+        severity: "urgent",
+      }),
+    );
+  });
+
+  it("does not create infra incidents from healthy health results", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888/results")
+      .send({
+        status: "healthy",
+        createIncident: true,
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockIssueService.create).not.toHaveBeenCalled();
+    expect(mockProjectService.createInfraIncident).not.toHaveBeenCalled();
   });
 
   it("sends a maintenance message only after approval and eligible deploy status", async () => {

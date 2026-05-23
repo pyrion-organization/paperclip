@@ -17,6 +17,7 @@ import {
   issueAttachments,
   issues as issueRows,
   labels,
+  projectInfraIncidents,
   projects,
 } from "@paperclipai/db";
 import type {
@@ -1559,6 +1560,50 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     }
   }
 
+  async function recordInfraIncidentFromMessage(
+    message: typeof inboundEmailMessages.$inferSelect,
+    projectId: string | null,
+    issue: typeof issueRows.$inferSelect,
+  ) {
+    if (message.classificationCategory !== "infra_incident" || !projectId) return null;
+    const existing = await db
+      .select()
+      .from(projectInfraIncidents)
+      .where(
+        and(
+          eq(projectInfraIncidents.companyId, message.companyId),
+          eq(projectInfraIncidents.projectId, projectId),
+          eq(projectInfraIncidents.sourceKind, "inbound_email"),
+          eq(projectInfraIncidents.sourceId, message.id),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+    if (existing) return existing;
+
+    const summary = (
+      message.classificationSummary?.trim() ||
+      message.subject?.trim() ||
+      `Infrastructure incident reported by ${message.fromAddress ?? "unknown sender"}`
+    ).slice(0, 300);
+    const [incident] = await db
+      .insert(projectInfraIncidents)
+      .values({
+        companyId: message.companyId,
+        projectId,
+        issueId: issue.id,
+        sourceKind: "inbound_email",
+        sourceId: message.id,
+        status: "open",
+        severity: message.classificationSeverity ?? "high",
+        summary,
+        details: message.classificationSummary ?? null,
+        recommendedAction: "Triage the reported infrastructure incident. Provider repair and failover actions require separate approval.",
+        updatedAt: new Date(),
+      })
+      .returning();
+    return incident ?? null;
+  }
+
   async function resolveSenderIdentity(
     message: typeof inboundEmailMessages.$inferSelect,
   ): Promise<SenderIdentity> {
@@ -3021,10 +3066,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                     eq(issueRows.originKind, "inbound_email"),
                     eq(issueRows.originId, message.id),
                   ),
-                )
-                .then((rows) => rows[0] ?? null)
-                ?? await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
+              )
+              .then((rows) => rows[0] ?? null)
+              ?? await createIssueFromMessage(classifiedMessage, { ...context, projectId: null });
               await linkIssueAttachmentsFromMessage(classifiedMessage, issue.id);
+              await recordInfraIncidentFromMessage(classifiedMessage, null, issue);
               const [updated] = await db
                 .update(inboundEmailMessages)
                 .set({
@@ -3123,6 +3169,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 projectId,
               }, automation);
             await linkIssueAttachmentsFromMessage(issueMessage, issue.id);
+            await recordInfraIncidentFromMessage(issueMessage, projectId, issue);
             const [updated] = await db
               .update(inboundEmailMessages)
               .set({

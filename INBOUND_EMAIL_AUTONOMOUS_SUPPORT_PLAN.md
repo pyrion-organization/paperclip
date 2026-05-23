@@ -887,6 +887,28 @@ Deliverables:
 - approval-gated repair actions,
 - redundant provider failover plan.
 
+Implemented the first infra topology and health foundation:
+
+- project infrastructure targets with provider/account/environment/region/host
+  metadata,
+- failover group and rank metadata for future redundant provider planning,
+- explicit `repairActionsRequireApproval` boundary on infra targets,
+- project health-check records with last-known health result,
+- health-result recording that can create a linked infra incident issue for
+  degraded/unhealthy checks,
+- trusted `infra_incident` support emails that resolve to a project now create
+  infra incident records linked to the triage issue,
+- compact project UI for infra targets, health checks, and incidents,
+- no automatic provider repair, failover, DNS, SSH, or VPS mutation.
+
+Remaining Phase 6 work:
+
+- add concrete provider adapter descriptors without credentials in ordinary
+  project metadata,
+- add approval request records for proposed infra repair/failover actions,
+- add a scheduled/worker health-check runner,
+- add incident grouping and escalation policy.
+
 ### Phase 7: External Resilience
 
 Make support intake survive Paperclip downtime.
@@ -918,14 +940,14 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add the first infra topology and health
-model without granting provider repair authority:
+The next implementation slice should add approval-gated infra repair/failover
+proposals without granting provider repair authority:
 
-- model provider/account/environment metadata per project,
-- add health-check definitions and last-known health status,
-- create infra-incident issue records from trusted reports or failed health
-  checks,
-- keep provider repair and failover actions approval-gated placeholders,
+- model proposed repair/failover action records linked to infra incidents,
+- route each proposed action through an explicit approval before it can be
+  marked ready,
+- record operator/agent evidence for manual repair attempts,
+- keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.
 

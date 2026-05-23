@@ -5,6 +5,9 @@ import {
   projectDeployCommandRecords,
   projectDeploymentTargets,
   projectDeployEvents,
+  projectInfraHealthChecks,
+  projectInfraIncidents,
+  projectInfraTargets,
   projectGoals,
   goals,
   pluginManagedResources,
@@ -22,6 +25,9 @@ import {
   type ProjectDeployCommandRecord,
   type ProjectDeployEvent,
   type ProjectDeploymentTarget,
+  type ProjectInfraHealthCheck,
+  type ProjectInfraIncident,
+  type ProjectInfraTarget,
   type ProjectClientRef,
   type ProjectExecutionWorkspacePolicy,
   type ProjectGoalRef,
@@ -42,6 +48,9 @@ type ProjectRow = typeof projects.$inferSelect;
 type ProjectDeploymentTargetRow = typeof projectDeploymentTargets.$inferSelect;
 type ProjectDeployEventRow = typeof projectDeployEvents.$inferSelect;
 type ProjectDeployCommandRecordRow = typeof projectDeployCommandRecords.$inferSelect;
+type ProjectInfraTargetRow = typeof projectInfraTargets.$inferSelect;
+type ProjectInfraHealthCheckRow = typeof projectInfraHealthChecks.$inferSelect;
+type ProjectInfraIncidentRow = typeof projectInfraIncidents.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 type WorkspaceRuntimeServiceRow = typeof workspaceRuntimeServices.$inferSelect;
 const REPO_ONLY_CWD_SENTINEL = "/__paperclip_repo_only__";
@@ -93,6 +102,18 @@ type CreateDeployCommandRecordInput = Omit<
   typeof projectDeployCommandRecords.$inferInsert,
   "companyId" | "projectId"
 >;
+type CreateInfraTargetInput = Omit<typeof projectInfraTargets.$inferInsert, "companyId" | "projectId">;
+type UpdateInfraTargetInput = Partial<CreateInfraTargetInput>;
+type CreateInfraHealthCheckInput = Omit<typeof projectInfraHealthChecks.$inferInsert, "companyId" | "projectId">;
+type UpdateInfraHealthCheckInput = Partial<CreateInfraHealthCheckInput>;
+type RecordInfraHealthResultInput = {
+  status: ProjectInfraHealthCheck["status"];
+  checkedAt?: Date;
+  latencyMs?: number | null;
+  error?: string | null;
+};
+type CreateInfraIncidentInput = Omit<typeof projectInfraIncidents.$inferInsert, "companyId" | "projectId">;
+type UpdateInfraIncidentInput = Partial<CreateInfraIncidentInput>;
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -281,6 +302,74 @@ function toDeployEvent(row: ProjectDeployEventRow): ProjectDeployEvent {
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdByAgentId: row.createdByAgentId ?? null,
     createdByUserId: row.createdByUserId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toInfraTarget(row: ProjectInfraTargetRow): ProjectInfraTarget {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    deploymentTargetId: row.deploymentTargetId ?? null,
+    name: row.name,
+    environment: row.environment,
+    provider: row.provider,
+    providerAccountRef: row.providerAccountRef ?? null,
+    region: row.region ?? null,
+    role: row.role,
+    host: row.host ?? null,
+    failoverGroup: row.failoverGroup ?? null,
+    failoverRank: row.failoverRank ?? null,
+    status: row.status as ProjectInfraTarget["status"],
+    repairActionsRequireApproval: row.repairActionsRequireApproval,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toInfraHealthCheck(row: ProjectInfraHealthCheckRow): ProjectInfraHealthCheck {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    infraTargetId: row.infraTargetId ?? null,
+    name: row.name,
+    checkType: row.checkType as ProjectInfraHealthCheck["checkType"],
+    url: row.url ?? null,
+    expectedStatus: row.expectedStatus ?? null,
+    intervalSeconds: row.intervalSeconds,
+    timeoutSeconds: row.timeoutSeconds,
+    status: row.status as ProjectInfraHealthCheck["status"],
+    lastCheckedAt: row.lastCheckedAt ?? null,
+    lastLatencyMs: row.lastLatencyMs ?? null,
+    lastError: row.lastError ?? null,
+    enabled: row.enabled,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toInfraIncident(row: ProjectInfraIncidentRow): ProjectInfraIncident {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    infraTargetId: row.infraTargetId ?? null,
+    healthCheckId: row.healthCheckId ?? null,
+    issueId: row.issueId ?? null,
+    sourceKind: row.sourceKind,
+    sourceId: row.sourceId ?? null,
+    status: row.status as ProjectInfraIncident["status"],
+    severity: row.severity as ProjectInfraIncident["severity"],
+    summary: row.summary,
+    details: row.details ?? null,
+    recommendedAction: row.recommendedAction ?? null,
+    repairApprovalId: row.repairApprovalId ?? null,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -1210,6 +1299,191 @@ export function projectService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
       return row ? toDeployCommandRecord(row) : null;
+    },
+
+    listInfraTargets: async (projectId: string): Promise<ProjectInfraTarget[]> => {
+      const rows = await db
+        .select()
+        .from(projectInfraTargets)
+        .where(eq(projectInfraTargets.projectId, projectId))
+        .orderBy(asc(projectInfraTargets.environment), asc(projectInfraTargets.failoverRank), asc(projectInfraTargets.name));
+      return rows.map(toInfraTarget);
+    },
+
+    getInfraTarget: async (projectId: string, infraTargetId: string): Promise<ProjectInfraTarget | null> => {
+      const row = await db
+        .select()
+        .from(projectInfraTargets)
+        .where(and(eq(projectInfraTargets.projectId, projectId), eq(projectInfraTargets.id, infraTargetId)))
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraTarget(row) : null;
+    },
+
+    createInfraTarget: async (projectId: string, data: CreateInfraTargetInput): Promise<ProjectInfraTarget | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectInfraTargets)
+        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraTarget(row) : null;
+    },
+
+    updateInfraTarget: async (
+      projectId: string,
+      infraTargetId: string,
+      data: UpdateInfraTargetInput,
+    ): Promise<ProjectInfraTarget | null> => {
+      const row = await db
+        .update(projectInfraTargets)
+        .set({ ...data, updatedAt: new Date() })
+        .where(and(eq(projectInfraTargets.projectId, projectId), eq(projectInfraTargets.id, infraTargetId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraTarget(row) : null;
+    },
+
+    removeInfraTarget: async (projectId: string, infraTargetId: string): Promise<ProjectInfraTarget | null> => {
+      const row = await db
+        .delete(projectInfraTargets)
+        .where(and(eq(projectInfraTargets.projectId, projectId), eq(projectInfraTargets.id, infraTargetId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraTarget(row) : null;
+    },
+
+    listInfraHealthChecks: async (projectId: string): Promise<ProjectInfraHealthCheck[]> => {
+      const rows = await db
+        .select()
+        .from(projectInfraHealthChecks)
+        .where(eq(projectInfraHealthChecks.projectId, projectId))
+        .orderBy(asc(projectInfraHealthChecks.name));
+      return rows.map(toInfraHealthCheck);
+    },
+
+    getInfraHealthCheck: async (
+      projectId: string,
+      healthCheckId: string,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const row = await db
+        .select()
+        .from(projectInfraHealthChecks)
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    createInfraHealthCheck: async (
+      projectId: string,
+      data: CreateInfraHealthCheckInput,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectInfraHealthChecks)
+        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    updateInfraHealthCheck: async (
+      projectId: string,
+      healthCheckId: string,
+      data: UpdateInfraHealthCheckInput,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const row = await db
+        .update(projectInfraHealthChecks)
+        .set({ ...data, updatedAt: new Date() })
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    recordInfraHealthResult: async (
+      projectId: string,
+      healthCheckId: string,
+      data: RecordInfraHealthResultInput,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const row = await db
+        .update(projectInfraHealthChecks)
+        .set({
+          status: data.status,
+          lastCheckedAt: data.checkedAt ?? new Date(),
+          lastLatencyMs: data.latencyMs ?? null,
+          lastError: data.error ?? null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    removeInfraHealthCheck: async (
+      projectId: string,
+      healthCheckId: string,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const row = await db
+        .delete(projectInfraHealthChecks)
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    listInfraIncidents: async (projectId: string): Promise<ProjectInfraIncident[]> => {
+      const rows = await db
+        .select()
+        .from(projectInfraIncidents)
+        .where(eq(projectInfraIncidents.projectId, projectId))
+        .orderBy(desc(projectInfraIncidents.createdAt), desc(projectInfraIncidents.id));
+      return rows.map(toInfraIncident);
+    },
+
+    createInfraIncident: async (
+      projectId: string,
+      data: CreateInfraIncidentInput,
+    ): Promise<ProjectInfraIncident | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectInfraIncidents)
+        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraIncident(row) : null;
+    },
+
+    updateInfraIncident: async (
+      projectId: string,
+      incidentId: string,
+      data: UpdateInfraIncidentInput,
+    ): Promise<ProjectInfraIncident | null> => {
+      const row = await db
+        .update(projectInfraIncidents)
+        .set({ ...data, updatedAt: new Date() })
+        .where(and(eq(projectInfraIncidents.projectId, projectId), eq(projectInfraIncidents.id, incidentId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraIncident(row) : null;
     },
 
     listWorkspaces: async (projectId: string): Promise<ProjectWorkspace[]> => {

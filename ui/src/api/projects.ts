@@ -12,6 +12,9 @@ import type {
   ProjectFilesSummary,
   ProjectFilesSyncResult,
   ProjectFilesTreeResponse,
+  ProjectInfraHealthCheck,
+  ProjectInfraIncident,
+  ProjectInfraTarget,
   ProjectWorkspace,
   WorkspaceOperation,
   WorkspaceRuntimeControlTarget,
@@ -48,6 +51,46 @@ export const projectsApi = {
   removeDeploymentTarget: (projectId: string, deploymentTargetId: string, companyId?: string) =>
     api.delete<ProjectDeploymentTarget>(
       projectPath(projectId, companyId, `/deployment-targets/${encodeURIComponent(deploymentTargetId)}`),
+    ),
+  listInfraTargets: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraTarget[]>(projectPath(projectId, companyId, "/infra-targets")),
+  createInfraTarget: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraTarget>(projectPath(projectId, companyId, "/infra-targets"), data),
+  updateInfraTarget: (projectId: string, infraTargetId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraTarget>(
+      projectPath(projectId, companyId, `/infra-targets/${encodeURIComponent(infraTargetId)}`),
+      data,
+    ),
+  removeInfraTarget: (projectId: string, infraTargetId: string, companyId?: string) =>
+    api.delete<ProjectInfraTarget>(
+      projectPath(projectId, companyId, `/infra-targets/${encodeURIComponent(infraTargetId)}`),
+    ),
+  listInfraHealthChecks: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraHealthCheck[]>(projectPath(projectId, companyId, "/infra-health-checks")),
+  createInfraHealthCheck: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraHealthCheck>(projectPath(projectId, companyId, "/infra-health-checks"), data),
+  updateInfraHealthCheck: (projectId: string, healthCheckId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}`),
+      data,
+    ),
+  recordInfraHealthResult: (projectId: string, healthCheckId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ healthCheck: ProjectInfraHealthCheck; incident: ProjectInfraIncident | null }>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/results`),
+      data,
+    ),
+  removeInfraHealthCheck: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.delete<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}`),
+    ),
+  listInfraIncidents: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraIncident[]>(projectPath(projectId, companyId, "/infra-incidents")),
+  createInfraIncident: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraIncident>(projectPath(projectId, companyId, "/infra-incidents"), data),
+  updateInfraIncident: (projectId: string, incidentId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectInfraIncident>(
+      projectPath(projectId, companyId, `/infra-incidents/${encodeURIComponent(incidentId)}`),
+      data,
     ),
   listDeployEvents: (projectId: string, companyId?: string) =>
     api.get<ProjectDeployEvent[]>(projectPath(projectId, companyId, "/deploy-events")),

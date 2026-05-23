@@ -7,6 +7,11 @@ import type {
   ProjectDeployEventStatus,
   ProjectDeployMaintenanceMessageStatus,
   ProjectDeploymentTargetStatus,
+  ProjectInfraHealthCheckType,
+  ProjectInfraHealthStatus,
+  ProjectInfraIncidentSeverity,
+  ProjectInfraIncidentStatus,
+  ProjectInfraTargetStatus,
   ProjectStatus,
 } from "../constants.js";
 import type {
@@ -273,6 +278,68 @@ export interface ProjectDeployEvent {
   metadata: Record<string, unknown> | null;
   createdByAgentId: string | null;
   createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraTarget {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deploymentTargetId: string | null;
+  name: string;
+  environment: string;
+  provider: string;
+  providerAccountRef: string | null;
+  region: string | null;
+  role: string;
+  host: string | null;
+  failoverGroup: string | null;
+  failoverRank: number | null;
+  status: ProjectInfraTargetStatus;
+  repairActionsRequireApproval: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraHealthCheck {
+  id: string;
+  companyId: string;
+  projectId: string;
+  infraTargetId: string | null;
+  name: string;
+  checkType: ProjectInfraHealthCheckType;
+  url: string | null;
+  expectedStatus: number | null;
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  status: ProjectInfraHealthStatus;
+  lastCheckedAt: Date | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+  enabled: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraIncident {
+  id: string;
+  companyId: string;
+  projectId: string;
+  infraTargetId: string | null;
+  healthCheckId: string | null;
+  issueId: string | null;
+  sourceKind: string;
+  sourceId: string | null;
+  status: ProjectInfraIncidentStatus;
+  severity: ProjectInfraIncidentSeverity;
+  summary: string;
+  details: string | null;
+  recommendedAction: string | null;
+  repairApprovalId: string | null;
+  metadata: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
 }

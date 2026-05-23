@@ -3,6 +3,11 @@ import {
   PROJECT_DEPLOY_COMMAND_STATUSES,
   PROJECT_DEPLOY_COMMAND_TYPES,
   PROJECT_DEPLOYMENT_TARGET_STATUSES,
+  PROJECT_INFRA_HEALTH_CHECK_TYPES,
+  PROJECT_INFRA_HEALTH_STATUSES,
+  PROJECT_INFRA_INCIDENT_SEVERITIES,
+  PROJECT_INFRA_INCIDENT_STATUSES,
+  PROJECT_INFRA_TARGET_STATUSES,
   PROJECT_STATUSES,
 } from "../constants.js";
 import { envConfigSchema } from "./secret.js";
@@ -210,6 +215,85 @@ export const createProjectDeployCommandRecordSchema = z.object({
 });
 
 export type CreateProjectDeployCommandRecord = z.infer<typeof createProjectDeployCommandRecordSchema>;
+
+export const createProjectInfraTargetSchema = z.object({
+  deploymentTargetId: z.string().uuid().optional().nullable(),
+  name: z.string().trim().min(1).max(120),
+  environment: z.string().trim().min(1).max(80).default("production"),
+  provider: z.string().trim().min(1).max(80).default("manual"),
+  providerAccountRef: optionalTrimmedText(200),
+  region: optionalTrimmedText(120),
+  role: z.string().trim().min(1).max(80).default("app"),
+  host: optionalTrimmedText(500),
+  failoverGroup: optionalTrimmedText(120),
+  failoverRank: z.coerce.number().int().min(1).max(100).optional().nullable(),
+  status: z.enum(PROJECT_INFRA_TARGET_STATUSES).default("active"),
+  repairActionsRequireApproval: z.boolean().default(true),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectInfraTarget = z.infer<typeof createProjectInfraTargetSchema>;
+
+export const updateProjectInfraTargetSchema = createProjectInfraTargetSchema.partial();
+
+export type UpdateProjectInfraTarget = z.infer<typeof updateProjectInfraTargetSchema>;
+
+export const createProjectInfraHealthCheckSchema = z.object({
+  infraTargetId: z.string().uuid().optional().nullable(),
+  name: z.string().trim().min(1).max(120),
+  checkType: z.enum(PROJECT_INFRA_HEALTH_CHECK_TYPES).default("http"),
+  url: optionalUrlSchema,
+  expectedStatus: z.coerce.number().int().min(100).max(599).optional().nullable(),
+  intervalSeconds: z.coerce.number().int().min(30).max(86_400).default(300),
+  timeoutSeconds: z.coerce.number().int().min(1).max(120).default(10),
+  enabled: z.boolean().default(true),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectInfraHealthCheck = z.infer<typeof createProjectInfraHealthCheckSchema>;
+
+export const updateProjectInfraHealthCheckSchema = createProjectInfraHealthCheckSchema.partial().extend({
+  status: z.enum(PROJECT_INFRA_HEALTH_STATUSES).optional(),
+  lastCheckedAt: z.coerce.date().optional().nullable(),
+  lastLatencyMs: z.coerce.number().int().min(0).max(3_600_000).optional().nullable(),
+  lastError: optionalTrimmedText(4000),
+});
+
+export type UpdateProjectInfraHealthCheck = z.infer<typeof updateProjectInfraHealthCheckSchema>;
+
+export const recordProjectInfraHealthResultSchema = z.object({
+  status: z.enum(PROJECT_INFRA_HEALTH_STATUSES),
+  checkedAt: z.coerce.date().optional(),
+  latencyMs: z.coerce.number().int().min(0).max(3_600_000).optional().nullable(),
+  error: optionalTrimmedText(4000),
+  createIncident: z.boolean().default(false),
+  incidentSummary: optionalTrimmedText(300),
+  incidentDetails: optionalTrimmedText(4000),
+  severity: z.enum(PROJECT_INFRA_INCIDENT_SEVERITIES).default("high"),
+});
+
+export type RecordProjectInfraHealthResult = z.infer<typeof recordProjectInfraHealthResultSchema>;
+
+export const createProjectInfraIncidentSchema = z.object({
+  infraTargetId: z.string().uuid().optional().nullable(),
+  healthCheckId: z.string().uuid().optional().nullable(),
+  issueId: z.string().uuid().optional().nullable(),
+  sourceKind: z.string().trim().min(1).max(80).default("manual"),
+  sourceId: optionalTrimmedText(200),
+  status: z.enum(PROJECT_INFRA_INCIDENT_STATUSES).default("open"),
+  severity: z.enum(PROJECT_INFRA_INCIDENT_SEVERITIES).default("high"),
+  summary: z.string().trim().min(1).max(300),
+  details: optionalTrimmedText(4000),
+  recommendedAction: optionalTrimmedText(4000),
+  repairApprovalId: z.string().uuid().optional().nullable(),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectInfraIncident = z.infer<typeof createProjectInfraIncidentSchema>;
+
+export const updateProjectInfraIncidentSchema = createProjectInfraIncidentSchema.partial();
+
+export type UpdateProjectInfraIncident = z.infer<typeof updateProjectInfraIncidentSchema>;
 
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),

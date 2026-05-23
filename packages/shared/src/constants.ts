@@ -310,6 +310,16 @@ export const PROJECT_DEPLOY_COMMAND_TYPES = ["deploy", "rollback"] as const;
 export type ProjectDeployCommandType = (typeof PROJECT_DEPLOY_COMMAND_TYPES)[number];
 export const PROJECT_DEPLOY_COMMAND_STATUSES = ["planned", "running", "succeeded", "failed", "cancelled"] as const;
 export type ProjectDeployCommandStatus = (typeof PROJECT_DEPLOY_COMMAND_STATUSES)[number];
+export const PROJECT_INFRA_TARGET_STATUSES = ["active", "disabled"] as const;
+export type ProjectInfraTargetStatus = (typeof PROJECT_INFRA_TARGET_STATUSES)[number];
+export const PROJECT_INFRA_HEALTH_CHECK_TYPES = ["http", "tcp", "manual"] as const;
+export type ProjectInfraHealthCheckType = (typeof PROJECT_INFRA_HEALTH_CHECK_TYPES)[number];
+export const PROJECT_INFRA_HEALTH_STATUSES = ["unknown", "healthy", "degraded", "unhealthy", "disabled"] as const;
+export type ProjectInfraHealthStatus = (typeof PROJECT_INFRA_HEALTH_STATUSES)[number];
+export const PROJECT_INFRA_INCIDENT_STATUSES = ["open", "investigating", "resolved", "ignored"] as const;
+export type ProjectInfraIncidentStatus = (typeof PROJECT_INFRA_INCIDENT_STATUSES)[number];
+export const PROJECT_INFRA_INCIDENT_SEVERITIES = ["low", "medium", "high", "urgent"] as const;
+export type ProjectInfraIncidentSeverity = (typeof PROJECT_INFRA_INCIDENT_SEVERITIES)[number];
 export const PROJECT_DEPLOY_MAINTENANCE_MESSAGE_STATUSES = [
   "sent",
   "skipped",

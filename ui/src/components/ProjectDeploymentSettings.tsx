@@ -5,6 +5,9 @@ import type {
   ProjectDeployCommandRecord,
   ProjectDeployEvent,
   ProjectDeploymentTarget,
+  ProjectInfraHealthCheck,
+  ProjectInfraIncident,
+  ProjectInfraTarget,
 } from "@paperclipai/shared";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,15 +29,35 @@ const EMPTY_TARGET_FORM = {
   maintenanceRecipients: "",
 };
 
+const EMPTY_INFRA_TARGET_FORM = {
+  name: "",
+  environment: "production",
+  provider: "manual",
+  providerAccountRef: "",
+  region: "",
+  role: "app",
+  host: "",
+  failoverGroup: "",
+  failoverRank: "",
+};
+
+const EMPTY_HEALTH_FORM = {
+  name: "",
+  infraTargetId: "",
+  checkType: "http",
+  url: "",
+  expectedStatus: "200",
+};
+
 function StatusPill({ status }: { status: string }) {
   const tone =
     status === "active" || status === "approved" || status === "deployed" || status === "succeeded"
       ? "success"
       : status === "deploying" || status === "running"
         ? "running"
-        : status === "failed" || status === "rejected"
+        : status === "failed" || status === "rejected" || status === "unhealthy"
           ? "danger"
-          : status === "rolled_back" || status === "cancelled"
+          : status === "rolled_back" || status === "cancelled" || status === "degraded"
             ? "warning"
             : status === "approval_requested"
               ? "pending"
@@ -107,6 +130,31 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
+  };
+}
+
+function normalizeInfraTargetPayload(form: typeof EMPTY_INFRA_TARGET_FORM) {
+  return {
+    name: form.name.trim(),
+    environment: form.environment.trim() || "production",
+    provider: form.provider.trim() || "manual",
+    providerAccountRef: form.providerAccountRef.trim() || null,
+    region: form.region.trim() || null,
+    role: form.role.trim() || "app",
+    host: form.host.trim() || null,
+    failoverGroup: form.failoverGroup.trim() || null,
+    failoverRank: form.failoverRank.trim() ? Number(form.failoverRank) : null,
+    repairActionsRequireApproval: true,
+  };
+}
+
+function normalizeHealthPayload(form: typeof EMPTY_HEALTH_FORM) {
+  return {
+    name: form.name.trim(),
+    infraTargetId: form.infraTargetId || null,
+    checkType: form.checkType,
+    url: form.url.trim() || null,
+    expectedStatus: form.expectedStatus.trim() ? Number(form.expectedStatus) : null,
   };
 }
 
@@ -265,9 +313,14 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
   const { selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(EMPTY_TARGET_FORM);
+  const [infraForm, setInfraForm] = useState(EMPTY_INFRA_TARGET_FORM);
+  const [healthForm, setHealthForm] = useState(EMPTY_HEALTH_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const targetQueryKey = queryKeys.projects.deploymentTargets(project.id, selectedCompanyId ?? undefined);
+  const infraTargetQueryKey = queryKeys.projects.infraTargets(project.id, selectedCompanyId ?? undefined);
+  const infraHealthQueryKey = queryKeys.projects.infraHealthChecks(project.id, selectedCompanyId ?? undefined);
+  const infraIncidentQueryKey = queryKeys.projects.infraIncidents(project.id, selectedCompanyId ?? undefined);
   const eventQueryKey = queryKeys.projects.deployEvents(project.id, selectedCompanyId ?? undefined);
   const { data: targets = [], isLoading: targetsLoading, isError: targetsError } = useQuery({
     queryKey: targetQueryKey,
@@ -277,10 +330,25 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
     queryKey: eventQueryKey,
     queryFn: () => projectsApi.listDeployEvents(project.id, selectedCompanyId ?? undefined),
   });
+  const { data: infraTargets = [], isLoading: infraTargetsLoading, isError: infraTargetsError } = useQuery({
+    queryKey: infraTargetQueryKey,
+    queryFn: () => projectsApi.listInfraTargets(project.id, selectedCompanyId ?? undefined),
+  });
+  const { data: healthChecks = [], isLoading: healthChecksLoading, isError: healthChecksError } = useQuery({
+    queryKey: infraHealthQueryKey,
+    queryFn: () => projectsApi.listInfraHealthChecks(project.id, selectedCompanyId ?? undefined),
+  });
+  const { data: infraIncidents = [], isLoading: infraIncidentsLoading, isError: infraIncidentsError } = useQuery({
+    queryKey: infraIncidentQueryKey,
+    queryFn: () => projectsApi.listInfraIncidents(project.id, selectedCompanyId ?? undefined),
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: targetQueryKey });
     queryClient.invalidateQueries({ queryKey: eventQueryKey });
+    queryClient.invalidateQueries({ queryKey: infraTargetQueryKey });
+    queryClient.invalidateQueries({ queryKey: infraHealthQueryKey });
+    queryClient.invalidateQueries({ queryKey: infraIncidentQueryKey });
   };
 
   const createTarget = useMutation({
@@ -314,12 +382,69 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       projectsApi.sendDeployMaintenanceMessage(project.id, eventId, {}, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
+  const createInfraTarget = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      projectsApi.createInfraTarget(project.id, data, selectedCompanyId ?? undefined),
+    onSuccess: () => {
+      setInfraForm(EMPTY_INFRA_TARGET_FORM);
+      invalidate();
+    },
+  });
+  const removeInfraTarget = useMutation({
+    mutationFn: (targetId: string) =>
+      projectsApi.removeInfraTarget(project.id, targetId, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
+  const createHealthCheck = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      projectsApi.createInfraHealthCheck(project.id, data, selectedCompanyId ?? undefined),
+    onSuccess: () => {
+      setHealthForm(EMPTY_HEALTH_FORM);
+      invalidate();
+    },
+  });
+  const recordHealthResult = useMutation({
+    mutationFn: ({
+      healthCheckId,
+      status,
+      createIncident,
+    }: {
+      healthCheckId: string;
+      status: "healthy" | "degraded" | "unhealthy";
+      createIncident: boolean;
+    }) =>
+      projectsApi.recordInfraHealthResult(
+        project.id,
+        healthCheckId,
+        { status, createIncident },
+        selectedCompanyId ?? undefined,
+      ),
+    onSuccess: invalidate,
+  });
+  const updateIncident = useMutation({
+    mutationFn: ({ incidentId, status }: { incidentId: string; status: "investigating" | "resolved" | "ignored" }) =>
+      projectsApi.updateInfraIncident(project.id, incidentId, { status }, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
   const targetsById = new Map(targets.map((target) => [target.id, target]));
+  const infraTargetsById = new Map(infraTargets.map((target) => [target.id, target]));
 
   const submitTarget = () => {
     const payload = normalizeTargetPayload(form);
     if (!payload.name) return;
     createTarget.mutate(payload);
+  };
+
+  const submitInfraTarget = () => {
+    const payload = normalizeInfraTargetPayload(infraForm);
+    if (!payload.name) return;
+    createInfraTarget.mutate(payload);
+  };
+
+  const submitHealthCheck = () => {
+    const payload = normalizeHealthPayload(healthForm);
+    if (!payload.name) return;
+    createHealthCheck.mutate(payload);
   };
 
   const toggleTargetStatus = (target: ProjectDeploymentTarget) => {
@@ -482,6 +607,314 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                   </Button>
                 </div>
               </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">Infrastructure topology</div>
+            <p className="text-[11px] text-muted-foreground">
+              Record provider, host, failover, and health metadata. Repair and failover actions remain approval-gated.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.name}
+            onChange={(event) => setInfraForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Infra target name"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.provider}
+            onChange={(event) => setInfraForm((current) => ({ ...current, provider: event.target.value }))}
+            placeholder="provider"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.host}
+            onChange={(event) => setInfraForm((current) => ({ ...current, host: event.target.value }))}
+            placeholder="host or instance"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.environment}
+            onChange={(event) => setInfraForm((current) => ({ ...current, environment: event.target.value }))}
+            placeholder="production"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.region}
+            onChange={(event) => setInfraForm((current) => ({ ...current, region: event.target.value }))}
+            placeholder="region"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.role}
+            onChange={(event) => setInfraForm((current) => ({ ...current, role: event.target.value }))}
+            placeholder="app"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.providerAccountRef}
+            onChange={(event) => setInfraForm((current) => ({ ...current, providerAccountRef: event.target.value }))}
+            placeholder="provider account ref"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.failoverGroup}
+            onChange={(event) => setInfraForm((current) => ({ ...current, failoverGroup: event.target.value }))}
+            placeholder="failover group"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={infraForm.failoverRank}
+            onChange={(event) => setInfraForm((current) => ({ ...current, failoverRank: event.target.value }))}
+            placeholder="rank"
+            inputMode="numeric"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="xs"
+          className="h-6 px-2"
+          disabled={!infraForm.name.trim() || createInfraTarget.isPending}
+          onClick={submitInfraTarget}
+        >
+          {createInfraTarget.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+          Add infra target
+        </Button>
+        {createInfraTarget.isError ? <span className="ml-2 text-xs text-destructive">Failed to add infra target.</span> : null}
+      </div>
+
+      <div className="space-y-2">
+        {infraTargetsLoading ? (
+          <div className="text-xs text-muted-foreground">Loading infra targets...</div>
+        ) : infraTargetsError ? (
+          <div className="text-xs text-destructive">Failed to load infra targets.</div>
+        ) : infraTargets.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No infrastructure targets configured.
+          </div>
+        ) : (
+          infraTargets.map((target: ProjectInfraTarget) => (
+            <div key={target.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{target.name}</span>
+                    <StatusPill status={target.status} />
+                    <span className="text-[11px] text-muted-foreground">
+                      {target.environment} · {target.provider} · {target.role}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                    {target.host ? <div className="break-all">Host: {target.host}</div> : null}
+                    {target.region ? <div>Region: {target.region}</div> : null}
+                    {target.providerAccountRef ? <div>Account: {target.providerAccountRef}</div> : null}
+                    {target.failoverGroup ? (
+                      <div>
+                        Failover: {target.failoverGroup}
+                        {target.failoverRank ? ` rank ${target.failoverRank}` : ""}
+                      </div>
+                    ) : null}
+                    <div>Repair actions require approval: {target.repairActionsRequireApproval ? "yes" : "no"}</div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={removeInfraTarget.isPending}
+                  aria-label={`Delete infrastructure target ${target.name}`}
+                  onClick={() => {
+                    if (window.confirm(`Delete infrastructure target "${target.name}"?`)) {
+                      removeInfraTarget.mutate(target.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border/70 p-3">
+        <div className="text-xs font-medium text-muted-foreground">Health checks</div>
+        <div className="grid gap-2 md:grid-cols-4">
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={healthForm.name}
+            onChange={(event) => setHealthForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Health check name"
+          />
+          <select
+            className="rounded border border-border bg-background px-2 py-1 text-xs outline-none"
+            value={healthForm.infraTargetId}
+            onChange={(event) => setHealthForm((current) => ({ ...current, infraTargetId: event.target.value }))}
+          >
+            <option value="">No target</option>
+            {infraTargets.map((target) => (
+              <option key={target.id} value={target.id}>{target.name}</option>
+            ))}
+          </select>
+          <select
+            className="rounded border border-border bg-background px-2 py-1 text-xs outline-none"
+            value={healthForm.checkType}
+            onChange={(event) => setHealthForm((current) => ({ ...current, checkType: event.target.value }))}
+          >
+            <option value="http">HTTP</option>
+            <option value="tcp">TCP</option>
+            <option value="manual">Manual</option>
+          </select>
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={healthForm.expectedStatus}
+            onChange={(event) => setHealthForm((current) => ({ ...current, expectedStatus: event.target.value }))}
+            placeholder="200"
+            inputMode="numeric"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none md:col-span-3"
+            value={healthForm.url}
+            onChange={(event) => setHealthForm((current) => ({ ...current, url: event.target.value }))}
+            placeholder="https://app.example.com/health"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="xs"
+          className="h-6 px-2"
+          disabled={!healthForm.name.trim() || createHealthCheck.isPending}
+          onClick={submitHealthCheck}
+        >
+          {createHealthCheck.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+          Add health check
+        </Button>
+        {createHealthCheck.isError ? <span className="ml-2 text-xs text-destructive">Failed to add health check.</span> : null}
+      </div>
+
+      <div className="space-y-2">
+        {healthChecksLoading ? (
+          <div className="text-xs text-muted-foreground">Loading health checks...</div>
+        ) : healthChecksError ? (
+          <div className="text-xs text-destructive">Failed to load health checks.</div>
+        ) : healthChecks.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No infrastructure health checks configured.
+          </div>
+        ) : (
+          healthChecks.map((check: ProjectInfraHealthCheck) => (
+            <div key={check.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{check.name}</span>
+                    <StatusPill status={check.status} />
+                    <span className="text-[11px] text-muted-foreground">
+                      {check.checkType}
+                      {check.infraTargetId && infraTargetsById.get(check.infraTargetId)
+                        ? ` · ${infraTargetsById.get(check.infraTargetId)?.name}`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                    {check.url ? <div className="break-all">URL: {check.url}</div> : null}
+                    {check.expectedStatus ? <div>Expected: HTTP {check.expectedStatus}</div> : null}
+                    {check.lastCheckedAt ? <div>Last checked: {formatDate(check.lastCheckedAt)}</div> : null}
+                    {check.lastError ? <div className="break-words text-destructive">Error: {check.lastError}</div> : null}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={recordHealthResult.isPending}
+                    onClick={() => recordHealthResult.mutate({ healthCheckId: check.id, status: "healthy", createIncident: false })}
+                  >
+                    Healthy
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={recordHealthResult.isPending}
+                    onClick={() => recordHealthResult.mutate({ healthCheckId: check.id, status: "unhealthy", createIncident: true })}
+                  >
+                    Unhealthy
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted-foreground">Infra incidents</div>
+        {infraIncidentsLoading ? (
+          <div className="text-xs text-muted-foreground">Loading infra incidents...</div>
+        ) : infraIncidentsError ? (
+          <div className="text-xs text-destructive">Failed to load infra incidents.</div>
+        ) : infraIncidents.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No infrastructure incidents recorded.
+          </div>
+        ) : (
+          infraIncidents.slice(0, 8).map((incident: ProjectInfraIncident) => (
+            <div key={incident.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <StatusPill status={incident.status} />
+                  <StatusPill status={incident.severity} />
+                  <span className="truncate text-sm">{incident.summary}</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{formatDate(incident.createdAt)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span>{incident.sourceKind}</span>
+                {incident.issueId ? <span>Issue {incident.issueId.slice(0, 8)}</span> : null}
+                {incident.recommendedAction ? <span className="break-words">{incident.recommendedAction}</span> : null}
+              </div>
+              {incident.status === "open" || incident.status === "investigating" ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {incident.status === "open" ? (
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      className="h-6 px-2"
+                      disabled={updateIncident.isPending}
+                      onClick={() => updateIncident.mutate({ incidentId: incident.id, status: "investigating" })}
+                    >
+                      Investigating
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={updateIncident.isPending}
+                    onClick={() => updateIncident.mutate({ incidentId: incident.id, status: "resolved" })}
+                  >
+                    Resolve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={updateIncident.isPending}
+                    onClick={() => updateIncident.mutate({ incidentId: incident.id, status: "ignored" })}
+                  >
+                    Ignore
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ))
         )}

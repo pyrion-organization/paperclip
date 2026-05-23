@@ -26,6 +26,7 @@ export { clientEmployeeProjectLinks } from "./client_employee_project_links.js";
 export { clientProjects } from "./client_projects.js";
 export { projects } from "./projects.js";
 export { projectDeploymentTargets, projectDeployEvents, projectDeployCommandRecords } from "./project_deployments.js";
+export { projectInfraTargets, projectInfraHealthChecks, projectInfraIncidents } from "./project_infra.js";
 export { projectWorkspaces } from "./project_workspaces.js";
 export { executionWorkspaces } from "./execution_workspaces.js";
 export { environments } from "./environments.js";

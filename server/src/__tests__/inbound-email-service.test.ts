@@ -25,6 +25,7 @@ import {
   issueLabels,
   issues,
   labels,
+  projectInfraIncidents,
   projects,
 } from "@paperclipai/db";
 import {
@@ -1589,6 +1590,41 @@ describeEmbeddedPostgres("inbound email service", () => {
       expect.objectContaining({ host: "imap.example.com", username: "support@example.com" }),
       "inactive-client-project",
     );
+  }, 20_000);
+
+  it("records an infra incident when a trusted infra email resolves to a project", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Checkout App");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+    const imported = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<resolved-infra-incident@example.com>",
+        subject: "Checkout App is down",
+        body: "Checkout App is unavailable and returns gateway timeout errors.",
+      }),
+      providerUid: "resolved-infra-incident",
+    });
+
+    await svc.processMessage(companyId, imported.message.id);
+
+    const [storedMessage] = await db.select().from(inboundEmailMessages);
+    const [createdIssue] = await db.select().from(issues);
+    const [incident] = await db.select().from(projectInfraIncidents);
+    expect(storedMessage.classificationCategory).toBe("infra_incident");
+    expect(createdIssue.projectId).toBe(project.id);
+    expect(incident.projectId).toBe(project.id);
+    expect(incident.issueId).toBe(createdIssue.id);
+    expect(incident.sourceKind).toBe("inbound_email");
+    expect(incident.sourceId).toBe(imported.message.id);
+    expect(incident.recommendedAction).toContain("separate approval");
   }, 20_000);
 
   it("creates a projectless triage issue when no linked project is named but the message classifies as a bug", async () => {
