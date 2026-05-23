@@ -205,6 +205,9 @@ export const ISSUE_ORIGIN_KINDS = [
   "manual",
   "routine_execution",
   "routine_remediation",
+  "calendar_reminder",
+  "calendar_missing_metadata",
+  "calendar_email_proposal",
   "stale_active_run_evaluation",
   "harness_liveness_escalation",
   "issue_productivity_review",
@@ -348,6 +351,78 @@ export type ClientProjectStatus = (typeof CLIENT_PROJECT_STATUSES)[number];
 export const CLIENT_EMPLOYEE_PROJECT_SCOPES = ["all_linked_projects", "selected_projects"] as const;
 export type ClientEmployeeProjectScope = (typeof CLIENT_EMPLOYEE_PROJECT_SCOPES)[number];
 
+export const CALENDAR_ITEM_CATEGORIES = [
+  "fiscal",
+  "domain",
+  "hosting",
+  "software_subscription",
+  "api_token",
+  "certificate",
+  "contract",
+  "payment_receivable",
+  "payment_payable",
+  "legal",
+  "project",
+  "account",
+  "insurance",
+  "other",
+] as const;
+export type CalendarItemCategory = (typeof CALENDAR_ITEM_CATEGORIES)[number];
+
+export const CALENDAR_ITEM_STATUSES = [
+  "active",
+  "pending_review",
+  "done",
+  "overdue",
+  "paused",
+  "cancelled",
+  "archived",
+] as const;
+export type CalendarItemStatus = (typeof CALENDAR_ITEM_STATUSES)[number];
+
+export const CALENDAR_RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
+export type CalendarRiskLevel = (typeof CALENDAR_RISK_LEVELS)[number];
+
+export const CALENDAR_RECURRENCE_TYPES = [
+  "none",
+  "monthly",
+  "quarterly",
+  "semiannual",
+  "yearly",
+  "custom_rrule",
+  "manual",
+] as const;
+export type CalendarRecurrenceType = (typeof CALENDAR_RECURRENCE_TYPES)[number];
+
+export const CALENDAR_SOURCE_KINDS = [
+  "manual",
+  "email_agent",
+  "document_agent",
+  "import",
+  "api",
+  "system",
+] as const;
+export type CalendarSourceKind = (typeof CALENDAR_SOURCE_KINDS)[number];
+
+export const CALENDAR_DOCUMENT_TYPES = [
+  "invoice",
+  "receipt",
+  "contract",
+  "certificate",
+  "registration",
+  "screenshot",
+  "email_export",
+  "tax_document",
+  "bank_statement",
+  "other",
+] as const;
+export type CalendarDocumentType = (typeof CALENDAR_DOCUMENT_TYPES)[number];
+
+export const CALENDAR_REMINDER_ISSUE_ORIGIN_KIND = "calendar_reminder" as const;
+export const CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND = "calendar_missing_metadata" as const;
+export const CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND = "calendar_email_proposal" as const;
+export const CALENDAR_EMAIL_NOTIFICATION_KIND = "calendar_reminder" as const;
+
 export const ENVIRONMENT_DRIVERS = ["local", "ssh", "sandbox", "plugin"] as const;
 export type EnvironmentDriver = (typeof ENVIRONMENT_DRIVERS)[number];
 
@@ -429,6 +504,7 @@ export const APPROVAL_TYPES = [
   "approve_ceo_strategy",
   "budget_override_required",
   "request_board_approval",
+  "calendar_governed_change",
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

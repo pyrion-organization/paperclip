@@ -806,6 +806,13 @@
       "when": 1779129600000,
       "tag": "0114_cloud_upstreams",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1779542628177,
+      "tag": "0115_sparkling_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

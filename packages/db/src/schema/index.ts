@@ -25,6 +25,7 @@ export { clientEmailDomains } from "./client_email_domains.js";
 export { clientEmployees } from "./client_employees.js";
 export { clientEmployeeProjectLinks } from "./client_employee_project_links.js";
 export { clientProjects } from "./client_projects.js";
+export { calendarItems, calendarItemDocuments } from "./calendar_items.js";
 export { projects } from "./projects.js";
 export { projectWorkspaces } from "./project_workspaces.js";
 export { executionWorkspaces } from "./execution_workspaces.js";
@@ -60,6 +61,8 @@ export { documentRevisions } from "./document_revisions.js";
 export { issueDocuments } from "./issue_documents.js";
 export {
   emailNotifications,
+  type CalendarReminderEmailNotificationPayload,
+  type EmailNotificationPayload,
   type IssueCompletionEmailNotificationPayload,
 } from "./email_notifications.js";
 export {
