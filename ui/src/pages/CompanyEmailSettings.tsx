@@ -7,6 +7,7 @@ import type {
   InboundEmailRule,
 } from "@paperclipai/shared";
 import { Mail, Plus, Trash2 } from "lucide-react";
+import { agentsApi } from "../api/agents";
 import { companiesApi } from "../api/companies";
 import { issuesApi } from "../api/issues";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,10 @@ export function CompanyEmailSettings() {
   const [inboundSupportRepliesEnabled, setInboundSupportRepliesEnabled] = useState(false);
   const [inboundAllowProjectlessTriage, setInboundAllowProjectlessTriage] = useState(true);
   const [inboundProjectFallbackMode, setInboundProjectFallbackMode] = useState<InboundEmailProjectFallbackMode>("create_projectless_triage");
+  const [inboundAgentAutomationEnabled, setInboundAgentAutomationEnabled] = useState(false);
+  const [inboundAgentAutomationAssigneeId, setInboundAgentAutomationAssigneeId] = useState("");
+  const [inboundAgentAutomationMinConfidence, setInboundAgentAutomationMinConfidence] = useState("80");
+  const [inboundAgentAutomationWakeEnabled, setInboundAgentAutomationWakeEnabled] = useState(true);
 
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>(emptyRuleDraft);
 
@@ -154,6 +159,11 @@ export function CompanyEmailSettings() {
     queryFn: () => companiesApi.listInboundEmailRules(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
+  const agentsQuery = useQuery({
+    queryKey: queryKeys.agents.list(companyIdForKeys),
+    queryFn: () => agentsApi.list(selectedCompanyId!),
+    enabled: Boolean(selectedCompanyId),
+  });
   const rulesLoaded = (inboundRulesQuery.data?.items?.length ?? 0) > 0;
   const labelsQuery = useQuery({
     queryKey: queryKeys.issues.labels(companyIdForKeys),
@@ -178,6 +188,10 @@ export function CompanyEmailSettings() {
       setInboundSupportRepliesEnabled(false);
       setInboundAllowProjectlessTriage(true);
       setInboundProjectFallbackMode("create_projectless_triage");
+      setInboundAgentAutomationEnabled(false);
+      setInboundAgentAutomationAssigneeId("");
+      setInboundAgentAutomationMinConfidence("80");
+      setInboundAgentAutomationWakeEnabled(true);
       return;
     }
     setInboundName(mailbox.name);
@@ -193,6 +207,10 @@ export function CompanyEmailSettings() {
     setInboundSupportRepliesEnabled(mailbox.supportRepliesEnabled);
     setInboundAllowProjectlessTriage(mailbox.allowProjectlessTriage);
     setInboundProjectFallbackMode(mailbox.projectFallbackMode);
+    setInboundAgentAutomationEnabled(mailbox.agentAutomationEnabled);
+    setInboundAgentAutomationAssigneeId(mailbox.agentAutomationAssigneeId ?? "");
+    setInboundAgentAutomationMinConfidence(String(mailbox.agentAutomationMinConfidence));
+    setInboundAgentAutomationWakeEnabled(mailbox.agentAutomationWakeEnabled);
   };
 
   useEffect(() => {
@@ -255,6 +273,19 @@ export function CompanyEmailSettings() {
 
   const inboundPortNum = Number(inboundPort);
   const inboundPollIntervalNum = Number(inboundPollIntervalSeconds);
+  const inboundAgentAutomationMinConfidenceNum = Number(inboundAgentAutomationMinConfidence);
+  const inboundAgentAutomationValid =
+    !inboundAgentAutomationEnabled ||
+    (Boolean(inboundAgentAutomationAssigneeId) &&
+      Number.isInteger(inboundAgentAutomationMinConfidenceNum) &&
+      inboundAgentAutomationMinConfidenceNum >= 0 &&
+      inboundAgentAutomationMinConfidenceNum <= 100);
+  const inboundAgentAutomationMinConfidenceForSave =
+    Number.isInteger(inboundAgentAutomationMinConfidenceNum) &&
+    inboundAgentAutomationMinConfidenceNum >= 0 &&
+    inboundAgentAutomationMinConfidenceNum <= 100
+      ? inboundAgentAutomationMinConfidenceNum
+      : 80;
   const inboundValid =
     inboundName.trim().length > 0 &&
     inboundHost.trim().length > 0 &&
@@ -265,7 +296,8 @@ export function CompanyEmailSettings() {
     inboundPortNum <= 65535 &&
     Number.isInteger(inboundPollIntervalNum) &&
     inboundPollIntervalNum >= 30 &&
-    inboundPollIntervalNum <= 3600;
+    inboundPollIntervalNum <= 3600 &&
+    inboundAgentAutomationValid;
   const inboundDirty =
     !primaryInboundMailbox ||
     inboundName !== primaryInboundMailbox.name ||
@@ -279,6 +311,10 @@ export function CompanyEmailSettings() {
     inboundSupportRepliesEnabled !== primaryInboundMailbox.supportRepliesEnabled ||
     inboundAllowProjectlessTriage !== primaryInboundMailbox.allowProjectlessTriage ||
     inboundProjectFallbackMode !== primaryInboundMailbox.projectFallbackMode ||
+    inboundAgentAutomationEnabled !== primaryInboundMailbox.agentAutomationEnabled ||
+    inboundAgentAutomationAssigneeId !== (primaryInboundMailbox.agentAutomationAssigneeId ?? "") ||
+    inboundAgentAutomationMinConfidence !== String(primaryInboundMailbox.agentAutomationMinConfidence) ||
+    inboundAgentAutomationWakeEnabled !== primaryInboundMailbox.agentAutomationWakeEnabled ||
     (inboundPasswordTouched && inboundPassword.trim().length > 0);
 
   const invalidateInboundEmailState = (groups: Array<"mailboxes" | "messages" | "jobs" | "ops" | "rules">) => {
@@ -302,6 +338,10 @@ export function CompanyEmailSettings() {
         supportRepliesEnabled: inboundSupportRepliesEnabled,
         allowProjectlessTriage: inboundAllowProjectlessTriage,
         projectFallbackMode: inboundProjectFallbackMode,
+        agentAutomationEnabled: inboundAgentAutomationEnabled,
+        agentAutomationAssigneeId: inboundAgentAutomationAssigneeId || null,
+        agentAutomationMinConfidence: inboundAgentAutomationMinConfidenceForSave,
+        agentAutomationWakeEnabled: inboundAgentAutomationWakeEnabled,
         ...(inboundPasswordTouched && inboundPassword.trim().length > 0 ? { password: inboundPassword } : {}),
       };
       return companiesApi.saveInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox?.id ?? null, payload);
@@ -373,6 +413,7 @@ export function CompanyEmailSettings() {
   const mailboxOptions = inboundMailboxesQuery.data?.items ?? [];
   const ruleRows = inboundRulesQuery.data?.items ?? [];
   const labelOptions = labelsQuery.data ?? [];
+  const agentOptions = (agentsQuery.data ?? []).filter((agent) => agent.status !== "pending_approval" && agent.status !== "terminated");
   const labelNameById = useMemo(() => new Map(labelOptions.map((label) => [label.id, label.name])), [labelOptions]);
   const canTestInboundMailbox = Boolean(primaryInboundMailbox?.passwordSet);
   const canPollInboundMailbox = Boolean(primaryInboundMailbox?.enabled && primaryInboundMailbox.passwordSet);
@@ -528,7 +569,60 @@ export function CompanyEmailSettings() {
               </select>
             </Field>
           </div>
-          {!inboundValid && <span className="text-xs text-destructive">Enter a mailbox name, host, username, folder, a valid port, and a poll interval from 30 to 3600 seconds.</span>}
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-medium">Code bug agent automation</div>
+              <p className="text-xs text-muted-foreground">
+                Optional. Trusted code bug reports with a resolved project can create an assigned task and wake the selected agent.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-enabled"
+                  type="checkbox"
+                  checked={inboundAgentAutomationEnabled}
+                  onChange={(e) => setInboundAgentAutomationEnabled(e.target.checked)}
+                />
+                Auto-assign code bugs
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-wake"
+                  type="checkbox"
+                  checked={inboundAgentAutomationWakeEnabled}
+                  onChange={(e) => setInboundAgentAutomationWakeEnabled(e.target.checked)}
+                  disabled={!inboundAgentAutomationEnabled}
+                />
+                Wake assigned agent
+              </label>
+              <Field label="Assignee agent" hint="Agent that receives eligible code bug tasks.">
+                <select
+                  data-testid="company-settings-inbound-agent-automation-assignee"
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none"
+                  value={inboundAgentAutomationAssigneeId}
+                  onChange={(e) => setInboundAgentAutomationAssigneeId(e.target.value)}
+                  disabled={!inboundAgentAutomationEnabled}
+                >
+                  <option value="">Select agent</option>
+                  {agentOptions.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Minimum confidence" hint="Classifier confidence required before assignment.">
+                <input
+                  data-testid="company-settings-inbound-agent-automation-confidence"
+                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={inboundAgentAutomationMinConfidence}
+                  onChange={(e) => setInboundAgentAutomationMinConfidence(e.target.value)}
+                  disabled={!inboundAgentAutomationEnabled}
+                />
+              </Field>
+            </div>
+          </div>
+          {!inboundValid && <span className="text-xs text-destructive">Enter valid mailbox settings. Agent automation also requires an assignee and a confidence from 0 to 100 when enabled.</span>}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
             <Button data-testid="company-settings-inbound-save" size="sm" className="w-full sm:w-auto" onClick={() => inboundSaveMutation.mutate()} disabled={inboundSaveMutation.isPending || !inboundDirty || !inboundValid}>
               {inboundSaveMutation.isPending ? "Saving..." : "Save inbound mailbox"}

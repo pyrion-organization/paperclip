@@ -76,6 +76,10 @@ export interface InboundEmailMailbox {
   supportRepliesEnabled: boolean;
   allowProjectlessTriage: boolean;
   projectFallbackMode: InboundEmailProjectFallbackMode;
+  agentAutomationEnabled: boolean;
+  agentAutomationAssigneeId: string | null;
+  agentAutomationMinConfidence: number;
+  agentAutomationWakeEnabled: boolean;
   lastPollAt: Date | null;
   lastSuccessAt: Date | null;
   lastError: string | null;

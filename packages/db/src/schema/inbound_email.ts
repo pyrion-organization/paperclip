@@ -13,6 +13,7 @@ import {
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
 import { assets } from "./assets.js";
+import { agents } from "./agents.js";
 
 export type InboundEmailClassificationCategory =
   | "code_bug"
@@ -72,6 +73,10 @@ export const inboundEmailMailboxes = pgTable(
     supportRepliesEnabled: boolean("support_replies_enabled").notNull().default(false),
     allowProjectlessTriage: boolean("allow_projectless_triage").notNull().default(true),
     projectFallbackMode: text("project_fallback_mode").$type<InboundEmailProjectFallbackMode>().notNull().default("create_projectless_triage"),
+    agentAutomationEnabled: boolean("agent_automation_enabled").notNull().default(false),
+    agentAutomationAssigneeId: uuid("agent_automation_assignee_id").references(() => agents.id, { onDelete: "set null" }),
+    agentAutomationMinConfidence: integer("agent_automation_min_confidence").notNull().default(80),
+    agentAutomationWakeEnabled: boolean("agent_automation_wake_enabled").notNull().default(true),
     lastPollAt: timestamp("last_poll_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),

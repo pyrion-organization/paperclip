@@ -827,6 +827,17 @@ Deliverables:
 - focused verification requirements,
 - operator visibility.
 
+Implemented the first conservative agent automation layer:
+
+- mailbox-level opt-in agent automation,
+- configured assignable code-bug assignee,
+- minimum classifier confidence gate,
+- resolved-project requirement,
+- safety-flag block,
+- sanitized assigned `todo` issue creation,
+- optional assignee wakeup,
+- no auto-deploy.
+
 ### Phase 5: Deploy Workflow
 
 Connect fixed code to deployment.
@@ -881,18 +892,16 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Implement Phase 1 only.
+Continue toward approved deploy readiness without broadening email authority.
 
-The first PR should be intentionally conservative:
+The next implementation slice should add the deploy-target and approval model
+needed after an agent fixes a code bug:
 
-- deterministic classifier,
-- persisted classification metadata,
-- policy gate,
-- classified issue creation,
-- unsafe skip behavior,
-- compact ops UI visibility,
-- focused tests.
+- project deployment target metadata,
+- approval request records for inbound-email-originated fixes,
+- deploy log/status visibility,
+- rollback-plan capture,
+- user maintenance/update messages after approval.
 
-After that lands and real support emails are observed, use the data to tune
-classification rules and decide when to add LLM assistance, auto-replies, agent
-assignment, and deploy automation.
+Do not add automatic production deploys until the approval and rollback path is
+implemented and covered by focused tests.

@@ -69,6 +69,10 @@ export const createInboundEmailMailboxSchema = z.object({
   supportRepliesEnabled: z.boolean().optional().default(false),
   allowProjectlessTriage: z.boolean().optional().default(true),
   projectFallbackMode: inboundEmailProjectFallbackModeSchema.optional().default("create_projectless_triage"),
+  agentAutomationEnabled: z.boolean().optional().default(false),
+  agentAutomationAssigneeId: z.string().uuid().nullable().optional().default(null),
+  agentAutomationMinConfidence: z.number().int().min(0).max(100).optional().default(80),
+  agentAutomationWakeEnabled: z.boolean().optional().default(true),
 }).strict();
 
 export type CreateInboundEmailMailbox = z.infer<typeof createInboundEmailMailboxSchema>;

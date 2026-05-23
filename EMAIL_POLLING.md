@@ -121,6 +121,16 @@ Support replies are per-mailbox opt-in via `support_replies_enabled`. When enabl
 - `unsafe_or_prompt_injection` and `spam_or_irrelevant` never send a support reply.
 - Reply outcomes are stored on `inbound_email_messages` as status, reason, attempted/sent timestamps, and error text. SMTP-not-configured and send failures do not fail message processing or source cleanup, and sent replies are not duplicated by retries.
 
+## Code bug agent automation V1
+
+Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enabled, the mailbox must name an assignable `agent_automation_assignee_id`.
+
+- Only trusted `code_bug` reports with a resolved project are eligible.
+- The classifier confidence must be at or above `agent_automation_min_confidence` and the message must have no safety flags.
+- Eligible messages persist `classification_final_action = create_agent_task`, create a sanitized issue in `todo`, assign the configured agent, and optionally wake the agent when `agent_automation_wake_enabled` is true.
+- Projectless triage, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
+- The created issue description still treats the original email as untrusted evidence; agents receive the Paperclip issue, not raw email authority.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.

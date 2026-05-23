@@ -21,11 +21,13 @@ const mockCompaniesApi = vi.hoisted(() => ({
   saveInboundEmailRule: vi.fn(),
   deleteInboundEmailRule: vi.fn(),
 }));
+const mockAgentsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockIssuesApi = vi.hoisted(() => ({ listLabels: vi.fn() }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
 
 vi.mock("../api/companies", () => ({ companiesApi: mockCompaniesApi }));
+vi.mock("../api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("../api/issues", () => ({ issuesApi: mockIssuesApi }));
 vi.mock("../context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: mockSetBreadcrumbs }),
@@ -104,6 +106,10 @@ function makeMailbox(overrides: Partial<InboundEmailMailbox> = {}): InboundEmail
     supportRepliesEnabled: false,
     allowProjectlessTriage: true,
     projectFallbackMode: "create_projectless_triage",
+    agentAutomationEnabled: false,
+    agentAutomationAssigneeId: null,
+    agentAutomationMinConfidence: 80,
+    agentAutomationWakeEnabled: true,
     lastPollAt: null,
     lastSuccessAt: null,
     lastError: null,
@@ -166,6 +172,10 @@ describe("CompanyEmailSettings", () => {
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "job-1", status: "pending" });
     mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({ items: [], nextCursor: null });
     mockCompaniesApi.listInboundEmailRules.mockResolvedValue({ items: [], nextCursor: null });
+    mockAgentsApi.list.mockResolvedValue([
+      { id: "agent-1", name: "Engineer", status: "active" },
+      { id: "agent-terminated", name: "Terminated", status: "terminated" },
+    ]);
     mockCompaniesApi.saveInboundEmailRule.mockImplementation(async (_companyId: string, ruleId: string | null, payload: Record<string, unknown>) => ({
       id: ruleId ?? "rule-1",
       companyId: "company-1",
@@ -255,6 +265,9 @@ describe("CompanyEmailSettings", () => {
     (container.querySelector("[data-testid='company-settings-inbound-support-replies']") as HTMLInputElement).click();
     (container.querySelector("[data-testid='company-settings-inbound-allow-projectless-triage']") as HTMLInputElement).click();
     setInputValue(container.querySelector("[data-testid='company-settings-inbound-project-fallback-mode']") as HTMLSelectElement, "request_clarification");
+    (container.querySelector("[data-testid='company-settings-inbound-agent-automation-enabled']") as HTMLInputElement).click();
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-agent-automation-assignee']") as HTMLSelectElement, "agent-1");
+    setInputValue(container.querySelector("[data-testid='company-settings-inbound-agent-automation-confidence']") as HTMLInputElement, "82");
     await flushReact();
 
     await act(async () => {
@@ -274,6 +287,10 @@ describe("CompanyEmailSettings", () => {
       supportRepliesEnabled: true,
       allowProjectlessTriage: false,
       projectFallbackMode: "request_clarification",
+      agentAutomationEnabled: true,
+      agentAutomationAssigneeId: "agent-1",
+      agentAutomationMinConfidence: 82,
+      agentAutomationWakeEnabled: true,
       password: "mailbox-secret",
     });
     expect((container.querySelector("[data-testid='company-settings-inbound-name']") as HTMLInputElement).value).toBe("Shared inbox");

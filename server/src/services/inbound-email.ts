@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
+  agents,
   assets,
   backgroundJobs,
   clientEmailDomains,
@@ -53,6 +54,8 @@ import {
 } from "./inbound-email-classifier.js";
 import { parseInboundEmail } from "./inbound-email-mime.js";
 import { issueService } from "./issues.js";
+import { heartbeatService } from "./heartbeat.js";
+import { queueIssueAssignmentWakeup } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
 import { secretService } from "./secrets.js";
 import {
@@ -764,6 +767,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   const jobs = backgroundJobService(db);
   const secrets = secretService(db);
   const issues = issueService(db);
+  const heartbeat = heartbeatService(db);
 
   function normalizeRuleLabelIds(labelIds: string[] | undefined): string[] {
     return [...new Set(labelIds ?? [])];
@@ -841,6 +845,30 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       ...(input.username !== undefined ? { username: normalizeMailboxText(input.username, "username") } : {}),
       ...(input.folder !== undefined ? { folder: normalizeMailboxText(input.folder, "folder") } : {}),
     };
+  }
+
+  async function assertAgentAutomationAssignee(companyId: string, agentId: string | null | undefined) {
+    if (!agentId) return;
+    const agent = await db
+      .select({ id: agents.id, companyId: agents.companyId, status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .then((rows) => rows[0] ?? null);
+    if (!agent || agent.companyId !== companyId) {
+      throw unprocessable("Inbound email agent automation assignee must belong to this company");
+    }
+    if (agent.status === "pending_approval" || agent.status === "terminated") {
+      throw unprocessable("Inbound email agent automation assignee must be an assignable agent");
+    }
+  }
+
+  function assertAgentAutomationConfig(input: {
+    enabled: boolean;
+    assigneeId: string | null | undefined;
+  }) {
+    if (input.enabled && !input.assigneeId) {
+      throw unprocessable("Inbound email agent automation requires an assignee agent");
+    }
   }
 
   async function loadMailbox(companyId: string, mailboxId: string) {
@@ -1166,6 +1194,74 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return context.fallbackRule?.projectFallbackMode ?? context.mailbox.projectFallbackMode;
   }
 
+  function resolveAgentAutomationPolicy(input: {
+    message: typeof inboundEmailMessages.$inferSelect;
+    classification: InboundEmailClassification | null;
+    context: Awaited<ReturnType<typeof resolveProcessingContext>>;
+    projectId: string | null;
+  }) {
+    const mailbox = input.context.mailbox;
+    if (!mailbox.agentAutomationEnabled || !mailbox.agentAutomationAssigneeId) return null;
+    if (!input.classification || input.classification.category !== "code_bug") return null;
+    if (input.classification.confidence < mailbox.agentAutomationMinConfidence) return null;
+    if (input.classification.safetyFlags.length > 0) return null;
+    if (input.classification.finalAction === "discard_or_quarantine") return null;
+    if (!input.projectId) return null;
+    return {
+      assigneeAgentId: mailbox.agentAutomationAssigneeId,
+      wakeEnabled: mailbox.agentAutomationWakeEnabled,
+    };
+  }
+
+  async function setMessageClassificationFinalAction(
+    message: typeof inboundEmailMessages.$inferSelect,
+    finalAction: "create_agent_task" | "create_triage_issue",
+  ) {
+    if (message.classificationFinalAction === finalAction) return message;
+    const [updated] = await db
+      .update(inboundEmailMessages)
+      .set({
+        classificationFinalAction: finalAction,
+        updatedAt: new Date(),
+      })
+      .where(eq(inboundEmailMessages.id, message.id))
+      .returning();
+    return updated ?? {
+      ...message,
+      classificationFinalAction: finalAction,
+      updatedAt: new Date(),
+    };
+  }
+
+  async function maybeWakeAssignedInboundIssue(input: {
+    issue: { id: string; assigneeAgentId: string | null; status: string };
+    message: typeof inboundEmailMessages.$inferSelect;
+    wakeEnabled: boolean;
+  }) {
+    if (!input.wakeEnabled || !input.issue.assigneeAgentId) return;
+    const wakeup = await queueIssueAssignmentWakeup({
+      heartbeat,
+      issue: input.issue,
+      reason: "Inbound support code bug auto-assignment",
+      mutation: "inbound_email_agent_automation",
+      contextSource: "inbound-email-agent-automation",
+      requestedByActorType: "system",
+      requestedByActorId: INBOUND_EMAIL_ACTOR.actorId,
+    });
+    await logActivity(db, {
+      companyId: input.message.companyId,
+      ...INBOUND_EMAIL_ACTOR,
+      action: "inbound_email.agent_wakeup_requested",
+      entityType: "issue",
+      entityId: input.issue.id,
+      details: {
+        messageId: input.message.id,
+        assigneeAgentId: input.issue.assigneeAgentId,
+        queued: Boolean(wakeup),
+      },
+    });
+  }
+
   function shouldPreserveClarificationThread(message: typeof inboundEmailMessages.$inferSelect): boolean {
     return hasReplyOrForwardPrefix(message.subject ?? "");
   }
@@ -1415,6 +1511,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
   async function createIssueFromMessage(
     message: typeof inboundEmailMessages.$inferSelect,
     context: Awaited<ReturnType<typeof resolveProcessingContext>> & { projectId: string | null },
+    automation?: { assigneeAgentId: string; wakeEnabled: boolean } | null,
   ) {
     const attachmentRows = await db
       .select()
@@ -1423,15 +1520,17 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     const issue = await issues.create(message.companyId, {
       title: (message.subject?.trim() || `Inbound email from ${message.fromAddress ?? "unknown sender"}`).slice(0, 300),
       description: formatIssueDescription({ message, attachmentCount: attachmentRows.length }),
-      status: "backlog",
+      status: automation ? "todo" : "backlog",
       priority: rulePriorityOverride(context.rule) ?? defaultPriorityForClassification(message.classificationCategory),
       projectId: context.projectId,
+      assigneeAgentId: automation?.assigneeAgentId,
       labelIds: context.rule?.labelIds ?? [],
       originKind: "inbound_email",
       originId: message.id,
       originFingerprint: message.rawSha256,
     });
     await linkIssueAttachmentsFromMessage(message, issue.id, attachmentRows);
+    await maybeWakeAssignedInboundIssue({ issue, message, wakeEnabled: automation?.wakeEnabled ?? false });
     return issue;
   }
 
@@ -2105,6 +2204,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     ): Promise<MailboxView> => {
       const mailboxId = randomUUID();
       const normalized = normalizeCreateMailboxInput(input);
+      assertAgentAutomationConfig({
+        enabled: normalized.agentAutomationEnabled,
+        assigneeId: normalized.agentAutomationAssigneeId,
+      });
+      await assertAgentAutomationAssignee(companyId, normalized.agentAutomationAssigneeId);
       const trimmedPassword = normalized.password?.trim() ?? "";
       let passwordSecretName: string | null = null;
 
@@ -2132,6 +2236,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               supportRepliesEnabled: normalized.supportRepliesEnabled,
               allowProjectlessTriage: normalized.allowProjectlessTriage,
               projectFallbackMode: normalized.projectFallbackMode,
+              agentAutomationEnabled: normalized.agentAutomationEnabled,
+              agentAutomationAssigneeId: normalized.agentAutomationAssigneeId ?? null,
+              agentAutomationMinConfidence: normalized.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: normalized.agentAutomationWakeEnabled,
               passwordSecretName,
             })
             .returning();
@@ -2152,6 +2260,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               supportRepliesEnabled: created.supportRepliesEnabled,
               allowProjectlessTriage: created.allowProjectlessTriage,
               projectFallbackMode: created.projectFallbackMode,
+              agentAutomationEnabled: created.agentAutomationEnabled,
+              agentAutomationAssigneeId: created.agentAutomationAssigneeId,
+              agentAutomationMinConfidence: created.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: created.agentAutomationWakeEnabled,
               passwordSet: Boolean(created.passwordSecretName),
             },
           });
@@ -2179,6 +2291,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     ): Promise<MailboxView> => {
       const existing = await loadMailbox(companyId, mailboxId);
       const normalized = normalizeUpdateMailboxInput(input);
+      const nextAgentAutomationAssigneeId =
+        normalized.agentAutomationAssigneeId === undefined
+          ? existing.agentAutomationAssigneeId
+          : normalized.agentAutomationAssigneeId;
+      assertAgentAutomationConfig({
+        enabled: normalized.agentAutomationEnabled ?? existing.agentAutomationEnabled,
+        assigneeId: nextAgentAutomationAssigneeId,
+      });
+      await assertAgentAutomationAssignee(companyId, nextAgentAutomationAssigneeId);
 
       // Update the row first so a validation failure (unique name, FK, etc.)
       // surfaces before we mutate the stored secret. The password field is
@@ -2243,6 +2364,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               supportRepliesEnabled: existing.supportRepliesEnabled,
               allowProjectlessTriage: existing.allowProjectlessTriage,
               projectFallbackMode: existing.projectFallbackMode,
+              agentAutomationEnabled: existing.agentAutomationEnabled,
+              agentAutomationAssigneeId: existing.agentAutomationAssigneeId,
+              agentAutomationMinConfidence: existing.agentAutomationMinConfidence,
+              agentAutomationWakeEnabled: existing.agentAutomationWakeEnabled,
               passwordSecretName: existing.passwordSecretName,
               updatedAt: new Date(),
             })
@@ -2274,6 +2399,10 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           supportRepliesEnabled: finalMailbox.supportRepliesEnabled,
           allowProjectlessTriage: finalMailbox.allowProjectlessTriage,
           projectFallbackMode: finalMailbox.projectFallbackMode,
+          agentAutomationEnabled: finalMailbox.agentAutomationEnabled,
+          agentAutomationAssigneeId: finalMailbox.agentAutomationAssigneeId,
+          agentAutomationMinConfidence: finalMailbox.agentAutomationMinConfidence,
+          agentAutomationWakeEnabled: finalMailbox.agentAutomationWakeEnabled,
           passwordSet: Boolean(finalMailbox.passwordSecretName),
           changedFields: Object.keys(input),
         },
@@ -2968,6 +3097,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               },
             });
           } else {
+            const projectId = authorization.project?.id ?? null;
+            const automation = resolveAgentAutomationPolicy({
+              message: classifiedMessage,
+              classification,
+              context,
+              projectId,
+            });
+            const issueMessage = automation
+              ? await setMessageClassificationFinalAction(classifiedMessage, "create_agent_task")
+              : classifiedMessage;
             const issue = await db
               .select()
               .from(issueRows)
@@ -2979,11 +3118,11 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 ),
               )
               .then((rows) => rows[0] ?? null)
-              ?? await createIssueFromMessage(classifiedMessage, {
+              ?? await createIssueFromMessage(issueMessage, {
                 ...context,
-                projectId: authorization.project?.id ?? null,
-              });
-            await linkIssueAttachmentsFromMessage(classifiedMessage, issue.id);
+                projectId,
+              }, automation);
+            await linkIssueAttachmentsFromMessage(issueMessage, issue.id);
             const [updated] = await db
               .update(inboundEmailMessages)
               .set({
@@ -3005,11 +3144,13 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
                 identifier: issue.identifier,
                 subject: message.subject,
                 classificationCategory: classification?.category ?? null,
-                classificationFinalAction: classification?.finalAction ?? null,
+                classificationFinalAction: issueMessage.classificationFinalAction ?? classification?.finalAction ?? null,
+                agentAutomationAssigneeId: automation?.assigneeAgentId ?? null,
+                agentAutomationWakeEnabled: automation?.wakeEnabled ?? false,
               },
             });
             completedMessage = updated ?? {
-              ...classifiedMessage,
+              ...issueMessage,
               status: "processed" as const,
               createdIssueId: issue.id,
               error: null,
