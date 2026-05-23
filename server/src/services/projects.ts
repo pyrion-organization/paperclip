@@ -7,6 +7,8 @@ import {
   projectDeployEvents,
   projectInfraHealthChecks,
   projectInfraIncidents,
+  projectInfraActionEvidence,
+  projectInfraActionProposals,
   projectInfraTargets,
   projectGoals,
   goals,
@@ -27,6 +29,8 @@ import {
   type ProjectDeploymentTarget,
   type ProjectInfraHealthCheck,
   type ProjectInfraIncident,
+  type ProjectInfraActionEvidence,
+  type ProjectInfraActionProposal,
   type ProjectInfraTarget,
   type ProjectClientRef,
   type ProjectExecutionWorkspacePolicy,
@@ -51,6 +55,8 @@ type ProjectDeployCommandRecordRow = typeof projectDeployCommandRecords.$inferSe
 type ProjectInfraTargetRow = typeof projectInfraTargets.$inferSelect;
 type ProjectInfraHealthCheckRow = typeof projectInfraHealthChecks.$inferSelect;
 type ProjectInfraIncidentRow = typeof projectInfraIncidents.$inferSelect;
+type ProjectInfraActionProposalRow = typeof projectInfraActionProposals.$inferSelect;
+type ProjectInfraActionEvidenceRow = typeof projectInfraActionEvidence.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 type WorkspaceRuntimeServiceRow = typeof workspaceRuntimeServices.$inferSelect;
 const REPO_ONLY_CWD_SENTINEL = "/__paperclip_repo_only__";
@@ -114,6 +120,9 @@ type RecordInfraHealthResultInput = {
 };
 type CreateInfraIncidentInput = Omit<typeof projectInfraIncidents.$inferInsert, "companyId" | "projectId">;
 type UpdateInfraIncidentInput = Partial<CreateInfraIncidentInput>;
+type CreateInfraActionProposalInput = Omit<typeof projectInfraActionProposals.$inferInsert, "companyId" | "projectId">;
+type UpdateInfraActionProposalInput = Partial<CreateInfraActionProposalInput>;
+type CreateInfraActionEvidenceInput = Omit<typeof projectInfraActionEvidence.$inferInsert, "companyId" | "projectId">;
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -370,6 +379,49 @@ function toInfraIncident(row: ProjectInfraIncidentRow): ProjectInfraIncident {
     recommendedAction: row.recommendedAction ?? null,
     repairApprovalId: row.repairApprovalId ?? null,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toInfraActionProposal(row: ProjectInfraActionProposalRow): ProjectInfraActionProposal {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    incidentId: row.incidentId,
+    infraTargetId: row.infraTargetId ?? null,
+    approvalId: row.approvalId ?? null,
+    actionType: row.actionType as ProjectInfraActionProposal["actionType"],
+    status: row.status as ProjectInfraActionProposal["status"],
+    summary: row.summary,
+    rationale: row.rationale,
+    proposedAction: row.proposedAction,
+    rollbackPlan: row.rollbackPlan ?? null,
+    risk: row.risk ?? null,
+    provider: row.provider ?? null,
+    region: row.region ?? null,
+    evidenceRequired: row.evidenceRequired ?? null,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdByAgentId: row.createdByAgentId ?? null,
+    createdByUserId: row.createdByUserId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toInfraActionEvidence(row: ProjectInfraActionEvidenceRow): ProjectInfraActionEvidence {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    proposalId: row.proposalId,
+    approvalId: row.approvalId ?? null,
+    status: row.status as ProjectInfraActionEvidence["status"],
+    evidence: row.evidence,
+    output: row.output ?? null,
+    recordedByAgentId: row.recordedByAgentId ?? null,
+    recordedByUserId: row.recordedByUserId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -1453,6 +1505,15 @@ export function projectService(db: Db) {
       return rows.map(toInfraIncident);
     },
 
+    getInfraIncident: async (projectId: string, incidentId: string): Promise<ProjectInfraIncident | null> => {
+      const row = await db
+        .select()
+        .from(projectInfraIncidents)
+        .where(and(eq(projectInfraIncidents.projectId, projectId), eq(projectInfraIncidents.id, incidentId)))
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraIncident(row) : null;
+    },
+
     createInfraIncident: async (
       projectId: string,
       data: CreateInfraIncidentInput,
@@ -1484,6 +1545,91 @@ export function projectService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
       return row ? toInfraIncident(row) : null;
+    },
+
+    listInfraActionProposals: async (projectId: string): Promise<ProjectInfraActionProposal[]> => {
+      const rows = await db
+        .select()
+        .from(projectInfraActionProposals)
+        .where(eq(projectInfraActionProposals.projectId, projectId))
+        .orderBy(desc(projectInfraActionProposals.createdAt), desc(projectInfraActionProposals.id));
+      return rows.map(toInfraActionProposal);
+    },
+
+    getInfraActionProposal: async (
+      projectId: string,
+      proposalId: string,
+    ): Promise<ProjectInfraActionProposal | null> => {
+      const row = await db
+        .select()
+        .from(projectInfraActionProposals)
+        .where(and(eq(projectInfraActionProposals.projectId, projectId), eq(projectInfraActionProposals.id, proposalId)))
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraActionProposal(row) : null;
+    },
+
+    createInfraActionProposal: async (
+      projectId: string,
+      data: CreateInfraActionProposalInput,
+    ): Promise<ProjectInfraActionProposal | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectInfraActionProposals)
+        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraActionProposal(row) : null;
+    },
+
+    updateInfraActionProposal: async (
+      projectId: string,
+      proposalId: string,
+      data: UpdateInfraActionProposalInput,
+    ): Promise<ProjectInfraActionProposal | null> => {
+      const row = await db
+        .update(projectInfraActionProposals)
+        .set({ ...data, updatedAt: new Date() })
+        .where(and(eq(projectInfraActionProposals.projectId, projectId), eq(projectInfraActionProposals.id, proposalId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraActionProposal(row) : null;
+    },
+
+    listInfraActionEvidence: async (
+      projectId: string,
+      proposalId: string,
+    ): Promise<ProjectInfraActionEvidence[]> => {
+      const rows = await db
+        .select()
+        .from(projectInfraActionEvidence)
+        .where(and(eq(projectInfraActionEvidence.projectId, projectId), eq(projectInfraActionEvidence.proposalId, proposalId)))
+        .orderBy(desc(projectInfraActionEvidence.createdAt), desc(projectInfraActionEvidence.id));
+      return rows.map(toInfraActionEvidence);
+    },
+
+    createInfraActionEvidence: async (
+      projectId: string,
+      data: CreateInfraActionEvidenceInput,
+    ): Promise<ProjectInfraActionEvidence | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectInfraActionEvidence)
+        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraActionEvidence(row) : null;
     },
 
     listWorkspaces: async (projectId: string): Promise<ProjectWorkspace[]> => {

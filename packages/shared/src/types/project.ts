@@ -9,6 +9,9 @@ import type {
   ProjectDeploymentTargetStatus,
   ProjectInfraHealthCheckType,
   ProjectInfraHealthStatus,
+  ProjectInfraActionEvidenceStatus,
+  ProjectInfraActionStatus,
+  ProjectInfraActionType,
   ProjectInfraIncidentSeverity,
   ProjectInfraIncidentStatus,
   ProjectInfraTargetStatus,
@@ -340,6 +343,45 @@ export interface ProjectInfraIncident {
   recommendedAction: string | null;
   repairApprovalId: string | null;
   metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraActionProposal {
+  id: string;
+  companyId: string;
+  projectId: string;
+  incidentId: string;
+  infraTargetId: string | null;
+  approvalId: string | null;
+  actionType: ProjectInfraActionType;
+  status: ProjectInfraActionStatus;
+  summary: string;
+  rationale: string;
+  proposedAction: string;
+  rollbackPlan: string | null;
+  risk: string | null;
+  provider: string | null;
+  region: string | null;
+  evidenceRequired: string | null;
+  metadata: Record<string, unknown> | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectInfraActionEvidence {
+  id: string;
+  companyId: string;
+  projectId: string;
+  proposalId: string;
+  approvalId: string | null;
+  status: ProjectInfraActionEvidenceStatus;
+  evidence: string;
+  output: string | null;
+  recordedByAgentId: string | null;
+  recordedByUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

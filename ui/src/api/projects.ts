@@ -14,6 +14,8 @@ import type {
   ProjectFilesTreeResponse,
   ProjectInfraHealthCheck,
   ProjectInfraIncident,
+  ProjectInfraActionEvidence,
+  ProjectInfraActionProposal,
   ProjectInfraTarget,
   ProjectWorkspace,
   WorkspaceOperation,
@@ -90,6 +92,22 @@ export const projectsApi = {
   updateInfraIncident: (projectId: string, incidentId: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<ProjectInfraIncident>(
       projectPath(projectId, companyId, `/infra-incidents/${encodeURIComponent(incidentId)}`),
+      data,
+    ),
+  listInfraActionProposals: (projectId: string, companyId?: string) =>
+    api.get<ProjectInfraActionProposal[]>(projectPath(projectId, companyId, "/infra-action-proposals")),
+  createInfraActionProposal: (projectId: string, incidentId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ approval: import("@paperclipai/shared").Approval; proposal: ProjectInfraActionProposal }>(
+      projectPath(projectId, companyId, `/infra-incidents/${encodeURIComponent(incidentId)}/action-proposals`),
+      data,
+    ),
+  listInfraActionEvidence: (projectId: string, proposalId: string, companyId?: string) =>
+    api.get<ProjectInfraActionEvidence[]>(
+      projectPath(projectId, companyId, `/infra-action-proposals/${encodeURIComponent(proposalId)}/evidence`),
+    ),
+  createInfraActionEvidence: (projectId: string, proposalId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectInfraActionEvidence>(
+      projectPath(projectId, companyId, `/infra-action-proposals/${encodeURIComponent(proposalId)}/evidence`),
       data,
     ),
   listDeployEvents: (projectId: string, companyId?: string) =>

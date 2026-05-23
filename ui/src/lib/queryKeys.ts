@@ -121,6 +121,10 @@ export const queryKeys = {
       ["projects", "infra-health-checks", projectId, companyId ?? null] as const,
     infraIncidents: (projectId: string, companyId?: string) =>
       ["projects", "infra-incidents", projectId, companyId ?? null] as const,
+    infraActionProposals: (projectId: string, companyId?: string) =>
+      ["projects", "infra-action-proposals", projectId, companyId ?? null] as const,
+    infraActionEvidence: (projectId: string, proposalId: string, companyId?: string) =>
+      ["projects", "infra-action-evidence", projectId, proposalId, companyId ?? null] as const,
     deployEvents: (projectId: string, companyId?: string) =>
       ["projects", "deploy-events", projectId, companyId ?? null] as const,
     deployCommandRecords: (projectId: string, deployEventId: string, companyId?: string) =>

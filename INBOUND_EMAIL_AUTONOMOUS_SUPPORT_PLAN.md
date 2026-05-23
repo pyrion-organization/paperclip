@@ -899,13 +899,15 @@ Implemented the first infra topology and health foundation:
 - trusted `infra_incident` support emails that resolve to a project now create
   infra incident records linked to the triage issue,
 - compact project UI for infra targets, health checks, and incidents,
+- approval-gated infra repair/failover proposals linked to infra incidents,
+- manual action evidence records that require approved `infra_repair`
+  approval,
 - no automatic provider repair, failover, DNS, SSH, or VPS mutation.
 
 Remaining Phase 6 work:
 
 - add concrete provider adapter descriptors without credentials in ordinary
   project metadata,
-- add approval request records for proposed infra repair/failover actions,
 - add a scheduled/worker health-check runner,
 - add incident grouping and escalation policy.
 
@@ -940,13 +942,13 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add approval-gated infra repair/failover
-proposals without granting provider repair authority:
+The next implementation slice should add a scheduled health-check runner without
+granting provider repair authority:
 
-- model proposed repair/failover action records linked to infra incidents,
-- route each proposed action through an explicit approval before it can be
-  marked ready,
-- record operator/agent evidence for manual repair attempts,
+- evaluate enabled HTTP health checks on a conservative interval,
+- persist last-known health status and latency/error evidence,
+- create or reuse open infra incidents for degraded/unhealthy checks,
+- avoid provider credentials and provider mutations,
 - keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.

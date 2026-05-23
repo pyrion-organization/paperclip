@@ -6,6 +6,8 @@ import {
   createProjectDeploymentTargetSchema,
   createProjectInfraHealthCheckSchema,
   createProjectInfraIncidentSchema,
+  createProjectInfraActionEvidenceSchema,
+  createProjectInfraActionProposalSchema,
   createProjectInfraTargetSchema,
   createProjectSchema,
   projectFileBranchCreateSchema,
@@ -891,6 +893,233 @@ export function projectRoutes(db: Db) {
       });
 
       res.json(incident);
+    },
+  );
+
+  router.get("/projects/:id/infra-action-proposals", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listInfraActionProposals(id));
+  });
+
+  router.post(
+    "/projects/:id/infra-incidents/:incidentId/action-proposals",
+    validate(createProjectInfraActionProposalSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const incidentId = req.params.incidentId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const incident = await svc.getInfraIncident(id, incidentId);
+      if (!incident || incident.companyId !== project.companyId) {
+        res.status(404).json({ error: "Infrastructure incident not found" });
+        return;
+      }
+      if (incident.status === "resolved" || incident.status === "ignored") {
+        res.status(422).json({ error: "Cannot propose infra actions for closed incidents" });
+        return;
+      }
+      const infraTargetId = req.body.infraTargetId ?? incident.infraTargetId ?? null;
+      let infraTarget = null;
+      if (infraTargetId) {
+        infraTarget = await svc.getInfraTarget(id, infraTargetId);
+        if (!infraTarget || infraTarget.companyId !== project.companyId) {
+          res.status(422).json({ error: "Infrastructure action target is invalid" });
+          return;
+        }
+      }
+
+      const actor = getActorInfo(req);
+      const approval = await approvalsSvc.create(project.companyId, {
+        type: "infra_repair",
+        requestedByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+        requestedByUserId: actor.actorType === "user" ? actor.actorId : null,
+        status: "pending",
+        payload: {
+          project: { id: project.id, name: project.name },
+          incident: {
+            id: incident.id,
+            summary: incident.summary,
+            severity: incident.severity,
+            status: incident.status,
+          },
+          infraTarget: infraTarget
+            ? {
+                id: infraTarget.id,
+                name: infraTarget.name,
+                provider: infraTarget.provider,
+                region: infraTarget.region,
+                host: infraTarget.host,
+                failoverGroup: infraTarget.failoverGroup,
+                failoverRank: infraTarget.failoverRank,
+              }
+            : null,
+          actionType: req.body.actionType,
+          summary: req.body.summary,
+          rationale: req.body.rationale,
+          proposedAction: req.body.proposedAction,
+          rollbackPlan: req.body.rollbackPlan ?? null,
+          risk: req.body.risk ?? null,
+          evidenceRequired: req.body.evidenceRequired ?? null,
+          providerMutationAllowed: false,
+        },
+        decisionNote: null,
+        decidedByUserId: null,
+        decidedAt: null,
+        updatedAt: new Date(),
+      });
+      if (incident.issueId) {
+        await issueApprovalsSvc.linkManyForApproval(approval.id, [incident.issueId], {
+          agentId: actor.agentId,
+          userId: actor.actorType === "user" ? actor.actorId : null,
+        });
+      }
+
+      const proposal = await svc.createInfraActionProposal(id, {
+        incidentId: incident.id,
+        infraTargetId,
+        approvalId: approval.id,
+        actionType: req.body.actionType,
+        status: "approval_requested",
+        summary: req.body.summary,
+        rationale: req.body.rationale,
+        proposedAction: req.body.proposedAction,
+        rollbackPlan: req.body.rollbackPlan ?? null,
+        risk: req.body.risk ?? null,
+        provider: req.body.provider ?? infraTarget?.provider ?? null,
+        region: req.body.region ?? infraTarget?.region ?? null,
+        evidenceRequired: req.body.evidenceRequired ?? null,
+        metadata: req.body.metadata ?? null,
+        createdByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+        createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+      if (!proposal) {
+        res.status(422).json({ error: "Invalid infrastructure action proposal payload" });
+        return;
+      }
+
+      await svc.updateInfraIncident(id, incident.id, {
+        status: incident.status === "open" ? "investigating" : incident.status,
+        repairApprovalId: approval.id,
+      });
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.infra_action_proposed",
+        entityType: "project",
+        entityId: id,
+        details: {
+          infraIncidentId: incident.id,
+          infraActionProposalId: proposal.id,
+          approvalId: approval.id,
+          actionType: proposal.actionType,
+        },
+      });
+
+      res.status(201).json({ approval, proposal });
+    },
+  );
+
+  router.get("/projects/:id/infra-action-proposals/:proposalId/evidence", async (req, res) => {
+    const id = req.params.id as string;
+    const proposalId = req.params.proposalId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const proposal = await svc.getInfraActionProposal(id, proposalId);
+    if (!proposal || proposal.companyId !== project.companyId) {
+      res.status(404).json({ error: "Infrastructure action proposal not found" });
+      return;
+    }
+    res.json(await svc.listInfraActionEvidence(id, proposal.id));
+  });
+
+  router.post(
+    "/projects/:id/infra-action-proposals/:proposalId/evidence",
+    validate(createProjectInfraActionEvidenceSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const proposalId = req.params.proposalId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const proposal = await svc.getInfraActionProposal(id, proposalId);
+      if (!proposal || proposal.companyId !== project.companyId) {
+        res.status(404).json({ error: "Infrastructure action proposal not found" });
+        return;
+      }
+      if (!proposal.approvalId) {
+        res.status(422).json({ error: "Infrastructure action proposal is not linked to an approval" });
+        return;
+      }
+      const approval = await approvalsSvc.getById(proposal.approvalId);
+      if (!approval || approval.companyId !== project.companyId || approval.type !== "infra_repair") {
+        res.status(404).json({ error: "Infrastructure repair approval not found" });
+        return;
+      }
+      if (approval.status !== "approved") {
+        res.status(422).json({ error: "Infrastructure action evidence requires approved repair approval" });
+        return;
+      }
+      if (req.actor.type === "agent" && approval.requestedByAgentId !== req.actor.agentId) {
+        throw forbidden("Only the requesting agent can record infrastructure action evidence");
+      }
+
+      const actor = getActorInfo(req);
+      const evidence = await svc.createInfraActionEvidence(id, {
+        proposalId: proposal.id,
+        approvalId: approval.id,
+        status: req.body.status,
+        evidence: req.body.evidence,
+        output: req.body.output ?? null,
+        recordedByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+        recordedByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+      if (!evidence) {
+        res.status(422).json({ error: "Invalid infrastructure action evidence payload" });
+        return;
+      }
+      if (req.body.status === "succeeded" || req.body.status === "failed" || req.body.status === "cancelled") {
+        await svc.updateInfraActionProposal(id, proposal.id, { status: req.body.status });
+      }
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.infra_action_evidence_recorded",
+        entityType: "project",
+        entityId: id,
+        details: {
+          infraActionProposalId: proposal.id,
+          approvalId: approval.id,
+          evidenceId: evidence.id,
+          status: evidence.status,
+        },
+      });
+
+      res.status(201).json(evidence);
     },
   );
 

@@ -5,6 +5,8 @@ import {
   PROJECT_DEPLOYMENT_TARGET_STATUSES,
   PROJECT_INFRA_HEALTH_CHECK_TYPES,
   PROJECT_INFRA_HEALTH_STATUSES,
+  PROJECT_INFRA_ACTION_EVIDENCE_STATUSES,
+  PROJECT_INFRA_ACTION_TYPES,
   PROJECT_INFRA_INCIDENT_SEVERITIES,
   PROJECT_INFRA_INCIDENT_STATUSES,
   PROJECT_INFRA_TARGET_STATUSES,
@@ -294,6 +296,30 @@ export type CreateProjectInfraIncident = z.infer<typeof createProjectInfraIncide
 export const updateProjectInfraIncidentSchema = createProjectInfraIncidentSchema.partial();
 
 export type UpdateProjectInfraIncident = z.infer<typeof updateProjectInfraIncidentSchema>;
+
+export const createProjectInfraActionProposalSchema = z.object({
+  infraTargetId: z.string().uuid().optional().nullable(),
+  actionType: z.enum(PROJECT_INFRA_ACTION_TYPES),
+  summary: z.string().trim().min(1).max(300),
+  rationale: z.string().trim().min(1).max(4000),
+  proposedAction: z.string().trim().min(1).max(4000),
+  rollbackPlan: optionalTrimmedText(4000),
+  risk: optionalTrimmedText(2000),
+  provider: optionalTrimmedText(80),
+  region: optionalTrimmedText(120),
+  evidenceRequired: optionalTrimmedText(2000),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectInfraActionProposal = z.infer<typeof createProjectInfraActionProposalSchema>;
+
+export const createProjectInfraActionEvidenceSchema = z.object({
+  status: z.enum(PROJECT_INFRA_ACTION_EVIDENCE_STATUSES),
+  evidence: z.string().trim().min(1).max(4000),
+  output: optionalTrimmedText(20000),
+});
+
+export type CreateProjectInfraActionEvidence = z.infer<typeof createProjectInfraActionEvidenceSchema>;
 
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),

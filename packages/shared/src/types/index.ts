@@ -119,6 +119,8 @@ export type {
   ProjectDeploymentTarget,
   ProjectInfraHealthCheck,
   ProjectInfraIncident,
+  ProjectInfraActionEvidence,
+  ProjectInfraActionProposal,
   ProjectInfraTarget,
   ProjectGoalRef,
   ProjectManagedByPlugin,

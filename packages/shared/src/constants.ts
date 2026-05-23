@@ -320,6 +320,12 @@ export const PROJECT_INFRA_INCIDENT_STATUSES = ["open", "investigating", "resolv
 export type ProjectInfraIncidentStatus = (typeof PROJECT_INFRA_INCIDENT_STATUSES)[number];
 export const PROJECT_INFRA_INCIDENT_SEVERITIES = ["low", "medium", "high", "urgent"] as const;
 export type ProjectInfraIncidentSeverity = (typeof PROJECT_INFRA_INCIDENT_SEVERITIES)[number];
+export const PROJECT_INFRA_ACTION_TYPES = ["repair", "failover", "restart", "scale", "dns", "provider_support", "manual"] as const;
+export type ProjectInfraActionType = (typeof PROJECT_INFRA_ACTION_TYPES)[number];
+export const PROJECT_INFRA_ACTION_STATUSES = ["approval_requested", "revision_requested", "approved", "rejected", "succeeded", "failed", "cancelled"] as const;
+export type ProjectInfraActionStatus = (typeof PROJECT_INFRA_ACTION_STATUSES)[number];
+export const PROJECT_INFRA_ACTION_EVIDENCE_STATUSES = ["performed", "succeeded", "failed", "cancelled"] as const;
+export type ProjectInfraActionEvidenceStatus = (typeof PROJECT_INFRA_ACTION_EVIDENCE_STATUSES)[number];
 export const PROJECT_DEPLOY_MAINTENANCE_MESSAGE_STATUSES = [
   "sent",
   "skipped",
@@ -428,6 +434,7 @@ export const APPROVAL_TYPES = [
   "budget_override_required",
   "request_board_approval",
   "deploy_change",
+  "infra_repair",
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

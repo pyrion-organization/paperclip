@@ -7,6 +7,7 @@ import type {
   ProjectDeploymentTarget,
   ProjectInfraHealthCheck,
   ProjectInfraIncident,
+  ProjectInfraActionProposal,
   ProjectInfraTarget,
 } from "@paperclipai/shared";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -321,6 +322,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
   const infraTargetQueryKey = queryKeys.projects.infraTargets(project.id, selectedCompanyId ?? undefined);
   const infraHealthQueryKey = queryKeys.projects.infraHealthChecks(project.id, selectedCompanyId ?? undefined);
   const infraIncidentQueryKey = queryKeys.projects.infraIncidents(project.id, selectedCompanyId ?? undefined);
+  const infraActionProposalQueryKey = queryKeys.projects.infraActionProposals(project.id, selectedCompanyId ?? undefined);
   const eventQueryKey = queryKeys.projects.deployEvents(project.id, selectedCompanyId ?? undefined);
   const { data: targets = [], isLoading: targetsLoading, isError: targetsError } = useQuery({
     queryKey: targetQueryKey,
@@ -342,6 +344,10 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
     queryKey: infraIncidentQueryKey,
     queryFn: () => projectsApi.listInfraIncidents(project.id, selectedCompanyId ?? undefined),
   });
+  const { data: infraActionProposals = [], isLoading: infraActionProposalsLoading, isError: infraActionProposalsError } = useQuery({
+    queryKey: infraActionProposalQueryKey,
+    queryFn: () => projectsApi.listInfraActionProposals(project.id, selectedCompanyId ?? undefined),
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: targetQueryKey });
@@ -349,6 +355,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
     queryClient.invalidateQueries({ queryKey: infraTargetQueryKey });
     queryClient.invalidateQueries({ queryKey: infraHealthQueryKey });
     queryClient.invalidateQueries({ queryKey: infraIncidentQueryKey });
+    queryClient.invalidateQueries({ queryKey: infraActionProposalQueryKey });
   };
 
   const createTarget = useMutation({
@@ -426,6 +433,16 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       projectsApi.updateInfraIncident(project.id, incidentId, { status }, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
+  const createInfraActionProposal = useMutation({
+    mutationFn: ({ incidentId, data }: { incidentId: string; data: Record<string, unknown> }) =>
+      projectsApi.createInfraActionProposal(project.id, incidentId, data, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
+  const createInfraActionEvidence = useMutation({
+    mutationFn: ({ proposalId, data }: { proposalId: string; data: Record<string, unknown> }) =>
+      projectsApi.createInfraActionEvidence(project.id, proposalId, data, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
   const targetsById = new Map(targets.map((target) => [target.id, target]));
   const infraTargetsById = new Map(infraTargets.map((target) => [target.id, target]));
 
@@ -445,6 +462,38 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
     const payload = normalizeHealthPayload(healthForm);
     if (!payload.name) return;
     createHealthCheck.mutate(payload);
+  };
+
+  const proposeInfraAction = (incident: ProjectInfraIncident, actionType: "repair" | "failover") => {
+    const summary = window.prompt(`${actionType === "failover" ? "Failover" : "Repair"} summary`, incident.summary);
+    if (!summary?.trim()) return;
+    const proposedAction = window.prompt("Proposed manual action. Do not include secrets.", "");
+    if (!proposedAction?.trim()) return;
+    createInfraActionProposal.mutate({
+      incidentId: incident.id,
+      data: {
+        infraTargetId: incident.infraTargetId,
+        actionType,
+        summary: summary.trim(),
+        rationale: `Incident ${incident.id} requires ${actionType} review before any provider mutation.`,
+        proposedAction: proposedAction.trim(),
+        rollbackPlan: "Operator must define rollback before executing any approved provider change.",
+        risk: "Manual repair/failover may affect production availability. Provider mutations are not executed by Paperclip.",
+        evidenceRequired: "Record operator evidence after approval before closing the incident.",
+      },
+    });
+  };
+
+  const recordInfraActionEvidence = (proposal: ProjectInfraActionProposal, status: "performed" | "succeeded" | "failed") => {
+    const evidence = window.prompt("Manual action evidence", "");
+    if (!evidence?.trim()) return;
+    createInfraActionEvidence.mutate({
+      proposalId: proposal.id,
+      data: {
+        status,
+        evidence: evidence.trim(),
+      },
+    });
   };
 
   const toggleTargetStatus = (target: ProjectDeploymentTarget) => {
@@ -899,6 +948,24 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     variant="outline"
                     size="xs"
                     className="h-6 px-2"
+                    disabled={updateIncident.isPending || createInfraActionProposal.isPending}
+                    onClick={() => proposeInfraAction(incident, "repair")}
+                  >
+                    Propose repair
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={updateIncident.isPending || createInfraActionProposal.isPending}
+                    onClick={() => proposeInfraAction(incident, "failover")}
+                  >
+                    Propose failover
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
                     disabled={updateIncident.isPending}
                     onClick={() => updateIncident.mutate({ incidentId: incident.id, status: "resolved" })}
                   >
@@ -912,6 +979,68 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     onClick={() => updateIncident.mutate({ incidentId: incident.id, status: "ignored" })}
                   >
                     Ignore
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted-foreground">Infra action proposals</div>
+        {infraActionProposalsLoading ? (
+          <div className="text-xs text-muted-foreground">Loading infra action proposals...</div>
+        ) : infraActionProposalsError ? (
+          <div className="text-xs text-destructive">Failed to load infra action proposals.</div>
+        ) : infraActionProposals.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No repair or failover proposals recorded.
+          </div>
+        ) : (
+          infraActionProposals.slice(0, 8).map((proposal: ProjectInfraActionProposal) => (
+            <div key={proposal.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <StatusPill status={proposal.status} />
+                  <span className="text-[11px] font-medium uppercase text-muted-foreground">{proposal.actionType}</span>
+                  <span className="truncate text-sm">{proposal.summary}</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{formatDate(proposal.createdAt)}</span>
+              </div>
+              <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                <div className="break-words">Action: {proposal.proposedAction}</div>
+                <div className="break-words">Rationale: {proposal.rationale}</div>
+                {proposal.approvalId ? <div>Approval {proposal.approvalId.slice(0, 8)}</div> : null}
+              </div>
+              {proposal.status === "approved" ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={createInfraActionEvidence.isPending}
+                    onClick={() => recordInfraActionEvidence(proposal, "performed")}
+                  >
+                    Record evidence
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={createInfraActionEvidence.isPending}
+                    onClick={() => recordInfraActionEvidence(proposal, "succeeded")}
+                  >
+                    Mark succeeded
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={createInfraActionEvidence.isPending}
+                    onClick={() => recordInfraActionEvidence(proposal, "failed")}
+                  >
+                    Mark failed
                   </Button>
                 </div>
               ) : null}

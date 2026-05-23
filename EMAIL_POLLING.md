@@ -156,6 +156,8 @@ Paperclip can now record project infrastructure metadata without mutating provid
 - Operators or approved automation can record health results as `healthy`, `degraded`, or `unhealthy`. Degraded/unhealthy results can create an infra incident and linked Paperclip issue.
 - Trusted inbound emails classified as `infra_incident` and resolved to a project create an infrastructure incident record linked to the created issue. Projectless infra triage still creates only a triage issue until a project is identified.
 - Infra incident records track source, severity, status, recommended action, related health check, related infra target, and optional approval reference for future repair actions.
+- Infra repair/failover proposals are explicit records linked to an infra incident and a normal `infra_repair` approval. They capture action type, rationale, proposed manual action, rollback plan, risk, provider/region context, and required evidence.
+- Approval decisions move infra proposals to approved/rejected/revision-requested through the standard approvals flow. Evidence for manual repair/failover attempts is accepted only after approval and records status, notes, optional output, and actor metadata.
 
 ## Project resolution
 

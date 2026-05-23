@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
-import { projectDeployEvents } from "@paperclipai/db";
+import { projectDeployEvents, projectInfraActionProposals } from "@paperclipai/db";
 import {
   addApprovalCommentSchema,
   createApprovalSchema,
@@ -170,6 +170,12 @@ export function approvalRoutes(
           .set({ status: "approved", updatedAt: new Date() })
           .where(eq(projectDeployEvents.approvalId, approval.id));
       }
+      if (approval.type === "infra_repair") {
+        await db
+          .update(projectInfraActionProposals)
+          .set({ status: "approved", updatedAt: new Date() })
+          .where(eq(projectInfraActionProposals.approvalId, approval.id));
+      }
 
       if (approval.requestedByAgentId) {
         try {
@@ -265,6 +271,12 @@ export function approvalRoutes(
           .set({ status: "rejected", updatedAt: new Date() })
           .where(eq(projectDeployEvents.approvalId, approval.id));
       }
+      if (approval.type === "infra_repair") {
+        await db
+          .update(projectInfraActionProposals)
+          .set({ status: "rejected", updatedAt: new Date() })
+          .where(eq(projectInfraActionProposals.approvalId, approval.id));
+      }
     }
 
     res.json(redactApprovalPayload(approval));
@@ -292,6 +304,13 @@ export function approvalRoutes(
         entityId: approval.id,
         details: { type: approval.type },
       });
+
+      if (approval.type === "infra_repair") {
+        await db
+          .update(projectInfraActionProposals)
+          .set({ status: "revision_requested", updatedAt: new Date() })
+          .where(eq(projectInfraActionProposals.approvalId, approval.id));
+      }
 
       res.json(redactApprovalPayload(approval));
     },
@@ -332,6 +351,12 @@ export function approvalRoutes(
       entityId: approval.id,
       details: { type: approval.type },
     });
+    if (approval.type === "infra_repair") {
+      await db
+        .update(projectInfraActionProposals)
+        .set({ status: "approval_requested", updatedAt: new Date() })
+        .where(eq(projectInfraActionProposals.approvalId, approval.id));
+    }
     res.json(redactApprovalPayload(approval));
   });
 

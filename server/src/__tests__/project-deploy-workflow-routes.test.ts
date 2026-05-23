@@ -20,7 +20,15 @@ const mockProjectService = vi.hoisted(() => ({
   createInfraHealthCheck: vi.fn(),
   recordInfraHealthResult: vi.fn(),
   listInfraIncidents: vi.fn(),
+  getInfraIncident: vi.fn(),
   createInfraIncident: vi.fn(),
+  updateInfraIncident: vi.fn(),
+  listInfraActionProposals: vi.fn(),
+  getInfraActionProposal: vi.fn(),
+  createInfraActionProposal: vi.fn(),
+  updateInfraActionProposal: vi.fn(),
+  listInfraActionEvidence: vi.fn(),
+  createInfraActionEvidence: vi.fn(),
   listDeploymentTargets: vi.fn(),
   listDeployEvents: vi.fn(),
 }));
@@ -227,6 +235,51 @@ function buildInfraIncident(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildInfraActionProposal(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    incidentId: "99999999-9999-4999-8999-999999999999",
+    infraTargetId: "77777777-7777-4777-8777-777777777777",
+    approvalId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    actionType: "repair",
+    status: "approval_requested",
+    summary: "Restart primary service",
+    rationale: "Health check is failing.",
+    proposedAction: "Restart the service manually.",
+    rollbackPlan: "Stop if errors increase.",
+    risk: "Service restart may interrupt active requests.",
+    provider: "hetzner",
+    region: "fsn1",
+    evidenceRequired: "Record service status after restart.",
+    metadata: null,
+    createdByAgentId: "agent-1",
+    createdByUserId: null,
+    createdAt: new Date("2026-05-23T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-23T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function buildInfraActionEvidence(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    proposalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    approvalId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    status: "succeeded",
+    evidence: "Service restarted and health check recovered.",
+    output: null,
+    recordedByAgentId: "agent-1",
+    recordedByUserId: null,
+    createdAt: new Date("2026-05-23T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-23T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 function buildApproval(overrides: Record<string, unknown> = {}) {
   return {
     id: "44444444-4444-4444-8444-444444444444",
@@ -302,8 +355,24 @@ describe("project deploy workflow routes", () => {
       }),
     );
     mockProjectService.listInfraIncidents.mockResolvedValue([]);
+    mockProjectService.getInfraIncident.mockResolvedValue(buildInfraIncident());
     mockProjectService.createInfraIncident.mockImplementation(async (_projectId, data) =>
       buildInfraIncident(data),
+    );
+    mockProjectService.updateInfraIncident.mockImplementation(async (_projectId, _incidentId, data) =>
+      buildInfraIncident(data),
+    );
+    mockProjectService.listInfraActionProposals.mockResolvedValue([]);
+    mockProjectService.getInfraActionProposal.mockResolvedValue(buildInfraActionProposal({ status: "approved" }));
+    mockProjectService.createInfraActionProposal.mockImplementation(async (_projectId, data) =>
+      buildInfraActionProposal(data),
+    );
+    mockProjectService.updateInfraActionProposal.mockImplementation(async (_projectId, _proposalId, data) =>
+      buildInfraActionProposal(data),
+    );
+    mockProjectService.listInfraActionEvidence.mockResolvedValue([]);
+    mockProjectService.createInfraActionEvidence.mockImplementation(async (_projectId, data) =>
+      buildInfraActionEvidence(data),
     );
     mockProjectService.recordDeployMaintenanceMessageDelivery.mockImplementation(async (_projectId, _eventId, data) =>
       buildDeployEvent({
@@ -617,6 +686,108 @@ describe("project deploy workflow routes", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockIssueService.create).not.toHaveBeenCalled();
     expect(mockProjectService.createInfraIncident).not.toHaveBeenCalled();
+  });
+
+  it("creates approval-gated infra action proposals for open incidents", async () => {
+    mockProjectService.listInfraIncidents.mockResolvedValue([buildInfraIncident()]);
+    mockApprovalService.create.mockResolvedValue(buildApproval({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      type: "infra_repair",
+      status: "pending",
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-incidents/99999999-9999-4999-8999-999999999999/action-proposals")
+      .send({
+        infraTargetId: "77777777-7777-4777-8777-777777777777",
+        actionType: "repair",
+        summary: "Restart primary service",
+        rationale: "Health check is failing.",
+        proposedAction: "Restart the service manually.",
+        rollbackPlan: "Stop if errors increase.",
+        risk: "Restart may interrupt active requests.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockApprovalService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({
+        type: "infra_repair",
+        requestedByAgentId: "agent-1",
+        payload: expect.objectContaining({
+          providerMutationAllowed: false,
+          actionType: "repair",
+          proposedAction: "Restart the service manually.",
+        }),
+      }),
+    );
+    expect(mockIssueApprovalService.linkManyForApproval).toHaveBeenCalledWith(
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      ["22222222-2222-4222-8222-222222222222"],
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
+    expect(mockProjectService.createInfraActionProposal).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        incidentId: "99999999-9999-4999-8999-999999999999",
+        approvalId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        status: "approval_requested",
+      }),
+    );
+  });
+
+  it("blocks infra action evidence until the repair approval is accepted", async () => {
+    mockApprovalService.getById.mockResolvedValue(buildApproval({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      type: "infra_repair",
+      status: "pending",
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-action-proposals/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/evidence")
+      .send({
+        status: "succeeded",
+        evidence: "Service restarted and recovered.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.createInfraActionEvidence).not.toHaveBeenCalled();
+  });
+
+  it("records infra action evidence after repair approval", async () => {
+    mockApprovalService.getById.mockResolvedValue(buildApproval({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      type: "infra_repair",
+      status: "approved",
+      requestedByAgentId: "agent-1",
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-action-proposals/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/evidence")
+      .send({
+        status: "succeeded",
+        evidence: "Service restarted and recovered.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.createInfraActionEvidence).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        proposalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        approvalId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        status: "succeeded",
+        evidence: "Service restarted and recovered.",
+        recordedByAgentId: "agent-1",
+      }),
+    );
+    expect(mockProjectService.updateInfraActionProposal).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      { status: "succeeded" },
+    );
   });
 
   it("sends a maintenance message only after approval and eligible deploy status", async () => {

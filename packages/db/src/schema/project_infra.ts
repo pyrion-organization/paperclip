@@ -1,5 +1,6 @@
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { approvals } from "./approvals.js";
+import { agents } from "./agents.js";
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
 import { projectDeploymentTargets } from "./project_deployments.js";
@@ -87,5 +88,59 @@ export const projectInfraIncidents = pgTable(
     issueIdx: index("project_infra_incidents_issue_idx").on(table.issueId),
     sourceIdx: index("project_infra_incidents_source_idx").on(table.companyId, table.sourceKind, table.sourceId),
     healthCheckIdx: index("project_infra_incidents_health_check_idx").on(table.healthCheckId),
+  }),
+);
+
+export const projectInfraActionProposals = pgTable(
+  "project_infra_action_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => companies.id),
+    projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    incidentId: uuid("incident_id").notNull().references(() => projectInfraIncidents.id, { onDelete: "cascade" }),
+    infraTargetId: uuid("infra_target_id").references(() => projectInfraTargets.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "set null" }),
+    actionType: text("action_type").notNull(),
+    status: text("status").notNull().default("approval_requested"),
+    summary: text("summary").notNull(),
+    rationale: text("rationale").notNull(),
+    proposedAction: text("proposed_action").notNull(),
+    rollbackPlan: text("rollback_plan"),
+    risk: text("risk"),
+    provider: text("provider"),
+    region: text("region"),
+    evidenceRequired: text("evidence_required"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdByAgentId: uuid("created_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    createdByUserId: text("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    companyProjectIdx: index("project_infra_action_proposals_company_project_idx").on(table.companyId, table.projectId),
+    incidentIdx: index("project_infra_action_proposals_incident_idx").on(table.incidentId),
+    approvalIdx: index("project_infra_action_proposals_approval_idx").on(table.approvalId),
+  }),
+);
+
+export const projectInfraActionEvidence = pgTable(
+  "project_infra_action_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => companies.id),
+    projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+    proposalId: uuid("proposal_id").notNull().references(() => projectInfraActionProposals.id, { onDelete: "cascade" }),
+    approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "set null" }),
+    status: text("status").notNull(),
+    evidence: text("evidence").notNull(),
+    output: text("output"),
+    recordedByAgentId: uuid("recorded_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    recordedByUserId: text("recorded_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    proposalIdx: index("project_infra_action_evidence_proposal_idx").on(table.proposalId),
+    companyProjectIdx: index("project_infra_action_evidence_company_project_idx").on(table.companyId, table.projectId),
   }),
 );
