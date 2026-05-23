@@ -119,6 +119,10 @@ type RecordInfraHealthResultInput = {
   checkedAt?: Date;
   latencyMs?: number | null;
   error?: string | null;
+  sourceKind?: ProjectInfraHealthCheck["lastSourceKind"];
+  sourceId?: string | null;
+  sourceDetail?: string | null;
+  sourceMetadata?: Record<string, unknown> | null;
 };
 type CreateInfraIncidentInput = Omit<typeof projectInfraIncidents.$inferInsert, "companyId" | "projectId">;
 type UpdateInfraIncidentInput = Partial<CreateInfraIncidentInput>;
@@ -358,6 +362,10 @@ function toInfraHealthCheck(row: ProjectInfraHealthCheckRow): ProjectInfraHealth
     lastCheckedAt: row.lastCheckedAt ?? null,
     lastLatencyMs: row.lastLatencyMs ?? null,
     lastError: row.lastError ?? null,
+    lastSourceKind: row.lastSourceKind as ProjectInfraHealthCheck["lastSourceKind"],
+    lastSourceId: row.lastSourceId ?? null,
+    lastSourceDetail: row.lastSourceDetail ?? null,
+    lastSourceMetadata: (row.lastSourceMetadata as Record<string, unknown> | null) ?? null,
     enabled: row.enabled,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt,
@@ -1485,6 +1493,10 @@ export function projectService(db: Db) {
           lastCheckedAt: data.checkedAt ?? new Date(),
           lastLatencyMs: data.latencyMs ?? null,
           lastError: data.error ?? null,
+          lastSourceKind: data.sourceKind ?? "operator",
+          lastSourceId: data.sourceId ?? null,
+          lastSourceDetail: data.sourceDetail ?? null,
+          lastSourceMetadata: data.sourceMetadata ?? null,
           updatedAt: new Date(),
         })
         .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))

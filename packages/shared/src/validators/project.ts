@@ -4,6 +4,7 @@ import {
   PROJECT_DEPLOY_COMMAND_TYPES,
   PROJECT_DEPLOYMENT_TARGET_STATUSES,
   PROJECT_INFRA_HEALTH_CHECK_TYPES,
+  PROJECT_INFRA_HEALTH_RESULT_SOURCE_KINDS,
   PROJECT_INFRA_HEALTH_STATUSES,
   PROJECT_INFRA_ACTION_EVIDENCE_STATUSES,
   PROJECT_INFRA_ACTION_TYPES,
@@ -275,6 +276,10 @@ export const updateProjectInfraHealthCheckSchema = createProjectInfraHealthCheck
   lastCheckedAt: z.coerce.date().optional().nullable(),
   lastLatencyMs: z.coerce.number().int().min(0).max(3_600_000).optional().nullable(),
   lastError: optionalTrimmedText(4000),
+  lastSourceKind: z.enum(PROJECT_INFRA_HEALTH_RESULT_SOURCE_KINDS).optional().nullable(),
+  lastSourceId: optionalTrimmedText(500),
+  lastSourceDetail: optionalTrimmedText(2000),
+  lastSourceMetadata: z.record(z.unknown()).optional().nullable(),
 });
 
 export type UpdateProjectInfraHealthCheck = z.infer<typeof updateProjectInfraHealthCheckSchema>;
@@ -284,6 +289,10 @@ export const recordProjectInfraHealthResultSchema = z.object({
   checkedAt: z.coerce.date().optional(),
   latencyMs: z.coerce.number().int().min(0).max(3_600_000).optional().nullable(),
   error: optionalTrimmedText(4000),
+  sourceKind: z.enum(PROJECT_INFRA_HEALTH_RESULT_SOURCE_KINDS).optional().default("operator"),
+  sourceId: optionalTrimmedText(500),
+  sourceDetail: optionalTrimmedText(2000),
+  sourceMetadata: z.record(z.unknown()).optional().nullable(),
   createIncident: z.boolean().default(false),
   incidentSummary: optionalTrimmedText(300),
   incidentDetails: optionalTrimmedText(4000),

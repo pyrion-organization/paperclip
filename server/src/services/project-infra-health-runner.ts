@@ -180,6 +180,10 @@ export function projectInfraHealthRunnerService(
               lastCheckedAt: now,
               lastLatencyMs: response.latencyMs,
               lastError: error,
+              lastSourceKind: "paperclip_scheduler",
+              lastSourceId: "project-infra-health-runner",
+              lastSourceDetail: "Scheduled Paperclip HTTP health check",
+              lastSourceMetadata: { expectedStatus, receivedStatus: response.status },
               updatedAt: now,
             })
             .where(eq(projectInfraHealthChecks.id, check.id));
@@ -200,6 +204,10 @@ export function projectInfraHealthRunnerService(
               lastCheckedAt: now,
               lastLatencyMs: null,
               lastError: error,
+              lastSourceKind: "paperclip_scheduler",
+              lastSourceId: "project-infra-health-runner",
+              lastSourceDetail: "Scheduled Paperclip HTTP health check failed before receiving a valid response",
+              lastSourceMetadata: null,
               updatedAt: now,
             })
             .where(eq(projectInfraHealthChecks.id, check.id));

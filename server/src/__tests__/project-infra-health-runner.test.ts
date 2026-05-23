@@ -109,6 +109,9 @@ describeEmbeddedPostgres("projectInfraHealthRunnerService", () => {
     expect(check.lastCheckedAt?.toISOString()).toBe("2026-05-23T10:00:00.000Z");
     expect(check.lastError).toBeNull();
     expect(check.lastLatencyMs).not.toBeNull();
+    expect(check.lastSourceKind).toBe("paperclip_scheduler");
+    expect(check.lastSourceId).toBe("project-infra-health-runner");
+    expect(check.lastSourceMetadata).toMatchObject({ expectedStatus: 200, receivedStatus: 200 });
     const incidentRows = await db.select().from(projectInfraIncidents);
     expect(incidentRows).toHaveLength(0);
   });

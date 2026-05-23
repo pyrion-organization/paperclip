@@ -8,6 +8,7 @@ import type {
   ProjectDeployMaintenanceMessageStatus,
   ProjectDeploymentTargetStatus,
   ProjectInfraHealthCheckType,
+  ProjectInfraHealthResultSourceKind,
   ProjectInfraHealthStatus,
   ProjectInfraActionEvidenceStatus,
   ProjectInfraActionStatus,
@@ -323,6 +324,10 @@ export interface ProjectInfraHealthCheck {
   lastCheckedAt: Date | null;
   lastLatencyMs: number | null;
   lastError: string | null;
+  lastSourceKind: ProjectInfraHealthResultSourceKind | null;
+  lastSourceId: string | null;
+  lastSourceDetail: string | null;
+  lastSourceMetadata: Record<string, unknown> | null;
   enabled: boolean;
   metadata: Record<string, unknown> | null;
   createdAt: Date;

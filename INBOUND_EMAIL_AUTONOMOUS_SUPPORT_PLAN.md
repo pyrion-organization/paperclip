@@ -949,6 +949,9 @@ foundation:
 - rejected source ID reuse when the raw message bytes differ,
 - kept external monitoring evidence-only and did not add provider mutations,
   automatic repair, failover, or production deploy execution.
+- added evidence-only health result source fields so external monitors can
+  submit status, source ID/detail, and metadata without gaining provider repair
+  authority.
 
 ## Open Decisions
 
@@ -970,8 +973,6 @@ These should be decided before later phases:
 Continue Phase 7 by turning the recovery foundation into a practical operator
 fallback workflow:
 
-- add explicit external monitoring evidence records and alert notes without
-  provider mutations,
 - document the backup mailbox/object-storage handoff format operators should
   use during Paperclip downtime,
 - keep provider repair and failover execution as a non-goal,

@@ -688,6 +688,10 @@ export function projectRoutes(db: Db) {
         checkedAt: req.body.checkedAt,
         latencyMs: req.body.latencyMs ?? null,
         error: req.body.error ?? null,
+        sourceKind: req.body.sourceKind,
+        sourceId: req.body.sourceId ?? null,
+        sourceDetail: req.body.sourceDetail ?? null,
+        sourceMetadata: req.body.sourceMetadata ?? null,
       });
       if (!healthCheck) {
         res.status(404).json({ error: "Infrastructure health check not found" });
@@ -719,9 +723,12 @@ export function projectRoutes(db: Db) {
               `Project: ${project.name}`,
               `Health check: ${healthCheck.name}`,
               `Status: ${healthCheck.status}`,
+              `Source: ${healthCheck.lastSourceKind ?? "operator"}`,
+              healthCheck.lastSourceId ? `Source ID: ${healthCheck.lastSourceId}` : null,
               `Checked at: ${healthCheck.lastCheckedAt?.toISOString() ?? "unknown"}`,
               healthCheck.url ? `URL: ${healthCheck.url}` : null,
               healthCheck.lastError ? `Error: ${healthCheck.lastError}` : null,
+              healthCheck.lastSourceDetail ? `Source detail: ${healthCheck.lastSourceDetail}` : null,
               "",
               "Provider repair and failover actions require explicit approval and are not executed automatically.",
             ].filter(Boolean).join("\n"),
@@ -759,6 +766,8 @@ export function projectRoutes(db: Db) {
         details: {
           healthCheckId: healthCheck.id,
           status: healthCheck.status,
+          sourceKind: healthCheck.lastSourceKind,
+          sourceId: healthCheck.lastSourceId,
           incidentId: incident?.id ?? null,
         },
       });
