@@ -878,6 +878,9 @@ Implemented the approved-deploy foundation:
   timestamps, and retry-safe duplicate prevention,
 - approval-gated deploy/rollback command evidence records that require the
   exact target command descriptor and compatible deploy-event status,
+- command evidence now advances deploy event status for deploy
+  running/succeeded/failed and successful rollback outcomes, keeping operator
+  state aligned with the recorded handoff,
 - compact project configuration UI for targets and recent deploy events,
 - no automatic production deploy execution.
 

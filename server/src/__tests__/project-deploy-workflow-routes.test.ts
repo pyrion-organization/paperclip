@@ -574,6 +574,19 @@ describe("project deploy workflow routes", () => {
         recordedByAgentId: "agent-1",
       }),
     );
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({
+        status: "deployed",
+        note: "Deploy command evidence recorded: deploy succeeded",
+        metadata: expect.objectContaining({
+          commandRecordId: "66666666-6666-4666-8666-666666666666",
+          commandType: "deploy",
+          commandStatus: "succeeded",
+        }),
+      }),
+    );
     expect(mockLogActivity).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -582,8 +595,47 @@ describe("project deploy workflow routes", () => {
           commandRecordId: "66666666-6666-4666-8666-666666666666",
           commandType: "deploy",
           status: "succeeded",
+          deployEventStatus: "deployed",
         }),
       }),
+    );
+  });
+
+  it("moves a deploy event to deploying when running command evidence is recorded", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "deploy",
+        status: "running",
+        command: "pnpm deploy:prod",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({ status: "deploying" }),
+    );
+  });
+
+  it("moves a deploy event to rolled back when rollback success evidence is recorded", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({ status: "deployed" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records")
+      .send({
+        commandType: "rollback",
+        status: "succeeded",
+        command: "pnpm rollback:prod",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({ status: "rolled_back" }),
     );
   });
 

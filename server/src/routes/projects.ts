@@ -68,6 +68,21 @@ import { secretService } from "../services/secrets.js";
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
 
+function deployEventStatusForCommandRecord(
+  commandType: "deploy" | "rollback",
+  commandStatus: string,
+): "deploying" | "deployed" | "failed" | "rolled_back" | null {
+  if (commandType === "deploy") {
+    if (commandStatus === "running") return "deploying";
+    if (commandStatus === "succeeded") return "deployed";
+    if (commandStatus === "failed") return "failed";
+  }
+  if (commandType === "rollback" && commandStatus === "succeeded") {
+    return "rolled_back";
+  }
+  return null;
+}
+
 export function projectRoutes(db: Db) {
   const router = Router();
   const svc = projectService(db);
@@ -1563,6 +1578,21 @@ export function projectRoutes(db: Db) {
         return;
       }
 
+      const nextEventStatus = deployEventStatusForCommandRecord(commandType, record.status);
+      const updatedDeployEvent = nextEventStatus && nextEventStatus !== deployEvent.status
+        ? await svc.updateDeployEventStatus(id, deployEvent.id, {
+            status: nextEventStatus,
+            note: `Deploy command evidence recorded: ${record.commandType} ${record.status}`,
+            maintenanceMessage: null,
+            metadata: {
+              commandRecordId: record.id,
+              commandType: record.commandType,
+              commandStatus: record.status,
+            },
+            actor,
+          })
+        : null;
+
       await logActivity(db, {
         companyId: project.companyId,
         actorType: actor.actorType,
@@ -1578,6 +1608,7 @@ export function projectRoutes(db: Db) {
           commandType: record.commandType,
           status: record.status,
           exitCode: record.exitCode,
+          deployEventStatus: updatedDeployEvent?.status ?? deployEvent.status,
         },
       });
 
