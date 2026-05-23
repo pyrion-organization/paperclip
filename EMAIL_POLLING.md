@@ -99,6 +99,7 @@ Classification is deterministic and conservative in V1. It does not call an LLM,
 - Safety patterns such as prompt-injection text, secret requests, dangerous commands, or immediate deploy instructions win before normal bug/infra/question matching.
 - `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` create triage issues for recognized senders. `code_bug` and `infra_incident` default to high priority when no rule priority applies; questions default to low. `unclear` keeps the existing project-clarification behavior when no project is identified.
 - `unsafe_or_prompt_injection` and `spam_or_irrelevant` are skipped/quarantined and marked seen so the worker does not keep reprocessing them.
+- Email Ops exposes a Quarantine panel that lists the latest skipped unsafe and spam messages by classification category, including subject, sender, skip reason, summary, and safety flags. Quarantined messages are operator-visible but do not create issues or send support replies.
 - If project matching fails with `project_not_identified`, classification can still create a projectless triage issue for a recognized sender when mailbox/rule policy allows it. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
 - Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
 

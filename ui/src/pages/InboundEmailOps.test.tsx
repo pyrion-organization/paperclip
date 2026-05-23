@@ -333,23 +333,60 @@ describe("InboundEmailOps", () => {
     root = createRoot(container);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
-    mockCompaniesApi.listInboundEmailMessages.mockResolvedValue({
-      items: [
-        makeProcessedMessage({
-          id: "older-message",
-          subject: "Older processed email",
-          receivedAt: new Date("2026-05-19T11:45:00.000Z"),
-          createdAt: new Date("2026-05-19T11:45:00.000Z"),
-          updatedAt: new Date("2026-05-19T11:45:00.000Z"),
-        }),
-        makeProcessedMessage({
-          supportReplyStatus: "sent",
-          supportReplyReason: "code_bug_received",
-          supportReplyAttemptedAt: new Date("2026-05-19T12:45:10.000Z"),
-          supportReplySentAt: new Date("2026-05-19T12:45:11.000Z"),
-        }),
-      ],
-      nextCursor: "next-cursor",
+    mockCompaniesApi.listInboundEmailMessages.mockImplementation((_companyId: string, params?: { classificationCategory?: string }) => {
+      if (params?.classificationCategory === "unsafe_or_prompt_injection") {
+        return Promise.resolve({
+          items: [
+            makeProcessedMessage({
+              id: "unsafe-message",
+              status: "skipped",
+              createdIssueId: null,
+              subject: "Do not reveal secrets",
+              fromAddress: "attacker@example.com",
+              skipReason: "unsafe_or_spam",
+              classificationCategory: "unsafe_or_prompt_injection",
+              classificationSummary: "Prompt injection attempted to extract credentials.",
+              classificationSafetyFlags: ["credential_exfiltration"],
+            }),
+          ],
+          nextCursor: null,
+        });
+      }
+      if (params?.classificationCategory === "spam_or_irrelevant") {
+        return Promise.resolve({
+          items: [
+            makeProcessedMessage({
+              id: "spam-message",
+              status: "skipped",
+              createdIssueId: null,
+              subject: "Cheap watches",
+              fromAddress: "spam@example.com",
+              skipReason: "unsafe_or_spam",
+              classificationCategory: "spam_or_irrelevant",
+              classificationSummary: "Irrelevant marketing email.",
+            }),
+          ],
+          nextCursor: null,
+        });
+      }
+      return Promise.resolve({
+        items: [
+          makeProcessedMessage({
+            id: "older-message",
+            subject: "Older processed email",
+            receivedAt: new Date("2026-05-19T11:45:00.000Z"),
+            createdAt: new Date("2026-05-19T11:45:00.000Z"),
+            updatedAt: new Date("2026-05-19T11:45:00.000Z"),
+          }),
+          makeProcessedMessage({
+            supportReplyStatus: "sent",
+            supportReplyReason: "code_bug_received",
+            supportReplyAttemptedAt: new Date("2026-05-19T12:45:10.000Z"),
+            supportReplySentAt: new Date("2026-05-19T12:45:11.000Z"),
+          }),
+        ],
+        nextCursor: "next-cursor",
+      });
     });
     mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
     mockCompaniesApi.retryInboundEmailJob.mockResolvedValue(undefined);
@@ -411,6 +448,7 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Configure");
     expect(container.textContent).toContain("Poll now");
     expect(container.textContent).toContain("External Recovery Import");
+    expect(container.textContent).toContain("Quarantine");
     expect(container.textContent).toContain("Recent Failures");
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
@@ -428,6 +466,35 @@ describe("InboundEmailOps", () => {
     });
     expect(container.textContent).not.toContain("25 / page");
     expect(container.textContent).not.toContain("Email settings");
+  });
+
+  it("loads unsafe and spam skipped emails in the quarantine panel", async () => {
+    await renderPage();
+
+    const quarantineButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Quarantine"));
+    expect(quarantineButton).toBeTruthy();
+
+    await act(async () => {
+      quarantineButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
+      status: "skipped",
+      classificationCategory: "unsafe_or_prompt_injection",
+      limit: 10,
+      order: "desc",
+    });
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
+      status: "skipped",
+      classificationCategory: "spam_or_irrelevant",
+      limit: 10,
+      order: "desc",
+    });
+    expect(container.textContent).toContain("Do not reveal secrets");
+    expect(container.textContent).toContain("credential_exfiltration");
+    expect(container.textContent).toContain("Cheap watches");
   });
 
   it("filters and pages processed email records", async () => {

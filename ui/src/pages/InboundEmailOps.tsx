@@ -81,6 +81,11 @@ const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; la
 
 const PROCESSED_EMAIL_PAGE_SIZE = 25;
 const EXTERNAL_INTAKE_PAGE_SIZE = 10;
+const QUARANTINE_PAGE_SIZE = 10;
+const QUARANTINE_CLASSIFICATIONS: InboundEmailClassificationCategory[] = [
+  "unsafe_or_prompt_injection",
+  "spam_or_irrelevant",
+];
 
 const externalIntakeSourceKinds: Array<{ value: InboundEmailExternalIntakeSourceKind; label: string }> = [
   { value: "manual_recovery", label: "Manual recovery" },
@@ -120,6 +125,12 @@ const supportReplyReasonLabels: Record<NonNullable<InboundEmailMessage["supportR
   missing_sender: "Missing sender",
   send_failed: "Send failed",
 };
+
+function isQuarantineClassification(
+  category: InboundEmailClassificationCategory | null | undefined,
+): category is InboundEmailClassificationCategory {
+  return Boolean(category && QUARANTINE_CLASSIFICATIONS.includes(category));
+}
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -958,6 +969,102 @@ function ProcessedEmailList({
   );
 }
 
+function QuarantineEmailList({ companyId }: { companyId: string }) {
+  const unsafeQuery = useQuery({
+    queryKey: [...queryKeys.inboundEmail.messages(companyId), { quarantine: "unsafe_or_prompt_injection" }],
+    queryFn: () => companiesApi.listInboundEmailMessages(companyId, {
+      status: "skipped",
+      classificationCategory: "unsafe_or_prompt_injection",
+      limit: QUARANTINE_PAGE_SIZE,
+      order: "desc",
+    }),
+    enabled: Boolean(companyId),
+  });
+  const spamQuery = useQuery({
+    queryKey: [...queryKeys.inboundEmail.messages(companyId), { quarantine: "spam_or_irrelevant" }],
+    queryFn: () => companiesApi.listInboundEmailMessages(companyId, {
+      status: "skipped",
+      classificationCategory: "spam_or_irrelevant",
+      limit: QUARANTINE_PAGE_SIZE,
+      order: "desc",
+    }),
+    enabled: Boolean(companyId),
+  });
+
+  const isLoading = unsafeQuery.isLoading || spamQuery.isLoading;
+  const error = unsafeQuery.error ?? spamQuery.error;
+  const rows = [...(unsafeQuery.data?.items ?? []), ...(spamQuery.data?.items ?? [])]
+    .filter((message) => isQuarantineClassification(message.classificationCategory))
+    .sort((a, b) => {
+      const aTime = asDate(a.receivedAt ?? a.createdAt)?.getTime() ?? 0;
+      const bTime = asDate(b.receivedAt ?? b.createdAt)?.getTime() ?? 0;
+      return bTime - aTime;
+    })
+    .slice(0, QUARANTINE_PAGE_SIZE);
+
+  if (error) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <span className="font-medium">Quarantine failed.</span>{" "}
+          {errorMessage(error, "The quarantined email list could not be loaded.")}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-card/60">
+      {isLoading ? (
+        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading quarantined emails...
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <MailWarning className="mt-0.5 h-4 w-4 shrink-0" />
+          No unsafe or spam support emails are currently quarantined.
+        </div>
+      ) : (
+        rows.map((message) => {
+          const category = message.classificationCategory;
+          if (!isQuarantineClassification(category)) return null;
+          return (
+            <div key={message.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 lg:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1.1fr)_minmax(220px,1fr)]">
+              <div className="min-w-0">
+                <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${classificationClassName(category)}`}>
+                  {classificationLabels[category]}
+                </Badge>
+                <div className="text-xs text-muted-foreground">{formatTime(message.receivedAt ?? message.createdAt)}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-foreground">{message.subject || "(No subject)"}</div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">{message.fromAddress || "Unknown sender"}</div>
+                {message.skipReason ? (
+                  <div className="mt-1 text-[11px] text-muted-foreground">Skipped: {message.skipReason}</div>
+                ) : null}
+              </div>
+              <div className="min-w-0 break-words text-xs text-muted-foreground">
+                {message.classificationSafetyFlags?.length ? (
+                  <div className="mb-1 flex flex-wrap gap-1">
+                    {message.classificationSafetyFlags.slice(0, 4).map((flag) => (
+                      <Badge key={flag} variant="outline" className="h-5 px-1.5 text-[11px]">
+                        {flag}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                {message.classificationSummary || message.error || message.messageId || message.rawSha256}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
   const failedTotal = dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount;
   const activeQueue = dashboard.summary.pendingJobCount;
@@ -1221,6 +1328,14 @@ export function InboundEmailOps() {
             invalidateInboundEmailState(["ops", "messages", "jobs", "externalIntake"]);
           }}
         />
+      </OpsPanel>
+
+      <OpsPanel
+        title="Quarantine"
+        description="Skipped unsafe prompt-injection and spam emails kept out of issue creation and support replies."
+        defaultOpen={false}
+      >
+        <QuarantineEmailList companyId={selectedCompanyId!} />
       </OpsPanel>
 
       <OpsPanel

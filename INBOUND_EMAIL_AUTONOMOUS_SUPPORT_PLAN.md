@@ -780,7 +780,7 @@ Deliverables:
 - classifier helper,
 - policy gate,
 - issue description classification block,
-- unsafe skip/quarantine behavior,
+- unsafe skip/quarantine behavior and Email Ops quarantine visibility,
 - tests.
 
 ### Phase 2: Better Support Intake

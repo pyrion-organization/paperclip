@@ -12,6 +12,7 @@ import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
   ImportExternalInboundEmailMessage,
+  InboundEmailClassificationCategory,
   InboundEmailExternalIntakeRecord,
   InboundEmailMailbox,
   InboundEmailMessage,
@@ -32,6 +33,7 @@ export interface InboundEmailListPage<T> {
 
 export interface InboundEmailMessageListParams {
   status?: string;
+  classificationCategory?: InboundEmailClassificationCategory;
   mailboxId?: string;
   q?: string;
   cursor?: string | null;
@@ -59,6 +61,7 @@ export type ImportExternalInboundEmailMessageRequest = Omit<
 function inboundEmailQuery(params?: InboundEmailMessageListParams): string {
   const query = new URLSearchParams();
   if (params?.status) query.set("status", params.status);
+  if (params?.classificationCategory) query.set("classificationCategory", params.classificationCategory);
   if (params?.mailboxId) query.set("mailboxId", params.mailboxId);
   if (params?.q?.trim()) query.set("q", params.q.trim());
   if (params?.cursor) query.set("cursor", params.cursor);

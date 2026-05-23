@@ -178,10 +178,14 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     assertCompanyAccess(req, companyId);
     assertBoard(req);
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const classificationCategory =
+      typeof req.query.classificationCategory === "string" ? req.query.classificationCategory : undefined;
     const mailboxId = typeof req.query.mailboxId === "string" ? req.query.mailboxId : undefined;
     const q = typeof req.query.q === "string" ? req.query.q : undefined;
     const order = req.query.order === "desc" ? "desc" : "asc";
-    res.json(await svc.listMessages(companyId, { ...pageOptions(req), status, mailboxId, q, order }));
+    res.json(
+      await svc.listMessages(companyId, { ...pageOptions(req), status, classificationCategory, mailboxId, q, order }),
+    );
   });
 
   router.get("/companies/:companyId/inbound-email/external-intake", async (req, res) => {

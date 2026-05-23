@@ -40,7 +40,7 @@ import type {
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
-import { inboundEmailMessageStatusSchema } from "@paperclipai/shared";
+import { inboundEmailClassificationCategorySchema, inboundEmailMessageStatusSchema } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
@@ -157,6 +157,7 @@ export type ListPageOptions = {
 
 export type ListInboundEmailMessagesOptions = ListPageOptions & {
   status?: string;
+  classificationCategory?: string;
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -170,6 +171,7 @@ export type ListInboundEmailExternalIntakeOptions = ListPageOptions & {
 
 type NormalizedListInboundEmailMessagesOptions = ListPageOptions & {
   status?: InboundEmailMessageStatus;
+  classificationCategory?: InboundEmailClassificationCategory;
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -739,6 +741,14 @@ function normalizeListMessagesOptions(
     throw unprocessable("Invalid inbound email message status");
   }
 
+  const classificationCategoryInput = options?.classificationCategory?.trim();
+  const classificationCategoryResult = classificationCategoryInput
+    ? inboundEmailClassificationCategorySchema.safeParse(classificationCategoryInput)
+    : null;
+  if (classificationCategoryResult && !classificationCategoryResult.success) {
+    throw unprocessable("Invalid inbound email classification category");
+  }
+
   const mailboxId = options?.mailboxId?.trim();
   if (mailboxId && !UUID_RE.test(mailboxId)) {
     throw unprocessable("Invalid inbound email mailbox filter");
@@ -747,6 +757,7 @@ function normalizeListMessagesOptions(
   return {
     ...options,
     status: statusResult?.success ? statusResult.data : undefined,
+    classificationCategory: classificationCategoryResult?.success ? classificationCategoryResult.data : undefined,
     mailboxId: mailboxId || undefined,
   };
 }
@@ -2749,6 +2760,9 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         const conditions = [eq(inboundEmailMessages.companyId, companyId)];
         if (filters?.status) {
           conditions.push(eq(inboundEmailMessages.status, filters.status));
+        }
+        if (filters?.classificationCategory) {
+          conditions.push(eq(inboundEmailMessages.classificationCategory, filters.classificationCategory));
         }
         if (filters?.mailboxId) {
           conditions.push(eq(inboundEmailMessages.mailboxId, filters.mailboxId));
