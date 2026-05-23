@@ -902,13 +902,15 @@ Implemented the first infra topology and health foundation:
 - approval-gated infra repair/failover proposals linked to infra incidents,
 - manual action evidence records that require approved `infra_repair`
   approval,
+- scheduled HTTP health-check runner that evaluates due enabled checks, stores
+  status/latency/error evidence, and creates or reuses open infra incidents for
+  degraded/unhealthy checks,
 - no automatic provider repair, failover, DNS, SSH, or VPS mutation.
 
 Remaining Phase 6 work:
 
 - add concrete provider adapter descriptors without credentials in ordinary
   project metadata,
-- add a scheduled/worker health-check runner,
 - add incident grouping and escalation policy.
 
 ### Phase 7: External Resilience
@@ -940,15 +942,15 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Continue toward approved deploy readiness without broadening email authority.
+Continue toward approved infra readiness without broadening repair authority.
 
-The next implementation slice should add a scheduled health-check runner without
-granting provider repair authority:
+The next implementation slice should add incident grouping and escalation policy
+without granting provider repair authority:
 
-- evaluate enabled HTTP health checks on a conservative interval,
-- persist last-known health status and latency/error evidence,
-- create or reuse open infra incidents for degraded/unhealthy checks,
-- avoid provider credentials and provider mutations,
+- group repeated health-check and inbound infra reports into the same active
+  incident where possible,
+- add configurable escalation rules for high-severity or repeated incidents,
+- keep provider credentials out of ordinary project metadata,
 - keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.

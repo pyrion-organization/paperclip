@@ -33,6 +33,7 @@ import {
   heartbeatService,
   instanceSettingsService,
   issueSchedulerService,
+  projectInfraHealthRunnerService,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
 } from "./services/index.js";
@@ -833,6 +834,36 @@ export async function startServer(): Promise<StartedServer> {
           logger.error({ err }, "periodic heartbeat recovery failed");
         });
     }, config.heartbeatSchedulerIntervalMs);
+  }
+
+  if (config.infraHealthSchedulerEnabled) {
+    const infraHealthRunner = projectInfraHealthRunnerService(db as any);
+
+    logger.info(
+      {
+        intervalMs: config.infraHealthSchedulerIntervalMs,
+        batchSize: config.infraHealthSchedulerBatchSize,
+      },
+      "Infrastructure health scheduler enabled",
+    );
+
+    setInterval(() => {
+      void infraHealthRunner
+        .runDueHealthChecks({ limit: config.infraHealthSchedulerBatchSize })
+        .then((result) => {
+          if (
+            result.checked > 0 ||
+            result.incidentsCreated > 0 ||
+            result.incidentsReused > 0 ||
+            result.failed > 0
+          ) {
+            logger.info({ ...result }, "infrastructure health scheduler tick complete");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "infrastructure health scheduler tick failed");
+        });
+    }, config.infraHealthSchedulerIntervalMs);
   }
   
   if (config.databaseBackupEnabled) {
