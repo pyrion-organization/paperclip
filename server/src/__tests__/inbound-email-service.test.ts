@@ -4125,9 +4125,8 @@ describeEmbeddedPostgres("inbound email service", () => {
       .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
       .set("Authorization", `Bearer ${tokenRes.body.token}`)
       .send({
-        sourceKind: "webhook",
+        sourceKind: "manual_recovery",
         sourceId: "rate-limited-second",
-        rawEmail: rawEmail({ messageId: "<external-rate-second@example.com>" }),
       })
       .expect(429);
 

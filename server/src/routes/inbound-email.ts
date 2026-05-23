@@ -66,14 +66,8 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService, options: In
 
   router.post(
     "/external/inbound-email/mailboxes/:mailboxId/intake",
-    validate(submitExternalInboundEmailIntakeSchema),
     async (req, res) => {
       const mailboxId = req.params.mailboxId as string;
-      const token = externalIntakeTokenFromRequest(req);
-      if (!token) {
-        res.status(401).json({ error: "External inbound email intake token required" });
-        return;
-      }
       const rateLimit = externalIntakeRateLimiter.consume({
         mailboxId,
         ip: req.ip ?? "unknown",
@@ -89,7 +83,14 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService, options: In
         return;
       }
 
-      const result = await svc.submitExternalIntakeMessageWithToken(mailboxId, token, req.body);
+      const token = externalIntakeTokenFromRequest(req);
+      if (!token) {
+        res.status(401).json({ error: "External inbound email intake token required" });
+        return;
+      }
+
+      const body = submitExternalInboundEmailIntakeSchema.parse(req.body);
+      const result = await svc.submitExternalIntakeMessageWithToken(mailboxId, token, body);
       if (!result) {
         res.status(404).json({ error: "Inbound email mailbox not found" });
         return;
