@@ -26,13 +26,18 @@ const optionalUrlSchema = z.preprocess(
   z.string().trim().url().optional().nullable(),
 );
 
-const FORBIDDEN_INFRA_METADATA_KEY_PATTERN = /(secret|token|password|credential|api[-_]?key|private[-_]?key|access[-_]?key)/i;
+const FORBIDDEN_INFRA_METADATA_KEY_PATTERN =
+  /(secret|token|password|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret|signed[-_]?url|signature)/i;
+const FORBIDDEN_INFRA_METADATA_VALUE_PATTERN =
+  /(?:^|[?&#;])[^=&#;]*(?:secret|token|signature|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)[^=&#;]*=/i;
 
 function hasForbiddenInfraMetadataKey(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some((entry) => hasForbiddenInfraMetadataKey(entry));
   return Object.entries(value as Record<string, unknown>).some(([key, entry]) =>
-    FORBIDDEN_INFRA_METADATA_KEY_PATTERN.test(key) || hasForbiddenInfraMetadataKey(entry),
+    FORBIDDEN_INFRA_METADATA_KEY_PATTERN.test(key) ||
+    (typeof entry === "string" && FORBIDDEN_INFRA_METADATA_VALUE_PATTERN.test(entry)) ||
+    hasForbiddenInfraMetadataKey(entry),
   );
 }
 
@@ -273,7 +278,7 @@ export const createProjectInfraHealthCheckSchema = z.object({
   intervalSeconds: z.coerce.number().int().min(30).max(86_400).default(300),
   timeoutSeconds: z.coerce.number().int().min(1).max(120).default(10),
   enabled: z.boolean().default(true),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: projectInfraMetadataSchema.optional().nullable(),
 });
 
 export type CreateProjectInfraHealthCheck = z.infer<typeof createProjectInfraHealthCheckSchema>;
@@ -286,7 +291,7 @@ export const updateProjectInfraHealthCheckSchema = createProjectInfraHealthCheck
   lastSourceKind: z.enum(PROJECT_INFRA_HEALTH_RESULT_SOURCE_KINDS).optional().nullable(),
   lastSourceId: optionalTrimmedText(500),
   lastSourceDetail: optionalTrimmedText(2000),
-  lastSourceMetadata: z.record(z.unknown()).optional().nullable(),
+  lastSourceMetadata: projectInfraMetadataSchema.optional().nullable(),
 });
 
 export type UpdateProjectInfraHealthCheck = z.infer<typeof updateProjectInfraHealthCheckSchema>;
@@ -299,7 +304,7 @@ export const recordProjectInfraHealthResultSchema = z.object({
   sourceKind: z.enum(PROJECT_INFRA_HEALTH_RESULT_SOURCE_KINDS).optional().default("operator"),
   sourceId: optionalTrimmedText(500),
   sourceDetail: optionalTrimmedText(2000),
-  sourceMetadata: z.record(z.unknown()).optional().nullable(),
+  sourceMetadata: projectInfraMetadataSchema.optional().nullable(),
   createIncident: z.boolean().default(false),
   incidentSummary: optionalTrimmedText(300),
   incidentDetails: optionalTrimmedText(4000),
@@ -319,7 +324,7 @@ export const recordExternalProjectInfraHealthResultSchema = recordProjectInfraHe
   .extend({
     sourceId: optionalTrimmedText(500),
     sourceDetail: optionalTrimmedText(2000),
-    sourceMetadata: z.record(z.unknown()).optional().nullable(),
+    sourceMetadata: projectInfraMetadataSchema.optional().nullable(),
   });
 
 export type RecordExternalProjectInfraHealthResult = z.infer<typeof recordExternalProjectInfraHealthResultSchema>;

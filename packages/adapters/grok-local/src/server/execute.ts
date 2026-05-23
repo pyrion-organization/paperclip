@@ -92,6 +92,7 @@ type StagedGrokAssets = {
   stagedSkillsCount: number;
   stagedInstructionsPath: string | null;
   rulesFilePath: string | null;
+  rulesFileRelativePath: string | null;
 };
 
 async function pathExists(candidate: string): Promise<boolean> {
@@ -115,6 +116,7 @@ async function stageGrokProjectAssets(input: {
 
   let stagedInstructionsPath: string | null = null;
   let rulesFilePath: string | null = null;
+  let rulesFileRelativePath: string | null = null;
   let stagedSkillsCount = 0;
 
   const instructionsTarget = path.join(input.cwd, "Agents.md");
@@ -124,10 +126,14 @@ async function stageGrokProjectAssets(input: {
       ensureCleanupFile(instructionsTarget);
       stagedInstructionsPath = instructionsTarget;
     } else if (path.resolve(instructionsTarget) !== path.resolve(input.instructionsFilePath)) {
-      rulesFilePath = input.instructionsFilePath;
+      const rulesDir = await fs.mkdtemp(path.join(input.cwd, ".paperclip-grok-rules-"));
+      ensureCleanupDir(rulesDir);
+      rulesFilePath = path.join(rulesDir, "Agents.md");
+      rulesFileRelativePath = path.relative(input.cwd, rulesFilePath);
+      await fs.copyFile(input.instructionsFilePath, rulesFilePath);
       await input.onLog(
         "stdout",
-        `[paperclip] Grok workspace already contains ${instructionsTarget}; using --rules @${input.instructionsFilePath} instead of overwriting it.\n`,
+        `[paperclip] Grok workspace already contains ${instructionsTarget}; staging fallback rules at ${rulesFilePath} instead of overwriting it.\n`,
       );
     }
   } else {
@@ -172,6 +178,7 @@ async function stageGrokProjectAssets(input: {
     stagedSkillsCount,
     stagedInstructionsPath,
     rulesFilePath,
+    rulesFileRelativePath,
     cleanup: async () => {
       for (const entry of [...cleanup].reverse()) {
         if (entry.kind === "file") {
@@ -383,14 +390,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       );
     }
 
+    const effectiveRulesFilePath =
+      stagedAssets.rulesFileRelativePath && executionTargetIsRemote
+        ? path.join(effectiveExecutionCwd, stagedAssets.rulesFileRelativePath)
+        : stagedAssets.rulesFilePath;
+
     const commandNotes = (() => {
       const notes: string[] = ["Prompt is passed to Grok via --single in headless mode."];
       if (alwaysApprove) notes.push("Added --always-approve for unattended execution.");
       if (stagedAssets.stagedInstructionsPath) {
         notes.push(`Staged project instructions at ${stagedAssets.stagedInstructionsPath} for native Grok discovery.`);
       }
-      if (stagedAssets.rulesFilePath) {
-        notes.push(`Applied fallback instructions via --rules @${stagedAssets.rulesFilePath}.`);
+      if (effectiveRulesFilePath) {
+        notes.push(`Applied fallback instructions via --rules @${effectiveRulesFilePath}.`);
       }
       if (stagedAssets.stagedSkillsCount > 0) {
         notes.push(`Staged ${stagedAssets.stagedSkillsCount} Paperclip skill(s) into .claude/skills for native Grok discovery.`);
@@ -437,7 +449,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       if (permissionMode) args.push("--permission-mode", permissionMode);
       if (alwaysApprove) args.push("--always-approve");
       if (disableWebSearch) args.push("--disable-web-search");
-      if (stagedAssets.rulesFilePath) args.push("--rules", `@${stagedAssets.rulesFilePath}`);
+      if (effectiveRulesFilePath) args.push("--rules", `@${effectiveRulesFilePath}`);
       const extraArgs = (() => {
         const fromExtraArgs = asStringArray(config.extraArgs);
         if (fromExtraArgs.length > 0) return fromExtraArgs;

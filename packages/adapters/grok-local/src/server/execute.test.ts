@@ -6,20 +6,28 @@ import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
 
 const ensureRuntimeInstalledMock = vi.hoisted(() => vi.fn(async () => {}));
 const ensureCommandMock = vi.hoisted(() => vi.fn(async () => {}));
-const prepareRuntimeMock = vi.hoisted(() => vi.fn(async () => ({
-  workspaceRemoteDir: null,
-  restoreWorkspace: async () => {},
-})));
+const prepareRuntimeMock = vi.hoisted(() => vi.fn(
+  async (_input?: unknown): Promise<{ workspaceRemoteDir: string | null; restoreWorkspace: () => Promise<void> }> => ({
+    workspaceRemoteDir: null,
+    restoreWorkspace: async () => {},
+  }),
+));
 const resolveCommandForLogsMock = vi.hoisted(() => vi.fn(async () => "grok"));
 const runProcessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@paperclipai/adapter-utils/execution-target", () => ({
-  adapterExecutionTargetIsRemote: () => false,
-  adapterExecutionTargetRemoteCwd: (_target: unknown, cwd: string) => cwd,
-  overrideAdapterExecutionTargetRemoteCwd: (target: unknown, _cwd: string) => target,
-  adapterExecutionTargetSessionIdentity: () => ({ kind: "local" }),
+  adapterExecutionTargetIsRemote: (target: unknown) => (target as { kind?: string } | null)?.kind === "remote",
+  adapterExecutionTargetRemoteCwd: (target: unknown, cwd: string) =>
+    (target as { remoteCwd?: string } | null)?.remoteCwd ?? cwd,
+  overrideAdapterExecutionTargetRemoteCwd: (target: unknown, cwd: string) => ({
+    ...(typeof target === "object" && target !== null ? target : {}),
+    remoteCwd: cwd,
+  }),
+  adapterExecutionTargetSessionIdentity: (target: unknown) =>
+    (target as { kind?: string } | null)?.kind === "remote" ? { kind: "remote" } : { kind: "local" },
   adapterExecutionTargetSessionMatches: () => true,
-  describeAdapterExecutionTarget: () => "local",
+  describeAdapterExecutionTarget: (target: unknown) =>
+    (target as { kind?: string } | null)?.kind === "remote" ? "remote" : "local",
   ensureAdapterExecutionTargetCommandResolvable: ensureCommandMock,
   ensureAdapterExecutionTargetRuntimeCommandInstalled: ensureRuntimeInstalledMock,
   prepareAdapterExecutionTargetRuntime: prepareRuntimeMock,
@@ -183,5 +191,74 @@ describe("grok_local execute", () => {
     expect(runProcessMock).not.toHaveBeenCalled();
     expect(await pathExists(path.join(root, "Agents.md"))).toBe(false);
     expect(await pathExists(path.join(root, ".claude", "skills", "paperclip"))).toBe(false);
+  });
+
+  it("stages fallback rules inside the synced workspace for remote runs", async () => {
+    const root = await makeTempRoot();
+    const instructionsPath = path.join(root, "managed", "AGENTS.md");
+    await fs.mkdir(path.dirname(instructionsPath), { recursive: true });
+    await fs.writeFile(instructionsPath, "Remote Grok rules.\n", "utf8");
+    await fs.writeFile(path.join(root, "Agents.md"), "Workspace-owned rules.\n", "utf8");
+
+    let stagedRulesRelativePath: string | null = null;
+    prepareRuntimeMock.mockImplementationOnce(async (_input) => {
+      const entries = await fs.readdir(root);
+      const rulesDir = entries.find((entry) => entry.startsWith(".paperclip-grok-rules-"));
+      expect(rulesDir).toEqual(expect.any(String));
+      stagedRulesRelativePath = path.join(rulesDir ?? "", "Agents.md");
+      expect(await fs.readFile(path.join(root, stagedRulesRelativePath!), "utf8")).toContain("Remote Grok rules.");
+      return {
+        workspaceRemoteDir: "/remote/workspace",
+        restoreWorkspace: async () => {},
+      };
+    });
+    runProcessMock.mockImplementation(async (_runId, target, _command, args, options) => {
+      expect((target as { remoteCwd?: string }).remoteCwd).toBe("/remote/workspace");
+      expect(stagedRulesRelativePath).toEqual(expect.any(String));
+      expect(args).toEqual(expect.arrayContaining([
+        "--rules",
+        `@${path.join("/remote/workspace", stagedRulesRelativePath!)}`,
+      ]));
+      await options.onLog?.("stdout", '{"type":"text","data":"done"}\n');
+      return {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        stdout: [
+          JSON.stringify({ type: "text", data: "done" }),
+          JSON.stringify({ type: "end", stopReason: "EndTurn", sessionId: "sess-remote", requestId: "req-remote" }),
+        ].join("\n"),
+        stderr: "",
+      };
+    });
+
+    const result = await execute({
+      runId: "run-remote",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Grok Agent",
+        adapterType: "grok_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        cwd: root,
+        instructionsFilePath: instructionsPath,
+      },
+      context: {},
+      executionTarget: { kind: "remote", remoteCwd: "/remote/original" } as any,
+      authToken: "run-token",
+      onLog: async () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(await pathExists(path.join(root, "Agents.md"))).toBe(true);
+    expect((await fs.readdir(root)).some((entry) => entry.startsWith(".paperclip-grok-rules-"))).toBe(false);
   });
 });

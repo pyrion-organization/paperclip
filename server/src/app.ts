@@ -41,6 +41,7 @@ import { llmRoutes } from "./routes/llms.js";
 import { authRoutes } from "./routes/auth.js";
 import { assetRoutes } from "./routes/assets.js";
 import { inboundEmailRoutes } from "./routes/inbound-email.js";
+import { cloudUpstreamRoutes } from "./routes/cloud-upstreams.js";
 import { accessRoutes } from "./routes/access.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { adapterRoutes } from "./routes/adapters.js";
@@ -221,6 +222,7 @@ export async function createApp(
     pluginWorkerManager: workerManager,
   }));
   api.use(inboundEmailRoutes(db, opts.storageService));
+  api.use(cloudUpstreamRoutes(db, { instanceId: opts.instanceId }));
   api.use(issueTreeControlRoutes(db));
   api.use(routineRoutes(db, { pluginWorkerManager: workerManager }));
   api.use(environmentRoutes(db, { pluginWorkerManager: workerManager }));

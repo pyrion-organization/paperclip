@@ -1074,6 +1074,33 @@ describe("project deploy workflow routes", () => {
     expect(mockProjectService.recordExternalInfraHealthResult).not.toHaveBeenCalled();
   });
 
+  it("rejects secret-looking metadata from external monitor submissions", async () => {
+    const app = await createApp("board");
+    const res = await request(app)
+      .post("/api/external/infra-health-checks/88888888-8888-4888-8888-888888888888/results")
+      .set("Authorization", "Bearer pcmon_test_abcd1234")
+      .send({
+        status: "degraded",
+        sourceId: "uptime-monitor-1",
+        sourceMetadata: {
+          headers: {
+            authorization: "Bearer leaked-token",
+          },
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(res.body.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining("Infrastructure metadata must not contain credentials"),
+        }),
+      ]),
+    );
+    expect(mockProjectService.recordExternalInfraHealthResult).not.toHaveBeenCalled();
+  });
+
   it("creates approval-gated infra action proposals for open incidents", async () => {
     mockProjectService.listInfraIncidents.mockResolvedValue([buildInfraIncident()]);
     mockApprovalService.create.mockResolvedValue(buildApproval({
