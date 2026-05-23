@@ -1016,12 +1016,13 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Continue Phase 7 by turning the recovery foundation into a practical operator
-fallback workflow:
+Run a deployment-readiness audit before handoff:
 
-- keep provider repair and failover execution as a non-goal,
-- preserve the current no-auto-production-deploy and no-auto-infra-repair
-  boundary.
+- verify every implemented phase against current schema, server, worker, UI,
+  docs, and tests,
+- run the PR-ready verification suite,
+- keep provider repair and failover execution as a non-goal until explicit
+  credentials, approval, rollback, and evidence controls are designed.
 
-Do not add automatic production deploys or provider mutations until the approval,
-rollback, health, and incident paths are covered by focused tests.
+Do not add automatic provider mutations, DNS changes, or infra repair until the
+approval, rollback, health, and incident paths are covered by focused tests.
