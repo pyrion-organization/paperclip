@@ -230,10 +230,45 @@ function extractBridgeError(err: unknown): PluginBridgeError {
 function serializeParams(params?: Record<string, unknown>): string {
   if (!params) return "";
   try {
-    return JSON.stringify(params, Object.keys(params).sort());
+    return JSON.stringify(sortSerializableValue(params));
   } catch {
     return "";
   }
+}
+
+function sortSerializableValue(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (!value || typeof value !== "object") return value;
+
+  if (seen.has(value)) {
+    throw new TypeError("Cannot serialize circular plugin params");
+  }
+
+  if (Array.isArray(value)) {
+    seen.add(value);
+    const sorted = value.map((entry) => sortSerializableValue(entry, seen));
+    seen.delete(value);
+    return sorted;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+
+  seen.add(value);
+  const sorted = Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [
+        key,
+        sortSerializableValue((value as Record<string, unknown>)[key], seen),
+      ]),
+  );
+  seen.delete(value);
+  return sorted;
 }
 
 function serializeRenderEnvironment(

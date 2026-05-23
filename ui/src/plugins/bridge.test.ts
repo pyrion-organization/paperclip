@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FileTree as SdkFileTree,
   ManagedRoutinesList as SdkManagedRoutinesList,
@@ -20,10 +20,20 @@ import {
   resolveHostNavigationHref,
   shouldHandleHostNavigationClick,
   useHostNavigation,
+  usePluginData,
   type PluginBridgeContextValue,
 } from "./bridge";
 import { initPluginBridge } from "./bridge-init";
 import { _createReactShimSourceForTests } from "./slots";
+
+const mockPluginsApi = vi.hoisted(() => ({
+  bridgeGetData: vi.fn(),
+  bridgePerformAction: vi.fn(),
+}));
+
+vi.mock("@/api/plugins", () => ({
+  pluginsApi: mockPluginsApi,
+}));
 
 function clickEvent(
   overrides: Partial<ReactMouseEvent<HTMLAnchorElement>> = {},
@@ -44,6 +54,7 @@ function clickEvent(
 
 afterEach(() => {
   delete globalThis.__paperclipPluginBridge__;
+  vi.clearAllMocks();
 });
 
 describe("plugin host navigation", () => {
@@ -202,6 +213,77 @@ describe("useHostNavigation mobile drawer behavior", () => {
     expect(sidebar!.sidebarOpen).toBe(true);
 
     act(() => root.unmount());
+    container.remove();
+  });
+});
+
+describe("usePluginData", () => {
+  // React 19's `act` requires the env flag and React DOM client.
+  (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+  function makeBridgeValue(): PluginBridgeContextValue {
+    return {
+      pluginId: "test-plugin",
+      hostContext: {
+        companyId: "co",
+        companyPrefix: "PAP",
+        projectId: null,
+        entityId: null,
+        entityType: null,
+        userId: null,
+      },
+    };
+  }
+
+  async function flushPromises() {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("refetches when only a nested params value changes", async () => {
+    mockPluginsApi.bridgeGetData.mockResolvedValue({ data: [] });
+
+    function Probe({ status }: { status: string }) {
+      usePluginData("issues", { filter: { status } });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          PluginBridgeContext.Provider,
+          { value: makeBridgeValue() },
+          React.createElement(Probe, { status: "open" }),
+        ),
+      );
+      await flushPromises();
+    });
+
+    expect(mockPluginsApi.bridgeGetData).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.render(
+        React.createElement(
+          PluginBridgeContext.Provider,
+          { value: makeBridgeValue() },
+          React.createElement(Probe, { status: "closed" }),
+        ),
+      );
+      await flushPromises();
+    });
+
+    expect(mockPluginsApi.bridgeGetData).toHaveBeenCalledTimes(2);
+    expect(mockPluginsApi.bridgeGetData.mock.calls[1]?.[2]).toEqual({
+      filter: { status: "closed" },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
     container.remove();
   });
 });
