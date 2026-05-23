@@ -178,6 +178,44 @@ Paperclip can preserve and recover raw support messages captured outside the nor
 - Failed imports keep a durable failed intake record with the error text and can be retried with the same source ID and raw email.
 - This foundation does not fetch from external object storage, mutate mailbox provider state, repair infrastructure, fail over providers, or auto-deploy code. External monitoring remains evidence-only until explicit provider credentials, approvals, rollback, and alerting paths are added.
 
+### External backup handoff format
+
+During Paperclip downtime, the external support intake backup should preserve each original message as a raw RFC 822 `.eml` payload plus stable source metadata. The recovery importer expects operators or future webhook/queue adapters to provide:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `mailboxId` | yes | The Paperclip inbound mailbox that should own the recovered message. |
+| `sourceKind` | yes | One of `manual_recovery`, `webhook`, `queue`, or `object_storage`. |
+| `sourceId` | yes | Stable unique external ID, such as queue message ID, webhook event ID, or object key. Reusing the same source ID with different raw bytes is rejected. |
+| `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. |
+| `rawEmail` | yes | The original raw email including headers and body. Do not paste a rendered or summarized email. |
+| `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. |
+
+Recommended object-storage layout:
+
+```text
+support-backup/
+  company-<company-id>/
+    mailbox-<mailbox-id>/
+      YYYY/MM/DD/
+        <provider-message-id-or-random-id>.eml
+        <provider-message-id-or-random-id>.json
+```
+
+The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, receipt timestamp, provider, and mailbox address. It must not contain mailbox passwords, API keys, provider tokens, session cookies, or customer secrets beyond the email content already present in the `.eml`.
+
+### Downtime recovery procedure
+
+1. Confirm Paperclip is back online and migrations have applied.
+2. Open **Inbound Email Ops → External Recovery Import**.
+3. Select the mailbox that normally receives the message.
+4. Choose the source kind and paste the stable source ID from the backup system.
+5. Paste the raw `.eml` content into `Raw email`; optionally add the object path as `Source location`.
+6. Submit the import and confirm the recent intake record is `imported` or `duplicate`.
+7. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
+
+Repeated imports are safe when the source ID and raw bytes are unchanged. Different backup sources that contain the same raw email are recorded separately as evidence but link to one inbound message through the existing message fingerprint dedupe.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.

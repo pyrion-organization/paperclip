@@ -952,6 +952,8 @@ foundation:
 - added evidence-only health result source fields so external monitors can
   submit status, source ID/detail, and metadata without gaining provider repair
   authority.
+- documented the external backup handoff format and operator downtime recovery
+  procedure for preserved raw `.eml` messages.
 
 ## Open Decisions
 
@@ -973,8 +975,6 @@ These should be decided before later phases:
 Continue Phase 7 by turning the recovery foundation into a practical operator
 fallback workflow:
 
-- document the backup mailbox/object-storage handoff format operators should
-  use during Paperclip downtime,
 - keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.
