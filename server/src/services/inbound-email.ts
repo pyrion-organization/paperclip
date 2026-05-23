@@ -46,6 +46,7 @@ import type {
 import {
   inboundEmailClassificationCategorySchema,
   inboundEmailExternalIntakeMetadataSchema,
+  inboundEmailExternalIntakeSourceLocationSchema,
   inboundEmailMessageStatusSchema,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
@@ -3301,7 +3302,8 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       await loadMailbox(companyId, input.mailboxId);
       const raw = Buffer.from(input.rawEmail, "utf8");
       const rawSha256 = hashBuffer(raw);
-      const sourceLocation = asNullableString(input.sourceLocation);
+      const sourceLocation =
+        inboundEmailExternalIntakeSourceLocationSchema.parse(asNullableString(input.sourceLocation)) ?? null;
       const metadata = inboundEmailExternalIntakeMetadataSchema.parse(asRecord(input.metadata));
       const existing = await findExternalIntakeBySource({
         companyId,

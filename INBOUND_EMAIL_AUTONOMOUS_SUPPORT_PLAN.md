@@ -972,6 +972,8 @@ foundation:
   conflicting source records without logging raw email bodies or metadata values,
 - rejected external intake metadata keys that look like credentials, tokens,
   passwords, cookies, sessions, or API keys,
+- rejected external intake source locations that include signed URL parameters,
+  tokens, credentials, cookies, sessions, passwords, or API keys,
 - added a bounded board-only batch import endpoint with per-message imported,
   duplicate, and failed results so one bad preserved `.eml` does not block a
   downtime recovery batch,

@@ -567,6 +567,22 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(records).toHaveLength(0);
   });
 
+  it("rejects credential-bearing external intake source locations", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    await expect(svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "object_storage",
+      sourceId: "signed-source-location",
+      sourceLocation: "https://backup.example.com/message.eml?X-Amz-Signature=do-not-store",
+      rawEmail: rawEmail({ messageId: "<signed-source-location@example.com>" }),
+    })).rejects.toThrow("External intake source location must not include signed URLs");
+
+    const records = await db.select().from(inboundEmailExternalIntakeRecords);
+    expect(records).toHaveLength(0);
+  });
+
   it("imports external intake messages in a per-item recovery batch", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
@@ -4029,6 +4045,17 @@ describeEmbeddedPostgres("inbound email service", () => {
         sourceId: "webhook-secret-metadata",
         rawEmail: rawEmail({ messageId: "<external-secret-metadata@example.com>" }),
         metadata: { apiToken: "do-not-store" },
+      })
+      .expect(400);
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-signed-location",
+        sourceLocation: "https://backup.example.com/message.eml?token=do-not-store",
+        rawEmail: rawEmail({ messageId: "<external-signed-location@example.com>" }),
       })
       .expect(400);
 

@@ -1248,6 +1248,7 @@ export {
   inboundEmailExternalIntakeSourceKindSchema,
   inboundEmailExternalSubmissionSourceKindSchema,
   inboundEmailExternalIntakeMetadataSchema,
+  inboundEmailExternalIntakeSourceLocationSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
   createInboundEmailRuleSchema,

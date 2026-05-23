@@ -207,7 +207,7 @@ During Paperclip downtime, the external support intake backup should preserve ea
 | `mailboxId` | yes | The Paperclip inbound mailbox that should own the recovered message. |
 | `sourceKind` | yes | One of `manual_recovery`, `webhook`, `queue`, or `object_storage`. |
 | `sourceId` | yes | Stable unique external ID, such as queue message ID, webhook event ID, or object key. Reusing the same source ID with different raw bytes is rejected. |
-| `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. |
+| `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. Do not use presigned URLs or links containing tokens, signatures, credentials, cookies, sessions, passwords, or API keys. |
 | `rawEmail` | yes | The original raw email including headers and body. Do not paste a rendered or summarized email. |
 | `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. Keys that look like credentials, tokens, passwords, cookies, sessions, or API keys are rejected. |
 
@@ -222,7 +222,7 @@ support-backup/
         <provider-message-id-or-random-id>.json
 ```
 
-The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, receipt timestamp, provider, and mailbox address. It must not contain mailbox passwords, API keys, provider tokens, session cookies, or customer secrets beyond the email content already present in the `.eml`.
+The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, receipt timestamp, provider, and mailbox address. It must not contain mailbox passwords, API keys, provider tokens, session cookies, presigned URLs, or customer secrets beyond the email content already present in the `.eml`.
 
 ### Downtime recovery procedure
 

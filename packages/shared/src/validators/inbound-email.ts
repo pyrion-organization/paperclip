@@ -68,6 +68,8 @@ const optionalPatternSchema = z.string().max(500).nullable().optional();
 const labelIdsSchema = z.array(z.string().uuid()).max(20).optional();
 const FORBIDDEN_EXTERNAL_INTAKE_METADATA_KEY_PATTERN =
   /(secret|token|password|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)/i;
+const FORBIDDEN_EXTERNAL_INTAKE_SOURCE_LOCATION_PARAM_PATTERN =
+  /(?:^|[?&#;])[^=&#;]*(?:secret|token|signature|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)[^=&#;]*=/i;
 
 function hasForbiddenExternalIntakeMetadataKey(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -83,6 +85,17 @@ export const inboundEmailExternalIntakeMetadataSchema = z
   .refine((value) => !hasForbiddenExternalIntakeMetadataKey(value), {
     message: "External intake metadata must not contain credentials, tokens, passwords, cookies, or API keys",
   });
+
+export const inboundEmailExternalIntakeSourceLocationSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2000)
+  .refine((value) => !FORBIDDEN_EXTERNAL_INTAKE_SOURCE_LOCATION_PARAM_PATTERN.test(value), {
+    message: "External intake source location must not include signed URLs, tokens, passwords, cookies, or API keys",
+  })
+  .nullable()
+  .optional();
 
 export const createInboundEmailMailboxSchema = z.object({
   name: mailboxNameSchema,
@@ -145,7 +158,7 @@ export const importExternalInboundEmailMessageSchema = z.object({
   mailboxId: z.string().uuid(),
   sourceKind: inboundEmailExternalIntakeSourceKindSchema,
   sourceId: z.string().trim().min(1).max(500),
-  sourceLocation: z.string().trim().min(1).max(2000).nullable().optional(),
+  sourceLocation: inboundEmailExternalIntakeSourceLocationSchema,
   rawEmail: z.string().min(1).max(10_000_000),
   receivedAt: z.coerce.date().nullable().optional(),
   processAfterImport: z.boolean().optional().default(true),
@@ -163,7 +176,7 @@ export type ImportExternalInboundEmailMessagesBatch = z.infer<typeof importExter
 export const submitExternalInboundEmailIntakeSchema = z.object({
   sourceKind: inboundEmailExternalSubmissionSourceKindSchema,
   sourceId: z.string().trim().min(1).max(500),
-  sourceLocation: z.string().trim().min(1).max(2000).nullable().optional(),
+  sourceLocation: inboundEmailExternalIntakeSourceLocationSchema,
   rawEmail: z.string().min(1).max(10_000_000),
   receivedAt: z.coerce.date().nullable().optional(),
   metadata: inboundEmailExternalIntakeMetadataSchema.optional().default({}),
