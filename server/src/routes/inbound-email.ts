@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
@@ -12,6 +13,10 @@ import {
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { inboundEmailService, type ListPageOptions } from "../services/inbound-email.js";
+import {
+  createExternalIntakeRateLimiter,
+  type ExternalIntakeRateLimiter,
+} from "../services/inbound-email-external-intake-rate-limit.js";
 import type { StorageService } from "../storage/types.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
@@ -51,9 +56,18 @@ function externalIntakeTokenFromRequest(req: Request) {
   return req.header("x-paperclip-external-intake-token")?.trim() ?? "";
 }
 
-export function inboundEmailRoutes(db: Db, storage?: StorageService) {
+function hashExternalIntakeToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export type InboundEmailRoutesOptions = {
+  externalIntakeRateLimiter?: ExternalIntakeRateLimiter;
+};
+
+export function inboundEmailRoutes(db: Db, storage?: StorageService, options: InboundEmailRoutesOptions = {}) {
   const router = Router();
   const svc = inboundEmailService(db, storage);
+  const externalIntakeRateLimiter = options.externalIntakeRateLimiter ?? createExternalIntakeRateLimiter();
 
   router.post(
     "/external/inbound-email/mailboxes/:mailboxId/intake",
@@ -63,6 +77,21 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       const token = externalIntakeTokenFromRequest(req);
       if (!token) {
         res.status(401).json({ error: "External inbound email intake token required" });
+        return;
+      }
+      const rateLimit = externalIntakeRateLimiter.consume({
+        mailboxId,
+        tokenHash: hashExternalIntakeToken(token),
+        ip: req.ip ?? "unknown",
+      });
+      res.setHeader("X-RateLimit-Limit", String(rateLimit.limit));
+      res.setHeader("X-RateLimit-Remaining", String(rateLimit.remaining));
+      if (!rateLimit.allowed) {
+        res.setHeader("Retry-After", String(rateLimit.retryAfterSeconds));
+        res.status(429).json({
+          error: "External inbound email intake rate limit exceeded",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        });
         return;
       }
 

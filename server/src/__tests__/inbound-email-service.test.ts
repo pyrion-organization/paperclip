@@ -37,6 +37,7 @@ import {
 import { inboundEmailService } from "../services/inbound-email.ts";
 import { inboundEmailRoutes } from "../routes/inbound-email.ts";
 import { errorHandler } from "../middleware/error-handler.ts";
+import { createExternalIntakeRateLimiter } from "../services/inbound-email-external-intake-rate-limit.ts";
 
 const sendMailMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createTransportMock = vi.hoisted(() => vi.fn(() => ({ sendMail: sendMailMock })));
@@ -4054,6 +4055,68 @@ describeEmbeddedPostgres("inbound email service", () => {
         rawEmail: rawEmail({ messageId: "<queue-after-revoke@example.com>" }),
       })
       .expect(404);
+  });
+
+  it("rate limits token-protected external intake submissions before import", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const app = express();
+    app.use(express.json({ limit: "11mb" }));
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db, undefined, {
+      externalIntakeRateLimiter: createExternalIntakeRateLimiter({
+        maxRequests: 1,
+        windowMs: 60_000,
+        now: () => 1_000,
+      }),
+    }));
+    app.use(errorHandler);
+
+    const tokenRes = await request(app)
+      .post(`/companies/${companyId}/inbound-email/mailboxes/${mailbox.id}/external-intake-token`)
+      .expect(201);
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "rate-limited-first",
+        rawEmail: rawEmail({ messageId: "<external-rate-first@example.com>" }),
+      })
+      .expect(201);
+
+    const limited = await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "rate-limited-second",
+        rawEmail: rawEmail({ messageId: "<external-rate-second@example.com>" }),
+      })
+      .expect(429);
+
+    expect(limited.body).toMatchObject({
+      error: "External inbound email intake rate limit exceeded",
+      retryAfterSeconds: 60,
+    });
+    expect(limited.headers["retry-after"]).toBe("60");
+    expect(limited.headers["x-ratelimit-limit"]).toBe("1");
+    expect(limited.headers["x-ratelimit-remaining"]).toBe("0");
+
+    const records = await db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .where(eq(inboundEmailExternalIntakeRecords.companyId, companyId));
+    expect(records.map((record) => record.sourceId)).toEqual(["rate-limited-first"]);
   });
 
   it("deletes a mailbox, soft-deletes its secret, and cascades dependent rows", async () => {

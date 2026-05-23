@@ -960,6 +960,8 @@ foundation:
 - added a narrow public external intake endpoint for webhook, queue, and
   object-storage backup systems to submit preserved raw emails without board,
   agent, deploy, or infra authority,
+- rate-limited public external intake by mailbox, token, and client IP before
+  import work starts,
 - added an Inbound Email Ops recovery panel for operator paste/import, bounded
   batch JSON recovery, per-item batch result review, and filtered/paginated
   intake review,
