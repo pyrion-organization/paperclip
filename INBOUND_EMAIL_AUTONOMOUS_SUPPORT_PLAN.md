@@ -961,7 +961,7 @@ foundation:
   object-storage backup systems to submit preserved raw emails without board,
   agent, deploy, or infra authority,
 - added an Inbound Email Ops recovery panel for operator paste/import, bounded
-  batch JSON recovery, and recent intake review,
+  batch JSON recovery, per-item batch result review, and recent intake review,
 - routed imports through the existing raw inbound email importer so message
   dedupe, attachment recovery, processing jobs, classification, support replies,
   and issue creation stay centralized,

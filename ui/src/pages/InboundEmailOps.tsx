@@ -840,6 +840,42 @@ function ExternalIntakeRecovery({
               Batch recorded: {batchImportMutation.data.importedCount} imported, {batchImportMutation.data.duplicateCount} duplicate, {batchImportMutation.data.failedCount} failed.
             </div>
           ) : null}
+          {batchImportMutation.data?.results.length ? (
+            <div className="overflow-hidden rounded-md border border-border bg-background/40">
+              <div className="border-b border-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Batch item results
+              </div>
+              <div className="max-h-56 overflow-y-auto">
+                {batchImportMutation.data.results.map((result) => {
+                  const error = result.error ?? result.intakeRecord?.error ?? null;
+                  return (
+                    <div
+                      key={`${result.sourceKind}:${result.sourceId}`}
+                      className="grid gap-2 border-t border-border px-3 py-2 first:border-t-0 sm:grid-cols-[120px_minmax(0,1fr)]"
+                    >
+                      <div>
+                        <Badge
+                          variant="outline"
+                          className={`h-5 px-1.5 text-[11px] ${externalIntakeStatusClassName(result.status)}`}
+                        >
+                          {result.status}
+                        </Badge>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium">
+                          {externalIntakeSourceLabels[result.sourceKind]}
+                        </div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                          {result.sourceId}
+                        </div>
+                        {error ? <div className="mt-1 break-words text-[11px] text-destructive">{error}</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <Button type="submit" size="sm" variant="outline" disabled={!canBatchSubmit}>
             {batchImportMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             Import batch

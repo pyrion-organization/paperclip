@@ -740,6 +740,41 @@ describe("InboundEmailOps", () => {
 
   it("imports preserved external support email batches from the recovery panel", async () => {
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    mockCompaniesApi.importExternalInboundEmailMessagesBatch.mockResolvedValueOnce({
+      importedCount: 1,
+      duplicateCount: 1,
+      failedCount: 1,
+      results: [
+        {
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-1",
+          status: "imported",
+          intakeRecord: makeExternalIntakeRecord({ id: "external-intake-batch-1", sourceId: "operator-recovery-batch-1" }),
+          message: makeProcessedMessage({ id: "processed-message-batch-1" }),
+          error: null,
+        },
+        {
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-2",
+          status: "duplicate",
+          intakeRecord: makeExternalIntakeRecord({
+            id: "external-intake-batch-2",
+            sourceId: "operator-recovery-batch-2",
+            status: "duplicate",
+          }),
+          message: makeProcessedMessage({ id: "processed-message-batch-1" }),
+          error: null,
+        },
+        {
+          sourceKind: "object_storage",
+          sourceId: "backup/messages/bad.eml",
+          status: "failed",
+          intakeRecord: null,
+          message: null,
+          error: "Message could not be parsed",
+        },
+      ],
+    });
     await renderPage();
 
     const panelButton = Array.from(container.querySelectorAll("button")).find((button) =>
@@ -765,6 +800,11 @@ describe("InboundEmailOps", () => {
           {
             sourceId: "operator-recovery-batch-2",
             rawEmail: "Message-ID: <batch-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 2\n\nBody",
+          },
+          {
+            sourceKind: "object_storage",
+            sourceId: "backup/messages/bad.eml",
+            rawEmail: "Message-ID: <bad@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Bad\n\nBody",
           },
         ]),
       );
@@ -795,9 +835,20 @@ describe("InboundEmailOps", () => {
           sourceLocation: null,
           rawEmail: "Message-ID: <batch-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 2\n\nBody",
         },
+        {
+          mailboxId: "mailbox-1",
+          sourceKind: "object_storage",
+          sourceId: "backup/messages/bad.eml",
+          sourceLocation: null,
+          rawEmail: "Message-ID: <bad@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Bad\n\nBody",
+        },
       ],
     });
-    expect(container.textContent).toContain("Batch recorded: 1 imported, 1 duplicate, 0 failed.");
+    expect(container.textContent).toContain("Batch recorded: 1 imported, 1 duplicate, 1 failed.");
+    expect(container.textContent).toContain("Batch item results");
+    expect(container.textContent).toContain("operator-recovery-batch-1");
+    expect(container.textContent).toContain("backup/messages/bad.eml");
+    expect(container.textContent).toContain("Message could not be parsed");
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
