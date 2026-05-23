@@ -50,6 +50,11 @@ export const projectsApi = {
     ),
   listDeployEvents: (projectId: string, companyId?: string) =>
     api.get<ProjectDeployEvent[]>(projectPath(projectId, companyId, "/deploy-events")),
+  recordDeployEventStatus: (projectId: string, deployEventId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectDeployEvent>(
+      projectPath(projectId, companyId, `/deploy-events/${encodeURIComponent(deployEventId)}/status`),
+      data,
+    ),
   requestDeployApproval: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
     api.post<{ approval: import("@paperclipai/shared").Approval; deployEvent: ProjectDeployEvent | null }>(
       projectPath(projectId, companyId, "/deploy-approvals"),

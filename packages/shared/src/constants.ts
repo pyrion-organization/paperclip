@@ -310,6 +310,7 @@ export const PROJECT_DEPLOY_EVENT_STATUSES = [
   "approval_requested",
   "approved",
   "rejected",
+  "deploying",
   "deployed",
   "failed",
   "rolled_back",

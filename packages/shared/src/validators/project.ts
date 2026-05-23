@@ -171,6 +171,15 @@ export const createProjectDeployApprovalSchema = z.object({
 
 export type CreateProjectDeployApproval = z.infer<typeof createProjectDeployApprovalSchema>;
 
+export const recordProjectDeployEventStatusSchema = z.object({
+  status: z.enum(["deploying", "deployed", "failed", "rolled_back"]),
+  note: optionalTrimmedText(2000),
+  maintenanceMessage: optionalTrimmedText(2000),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type RecordProjectDeployEventStatus = z.infer<typeof recordProjectDeployEventStatusSchema>;
+
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),
   showIgnored: z.coerce.boolean().optional().default(false),

@@ -69,6 +69,17 @@ type CreateDeployEventInput = Omit<
   typeof projectDeployEvents.$inferInsert,
   "companyId" | "projectId"
 >;
+type UpdateDeployEventStatusInput = {
+  status: ProjectDeployEvent["status"];
+  note?: string | null;
+  maintenanceMessage?: string | null;
+  metadata?: Record<string, unknown> | null;
+  actor: {
+    actorType: "user" | "agent" | "system";
+    actorId: string | null;
+    agentId?: string | null;
+  };
+};
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -229,6 +240,21 @@ function toDeployEvent(row: ProjectDeployEventRow): ProjectDeployEvent {
     createdByUserId: row.createdByUserId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+function appendDeployEventTransition(
+  metadata: Record<string, unknown> | null,
+  transition: Record<string, unknown>,
+): Record<string, unknown> {
+  const existingTransitions = Array.isArray(metadata?.transitions)
+    ? metadata.transitions.filter((entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
+      )
+    : [];
+  return {
+    ...(metadata ?? {}),
+    transitions: [...existingTransitions, transition].slice(-50),
   };
 }
 
@@ -981,6 +1007,23 @@ export function projectService(db: Db) {
       return rows.map(toDeployEvent);
     },
 
+    getDeployEvent: async (
+      projectId: string,
+      deployEventId: string,
+    ): Promise<ProjectDeployEvent | null> => {
+      const row = await db
+        .select()
+        .from(projectDeployEvents)
+        .where(
+          and(
+            eq(projectDeployEvents.projectId, projectId),
+            eq(projectDeployEvents.id, deployEventId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeployEvent(row) : null;
+    },
+
     createDeployEvent: async (
       projectId: string,
       data: CreateDeployEventInput,
@@ -1000,6 +1043,59 @@ export function projectService(db: Db) {
           projectId,
           updatedAt: new Date(),
         })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeployEvent(row) : null;
+    },
+
+    updateDeployEventStatus: async (
+      projectId: string,
+      deployEventId: string,
+      data: UpdateDeployEventStatusInput,
+    ): Promise<ProjectDeployEvent | null> => {
+      const existing = await db
+        .select()
+        .from(projectDeployEvents)
+        .where(
+          and(
+            eq(projectDeployEvents.projectId, projectId),
+            eq(projectDeployEvents.id, deployEventId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      if (!existing) return null;
+
+      const now = new Date();
+      const nextMetadata = appendDeployEventTransition(
+        {
+          ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+          ...((data.metadata as Record<string, unknown> | null) ?? {}),
+        },
+        {
+          from: existing.status,
+          to: data.status,
+          note: data.note ?? null,
+          at: now.toISOString(),
+          actorType: data.actor.actorType,
+          actorId: data.actor.actorId,
+          agentId: data.actor.agentId ?? null,
+        },
+      );
+
+      const row = await db
+        .update(projectDeployEvents)
+        .set({
+          status: data.status,
+          maintenanceMessage: data.maintenanceMessage ?? existing.maintenanceMessage ?? null,
+          metadata: nextMetadata,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(projectDeployEvents.projectId, projectId),
+            eq(projectDeployEvents.id, deployEventId),
+          ),
+        )
         .returning()
         .then((rows) => rows[0] ?? null);
       return row ? toDeployEvent(row) : null;

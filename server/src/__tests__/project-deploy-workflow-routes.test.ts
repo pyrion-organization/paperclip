@@ -6,12 +6,15 @@ const mockProjectService = vi.hoisted(() => ({
   getById: vi.fn(),
   resolveByReference: vi.fn(),
   getDeploymentTarget: vi.fn(),
+  getDeployEvent: vi.fn(),
   createDeployEvent: vi.fn(),
+  updateDeployEventStatus: vi.fn(),
   listDeploymentTargets: vi.fn(),
   listDeployEvents: vi.fn(),
 }));
 const mockApprovalService = vi.hoisted(() => ({
   create: vi.fn(),
+  getById: vi.fn(),
 }));
 const mockIssueApprovalService = vi.hoisted(() => ({
   linkManyForApproval: vi.fn(),
@@ -89,6 +92,37 @@ function buildTarget(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildDeployEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    companyId: "company-1",
+    projectId: "11111111-1111-4111-8111-111111111111",
+    deploymentTargetId: "33333333-3333-4333-8333-333333333333",
+    issueId: "22222222-2222-4222-8222-222222222222",
+    approvalId: "44444444-4444-4444-8444-444444444444",
+    status: "approved",
+    summary: "Deploy checkout fix",
+    changedFiles: ["server/src/checkout.ts"],
+    testsRun: ["pnpm test checkout"],
+    rollbackPlan: "Revert commit abc123.",
+    maintenanceMessage: null,
+    ...overrides,
+  };
+}
+
+function buildApproval(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "44444444-4444-4444-8444-444444444444",
+    companyId: "company-1",
+    type: "deploy_change",
+    requestedByAgentId: "agent-1",
+    requestedByUserId: null,
+    status: "approved",
+    payload: {},
+    ...overrides,
+  };
+}
+
 async function createApp() {
   const [{ projectRoutes }, { errorHandler }] = await Promise.all([
     import("../routes/projects.js"),
@@ -116,6 +150,10 @@ describe("project deploy workflow routes", () => {
     mockProjectService.resolveByReference.mockResolvedValue({ ambiguous: false, project: null });
     mockProjectService.getById.mockResolvedValue(buildProject());
     mockProjectService.getDeploymentTarget.mockResolvedValue(buildTarget());
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent());
+    mockProjectService.updateDeployEventStatus.mockImplementation(async (_projectId, _eventId, data) =>
+      buildDeployEvent({ status: data.status }),
+    );
     mockIssueService.getById.mockResolvedValue(buildIssue());
     mockApprovalService.create.mockResolvedValue({
       id: "44444444-4444-4444-8444-444444444444",
@@ -124,6 +162,7 @@ describe("project deploy workflow routes", () => {
       status: "pending",
       payload: {},
     });
+    mockApprovalService.getById.mockResolvedValue(buildApproval());
     mockProjectService.createDeployEvent.mockResolvedValue({
       id: "55555555-5555-4555-8555-555555555555",
       status: "approval_requested",
@@ -193,5 +232,60 @@ describe("project deploy workflow routes", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockApprovalService.create).not.toHaveBeenCalled();
     expect(mockProjectService.createDeployEvent).not.toHaveBeenCalled();
+  });
+
+  it("lets the requesting agent mark an approved deploy event as deploying", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/status")
+      .send({
+        status: "deploying",
+        note: "Starting manual deploy.",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.updateDeployEventStatus).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+      expect.objectContaining({
+        status: "deploying",
+        note: "Starting manual deploy.",
+        actor: expect.objectContaining({ actorType: "agent", actorId: "agent-1" }),
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.deploy_event_status_updated",
+        details: expect.objectContaining({
+          fromStatus: "approved",
+          toStatus: "deploying",
+        }),
+      }),
+    );
+  });
+
+  it("blocks deploy execution before approval is accepted", async () => {
+    mockApprovalService.getById.mockResolvedValue(buildApproval({ status: "pending" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/status")
+      .send({ status: "deploying" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid deploy status transitions", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({ status: "approval_requested" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/status")
+      .send({ status: "deployed" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(mockProjectService.updateDeployEventStatus).not.toHaveBeenCalled();
   });
 });

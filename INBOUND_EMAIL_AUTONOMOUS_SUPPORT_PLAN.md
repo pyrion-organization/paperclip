@@ -858,16 +858,16 @@ Implemented the approved-deploy foundation:
 - approval payload evidence for changed files, tests run, target snapshot,
   issue snapshot, risk, rollback plan, and optional maintenance text,
 - deploy event records for approval requested/approved/rejected visibility,
+- approved deploy event status transitions for manual/agent-assisted execution
+  handoff (`deploying`, `deployed`, `failed`, `rolled_back`),
 - compact project configuration UI for targets and recent deploy events,
 - no automatic production deploy execution.
 
 Remaining Phase 5 work:
 
-- turn approved deploy events into a manual/agent-assisted deploy execution
-  handoff,
 - send maintenance/update messages only after an approved operator policy is in
   place,
-- add rollback execution/status tracking after deploy execution exists.
+- add rollback execution commands after deploy execution exists.
 
 ### Phase 6: Infra Agent
 
@@ -913,15 +913,14 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add the manual deploy execution handoff
-after a `deploy_change` approval is accepted:
+The next implementation slice should add approval-gated maintenance/update
+messaging around deploy events:
 
-- mark approved deploy events ready for execution,
-- let the requesting agent continue with explicit approval context,
-- record deploy started/succeeded/failed/rolled_back events,
-- keep rollback execution manual or separately approved until the execution path
-  is proven,
-- prepare maintenance-message sending, but keep it opt-in and approval-gated.
+- keep maintenance text opt-in per project or deployment target,
+- send only after the deploy event reaches an allowed approved state,
+- record message delivery status on the deploy event,
+- avoid duplicate messages on retries,
+- preserve manual operator control until the deploy execution path is proven.
 
 Do not add automatic production deploys until the approval and rollback path is
 implemented and covered by focused tests.

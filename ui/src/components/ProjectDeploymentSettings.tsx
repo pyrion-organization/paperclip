@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Project, ProjectDeploymentTarget } from "@paperclipai/shared";
+import type { Project, ProjectDeployEvent, ProjectDeploymentTarget } from "@paperclipai/shared";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { projectsApi } from "../api/projects";
@@ -18,20 +18,53 @@ const EMPTY_TARGET_FORM = {
 };
 
 function StatusPill({ status }: { status: string }) {
+  const tone =
+    status === "active" || status === "approved" || status === "deployed"
+      ? "success"
+      : status === "deploying"
+        ? "running"
+        : status === "failed" || status === "rejected"
+          ? "danger"
+          : status === "rolled_back"
+            ? "warning"
+            : status === "approval_requested"
+              ? "pending"
+              : "neutral";
   return (
     <span
       className={cn(
         "rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide",
-        status === "active"
-          ? "bg-green-500/15 text-green-700 dark:text-green-300"
-          : status === "approval_requested"
-            ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
-            : "bg-muted text-muted-foreground",
+        tone === "success" && "bg-green-500/15 text-green-700 dark:text-green-300",
+        tone === "running" && "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+        tone === "danger" && "bg-red-500/15 text-red-700 dark:text-red-300",
+        tone === "warning" && "bg-orange-500/15 text-orange-700 dark:text-orange-300",
+        tone === "pending" && "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+        tone === "neutral" && "bg-muted text-muted-foreground",
       )}
     >
       {status.replace(/_/g, " ")}
     </span>
   );
+}
+
+function deployEventActions(event: ProjectDeployEvent): Array<{ status: "deploying" | "deployed" | "failed" | "rolled_back"; label: string }> {
+  if (event.status === "approved") {
+    return [
+      { status: "deploying", label: "Start" },
+      { status: "deployed", label: "Mark deployed" },
+      { status: "failed", label: "Mark failed" },
+    ];
+  }
+  if (event.status === "deploying") {
+    return [
+      { status: "deployed", label: "Mark deployed" },
+      { status: "failed", label: "Mark failed" },
+    ];
+  }
+  if (event.status === "failed" || event.status === "deployed") {
+    return [{ status: "rolled_back", label: "Mark rolled back" }];
+  }
+  return [];
 }
 
 function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
@@ -86,6 +119,11 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
   const removeTarget = useMutation({
     mutationFn: (targetId: string) =>
       projectsApi.removeDeploymentTarget(project.id, targetId, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
+  const updateDeployEventStatus = useMutation({
+    mutationFn: ({ eventId, status }: { eventId: string; status: "deploying" | "deployed" | "failed" | "rolled_back" }) =>
+      projectsApi.recordDeployEventStatus(project.id, eventId, { status }, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
 
@@ -252,6 +290,26 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                 <span>{event.testsRun.length} tests</span>
                 {event.approvalId ? <span>Approval {event.approvalId.slice(0, 8)}</span> : null}
               </div>
+              {deployEventActions(event).length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {deployEventActions(event).map((action) => (
+                    <Button
+                      key={action.status}
+                      variant="outline"
+                      size="xs"
+                      className="h-6 px-2"
+                      disabled={updateDeployEventStatus.isPending}
+                      onClick={() =>
+                        updateDeployEventStatus.mutate({
+                          eventId: event.id,
+                          status: action.status,
+                        })}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))
         )}

@@ -139,6 +139,7 @@ Paperclip now stores deployment readiness metadata without executing production 
 - Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
 - Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
 - Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
+- After approval, the requesting agent or board can record the manual deploy handoff as `deploying`, `deployed`, `failed`, or `rolled_back`. These transitions append audit metadata to the deploy event and log project activity.
 - Disabled targets cannot receive deploy approval requests.
 - This foundation is intentionally approval-gated. It does not SSH to servers, run deploy commands, change DNS, or send customer maintenance mail automatically.
 

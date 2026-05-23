@@ -13,6 +13,7 @@ import {
   projectFileRenameSchema,
   projectFileSaveSchema,
   projectFilesPathSchema,
+  recordProjectDeployEventStatusSchema,
   createProjectWorkspaceSchema,
   findWorkspaceCommandDefinition,
   isUuidLike,
@@ -444,6 +445,92 @@ export function projectRoutes(db: Db) {
     assertCompanyAccess(req, project.companyId);
     res.json(await svc.listDeployEvents(id));
   });
+
+  router.patch(
+    "/projects/:id/deploy-events/:deployEventId/status",
+    validate(recordProjectDeployEventStatusSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const deployEventId = req.params.deployEventId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const deployEvent = await svc.getDeployEvent(id, deployEventId);
+      if (!deployEvent || deployEvent.companyId !== project.companyId) {
+        res.status(404).json({ error: "Deploy event not found" });
+        return;
+      }
+      if (!deployEvent.approvalId) {
+        assertBoard(req);
+        res.status(422).json({ error: "Deploy event is not linked to an approval" });
+        return;
+      }
+
+      const approval = await approvalsSvc.getById(deployEvent.approvalId);
+      if (!approval || approval.companyId !== project.companyId || approval.type !== "deploy_change") {
+        res.status(404).json({ error: "Deploy approval not found" });
+        return;
+      }
+      if (approval.status !== "approved") {
+        res.status(422).json({ error: "Deploy event cannot be executed until its approval is approved" });
+        return;
+      }
+
+      if (req.actor.type === "agent" && approval.requestedByAgentId !== req.actor.agentId) {
+        throw forbidden("Only the requesting agent can update this deploy event");
+      }
+
+      const nextStatus = req.body.status as "deploying" | "deployed" | "failed" | "rolled_back";
+      const allowedNextStatuses: Record<string, Set<typeof nextStatus>> = {
+        approved: new Set(["deploying", "deployed", "failed"]),
+        deploying: new Set(["deployed", "failed"]),
+        failed: new Set(["rolled_back"]),
+        deployed: new Set(["rolled_back"]),
+      };
+      const allowed = allowedNextStatuses[deployEvent.status]?.has(nextStatus) === true;
+      if (!allowed) {
+        res.status(422).json({ error: `Cannot transition deploy event from ${deployEvent.status} to ${nextStatus}` });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      const updated = await svc.updateDeployEventStatus(id, deployEvent.id, {
+        status: nextStatus,
+        note: req.body.note ?? null,
+        maintenanceMessage: req.body.maintenanceMessage ?? null,
+        metadata: req.body.metadata ?? null,
+        actor,
+      });
+      if (!updated) {
+        res.status(404).json({ error: "Deploy event not found" });
+        return;
+      }
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.deploy_event_status_updated",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          deployEventId: deployEvent.id,
+          approvalId: deployEvent.approvalId,
+          fromStatus: deployEvent.status,
+          toStatus: updated.status,
+          issueId: deployEvent.issueId,
+          deploymentTargetId: deployEvent.deploymentTargetId,
+        },
+      });
+
+      res.json(updated);
+    },
+  );
 
   router.post("/projects/:id/deploy-approvals", validate(createProjectDeployApprovalSchema), async (req, res) => {
     const id = req.params.id as string;
