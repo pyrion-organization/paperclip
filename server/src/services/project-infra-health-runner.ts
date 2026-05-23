@@ -1,12 +1,12 @@
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   projectInfraHealthChecks,
-  projectInfraIncidents,
   projects,
 } from "@paperclipai/db";
 import { issueService } from "./issues.js";
 import { logger } from "../middleware/logger.js";
+import { projectInfraIncidentService } from "./project-infra-incidents.js";
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -63,6 +63,7 @@ export function projectInfraHealthRunnerService(
   deps: { fetch?: FetchLike } = {},
 ) {
   const issues = issueService(db);
+  const infraIncidents = projectInfraIncidentService(db);
   const fetchImpl: FetchLike = deps.fetch ?? ((url, init) => fetch(url, init));
 
   async function ensureIncidentForHealthCheck(input: {
@@ -71,35 +72,7 @@ export function projectInfraHealthRunnerService(
     error: string;
     now: Date;
   }): Promise<"created" | "reused"> {
-    const existing = await db
-      .select()
-      .from(projectInfraIncidents)
-      .where(
-        and(
-          eq(projectInfraIncidents.companyId, input.check.companyId),
-          eq(projectInfraIncidents.projectId, input.check.projectId),
-          eq(projectInfraIncidents.sourceKind, "health_check"),
-          eq(projectInfraIncidents.sourceId, input.check.id),
-          inArray(projectInfraIncidents.status, ["open", "investigating"]),
-        ),
-      )
-      .then((rows) => rows[0] ?? null);
-
     const summary = `${input.check.name} reported ${input.status}`;
-    if (existing) {
-      await db
-        .update(projectInfraIncidents)
-        .set({
-          severity: input.status === "unhealthy" ? "high" : existing.severity,
-          summary,
-          details: input.error,
-          recommendedAction: "Investigate health check failure. Provider repair and failover require separate approval.",
-          updatedAt: input.now,
-        })
-        .where(eq(projectInfraIncidents.id, existing.id));
-      return "reused";
-    }
-
     const project = await db
       .select({ id: projects.id, companyId: projects.companyId, name: projects.name })
       .from(projects)
@@ -109,46 +82,46 @@ export function projectInfraHealthRunnerService(
       throw new Error(`Project ${input.check.projectId} not found for infra health check ${input.check.id}`);
     }
 
-    const issue = await issues.create(project.companyId, {
-      title: `[Infra] ${summary}`.slice(0, 300),
-      description: [
-        "Created from a scheduled infrastructure health check.",
-        "",
-        `Project: ${project.name}`,
-        `Health check: ${input.check.name}`,
-        `Status: ${input.status}`,
-        `Checked at: ${input.now.toISOString()}`,
-        input.check.url ? `URL: ${input.check.url}` : null,
-        `Error: ${input.error}`,
-        "",
-        "Provider repair and failover actions require explicit approval and are not executed automatically.",
-      ].filter(Boolean).join("\n"),
-      status: "backlog",
-      priority: input.status === "unhealthy" ? "high" : "medium",
-      projectId: project.id,
-      originKind: "infra_health_check",
-      originId: input.check.id,
-      originFingerprint: `${input.check.id}:${input.status}`,
+    const result = await infraIncidents.recordOccurrence(input.check.projectId, {
+      infraTargetId: input.check.infraTargetId,
+      healthCheckId: input.check.id,
+      sourceKind: "health_check",
+      sourceId: input.check.id,
+      status: "open",
+      severity: input.status === "unhealthy" ? "high" : "medium",
+      summary,
+      details: input.error,
+      recommendedAction: "Investigate health check failure. Provider repair and failover require separate approval.",
+      lastOccurredAt: input.now,
+      issueFactory: async () => {
+        const issue = await issues.create(project.companyId, {
+          title: `[Infra] ${summary}`.slice(0, 300),
+          description: [
+            "Created from a scheduled infrastructure health check.",
+            "",
+            `Project: ${project.name}`,
+            `Health check: ${input.check.name}`,
+            `Status: ${input.status}`,
+            `Checked at: ${input.now.toISOString()}`,
+            input.check.url ? `URL: ${input.check.url}` : null,
+            `Error: ${input.error}`,
+            "",
+            "Provider repair and failover actions require explicit approval and are not executed automatically.",
+          ].filter(Boolean).join("\n"),
+          status: "backlog",
+          priority: input.status === "unhealthy" ? "high" : "medium",
+          projectId: project.id,
+          originKind: "infra_health_check",
+          originId: input.check.id,
+          originFingerprint: `${input.check.id}:${input.status}`,
+        });
+        return issue.id;
+      },
     });
-
-    await db
-      .insert(projectInfraIncidents)
-      .values({
-        companyId: input.check.companyId,
-        projectId: input.check.projectId,
-        infraTargetId: input.check.infraTargetId,
-        healthCheckId: input.check.id,
-        issueId: issue.id,
-        sourceKind: "health_check",
-        sourceId: input.check.id,
-        status: "open",
-        severity: input.status === "unhealthy" ? "high" : "medium",
-        summary,
-        details: input.error,
-        recommendedAction: "Investigate health check failure. Provider repair and failover require separate approval.",
-        updatedAt: input.now,
-      });
-    return "created";
+    if (!result) {
+      throw new Error(`Failed to record infra incident for health check ${input.check.id}`);
+    }
+    return result.disposition;
   }
 
   async function recordIncidentDisposition(input: {

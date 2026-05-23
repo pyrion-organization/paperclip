@@ -1627,6 +1627,49 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(incident.recommendedAction).toContain("separate approval");
   }, 20_000);
 
+  it("groups repeated trusted infra emails for the same project into one active incident", async () => {
+    const companyId = await seedCompany();
+    await db
+      .update(companies)
+      .set({ smtpHost: "smtp.example.com", smtpPort: 587, smtpFrom: "noreply@acme.example" })
+      .where(eq(companies.id, companyId));
+    const { client } = await seedClientIdentity({ companyId });
+    const project = await seedProject(companyId, "Checkout App");
+    await linkClientProject({ companyId, clientId: client.id, projectId: project.id });
+    const mailbox = await createMailbox(companyId);
+
+    const first = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<first-resolved-infra-incident@example.com>",
+        subject: "Checkout App is down",
+        body: "Checkout App is unavailable and returns gateway timeout errors.",
+      }),
+      providerUid: "first-resolved-infra-incident",
+    });
+    const second = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<second-resolved-infra-incident@example.com>",
+        subject: "Checkout App is still down",
+        body: "Checkout App is still unavailable and customers cannot open it.",
+      }),
+      providerUid: "second-resolved-infra-incident",
+    });
+
+    await svc.processMessage(companyId, first.message.id);
+    await svc.processMessage(companyId, second.message.id);
+
+    const incidents = await db.select().from(projectInfraIncidents);
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]?.projectId).toBe(project.id);
+    expect(incidents[0]?.groupKey).toBe(`project:${project.id}:inbound_email`);
+    expect(incidents[0]?.occurrenceCount).toBe(2);
+    expect(incidents[0]?.sourceId).toBe(second.message.id);
+  }, 20_000);
+
   it("creates a projectless triage issue when no linked project is named but the message classifies as a bug", async () => {
     const companyId = await seedCompany();
     await db

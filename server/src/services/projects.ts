@@ -47,6 +47,7 @@ import { parseProjectExecutionWorkspacePolicy } from "./execution-workspace-poli
 import { mergeProjectWorkspaceRuntimeConfig, readProjectWorkspaceRuntimeConfig } from "./project-workspace-runtime-config.js";
 import { resolveManagedProjectWorkspaceDir } from "../home-paths.js";
 import { listActiveProjectClientLinks } from "./project-clients.js";
+import { projectInfraIncidentService } from "./project-infra-incidents.js";
 
 type ProjectRow = typeof projects.$inferSelect;
 type ProjectDeploymentTargetRow = typeof projectDeploymentTargets.$inferSelect;
@@ -370,6 +371,7 @@ function toInfraIncident(row: ProjectInfraIncidentRow): ProjectInfraIncident {
     infraTargetId: row.infraTargetId ?? null,
     healthCheckId: row.healthCheckId ?? null,
     issueId: row.issueId ?? null,
+    groupKey: row.groupKey ?? null,
     sourceKind: row.sourceKind,
     sourceId: row.sourceId ?? null,
     status: row.status as ProjectInfraIncident["status"],
@@ -377,6 +379,10 @@ function toInfraIncident(row: ProjectInfraIncidentRow): ProjectInfraIncident {
     summary: row.summary,
     details: row.details ?? null,
     recommendedAction: row.recommendedAction ?? null,
+    occurrenceCount: row.occurrenceCount,
+    lastOccurredAt: row.lastOccurredAt,
+    escalatedAt: row.escalatedAt ?? null,
+    escalationReason: row.escalationReason ?? null,
     repairApprovalId: row.repairApprovalId ?? null,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt,
@@ -758,6 +764,7 @@ async function ensureSinglePrimaryWorkspace(
 }
 
 export function projectService(db: Db) {
+  const infraIncidents = projectInfraIncidentService(db);
   const createProject = async (
     companyId: string,
     data: Omit<typeof projects.$inferInsert, "companyId"> & { goalIds?: string[] },
@@ -1518,19 +1525,8 @@ export function projectService(db: Db) {
       projectId: string,
       data: CreateInfraIncidentInput,
     ): Promise<ProjectInfraIncident | null> => {
-      const project = await db
-        .select({ id: projects.id, companyId: projects.companyId })
-        .from(projects)
-        .where(eq(projects.id, projectId))
-        .then((rows) => rows[0] ?? null);
-      if (!project) return null;
-
-      const row = await db
-        .insert(projectInfraIncidents)
-        .values({ ...data, companyId: project.companyId, projectId, updatedAt: new Date() })
-        .returning()
-        .then((rows) => rows[0] ?? null);
-      return row ? toInfraIncident(row) : null;
+      const result = await infraIncidents.recordOccurrence(projectId, data);
+      return result ? toInfraIncident(result.incident) : null;
     },
 
     updateInfraIncident: async (

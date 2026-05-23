@@ -1,4 +1,5 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { approvals } from "./approvals.js";
 import { agents } from "./agents.js";
 import { companies } from "./companies.js";
@@ -71,6 +72,7 @@ export const projectInfraIncidents = pgTable(
     infraTargetId: uuid("infra_target_id").references(() => projectInfraTargets.id, { onDelete: "set null" }),
     healthCheckId: uuid("health_check_id").references(() => projectInfraHealthChecks.id, { onDelete: "set null" }),
     issueId: uuid("issue_id").references(() => issues.id, { onDelete: "set null" }),
+    groupKey: text("group_key"),
     sourceKind: text("source_kind").notNull(),
     sourceId: text("source_id"),
     status: text("status").notNull().default("open"),
@@ -78,6 +80,10 @@ export const projectInfraIncidents = pgTable(
     summary: text("summary").notNull(),
     details: text("details"),
     recommendedAction: text("recommended_action"),
+    occurrenceCount: integer("occurrence_count").notNull().default(1),
+    lastOccurredAt: timestamp("last_occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    escalationReason: text("escalation_reason"),
     repairApprovalId: uuid("repair_approval_id").references(() => approvals.id, { onDelete: "set null" }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -88,6 +94,10 @@ export const projectInfraIncidents = pgTable(
     issueIdx: index("project_infra_incidents_issue_idx").on(table.issueId),
     sourceIdx: index("project_infra_incidents_source_idx").on(table.companyId, table.sourceKind, table.sourceId),
     healthCheckIdx: index("project_infra_incidents_health_check_idx").on(table.healthCheckId),
+    groupIdx: index("project_infra_incidents_group_idx").on(table.companyId, table.projectId, table.groupKey),
+    activeGroupUniqueIdx: uniqueIndex("project_infra_incidents_active_group_uq")
+      .on(table.companyId, table.projectId, table.groupKey)
+      .where(sql`${table.groupKey} is not null and ${table.status} in ('open', 'investigating')`),
   }),
 );
 

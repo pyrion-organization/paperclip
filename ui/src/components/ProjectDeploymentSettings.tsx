@@ -928,7 +928,11 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
               </div>
               <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span>{incident.sourceKind}</span>
+                <span>{incident.occurrenceCount} occurrence{incident.occurrenceCount === 1 ? "" : "s"}</span>
+                <span>Last {formatDate(incident.lastOccurredAt)}</span>
                 {incident.issueId ? <span>Issue {incident.issueId.slice(0, 8)}</span> : null}
+                {incident.escalatedAt ? <span className="text-destructive">Escalated {formatDate(incident.escalatedAt)}</span> : null}
+                {incident.escalationReason ? <span className="break-words">{incident.escalationReason}</span> : null}
                 {incident.recommendedAction ? <span className="break-words">{incident.recommendedAction}</span> : null}
               </div>
               {incident.status === "open" || incident.status === "investigating" ? (

@@ -36,6 +36,7 @@ export { budgetService } from "./budgets.js";
 export { secretService } from "./secrets.js";
 export { routineService } from "./routines.js";
 export { inboundEmailService } from "./inbound-email.js";
+export { projectInfraIncidentService } from "./project-infra-incidents.js";
 export { projectInfraHealthRunnerService } from "./project-infra-health-runner.js";
 export { backgroundJobService } from "./background-jobs.js";
 export { issueSchedulerService } from "./issue-scheduler.js";

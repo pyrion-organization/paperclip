@@ -334,6 +334,7 @@ export interface ProjectInfraIncident {
   infraTargetId: string | null;
   healthCheckId: string | null;
   issueId: string | null;
+  groupKey: string | null;
   sourceKind: string;
   sourceId: string | null;
   status: ProjectInfraIncidentStatus;
@@ -341,6 +342,10 @@ export interface ProjectInfraIncident {
   summary: string;
   details: string | null;
   recommendedAction: string | null;
+  occurrenceCount: number;
+  lastOccurredAt: Date;
+  escalatedAt: Date | null;
+  escalationReason: string | null;
   repairApprovalId: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;

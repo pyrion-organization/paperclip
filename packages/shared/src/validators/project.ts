@@ -280,6 +280,7 @@ export const createProjectInfraIncidentSchema = z.object({
   infraTargetId: z.string().uuid().optional().nullable(),
   healthCheckId: z.string().uuid().optional().nullable(),
   issueId: z.string().uuid().optional().nullable(),
+  groupKey: optionalTrimmedText(200),
   sourceKind: z.string().trim().min(1).max(80).default("manual"),
   sourceId: optionalTrimmedText(200),
   status: z.enum(PROJECT_INFRA_INCIDENT_STATUSES).default("open"),
@@ -287,6 +288,10 @@ export const createProjectInfraIncidentSchema = z.object({
   summary: z.string().trim().min(1).max(300),
   details: optionalTrimmedText(4000),
   recommendedAction: optionalTrimmedText(4000),
+  occurrenceCount: z.number().int().min(1).optional(),
+  lastOccurredAt: z.coerce.date().optional(),
+  escalatedAt: z.coerce.date().optional().nullable(),
+  escalationReason: optionalTrimmedText(4000),
   repairApprovalId: z.string().uuid().optional().nullable(),
   metadata: z.record(z.unknown()).optional().nullable(),
 });
