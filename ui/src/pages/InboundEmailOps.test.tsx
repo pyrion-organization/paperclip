@@ -738,6 +738,96 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("External intake recorded as imported");
   });
 
+  it("filters and pages recent external intake records from the recovery panel", async () => {
+    mockCompaniesApi.listExternalInboundEmailIntake.mockImplementation((_companyId: string, params?: {
+      status?: string;
+      cursor?: string | null;
+    }) => {
+      if (params?.cursor === "failed-next") {
+        return Promise.resolve({
+          items: [
+            makeExternalIntakeRecord({
+              id: "external-intake-failed-older",
+              sourceId: "backup/older-failed.eml",
+              sourceLocation: "s3://support-backup/older-failed.eml",
+              status: "failed",
+              error: "Older message failed",
+            }),
+          ],
+          nextCursor: null,
+        });
+      }
+      if (params?.status === "failed") {
+        return Promise.resolve({
+          items: [
+            makeExternalIntakeRecord({
+              id: "external-intake-failed",
+              sourceId: "backup/failed.eml",
+              sourceLocation: "s3://support-backup/failed.eml",
+              status: "failed",
+              error: "Message could not be parsed",
+            }),
+          ],
+          nextCursor: "failed-next",
+        });
+      }
+      return Promise.resolve({
+        items: [makeExternalIntakeRecord()],
+        nextCursor: null,
+      });
+    });
+    await renderPage();
+
+    const panelButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("External Recovery Import"));
+    expect(panelButton).toBeTruthy();
+
+    await act(async () => {
+      panelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listExternalInboundEmailIntake).toHaveBeenLastCalledWith("company-1", {
+      limit: 10,
+      order: "desc",
+    });
+
+    const failedFilter = container.querySelector('button[aria-label="Show failed external intake"]') as HTMLButtonElement | null;
+    expect(failedFilter).toBeTruthy();
+
+    await act(async () => {
+      failedFilter!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listExternalInboundEmailIntake).toHaveBeenLastCalledWith("company-1", {
+      status: "failed",
+      limit: 10,
+      order: "desc",
+    });
+    expect(container.textContent).toContain("backup/failed.eml");
+    expect(container.textContent).toContain("s3://support-backup/failed.eml");
+    expect(container.textContent).toContain("Message could not be parsed");
+
+    const olderButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Older"));
+    expect(olderButton).toBeTruthy();
+
+    await act(async () => {
+      olderButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listExternalInboundEmailIntake).toHaveBeenLastCalledWith("company-1", {
+      status: "failed",
+      cursor: "failed-next",
+      limit: 10,
+      order: "desc",
+    });
+    expect(container.textContent).toContain("backup/older-failed.eml");
+    expect(container.textContent).toContain("Older message failed");
+  });
+
   it("imports preserved external support email batches from the recovery panel", async () => {
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     mockCompaniesApi.importExternalInboundEmailMessagesBatch.mockResolvedValueOnce({

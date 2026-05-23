@@ -102,6 +102,13 @@ const externalIntakeSourceLabels: Record<InboundEmailExternalIntakeSourceKind, s
   webhook: "Webhook",
 };
 
+const externalIntakeStatusFilters: Array<{ value: InboundEmailExternalIntakeStatus | "all"; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "imported", label: "Imported" },
+  { value: "duplicate", label: "Duplicate" },
+  { value: "failed", label: "Failed" },
+];
+
 const classificationLabels: Record<InboundEmailClassificationCategory, string> = {
   code_bug: "Code bug",
   infra_incident: "Infra",
@@ -663,6 +670,10 @@ function ExternalIntakeRecovery({
   const [sourceLocation, setSourceLocation] = useState("");
   const [rawEmail, setRawEmail] = useState("");
   const [batchJson, setBatchJson] = useState("");
+  const [intakeStatus, setIntakeStatus] = useState<InboundEmailExternalIntakeStatus | "all">("all");
+  const [intakeMailboxId, setIntakeMailboxId] = useState("all");
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
+  const cursor = cursorStack[cursorStack.length - 1] ?? null;
 
   useEffect(() => {
     if (!mailboxId && mailboxes[0]?.mailbox.id) {
@@ -670,12 +681,19 @@ function ExternalIntakeRecovery({
     }
   }, [mailboxId, mailboxes]);
 
+  useEffect(() => {
+    setCursorStack([]);
+  }, [companyId, intakeStatus, intakeMailboxId]);
+
   const externalIntakeQuery = useQuery({
     queryKey: [
       ...queryKeys.inboundEmail.externalIntake(companyId),
-      { limit: EXTERNAL_INTAKE_PAGE_SIZE, order: "desc" },
+      { status: intakeStatus, mailboxId: intakeMailboxId, cursor, limit: EXTERNAL_INTAKE_PAGE_SIZE, order: "desc" },
     ],
     queryFn: () => companiesApi.listExternalInboundEmailIntake(companyId, {
+      ...(intakeStatus === "all" ? {} : { status: intakeStatus }),
+      ...(intakeMailboxId === "all" ? {} : { mailboxId: intakeMailboxId }),
+      ...(cursor ? { cursor } : {}),
       limit: EXTERNAL_INTAKE_PAGE_SIZE,
       order: "desc",
     }),
@@ -723,6 +741,7 @@ function ExternalIntakeRecovery({
   const canSubmit = Boolean(mailboxId && sourceId.trim() && rawEmail.trim()) && !importMutation.isPending;
   const canBatchSubmit = Boolean(mailboxId && batchJson.trim()) && !batchImportMutation.isPending;
   const rows = externalIntakeQuery.data?.items ?? [];
+  const nextCursor = externalIntakeQuery.data?.nextCursor ?? null;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(360px,1.05fr)]">
@@ -884,9 +903,42 @@ function ExternalIntakeRecovery({
       </div>
 
       <div className="overflow-hidden rounded-md border border-border bg-card/60">
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent external intake</div>
-          {externalIntakeQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+        <div className="space-y-2 border-b border-border px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent external intake</div>
+            {externalIntakeQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap gap-1">
+              {externalIntakeStatusFilters.map((filter) => (
+                <Button
+                  key={filter.value}
+                  type="button"
+                  size="sm"
+                  variant={intakeStatus === filter.value ? "default" : "outline"}
+                  className="h-7 px-2 text-xs"
+                  aria-pressed={intakeStatus === filter.value}
+                  aria-label={`Show ${filter.label.toLowerCase()} external intake`}
+                  onClick={() => setIntakeStatus(filter.value)}
+                >
+                  {filter.label}
+                </Button>
+              ))}
+            </div>
+            <Select value={intakeMailboxId} onValueChange={setIntakeMailboxId}>
+              <SelectTrigger size="sm" className="h-7 w-full text-xs sm:w-44">
+                <SelectValue placeholder="Mailbox" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All mailboxes</SelectItem>
+                {mailboxes.map((item) => (
+                  <SelectItem key={item.mailbox.id} value={item.mailbox.id}>
+                    {item.mailbox.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         {externalIntakeQuery.isError ? (
           <div className="flex items-start gap-2 px-3 py-5 text-xs text-destructive">
@@ -900,27 +952,54 @@ function ExternalIntakeRecovery({
           </div>
         ) : rows.length === 0 ? (
           <div className="px-3 py-5 text-xs text-muted-foreground">
-            No preserved external support messages have been imported yet.
+            No external intake records match these filters.
           </div>
         ) : (
-          rows.map((record: InboundEmailExternalIntakeRecord) => (
-            <div key={record.id} className="grid gap-2 border-t border-border px-3 py-2 first:border-t-0 sm:grid-cols-[minmax(120px,0.7fr)_minmax(180px,1fr)_120px]">
-              <div className="min-w-0">
-                <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${externalIntakeStatusClassName(record.status)}`}>
-                  {record.status}
-                </Badge>
-                <div className="text-xs text-muted-foreground">{formatRelative(record.createdAt)}</div>
+          <>
+            {rows.map((record: InboundEmailExternalIntakeRecord) => (
+              <div key={record.id} className="grid gap-2 border-t border-border px-3 py-2 first:border-t-0 sm:grid-cols-[minmax(120px,0.7fr)_minmax(180px,1fr)_120px]">
+                <div className="min-w-0">
+                  <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${externalIntakeStatusClassName(record.status)}`}>
+                    {record.status}
+                  </Badge>
+                  <div className="text-xs text-muted-foreground">{formatRelative(record.createdAt)}</div>
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium">{externalIntakeSourceLabels[record.sourceKind]}</div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{record.sourceId}</div>
+                  {record.sourceLocation ? <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{record.sourceLocation}</div> : null}
+                  {record.error ? <div className="mt-1 break-words text-[11px] text-destructive">{record.error}</div> : null}
+                </div>
+                <div className="min-w-0 text-xs text-muted-foreground sm:text-right">
+                  {record.messageId ?? record.rawSha256.slice(0, 12)}
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="truncate text-xs font-medium">{externalIntakeSourceLabels[record.sourceKind]}</div>
-                <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{record.sourceId}</div>
-                {record.error ? <div className="mt-1 break-words text-[11px] text-destructive">{record.error}</div> : null}
-              </div>
-              <div className="min-w-0 text-xs text-muted-foreground sm:text-right">
-                {record.messageId ?? record.rawSha256.slice(0, 12)}
-              </div>
+            ))}
+            <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={cursorStack.length === 0}
+                onClick={() => setCursorStack((stack) => stack.slice(0, -1))}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={!nextCursor}
+                onClick={() => {
+                  if (nextCursor) setCursorStack((stack) => [...stack, nextCursor]);
+                }}
+              >
+                Older
+              </Button>
             </div>
-          ))
+          </>
         )}
       </div>
     </div>
