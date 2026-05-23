@@ -1104,6 +1104,39 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
     return record;
   }
 
+  function externalIntakeActivityAction(status: "imported" | "duplicate" | "failed" | "conflict") {
+    return `inbound_email.external_intake_${status}`;
+  }
+
+  async function logExternalIntakeActivity(input: {
+    record: typeof inboundEmailExternalIntakeRecords.$inferSelect;
+    status: "imported" | "duplicate" | "failed" | "conflict";
+    actor?: { userId?: string | null; agentId?: string | null };
+    error?: string | null;
+  }) {
+    const metadata = asRecord(input.record.metadata);
+    await logActivity(db, {
+      companyId: input.record.companyId,
+      ...inboundEmailMutationActor(input.actor),
+      action: externalIntakeActivityAction(input.status),
+      entityType: "inbound_email_external_intake",
+      entityId: input.record.id,
+      details: {
+        mailboxId: input.record.mailboxId,
+        sourceKind: input.record.sourceKind,
+        sourceId: input.record.sourceId,
+        sourceLocation: input.record.sourceLocation,
+        rawSha256: input.record.rawSha256,
+        messageId: input.record.messageId,
+        inboundMessageId: input.record.inboundMessageId,
+        status: input.status,
+        error: input.error ?? input.record.error ?? null,
+        receivedAt: input.record.receivedAt?.toISOString() ?? null,
+        metadataKeys: Object.keys(metadata).sort(),
+      },
+    });
+  }
+
   function externalIntakeProviderUid(sourceKind: ImportExternalInboundEmailMessage["sourceKind"], sourceId: string) {
     return `external:${sourceKind}:${sourceId}`;
   }
@@ -3272,6 +3305,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         sourceId: input.sourceId,
       });
       if (existing && existing.rawSha256 !== rawSha256) {
+        await logExternalIntakeActivity({
+          record: existing,
+          status: "conflict",
+          actor,
+          error: "External inbound email source already points to a different raw message",
+        });
         throw conflict("External inbound email source already points to a different raw message", {
           sourceKind: input.sourceKind,
           sourceId: input.sourceId,
@@ -3315,6 +3354,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           error: message,
           receivedAt: input.receivedAt ?? null,
           metadata,
+        });
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status: "failed",
+          actor,
+          error: message,
         });
         return {
           intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
@@ -3362,10 +3407,16 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           receivedAt,
           metadata,
         });
+        const status = imported.status === "duplicate" ? "duplicate" as const : "imported" as const;
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status,
+          actor,
+        });
         return {
           intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),
           message: imported.message,
-          status: imported.status === "duplicate" ? "duplicate" as const : "imported" as const,
+          status,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -3375,6 +3426,12 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           error: message,
           receivedAt,
           metadata,
+        });
+        await logExternalIntakeActivity({
+          record: updated ?? intakeRecord,
+          status: "failed",
+          actor,
+          error: message,
         });
         return {
           intakeRecord: toExternalIntakeRecord(updated ?? intakeRecord),

@@ -486,6 +486,65 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(records.every((record) => record.inboundMessageId === first.message?.id)).toBe(true);
   });
 
+  it("logs external intake recovery outcomes without raw email bodies", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const message = rawEmail({ messageId: "<external-audit@example.com>", subject: "Audited preserved copy" });
+    const actor = { userId: "board-user" };
+
+    const imported = await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "audit-imported",
+      sourceLocation: "queue://support/audit-imported",
+      rawEmail: message,
+      metadata: { queue: "metadata-value-not-logged" },
+    }, actor);
+    await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "object_storage",
+      sourceId: "audit-duplicate",
+      sourceLocation: "s3://support-backup/audit-duplicate.eml",
+      rawEmail: message,
+    }, actor);
+    await expect(svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "audit-imported",
+      rawEmail: rawEmail({ messageId: "<external-audit-conflict@example.com>", subject: "Different preserved copy" }),
+    }, actor)).rejects.toThrow("different raw message");
+
+    const logs = await db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.companyId, companyId))
+      .orderBy(asc(activityLog.createdAt), asc(activityLog.id));
+    const externalLogs = logs.filter((log) => log.action.startsWith("inbound_email.external_intake_"));
+
+    expect(externalLogs.map((log) => log.action)).toEqual([
+      "inbound_email.external_intake_imported",
+      "inbound_email.external_intake_duplicate",
+      "inbound_email.external_intake_conflict",
+    ]);
+    expect(externalLogs.every((log) => log.actorType === "user" && log.actorId === "board-user")).toBe(true);
+    expect(externalLogs[0]).toMatchObject({
+      entityType: "inbound_email_external_intake",
+      entityId: imported.intakeRecord.id,
+    });
+    expect(externalLogs[0]!.details).toMatchObject({
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "audit-imported",
+      sourceLocation: "queue://support/audit-imported",
+      status: "imported",
+      inboundMessageId: imported.message?.id,
+      metadataKeys: ["queue"],
+    });
+    const serializedDetails = JSON.stringify(externalLogs.map((log) => log.details));
+    expect(serializedDetails).not.toContain("Audited preserved copy");
+    expect(serializedDetails).not.toContain("metadata-value-not-logged");
+  });
+
   it("imports external intake messages in a per-item recovery batch", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
