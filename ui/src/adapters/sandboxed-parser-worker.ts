@@ -43,26 +43,134 @@ const WORKER_BOOTSTRAP = `
 // Workers have no DOM, but they still have network and import APIs.
 
 const _undefined = void 0;
+const NativeFunction = Function;
+const NativeAsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const NativeGeneratorFunction = Object.getPrototypeOf(function* () {}).constructor;
+const NativeAsyncGeneratorFunction = Object.getPrototypeOf(async function* () {}).constructor;
+
+function disableGlobal(name) {
+  try { Object.defineProperty(self, name, { value: _undefined, writable: false, configurable: false }); } catch {
+    try { self[name] = _undefined; } catch {}
+  }
+}
+
+function disableFunctionConstructor(Ctor) {
+  try { Object.defineProperty(Ctor.prototype, "constructor", { value: _undefined, writable: false, configurable: false }); } catch {}
+}
+
+function isIdentifierChar(ch) {
+  return /[A-Za-z0-9_$]/.test(ch);
+}
+
+function nextCodeTokenIndex(source, start) {
+  let i = start;
+  while (i < source.length) {
+    const ch = source[i];
+    if (/\\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      i += 2;
+      while (i < source.length && source[i] !== "\\n" && source[i] !== "\\r") i++;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    return i;
+  }
+  return i;
+}
+
+function skipQuotedString(source, start, quote) {
+  let i = start + 1;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "\\\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === quote) return i + 1;
+    i++;
+  }
+  return i;
+}
+
+function assertParserSourceAllowed(source) {
+  if (typeof source !== "string") throw new Error("Parser source must be a string");
+
+  for (let i = 0; i < source.length;) {
+    const ch = source[i];
+
+    if (ch === "\\"" || ch === "'") {
+      i = skipQuotedString(source, i, ch);
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      i = nextCodeTokenIndex(source, i);
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      i = nextCodeTokenIndex(source, i);
+      continue;
+    }
+    if (!/[A-Za-z_$]/.test(ch)) {
+      i++;
+      continue;
+    }
+
+    const start = i;
+    i++;
+    while (i < source.length && isIdentifierChar(source[i])) i++;
+    const ident = source.slice(start, i);
+    const next = nextCodeTokenIndex(source, i);
+
+    if (ident === "import" && source[next] === "(") {
+      throw new Error("Parser source uses forbidden dynamic import");
+    }
+    if ((ident === "eval" || ident === "Function") && source[next] === "(") {
+      throw new Error("Parser source uses forbidden eval or Function constructor");
+    }
+    if (ident === "constructor") {
+      let j = start - 1;
+      while (j >= 0 && /\\s/.test(source[j])) j--;
+      if (j >= 0 && source[j] === ".") {
+        throw new Error("Parser source uses forbidden constructor escape hatch");
+      }
+    }
+  }
+}
+
+disableGlobal("eval");
+disableGlobal("Function");
+disableFunctionConstructor(NativeFunction);
+disableFunctionConstructor(NativeAsyncFunction);
+disableFunctionConstructor(NativeGeneratorFunction);
+disableFunctionConstructor(NativeAsyncGeneratorFunction);
 
 // Network
-self.fetch = _undefined;
-self.XMLHttpRequest = _undefined;
-self.WebSocket = _undefined;
-self.EventSource = _undefined;
-self.RTCPeerConnection = _undefined;
-self.RTCDataChannel = _undefined;
-self.Request = _undefined;
-self.Response = _undefined;
-self.Headers = _undefined;
-self.Cache = _undefined;
-self.CacheStorage = _undefined;
-self.caches = _undefined;
+disableGlobal("fetch");
+disableGlobal("XMLHttpRequest");
+disableGlobal("WebSocket");
+disableGlobal("EventSource");
+disableGlobal("RTCPeerConnection");
+disableGlobal("RTCDataChannel");
+disableGlobal("Request");
+disableGlobal("Response");
+disableGlobal("Headers");
+disableGlobal("Cache");
+disableGlobal("CacheStorage");
+disableGlobal("caches");
 
 // Import / eval escape hatches
-self.importScripts = _undefined;
-self.Worker = _undefined;
-self.SharedWorker = _undefined;
-self.Blob = _undefined;
+disableGlobal("importScripts");
+disableGlobal("Worker");
+disableGlobal("SharedWorker");
+disableGlobal("Blob");
 if (self.URL) {
   try { Object.defineProperty(self.URL, "createObjectURL", { value: _undefined, writable: false, configurable: false }); } catch {}
   try { Object.defineProperty(self.URL, "revokeObjectURL", { value: _undefined, writable: false, configurable: false }); } catch {}
@@ -74,11 +182,11 @@ if (self.navigator) {
 }
 
 // Service worker / broadcast channel
-self.BroadcastChannel = _undefined;
+disableGlobal("BroadcastChannel");
 
 // IndexedDB (prevents persistent state exfiltration)
-self.indexedDB = _undefined;
-self.IDBFactory = _undefined;
+disableGlobal("indexedDB");
+disableGlobal("IDBFactory");
 
 // ── 2. Parser state ─────────────────────────────────────────────────────────
 
@@ -93,6 +201,8 @@ self.onmessage = function (e) {
 
   if (msg.type === "init") {
     try {
+      assertParserSourceAllowed(msg.source);
+
       // Evaluate the parser source in a constrained scope.
       // We use a Function constructor to avoid giving the source access to
       // our local variables.  The only value we inject is a module-like
@@ -106,7 +216,7 @@ self.onmessage = function (e) {
 
       // Build a function that receives common CJS shims.
       // \`self\` is shadowed to prevent the parser from un-deleting globals.
-      const factory = new Function(
+      const factory = new NativeFunction(
         "exports", "module", "self", "globalThis",
         // Wrap in a block to prevent hoisted declarations from leaking.
         "\\"use strict\\";\\n{\\n" + msg.source + "\\n}"
