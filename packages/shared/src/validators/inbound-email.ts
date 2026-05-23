@@ -131,3 +131,9 @@ export const importExternalInboundEmailMessageSchema = z.object({
 }).strict();
 
 export type ImportExternalInboundEmailMessage = z.infer<typeof importExternalInboundEmailMessageSchema>;
+
+export const importExternalInboundEmailMessagesBatchSchema = z.object({
+  messages: z.array(importExternalInboundEmailMessageSchema).min(1).max(50),
+}).strict();
+
+export type ImportExternalInboundEmailMessagesBatch = z.infer<typeof importExternalInboundEmailMessagesBatchSchema>;

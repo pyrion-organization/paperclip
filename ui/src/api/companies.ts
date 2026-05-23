@@ -12,6 +12,7 @@ import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
   ImportExternalInboundEmailMessage,
+  ImportExternalInboundEmailMessagesBatch,
   InboundEmailClassificationCategory,
   InboundEmailExternalIntakeRecord,
   InboundEmailMailbox,
@@ -56,6 +57,24 @@ export type ImportExternalInboundEmailMessageRequest = Omit<
   metadata?: Record<string, unknown>;
   processAfterImport?: boolean;
   receivedAt?: string | null;
+};
+
+export type ImportExternalInboundEmailMessagesBatchRequest = {
+  messages: ImportExternalInboundEmailMessageRequest[];
+};
+
+export type ImportExternalInboundEmailMessagesBatchResult = {
+  importedCount: number;
+  duplicateCount: number;
+  failedCount: number;
+  results: Array<{
+    sourceKind: ImportExternalInboundEmailMessagesBatch["messages"][number]["sourceKind"];
+    sourceId: string;
+    status: InboundEmailExternalIntakeRecord["status"];
+    intakeRecord: InboundEmailExternalIntakeRecord | null;
+    message: InboundEmailMessage | null;
+    error: string | null;
+  }>;
 };
 
 function inboundEmailQuery(params?: InboundEmailMessageListParams): string {
@@ -176,6 +195,14 @@ export const companiesApi = {
       message: InboundEmailMessage | null;
       status: InboundEmailExternalIntakeRecord["status"];
     }>(`/companies/${companyId}/inbound-email/external-intake/import`, data),
+  importExternalInboundEmailMessagesBatch: (
+    companyId: string,
+    data: ImportExternalInboundEmailMessagesBatchRequest,
+  ) =>
+    api.post<ImportExternalInboundEmailMessagesBatchResult>(
+      `/companies/${companyId}/inbound-email/external-intake/import-batch`,
+      data,
+    ),
   archive: (companyId: string) => api.post<Company>(`/companies/${companyId}/archive`, {}),
   remove: (companyId: string) => api.delete<{ ok: true }>(`/companies/${companyId}`),
   exportBundle: (

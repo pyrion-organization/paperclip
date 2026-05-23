@@ -172,7 +172,8 @@ Paperclip can preserve and recover raw support messages captured outside the nor
 - External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, error, metadata, and timestamps.
 - Supported source kinds are `webhook`, `queue`, `object_storage`, and `manual_recovery`. They represent preserved raw messages from an external backup mailbox, webhook provider, queue, or operator recovery run.
 - Operators can import a preserved raw message through `POST /api/companies/:companyId/inbound-email/external-intake/import`. The payload supplies `mailboxId`, `sourceKind`, `sourceId`, optional `sourceLocation`, optional `metadata`, and `rawEmail`.
-- Operators can also use **Inbound Email Ops → External Recovery Import** to paste a preserved raw message, choose the source kind/mailbox, record the backup source ID, and review recent external intake evidence.
+- Operators can import up to 50 preserved raw messages in one bounded recovery call through `POST /api/companies/:companyId/inbound-email/external-intake/import-batch` with `{ "messages": [...] }`. Each item uses the same single-message payload shape and reports its own imported, duplicate, or failed result, so one bad preserved message does not block the rest of the recovery batch.
+- Operators can also use **Inbound Email Ops → External Recovery Import** to paste one preserved raw message, paste batch JSON for multiple messages, choose the default source kind/mailbox, record backup source IDs, and review recent external intake evidence.
 - The import path calls the normal `submitRawMessage` flow with an external provider UID, so raw SHA/message-ID dedupe, attachment reconciliation, processing jobs, classification, issue creation, and support replies stay centralized.
 - Recovery imports are idempotent by source. Reposting the same `(company, sourceKind, sourceId)` returns the existing intake record and linked message. Reusing a source ID with different raw bytes is rejected.
 - Recovery imports are also idempotent by message fingerprint through the existing inbound email dedupe path. Different external sources that preserve the same raw email create separate intake evidence records but link to one inbound message.
@@ -212,7 +213,8 @@ The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, recei
 3. Select the mailbox that normally receives the message.
 4. Choose the source kind and paste the stable source ID from the backup system.
 5. Paste the raw `.eml` content into `Raw email`; optionally add the object path as `Source location`.
-6. Submit the import and confirm the recent intake record is `imported` or `duplicate`.
+6. For multiple preserved messages, paste batch JSON as either an array of message objects or `{ "messages": [...] }`. Items may omit `mailboxId` and `sourceKind` to inherit the selected defaults, but each item must include a stable `sourceId` and raw `.eml` `rawEmail`.
+7. Submit the import and confirm the recent intake records are `imported` or `duplicate`. Investigate any per-item `failed` results before deleting the external backup.
 7. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
 
 Repeated imports are safe when the source ID and raw bytes are unchanged. Different backup sources that contain the same raw email are recorded separately as evidence but link to one inbound message through the existing message fingerprint dedupe.

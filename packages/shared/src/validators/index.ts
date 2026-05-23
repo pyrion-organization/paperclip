@@ -39,12 +39,14 @@ export {
   updateInboundEmailRuleSchema,
   importInboundEmailMessageSchema,
   importExternalInboundEmailMessageSchema,
+  importExternalInboundEmailMessagesBatchSchema,
   type CreateInboundEmailMailbox,
   type UpdateInboundEmailMailbox,
   type CreateInboundEmailRule,
   type UpdateInboundEmailRule,
   type ImportInboundEmailMessage,
   type ImportExternalInboundEmailMessage,
+  type ImportExternalInboundEmailMessagesBatch,
 } from "./inbound-email.js";
 export {
   environmentDriverSchema,

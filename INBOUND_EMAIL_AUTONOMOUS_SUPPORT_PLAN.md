@@ -940,11 +940,14 @@ foundation:
 - added `webhook`, `queue`, `object_storage`, and `manual_recovery` source
   kinds,
 - added board API import/list endpoints for external intake records,
-- added an Inbound Email Ops recovery panel for operator paste/import and
-  recent intake review,
+- added an Inbound Email Ops recovery panel for operator paste/import, bounded
+  batch JSON recovery, and recent intake review,
 - routed imports through the existing raw inbound email importer so message
   dedupe, attachment recovery, processing jobs, classification, support replies,
   and issue creation stay centralized,
+- added a bounded board-only batch import endpoint with per-message imported,
+  duplicate, and failed results so one bad preserved `.eml` does not block a
+  downtime recovery batch,
 - made retries idempotent by external source ID and by raw message fingerprint,
 - rejected source ID reuse when the raw message bytes differ,
 - kept external monitoring evidence-only and did not add provider mutations,

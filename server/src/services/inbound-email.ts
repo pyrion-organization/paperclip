@@ -24,6 +24,7 @@ import type {
   CreateInboundEmailMailbox,
   CreateInboundEmailRule,
   ImportExternalInboundEmailMessage,
+  ImportExternalInboundEmailMessagesBatch,
   InboundEmailExternalIntakeRecord,
   InboundEmailClassificationCategory,
   InboundEmailMessageStatus,
@@ -3239,6 +3240,43 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           status: "failed" as const,
         };
       }
+    },
+
+    submitExternalIntakeMessagesBatch: async (
+      companyId: string,
+      input: ImportExternalInboundEmailMessagesBatch,
+      actor?: { userId?: string | null; agentId?: string | null },
+    ) => {
+      const results = [];
+      for (const messageInput of input.messages) {
+        try {
+          const result = await api.submitExternalIntakeMessage(companyId, messageInput, actor);
+          results.push({
+            sourceKind: messageInput.sourceKind,
+            sourceId: messageInput.sourceId,
+            status: result.status,
+            intakeRecord: result.intakeRecord,
+            message: result.message,
+            error: null,
+          });
+        } catch (error) {
+          results.push({
+            sourceKind: messageInput.sourceKind,
+            sourceId: messageInput.sourceId,
+            status: "failed" as const,
+            intakeRecord: null,
+            message: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      return {
+        importedCount: results.filter((result) => result.status === "imported").length,
+        duplicateCount: results.filter((result) => result.status === "duplicate").length,
+        failedCount: results.filter((result) => result.status === "failed").length,
+        results,
+      };
     },
 
     processMessage: async (companyId: string, messageId: string, ops?: SessionImapOps) => {

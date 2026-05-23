@@ -29,7 +29,7 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
-import { companiesApi } from "../api/companies";
+import { companiesApi, type ImportExternalInboundEmailMessageRequest } from "../api/companies";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -130,6 +130,55 @@ function isQuarantineClassification(
   category: InboundEmailClassificationCategory | null | undefined,
 ): category is InboundEmailClassificationCategory {
   return Boolean(category && QUARANTINE_CLASSIFICATIONS.includes(category));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isExternalIntakeSourceKind(value: unknown): value is InboundEmailExternalIntakeSourceKind {
+  return typeof value === "string" && externalIntakeSourceKinds.some((item) => item.value === value);
+}
+
+function parseExternalIntakeBatchJson(
+  input: string,
+  defaults: { mailboxId: string; sourceKind: InboundEmailExternalIntakeSourceKind },
+): ImportExternalInboundEmailMessageRequest[] {
+  const parsed = JSON.parse(input) as unknown;
+  const messages = Array.isArray(parsed) ? parsed : isRecord(parsed) && Array.isArray(parsed.messages) ? parsed.messages : null;
+  if (!messages) {
+    throw new Error("Batch JSON must be an array, or an object with a messages array.");
+  }
+  return messages.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`Batch item ${index + 1} must be an object.`);
+    }
+    const rawEmail = typeof item.rawEmail === "string" ? item.rawEmail : "";
+    const sourceId = typeof item.sourceId === "string" ? item.sourceId.trim() : "";
+    if (!sourceId) {
+      throw new Error(`Batch item ${index + 1} is missing sourceId.`);
+    }
+    if (!rawEmail.trim()) {
+      throw new Error(`Batch item ${index + 1} is missing rawEmail.`);
+    }
+    const sourceLocation = typeof item.sourceLocation === "string" && item.sourceLocation.trim()
+      ? item.sourceLocation.trim()
+      : null;
+    const message: ImportExternalInboundEmailMessageRequest = {
+      mailboxId: typeof item.mailboxId === "string" && item.mailboxId.trim() ? item.mailboxId.trim() : defaults.mailboxId,
+      sourceKind: isExternalIntakeSourceKind(item.sourceKind) ? item.sourceKind : defaults.sourceKind,
+      sourceId,
+      sourceLocation,
+      rawEmail,
+    };
+    if (isRecord(item.metadata)) {
+      message.metadata = item.metadata;
+    }
+    if (typeof item.receivedAt === "string" && item.receivedAt.trim()) {
+      message.receivedAt = item.receivedAt.trim();
+    }
+    return message;
+  });
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -612,6 +661,7 @@ function ExternalIntakeRecovery({
   const [sourceId, setSourceId] = useState("");
   const [sourceLocation, setSourceLocation] = useState("");
   const [rawEmail, setRawEmail] = useState("");
+  const [batchJson, setBatchJson] = useState("");
 
   useEffect(() => {
     if (!mailboxId && mailboxes[0]?.mailbox.id) {
@@ -647,100 +697,154 @@ function ExternalIntakeRecovery({
     },
   });
 
+  const batchImportMutation = useMutation({
+    mutationFn: () => companiesApi.importExternalInboundEmailMessagesBatch(companyId, {
+      messages: parseExternalIntakeBatchJson(batchJson, { mailboxId, sourceKind }),
+    }),
+    onSuccess: () => {
+      setBatchJson("");
+      onImported();
+    },
+  });
+
   const submitImport = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     importMutation.reset();
     importMutation.mutate();
   };
 
+  const submitBatchImport = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    batchImportMutation.reset();
+    batchImportMutation.mutate();
+  };
+
   const canSubmit = Boolean(mailboxId && sourceId.trim() && rawEmail.trim()) && !importMutation.isPending;
+  const canBatchSubmit = Boolean(mailboxId && batchJson.trim()) && !batchImportMutation.isPending;
   const rows = externalIntakeQuery.data?.items ?? [];
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(360px,1.05fr)]">
-      <form className="space-y-3" onSubmit={submitImport}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground" htmlFor="external-intake-mailbox">Mailbox</label>
-            <Select value={mailboxId} onValueChange={setMailboxId} disabled={mailboxes.length === 0}>
-              <SelectTrigger id="external-intake-mailbox" size="sm" className="w-full">
-                <SelectValue placeholder="Mailbox" />
-              </SelectTrigger>
-              <SelectContent>
-                {mailboxes.map((item) => (
-                  <SelectItem key={item.mailbox.id} value={item.mailbox.id}>
-                    {item.mailbox.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-kind">Source</label>
-            <Select value={sourceKind} onValueChange={(value) => setSourceKind(value as InboundEmailExternalIntakeSourceKind)}>
-              <SelectTrigger id="external-intake-source-kind" size="sm" className="w-full">
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                {externalIntakeSourceKinds.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-id">Source ID</label>
-          <Input
-            id="external-intake-source-id"
-            className="h-8 text-xs"
-            value={sourceId}
-            onChange={(event) => setSourceId(event.target.value)}
-            placeholder="backup-object-key, queue message ID, or webhook event ID"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-location">Source location</label>
-          <Input
-            id="external-intake-source-location"
-            className="h-8 text-xs"
-            value={sourceLocation}
-            onChange={(event) => setSourceLocation(event.target.value)}
-            placeholder="Optional object URL or mailbox backup path"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-muted-foreground" htmlFor="external-intake-raw-email">Raw email</label>
-          <Textarea
-            id="external-intake-raw-email"
-            className="min-h-36 font-mono text-xs"
-            value={rawEmail}
-            onChange={(event) => setRawEmail(event.target.value)}
-            placeholder={"Message-ID: <...>\nFrom: customer@example.com\nTo: support@example.com\nSubject: ...\n\nOriginal body"}
-          />
-        </div>
-        {importMutation.isError ? (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <span className="font-medium">External import failed.</span>{" "}
-              {errorMessage(importMutation.error, "The preserved message could not be imported.")}
+      <div className="space-y-4">
+        <form className="space-y-3" onSubmit={submitImport}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="external-intake-mailbox">Mailbox</label>
+              <Select value={mailboxId} onValueChange={setMailboxId} disabled={mailboxes.length === 0}>
+                <SelectTrigger id="external-intake-mailbox" size="sm" className="w-full">
+                  <SelectValue placeholder="Mailbox" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mailboxes.map((item) => (
+                    <SelectItem key={item.mailbox.id} value={item.mailbox.id}>
+                      {item.mailbox.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-kind">Source</label>
+              <Select value={sourceKind} onValueChange={(value) => setSourceKind(value as InboundEmailExternalIntakeSourceKind)}>
+                <SelectTrigger id="external-intake-source-kind" size="sm" className="w-full">
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent>
+                  {externalIntakeSourceKinds.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        ) : null}
-        {importMutation.isSuccess ? (
-          <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            External intake recorded as {importMutation.data.status}.
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-id">Source ID</label>
+            <Input
+              id="external-intake-source-id"
+              className="h-8 text-xs"
+              value={sourceId}
+              onChange={(event) => setSourceId(event.target.value)}
+              placeholder="backup-object-key, queue message ID, or webhook event ID"
+            />
           </div>
-        ) : null}
-        <Button type="submit" size="sm" disabled={!canSubmit}>
-          {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          Import preserved email
-        </Button>
-      </form>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-location">Source location</label>
+            <Input
+              id="external-intake-source-location"
+              className="h-8 text-xs"
+              value={sourceLocation}
+              onChange={(event) => setSourceLocation(event.target.value)}
+              placeholder="Optional object URL or mailbox backup path"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="external-intake-raw-email">Raw email</label>
+            <Textarea
+              id="external-intake-raw-email"
+              className="min-h-36 font-mono text-xs"
+              value={rawEmail}
+              onChange={(event) => setRawEmail(event.target.value)}
+              placeholder={"Message-ID: <...>\nFrom: customer@example.com\nTo: support@example.com\nSubject: ...\n\nOriginal body"}
+            />
+          </div>
+          {importMutation.isError ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <span className="font-medium">External import failed.</span>{" "}
+                {errorMessage(importMutation.error, "The preserved message could not be imported.")}
+              </div>
+            </div>
+          ) : null}
+          {importMutation.isSuccess ? (
+            <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              External intake recorded as {importMutation.data.status}.
+            </div>
+          ) : null}
+          <Button type="submit" size="sm" disabled={!canSubmit}>
+            {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Import preserved email
+          </Button>
+        </form>
+
+        <form className="space-y-3 rounded-md border border-border bg-card/40 p-3" onSubmit={submitBatchImport}>
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Batch JSON import</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Paste an array, or {"{"}messages: [...]{"}"}. Items inherit the selected mailbox and source when omitted.
+            </div>
+          </div>
+          <Textarea
+            className="min-h-28 font-mono text-xs"
+            value={batchJson}
+            onChange={(event) => setBatchJson(event.target.value)}
+            placeholder={'[{"sourceId":"backup-1","rawEmail":"Message-ID: <...>\\nFrom: ..."}]'}
+            aria-label="External intake batch JSON"
+          />
+          {batchImportMutation.isError ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <span className="font-medium">Batch import failed.</span>{" "}
+                {errorMessage(batchImportMutation.error, "The preserved message batch could not be imported.")}
+              </div>
+            </div>
+          ) : null}
+          {batchImportMutation.isSuccess ? (
+            <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              Batch recorded: {batchImportMutation.data.importedCount} imported, {batchImportMutation.data.duplicateCount} duplicate, {batchImportMutation.data.failedCount} failed.
+            </div>
+          ) : null}
+          <Button type="submit" size="sm" variant="outline" disabled={!canBatchSubmit}>
+            {batchImportMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Import batch
+          </Button>
+        </form>
+      </div>
 
       <div className="overflow-hidden rounded-md border border-border bg-card/60">
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">

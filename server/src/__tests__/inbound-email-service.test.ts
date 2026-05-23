@@ -464,6 +464,57 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(records.every((record) => record.inboundMessageId === first.message?.id)).toBe(true);
   });
 
+  it("imports external intake messages in a per-item recovery batch", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const firstMessage = rawEmail({ messageId: "<external-batch-first@example.com>", subject: "Batch preserved copy" });
+    await svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "queue",
+      sourceId: "batch-conflict",
+      rawEmail: rawEmail({ messageId: "<external-batch-conflict-original@example.com>", subject: "Original preserved copy" }),
+    });
+
+    const batch = await svc.submitExternalIntakeMessagesBatch(companyId, {
+      messages: [
+        {
+          mailboxId: mailbox.id,
+          sourceKind: "queue",
+          sourceId: "batch-first",
+          rawEmail: firstMessage,
+        },
+        {
+          mailboxId: mailbox.id,
+          sourceKind: "object_storage",
+          sourceId: "s3://support-backup/batch-first-copy.eml",
+          rawEmail: firstMessage,
+        },
+        {
+          mailboxId: mailbox.id,
+          sourceKind: "queue",
+          sourceId: "batch-conflict",
+          rawEmail: rawEmail({ messageId: "<external-batch-conflict-new@example.com>", subject: "Different preserved copy" }),
+        },
+      ],
+    });
+
+    expect(batch).toMatchObject({
+      importedCount: 1,
+      duplicateCount: 1,
+      failedCount: 1,
+    });
+    expect(batch.results.map((result) => result.status)).toEqual(["imported", "duplicate", "failed"]);
+    expect(batch.results[2].error).toContain("different raw message");
+
+    const records = await db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .orderBy(asc(inboundEmailExternalIntakeRecords.createdAt), asc(inboundEmailExternalIntakeRecords.id));
+    const messages = await db.select().from(inboundEmailMessages);
+    expect(records).toHaveLength(3);
+    expect(messages).toHaveLength(2);
+  });
+
   it("normalizes mailbox text fields before persistence", async () => {
     const companyId = await seedCompany();
     const mailbox = await svc.createMailbox(companyId, {
@@ -3583,6 +3634,53 @@ describeEmbeddedPostgres("inbound email service", () => {
       id: importRes.body.intakeRecord.id,
       inboundMessageId: importRes.body.message.id,
       sourceKind: "manual_recovery",
+    });
+  });
+
+  it("imports external intake batches through the board API route", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const app = express();
+    app.use(express.json({ limit: "11mb" }));
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db));
+
+    const importRes = await request(app)
+      .post(`/companies/${companyId}/inbound-email/external-intake/import-batch`)
+      .send({
+        messages: [
+          {
+            mailboxId: mailbox.id,
+            sourceKind: "manual_recovery",
+            sourceId: "operator-recovery-batch-1",
+            rawEmail: rawEmail({ messageId: "<route-external-batch-1@example.com>" }),
+          },
+          {
+            mailboxId: mailbox.id,
+            sourceKind: "manual_recovery",
+            sourceId: "operator-recovery-batch-2",
+            rawEmail: rawEmail({ messageId: "<route-external-batch-2@example.com>" }),
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(importRes.body).toMatchObject({
+      importedCount: 2,
+      duplicateCount: 0,
+      failedCount: 0,
+      results: [
+        { sourceId: "operator-recovery-batch-1", status: "imported" },
+        { sourceId: "operator-recovery-batch-2", status: "imported" },
+      ],
     });
   });
 

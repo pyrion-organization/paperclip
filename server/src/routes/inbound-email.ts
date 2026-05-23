@@ -4,6 +4,7 @@ import {
   createInboundEmailMailboxSchema,
   createInboundEmailRuleSchema,
   importExternalInboundEmailMessageSchema,
+  importExternalInboundEmailMessagesBatchSchema,
   importInboundEmailMessageSchema,
   updateInboundEmailMailboxSchema,
   updateInboundEmailRuleSchema,
@@ -242,6 +243,22 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
       );
       const statusCode = EXTERNAL_INTAKE_STATUS_CODES[result.status as keyof typeof EXTERNAL_INTAKE_STATUS_CODES] ?? 500;
       res.status(statusCode).json(result);
+    },
+  );
+
+  router.post(
+    "/companies/:companyId/inbound-email/external-intake/import-batch",
+    validate(importExternalInboundEmailMessagesBatchSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      assertBoard(req);
+      const result = await svc.submitExternalIntakeMessagesBatch(
+        companyId,
+        req.body,
+        inboundEmailActorFromRequest(req),
+      );
+      res.status(result.failedCount > 0 ? 207 : 201).json(result);
     },
   );
 

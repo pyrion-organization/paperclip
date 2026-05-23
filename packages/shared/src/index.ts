@@ -1250,12 +1250,14 @@ export {
   updateInboundEmailRuleSchema,
   importInboundEmailMessageSchema,
   importExternalInboundEmailMessageSchema,
+  importExternalInboundEmailMessagesBatchSchema,
   type CreateInboundEmailMailbox,
   type UpdateInboundEmailMailbox,
   type CreateInboundEmailRule,
   type UpdateInboundEmailRule,
   type ImportInboundEmailMessage,
   type ImportExternalInboundEmailMessage,
+  type ImportExternalInboundEmailMessagesBatch,
 } from "./validators/inbound-email.js";
 
 export type {

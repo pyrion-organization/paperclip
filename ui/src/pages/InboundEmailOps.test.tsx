@@ -22,6 +22,7 @@ const mockCompaniesApi = vi.hoisted(() => ({
   pollInboundEmailMailbox: vi.fn(),
   listExternalInboundEmailIntake: vi.fn(),
   importExternalInboundEmailMessage: vi.fn(),
+  importExternalInboundEmailMessagesBatch: vi.fn(),
 }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
@@ -400,6 +401,33 @@ describe("InboundEmailOps", () => {
       intakeRecord: makeExternalIntakeRecord({ id: "external-intake-2", sourceId: "operator-recovery-2" }),
       message: makeProcessedMessage({ id: "processed-message-2" }),
     });
+    mockCompaniesApi.importExternalInboundEmailMessagesBatch.mockResolvedValue({
+      importedCount: 1,
+      duplicateCount: 1,
+      failedCount: 0,
+      results: [
+        {
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-1",
+          status: "imported",
+          intakeRecord: makeExternalIntakeRecord({ id: "external-intake-batch-1", sourceId: "operator-recovery-batch-1" }),
+          message: makeProcessedMessage({ id: "processed-message-batch-1" }),
+          error: null,
+        },
+        {
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-2",
+          status: "duplicate",
+          intakeRecord: makeExternalIntakeRecord({
+            id: "external-intake-batch-2",
+            sourceId: "operator-recovery-batch-2",
+            status: "duplicate",
+          }),
+          message: makeProcessedMessage({ id: "processed-message-batch-1" }),
+          error: null,
+        },
+      ],
+    });
   });
 
   afterEach(async () => {
@@ -661,5 +689,71 @@ describe("InboundEmailOps", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "external-intake"] });
     expect(container.textContent).toContain("External intake recorded as imported");
+  });
+
+  it("imports preserved external support email batches from the recovery panel", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await renderPage();
+
+    const panelButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("External Recovery Import"));
+    expect(panelButton).toBeTruthy();
+
+    await act(async () => {
+      panelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    const batchInput = container.querySelector('textarea[aria-label="External intake batch JSON"]') as HTMLTextAreaElement | null;
+    expect(batchInput).toBeTruthy();
+
+    await act(async () => {
+      setTextareaValue(
+        batchInput!,
+        JSON.stringify([
+          {
+            sourceId: "operator-recovery-batch-1",
+            rawEmail: "Message-ID: <batch-1@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 1\n\nBody",
+          },
+          {
+            sourceId: "operator-recovery-batch-2",
+            rawEmail: "Message-ID: <batch-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 2\n\nBody",
+          },
+        ]),
+      );
+    });
+
+    const importBatchButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Import batch"));
+    expect(importBatchButton).toBeTruthy();
+
+    await act(async () => {
+      importBatchButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.importExternalInboundEmailMessagesBatch).toHaveBeenCalledWith("company-1", {
+      messages: [
+        {
+          mailboxId: "mailbox-1",
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-1",
+          sourceLocation: null,
+          rawEmail: "Message-ID: <batch-1@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 1\n\nBody",
+        },
+        {
+          mailboxId: "mailbox-1",
+          sourceKind: "manual_recovery",
+          sourceId: "operator-recovery-batch-2",
+          sourceLocation: null,
+          rawEmail: "Message-ID: <batch-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Batch 2\n\nBody",
+        },
+      ],
+    });
+    expect(container.textContent).toContain("Batch recorded: 1 imported, 1 duplicate, 0 failed.");
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "external-intake"] });
   });
 });
