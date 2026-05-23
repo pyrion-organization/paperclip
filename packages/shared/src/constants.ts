@@ -312,6 +312,139 @@ export const PROJECT_DEPLOY_COMMAND_STATUSES = ["planned", "running", "succeeded
 export type ProjectDeployCommandStatus = (typeof PROJECT_DEPLOY_COMMAND_STATUSES)[number];
 export const PROJECT_INFRA_TARGET_STATUSES = ["active", "disabled"] as const;
 export type ProjectInfraTargetStatus = (typeof PROJECT_INFRA_TARGET_STATUSES)[number];
+export const PROJECT_INFRA_PROVIDER_CAPABILITIES = [
+  "http_health",
+  "tcp_health",
+  "provider_status",
+  "manual_ssh",
+  "reboot",
+  "power_cycle",
+  "snapshot",
+  "resize",
+  "firewall",
+  "dns",
+  "floating_ip_failover",
+  "load_balancer_failover",
+  "support_ticket",
+] as const;
+export type ProjectInfraProviderCapability = (typeof PROJECT_INFRA_PROVIDER_CAPABILITIES)[number];
+export type ProjectInfraProviderCategory = "manual" | "vps" | "cloud" | "paas";
+export interface ProjectInfraProviderDescriptor {
+  key: string;
+  label: string;
+  category: ProjectInfraProviderCategory;
+  capabilities: readonly ProjectInfraProviderCapability[];
+  credentialPolicy: "none" | "external_secret_provider";
+  repairRequiresApproval: true;
+  notes: string;
+  supportContact: string | null;
+}
+export const PROJECT_INFRA_PROVIDER_DESCRIPTORS = [
+  {
+    key: "manual",
+    label: "Manual / unknown",
+    category: "manual",
+    capabilities: ["http_health", "tcp_health", "manual_ssh"],
+    credentialPolicy: "none",
+    repairRequiresApproval: true,
+    notes: "Records topology only. Operators provide manual evidence for repair or failover.",
+    supportContact: null,
+  },
+  {
+    key: "generic_vps",
+    label: "Generic VPS",
+    category: "vps",
+    capabilities: ["http_health", "tcp_health", "manual_ssh", "reboot", "power_cycle", "snapshot", "firewall", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Generic VPS capability profile; credentials must live in secret bindings, not project metadata.",
+    supportContact: "Provider support portal",
+  },
+  {
+    key: "hetzner",
+    label: "Hetzner Cloud",
+    category: "vps",
+    capabilities: ["http_health", "tcp_health", "provider_status", "manual_ssh", "reboot", "power_cycle", "snapshot", "resize", "firewall", "floating_ip_failover", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Supports cloud server operations and floating IP failover when credentials are configured outside project metadata.",
+    supportContact: "Hetzner Cloud Console",
+  },
+  {
+    key: "digitalocean",
+    label: "DigitalOcean",
+    category: "vps",
+    capabilities: ["http_health", "tcp_health", "provider_status", "manual_ssh", "reboot", "power_cycle", "snapshot", "resize", "firewall", "floating_ip_failover", "load_balancer_failover", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Supports droplet and networking operations when credentials are configured outside project metadata.",
+    supportContact: "DigitalOcean Control Panel",
+  },
+  {
+    key: "linode",
+    label: "Akamai/Linode",
+    category: "vps",
+    capabilities: ["http_health", "tcp_health", "provider_status", "manual_ssh", "reboot", "power_cycle", "snapshot", "resize", "firewall", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Supports Linode instance operations when credentials are configured outside project metadata.",
+    supportContact: "Akamai Cloud Manager",
+  },
+  {
+    key: "vultr",
+    label: "Vultr",
+    category: "vps",
+    capabilities: ["http_health", "tcp_health", "provider_status", "manual_ssh", "reboot", "power_cycle", "snapshot", "resize", "firewall", "floating_ip_failover", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Supports instance and reserved IP operations when credentials are configured outside project metadata.",
+    supportContact: "Vultr Customer Portal",
+  },
+  {
+    key: "aws_lightsail",
+    label: "AWS Lightsail",
+    category: "cloud",
+    capabilities: ["http_health", "tcp_health", "provider_status", "manual_ssh", "reboot", "power_cycle", "snapshot", "resize", "dns", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "Supports Lightsail instance, snapshot, and DNS-oriented operations when credentials are configured outside project metadata.",
+    supportContact: "AWS Console",
+  },
+  {
+    key: "fly_io",
+    label: "Fly.io",
+    category: "paas",
+    capabilities: ["http_health", "tcp_health", "provider_status", "reboot", "resize", "dns", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "PaaS capability profile for app status and manual recovery evidence; no provider mutation is executed by Paperclip.",
+    supportContact: "Fly.io dashboard",
+  },
+  {
+    key: "render",
+    label: "Render",
+    category: "paas",
+    capabilities: ["http_health", "provider_status", "reboot", "dns", "support_ticket"],
+    credentialPolicy: "external_secret_provider",
+    repairRequiresApproval: true,
+    notes: "PaaS capability profile for service status and manual recovery evidence; no provider mutation is executed by Paperclip.",
+    supportContact: "Render dashboard",
+  },
+] as const satisfies readonly ProjectInfraProviderDescriptor[];
+export const PROJECT_INFRA_PROVIDER_KEYS = PROJECT_INFRA_PROVIDER_DESCRIPTORS.map((provider) => provider.key);
+export type ProjectInfraProviderKey = (typeof PROJECT_INFRA_PROVIDER_KEYS)[number];
+export function normalizeProjectInfraProviderKey(provider: string | null | undefined): string {
+  const normalized = (provider ?? "manual")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "manual";
+}
+export function getProjectInfraProviderDescriptor(provider: string | null | undefined): ProjectInfraProviderDescriptor | null {
+  const key = normalizeProjectInfraProviderKey(provider);
+  return PROJECT_INFRA_PROVIDER_DESCRIPTORS.find((descriptor) => descriptor.key === key) ?? null;
+}
 export const PROJECT_INFRA_HEALTH_CHECK_TYPES = ["http", "tcp", "manual"] as const;
 export type ProjectInfraHealthCheckType = (typeof PROJECT_INFRA_HEALTH_CHECK_TYPES)[number];
 export const PROJECT_INFRA_HEALTH_STATUSES = ["unknown", "healthy", "degraded", "unhealthy", "disabled"] as const;

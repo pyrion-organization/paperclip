@@ -630,7 +630,23 @@ describe("project deploy workflow routes", () => {
       expect.anything(),
       expect.objectContaining({ action: "project.infra_target_created" }),
     );
-  });
+  }, 20_000);
+
+  it("rejects provider credentials in project infrastructure target metadata", async () => {
+    const app = await createApp("board");
+    const res = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets")
+      .send({
+        name: "Primary VPS",
+        provider: "hetzner",
+        metadata: {
+          apiToken: "do-not-store-here",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(mockProjectService.createInfraTarget).not.toHaveBeenCalled();
+  }, 20_000);
 
   it("records an unhealthy health result and creates an infra incident issue", async () => {
     const app = await createApp();

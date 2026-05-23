@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PROJECT_INFRA_PROVIDER_DESCRIPTORS } from "@paperclipai/shared";
 import type {
   Project,
   ProjectDeployCommandRecord,
@@ -677,12 +678,15 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             onChange={(event) => setInfraForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Infra target name"
           />
-          <input
-            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+          <select
+            className="rounded border border-border bg-background px-2 py-1 text-xs outline-none"
             value={infraForm.provider}
             onChange={(event) => setInfraForm((current) => ({ ...current, provider: event.target.value }))}
-            placeholder="provider"
-          />
+          >
+            {PROJECT_INFRA_PROVIDER_DESCRIPTORS.map((provider) => (
+              <option key={provider.key} value={provider.key}>{provider.label}</option>
+            ))}
+          </select>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.host}
@@ -758,10 +762,17 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     <span className="text-sm font-medium">{target.name}</span>
                     <StatusPill status={target.status} />
                     <span className="text-[11px] text-muted-foreground">
-                      {target.environment} · {target.provider} · {target.role}
+                      {target.environment} · {target.providerDescriptor?.label ?? target.provider} · {target.role}
                     </span>
                   </div>
                   <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                    {target.providerDescriptor ? (
+                      <div className="break-words">
+                        Capabilities: {target.providerDescriptor.capabilities.join(", ")}
+                      </div>
+                    ) : (
+                      <div>Capabilities: custom provider, manual evidence only</div>
+                    )}
                     {target.host ? <div className="break-all">Host: {target.host}</div> : null}
                     {target.region ? <div>Region: {target.region}</div> : null}
                     {target.providerAccountRef ? <div>Account: {target.providerAccountRef}</div> : null}

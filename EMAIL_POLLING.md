@@ -151,6 +151,8 @@ Paperclip now stores deployment readiness metadata without executing production 
 Paperclip can now record project infrastructure metadata without mutating provider state.
 
 - Project configuration can store infrastructure targets with environment, provider, provider account reference, region, role, host, failover group/rank, and active/disabled status.
+- Known infrastructure providers are described by a metadata-only capability catalog (`manual`, `generic_vps`, `hetzner`, `digitalocean`, `linode`, `vultr`, `aws_lightsail`, `fly_io`, `render`). The descriptor records known health, repair, failover, and provider-support capabilities for planning and UI visibility only.
+- Provider credentials, tokens, passwords, and API keys are rejected from infrastructure target metadata. Credentials must live in dedicated secret bindings before any future provider adapter can use them.
 - Infrastructure targets default to `repairActionsRequireApproval = true`; the current system records topology and incidents but does not run provider repair, failover, DNS, SSH, or VPS commands.
 - Project health checks can be configured as HTTP, TCP, or manual checks with target linkage, URL, expected status, interval, timeout, enabled flag, and last-known health result.
 - Operators or approved automation can record health results as `healthy`, `degraded`, or `unhealthy`. Degraded/unhealthy results can create an infra incident and linked Paperclip issue.

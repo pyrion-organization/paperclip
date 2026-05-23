@@ -25,6 +25,22 @@ const optionalUrlSchema = z.preprocess(
   z.string().trim().url().optional().nullable(),
 );
 
+const FORBIDDEN_INFRA_METADATA_KEY_PATTERN = /(secret|token|password|credential|api[-_]?key|private[-_]?key|access[-_]?key)/i;
+
+function hasForbiddenInfraMetadataKey(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some((entry) => hasForbiddenInfraMetadataKey(entry));
+  return Object.entries(value as Record<string, unknown>).some(([key, entry]) =>
+    FORBIDDEN_INFRA_METADATA_KEY_PATTERN.test(key) || hasForbiddenInfraMetadataKey(entry),
+  );
+}
+
+const projectInfraMetadataSchema = z
+  .record(z.unknown())
+  .refine((value) => !hasForbiddenInfraMetadataKey(value), {
+    message: "Infrastructure metadata must not contain credentials, tokens, passwords, or API keys",
+  });
+
 const deployEvidenceListSchema = z
   .array(z.string().trim().min(1).max(500))
   .max(100)
@@ -231,7 +247,7 @@ export const createProjectInfraTargetSchema = z.object({
   failoverRank: z.coerce.number().int().min(1).max(100).optional().nullable(),
   status: z.enum(PROJECT_INFRA_TARGET_STATUSES).default("active"),
   repairActionsRequireApproval: z.boolean().default(true),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: projectInfraMetadataSchema.optional().nullable(),
 });
 
 export type CreateProjectInfraTarget = z.infer<typeof createProjectInfraTargetSchema>;

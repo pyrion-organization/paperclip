@@ -14,6 +14,7 @@ import type {
   ProjectInfraActionType,
   ProjectInfraIncidentSeverity,
   ProjectInfraIncidentStatus,
+  ProjectInfraProviderDescriptor,
   ProjectInfraTargetStatus,
   ProjectStatus,
 } from "../constants.js";
@@ -293,6 +294,7 @@ export interface ProjectInfraTarget {
   name: string;
   environment: string;
   provider: string;
+  providerDescriptor?: ProjectInfraProviderDescriptor | null;
   providerAccountRef: string | null;
   region: string | null;
   role: string;

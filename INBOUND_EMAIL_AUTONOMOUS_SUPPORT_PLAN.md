@@ -910,12 +910,15 @@ Implemented the first infra topology and health foundation:
   timestamps,
 - configurable evidence-only incident escalation for urgent/high-severity or
   repeated active incidents,
+- metadata-only provider capability descriptors for common VPS/cloud/PaaS
+  providers, exposed on infra targets for planning and UI visibility,
+- validation that rejects provider credentials, tokens, passwords, and API keys
+  from ordinary infrastructure target metadata,
 - no automatic provider repair, failover, DNS, SSH, or VPS mutation.
 
-Remaining Phase 6 work:
-
-- add concrete provider adapter descriptors without credentials in ordinary
-  project metadata.
+Phase 6 is now implemented as a safe foundation. Provider repair and failover
+execution remain intentionally out of scope until explicit credentials,
+approval, rollback, and evidence controls are designed for a later phase.
 
 ### Phase 7: External Resilience
 
@@ -946,17 +949,17 @@ These should be decided before later phases:
 
 ## Recommended Immediate Next Step
 
-Continue toward provider-aware infra readiness without broadening repair
+Continue toward external support intake resilience without broadening repair
 authority.
 
-The next implementation slice should add provider adapter descriptors without
-granting provider credentials or mutation authority:
+The next implementation slice should start Phase 7 by adding an external intake
+preservation/recovery-import foundation:
 
-- define provider capability descriptors for supported VPS/provider families,
-- record which health, repair, failover, and support-contact capabilities are
-  known for a provider,
-- keep provider credentials out of ordinary project metadata,
-- keep all provider actions approval-gated and manual/evidence-only,
+- define a durable external support intake record model,
+- support importing preserved raw messages from webhook/queue/object-storage
+  style sources into the existing inbound email processing path,
+- make recovery imports idempotent by source and message fingerprint,
+- keep external monitoring as evidence-only health status,
 - keep provider repair and failover execution as a non-goal,
 - preserve the current no-auto-production-deploy and no-auto-infra-repair
   boundary.
