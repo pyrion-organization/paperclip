@@ -321,6 +321,27 @@ describe("CompanyEmailSettings", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "rules"] });
   });
 
+  it("disables mailbox actions that the inbound email API would reject", async () => {
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue({
+      items: [makeMailbox({ enabled: false, passwordSet: true })],
+      nextCursor: null,
+    });
+    await renderPage();
+
+    expect((container.querySelector("[data-testid='company-settings-inbound-test']") as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector("[data-testid='company-settings-inbound-poll']") as HTMLButtonElement).disabled).toBe(true);
+
+    mockCompaniesApi.listInboundEmailMailboxes.mockResolvedValue({
+      items: [makeMailbox({ enabled: true, passwordSet: false })],
+      nextCursor: null,
+    });
+    queryClient.invalidateQueries({ queryKey: ["companies", "company-1", "inbound-email", "mailboxes"] });
+    await flushReact();
+
+    expect((container.querySelector("[data-testid='company-settings-inbound-test']") as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector("[data-testid='company-settings-inbound-poll']") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("creates and toggles inbound email rules", async () => {
     mockCompaniesApi.listInboundEmailRules.mockResolvedValue({ items: [makeRule()], nextCursor: null });
     await renderPage();

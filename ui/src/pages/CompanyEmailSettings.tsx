@@ -318,6 +318,8 @@ export function CompanyEmailSettings() {
   const ruleRows = inboundRulesQuery.data?.items ?? [];
   const labelOptions = labelsQuery.data ?? [];
   const labelNameById = useMemo(() => new Map(labelOptions.map((label) => [label.id, label.name])), [labelOptions]);
+  const canTestInboundMailbox = Boolean(primaryInboundMailbox?.passwordSet);
+  const canPollInboundMailbox = Boolean(primaryInboundMailbox?.enabled && primaryInboundMailbox.passwordSet);
 
   if (!selectedCompany) {
     return (
@@ -461,10 +463,10 @@ export function CompanyEmailSettings() {
             <Button data-testid="company-settings-inbound-save" size="sm" className="w-full sm:w-auto" onClick={() => inboundSaveMutation.mutate()} disabled={inboundSaveMutation.isPending || !inboundDirty || !inboundValid}>
               {inboundSaveMutation.isPending ? "Saving..." : "Save inbound mailbox"}
             </Button>
-            <Button data-testid="company-settings-inbound-test" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => inboundTestMutation.mutate()} disabled={!primaryInboundMailbox || inboundTestMutation.isPending}>
+            <Button data-testid="company-settings-inbound-test" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => inboundTestMutation.mutate()} disabled={!canTestInboundMailbox || inboundTestMutation.isPending}>
               {inboundTestMutation.isPending ? "Testing..." : "Test connection"}
             </Button>
-            <Button data-testid="company-settings-inbound-poll" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => inboundPollMutation.mutate()} disabled={!primaryInboundMailbox || inboundPollMutation.isPending}>
+            <Button data-testid="company-settings-inbound-poll" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => inboundPollMutation.mutate()} disabled={!canPollInboundMailbox || inboundPollMutation.isPending}>
               {inboundPollMutation.isPending ? "Queued..." : "Queue poll"}
             </Button>
             {primaryInboundMailbox ? (
