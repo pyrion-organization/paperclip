@@ -20,6 +20,7 @@ import {
   projectFileSaveSchema,
   projectFilesPathSchema,
   recordProjectDeployEventStatusSchema,
+  recordExternalProjectInfraHealthResultSchema,
   recordProjectInfraHealthResultSchema,
   sendProjectDeployMaintenanceMessageSchema,
   createProjectWorkspaceSchema,
@@ -124,6 +125,14 @@ export function projectRoutes(db: Db) {
     return resolved.project?.id ?? rawId;
   }
 
+  function externalMonitorTokenFromRequest(req: Request) {
+    const auth = req.header("authorization");
+    if (auth?.toLowerCase().startsWith("bearer ")) {
+      return auth.slice("bearer ".length).trim();
+    }
+    return req.header("x-paperclip-monitor-token")?.trim() ?? "";
+  }
+
   router.param("id", async (req, _res, next, rawId) => {
     try {
       req.params.id = await normalizeProjectReference(req, rawId);
@@ -132,6 +141,51 @@ export function projectRoutes(db: Db) {
       next(err);
     }
   });
+
+  router.post(
+    "/external/infra-health-checks/:healthCheckId/results",
+    validate(recordExternalProjectInfraHealthResultSchema),
+    async (req, res) => {
+      const healthCheckId = req.params.healthCheckId as string;
+      const token = externalMonitorTokenFromRequest(req);
+      if (!token) {
+        res.status(401).json({ error: "External monitor token required" });
+        return;
+      }
+
+      const healthCheck = await svc.recordExternalInfraHealthResult(healthCheckId, token, {
+        status: req.body.status,
+        checkedAt: req.body.checkedAt,
+        latencyMs: req.body.latencyMs ?? null,
+        error: req.body.error ?? null,
+        sourceId: req.body.sourceId ?? null,
+        sourceDetail: req.body.sourceDetail ?? null,
+        sourceMetadata: req.body.sourceMetadata ?? null,
+      });
+      if (!healthCheck) {
+        res.status(404).json({ error: "Infrastructure health check not found" });
+        return;
+      }
+
+      await logActivity(db, {
+        companyId: healthCheck.companyId,
+        actorType: "system",
+        actorId: "external_monitor",
+        action: "project.infra_health_result_recorded",
+        entityType: "project",
+        entityId: healthCheck.projectId,
+        details: {
+          healthCheckId: healthCheck.id,
+          status: healthCheck.status,
+          sourceKind: healthCheck.lastSourceKind,
+          sourceId: healthCheck.lastSourceId,
+          external: true,
+        },
+      });
+
+      res.json({ healthCheck });
+    },
+  );
 
   router.get("/companies/:companyId/projects", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -775,6 +829,70 @@ export function projectRoutes(db: Db) {
       res.json({ healthCheck, incident });
     },
   );
+
+  router.post("/projects/:id/infra-health-checks/:healthCheckId/external-monitor-token", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const healthCheckId = req.params.healthCheckId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const result = await svc.rotateInfraHealthExternalMonitorToken(id, healthCheckId);
+    if (!result || result.healthCheck.companyId !== project.companyId) {
+      res.status(404).json({ error: "Infrastructure health check not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_health_external_monitor_token_rotated",
+      entityType: "project",
+      entityId: id,
+      details: { healthCheckId: result.healthCheck.id, tokenHint: result.healthCheck.externalMonitorTokenHint },
+    });
+
+    res.json(result);
+  });
+
+  router.delete("/projects/:id/infra-health-checks/:healthCheckId/external-monitor-token", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const healthCheckId = req.params.healthCheckId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const healthCheck = await svc.revokeInfraHealthExternalMonitorToken(id, healthCheckId);
+    if (!healthCheck || healthCheck.companyId !== project.companyId) {
+      res.status(404).json({ error: "Infrastructure health check not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.infra_health_external_monitor_token_revoked",
+      entityType: "project",
+      entityId: id,
+      details: { healthCheckId: healthCheck.id },
+    });
+
+    res.json(healthCheck);
+  });
 
   router.delete("/projects/:id/infra-health-checks/:healthCheckId", async (req, res) => {
     assertBoard(req);

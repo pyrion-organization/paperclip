@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
@@ -124,6 +125,21 @@ type RecordInfraHealthResultInput = {
   sourceDetail?: string | null;
   sourceMetadata?: Record<string, unknown> | null;
 };
+
+function hashExternalMonitorToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function tokenHashesMatch(expectedHash: string | null | undefined, token: string) {
+  if (!expectedHash || !token) return false;
+  const actual = Buffer.from(hashExternalMonitorToken(token), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function generateExternalMonitorToken() {
+  return `pcmon_${randomBytes(32).toString("base64url")}`;
+}
 type CreateInfraIncidentInput = Omit<typeof projectInfraIncidents.$inferInsert, "companyId" | "projectId">;
 type UpdateInfraIncidentInput = Partial<CreateInfraIncidentInput>;
 type CreateInfraActionProposalInput = Omit<typeof projectInfraActionProposals.$inferInsert, "companyId" | "projectId">;
@@ -366,6 +382,8 @@ function toInfraHealthCheck(row: ProjectInfraHealthCheckRow): ProjectInfraHealth
     lastSourceId: row.lastSourceId ?? null,
     lastSourceDetail: row.lastSourceDetail ?? null,
     lastSourceMetadata: (row.lastSourceMetadata as Record<string, unknown> | null) ?? null,
+    externalMonitorEnabled: Boolean(row.externalMonitorTokenHash),
+    externalMonitorTokenHint: row.externalMonitorTokenHint ?? null,
     enabled: row.enabled,
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
     createdAt: row.createdAt,
@@ -1481,6 +1499,42 @@ export function projectService(db: Db) {
       return row ? toInfraHealthCheck(row) : null;
     },
 
+    rotateInfraHealthExternalMonitorToken: async (
+      projectId: string,
+      healthCheckId: string,
+    ): Promise<{ healthCheck: ProjectInfraHealthCheck; token: string } | null> => {
+      const token = generateExternalMonitorToken();
+      const tokenHint = token.slice(-8);
+      const row = await db
+        .update(projectInfraHealthChecks)
+        .set({
+          externalMonitorTokenHash: hashExternalMonitorToken(token),
+          externalMonitorTokenHint: tokenHint,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? { healthCheck: toInfraHealthCheck(row), token } : null;
+    },
+
+    revokeInfraHealthExternalMonitorToken: async (
+      projectId: string,
+      healthCheckId: string,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const row = await db
+        .update(projectInfraHealthChecks)
+        .set({
+          externalMonitorTokenHash: null,
+          externalMonitorTokenHint: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
     recordInfraHealthResult: async (
       projectId: string,
       healthCheckId: string,
@@ -1500,6 +1554,38 @@ export function projectService(db: Db) {
           updatedAt: new Date(),
         })
         .where(and(eq(projectInfraHealthChecks.projectId, projectId), eq(projectInfraHealthChecks.id, healthCheckId)))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toInfraHealthCheck(row) : null;
+    },
+
+    recordExternalInfraHealthResult: async (
+      healthCheckId: string,
+      token: string,
+      data: Omit<RecordInfraHealthResultInput, "sourceKind">,
+    ): Promise<ProjectInfraHealthCheck | null> => {
+      const existing = await db
+        .select()
+        .from(projectInfraHealthChecks)
+        .where(eq(projectInfraHealthChecks.id, healthCheckId))
+        .then((rows) => rows[0] ?? null);
+      if (!existing || !tokenHashesMatch(existing.externalMonitorTokenHash, token)) {
+        return null;
+      }
+      const row = await db
+        .update(projectInfraHealthChecks)
+        .set({
+          status: data.status,
+          lastCheckedAt: data.checkedAt ?? new Date(),
+          lastLatencyMs: data.latencyMs ?? null,
+          lastError: data.error ?? null,
+          lastSourceKind: "external_monitor",
+          lastSourceId: data.sourceId ?? null,
+          lastSourceDetail: data.sourceDetail ?? null,
+          lastSourceMetadata: data.sourceMetadata ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(projectInfraHealthChecks.id, existing.id))
         .returning()
         .then((rows) => rows[0] ?? null);
       return row ? toInfraHealthCheck(row) : null;

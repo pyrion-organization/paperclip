@@ -301,6 +301,22 @@ export const recordProjectInfraHealthResultSchema = z.object({
 
 export type RecordProjectInfraHealthResult = z.infer<typeof recordProjectInfraHealthResultSchema>;
 
+export const recordExternalProjectInfraHealthResultSchema = recordProjectInfraHealthResultSchema
+  .omit({
+    sourceKind: true,
+    createIncident: true,
+    incidentSummary: true,
+    incidentDetails: true,
+    severity: true,
+  })
+  .extend({
+    sourceId: optionalTrimmedText(500),
+    sourceDetail: optionalTrimmedText(2000),
+    sourceMetadata: z.record(z.unknown()).optional().nullable(),
+  });
+
+export type RecordExternalProjectInfraHealthResult = z.infer<typeof recordExternalProjectInfraHealthResultSchema>;
+
 export const createProjectInfraIncidentSchema = z.object({
   infraTargetId: z.string().uuid().optional().nullable(),
   healthCheckId: z.string().uuid().optional().nullable(),

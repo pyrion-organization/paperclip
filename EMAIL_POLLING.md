@@ -180,6 +180,17 @@ Paperclip can preserve and recover raw support messages captured outside the nor
 - Failed imports keep a durable failed intake record with the error text and can be retried with the same source ID and raw email.
 - This foundation does not fetch from external object storage, mutate mailbox provider state, repair infrastructure, fail over providers, or auto-deploy code. External monitoring remains evidence-only until explicit provider credentials, approvals, rollback, and alerting paths are added.
 
+## External monitor health evidence
+
+Project infrastructure health checks can accept evidence from an external monitor without granting board, agent, provider, deploy, or repair authority.
+
+- Operators create or rotate a per-health-check monitor token from the project deployment settings UI. The token is shown once; Paperclip stores only a SHA-256 hash and a short hint.
+- Operators can revoke the monitor token from the same UI. Revoked tokens stop accepting external monitor submissions.
+- External monitors submit evidence to `POST /api/external/infra-health-checks/:healthCheckId/results` with `Authorization: Bearer <token>` or `X-Paperclip-Monitor-Token: <token>`.
+- The request accepts health result fields such as `status`, `checkedAt`, `latencyMs`, `error`, `sourceId`, `sourceDetail`, and non-secret `sourceMetadata`.
+- External submissions are forced to `sourceKind = external_monitor`. They only update the health-check evidence and activity log; they cannot create approvals, execute repair actions, fail over providers, create deployment events, or run commands.
+- Operators can use the protected project health result route to turn degraded or unhealthy evidence into an infra incident after reviewing the result.
+
 ### External backup handoff format
 
 During Paperclip downtime, the external support intake backup should preserve each original message as a raw RFC 822 `.eml` payload plus stable source metadata. The recovery importer expects operators or future webhook/queue adapters to provide:

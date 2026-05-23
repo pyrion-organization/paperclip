@@ -328,6 +328,8 @@ export interface ProjectInfraHealthCheck {
   lastSourceId: string | null;
   lastSourceDetail: string | null;
   lastSourceMetadata: Record<string, unknown> | null;
+  externalMonitorEnabled: boolean;
+  externalMonitorTokenHint: string | null;
   enabled: boolean;
   metadata: Record<string, unknown> | null;
   createdAt: Date;

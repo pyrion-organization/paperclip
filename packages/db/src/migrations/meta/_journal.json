@@ -834,6 +834,13 @@
       "when": 1779515722317,
       "tag": "0118_project_infra_health_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1779517774114,
+      "tag": "0119_project_infra_external_monitor_tokens",
+      "breakpoints": true
     }
   ]
 }

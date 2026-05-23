@@ -56,6 +56,8 @@ export const projectInfraHealthChecks = pgTable(
     lastSourceId: text("last_source_id"),
     lastSourceDetail: text("last_source_detail"),
     lastSourceMetadata: jsonb("last_source_metadata").$type<Record<string, unknown>>(),
+    externalMonitorTokenHash: text("external_monitor_token_hash"),
+    externalMonitorTokenHint: text("external_monitor_token_hint"),
     enabled: boolean("enabled").notNull().default(true),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -64,6 +66,9 @@ export const projectInfraHealthChecks = pgTable(
   (table) => ({
     companyProjectIdx: index("project_infra_health_checks_company_project_idx").on(table.companyId, table.projectId),
     infraTargetIdx: index("project_infra_health_checks_target_idx").on(table.infraTargetId),
+    externalMonitorTokenHashUq: uniqueIndex("project_infra_health_checks_external_monitor_token_hash_uq").on(
+      table.externalMonitorTokenHash,
+    ),
   }),
 );
 

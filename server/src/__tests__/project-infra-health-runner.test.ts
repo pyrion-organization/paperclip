@@ -15,6 +15,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { projectInfraHealthRunnerService } from "../services/project-infra-health-runner.js";
+import { projectService } from "../services/projects.js";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -114,6 +115,54 @@ describeEmbeddedPostgres("projectInfraHealthRunnerService", () => {
     expect(check.lastSourceMetadata).toMatchObject({ expectedStatus: 200, receivedStatus: 200 });
     const incidentRows = await db.select().from(projectInfraIncidents);
     expect(incidentRows).toHaveLength(0);
+  });
+
+  it("records external monitor evidence only when the per-check token matches", async () => {
+    const { healthCheckId } = await seedHealthCheck();
+    const svc = projectService(db);
+
+    const rotated = await svc.rotateInfraHealthExternalMonitorToken(
+      (await db.select().from(projectInfraHealthChecks).where(eq(projectInfraHealthChecks.id, healthCheckId)))[0].projectId,
+      healthCheckId,
+    );
+    expect(rotated?.token).toMatch(/^pcmon_/);
+    expect(rotated?.healthCheck.externalMonitorEnabled).toBe(true);
+    expect(rotated?.healthCheck.externalMonitorTokenHint).toBe(rotated?.token.slice(-8));
+
+    const rejected = await svc.recordExternalInfraHealthResult(healthCheckId, "wrong-token", {
+      status: "unhealthy",
+      error: "Should not persist",
+    });
+    expect(rejected).toBeNull();
+
+    const recorded = await svc.recordExternalInfraHealthResult(healthCheckId, rotated!.token, {
+      status: "degraded",
+      checkedAt: new Date("2026-05-23T11:00:00.000Z"),
+      latencyMs: 1300,
+      error: "Slow response",
+      sourceId: "external-monitor-1",
+      sourceDetail: "Public uptime monitor",
+      sourceMetadata: { region: "iad" },
+    });
+
+    expect(recorded).toMatchObject({
+      status: "degraded",
+      lastLatencyMs: 1300,
+      lastError: "Slow response",
+      lastSourceKind: "external_monitor",
+      lastSourceId: "external-monitor-1",
+      lastSourceDetail: "Public uptime monitor",
+      lastSourceMetadata: { region: "iad" },
+    });
+    expect(recorded?.lastCheckedAt?.toISOString()).toBe("2026-05-23T11:00:00.000Z");
+    expect(await db.select().from(projectInfraIncidents)).toHaveLength(0);
+
+    const revoked = await svc.revokeInfraHealthExternalMonitorToken(recorded!.projectId, healthCheckId);
+    expect(revoked?.externalMonitorEnabled).toBe(false);
+    const rejectedAfterRevoke = await svc.recordExternalInfraHealthResult(healthCheckId, rotated!.token, {
+      status: "healthy",
+    });
+    expect(rejectedAfterRevoke).toBeNull();
   });
 
   it("creates and reuses an open incident for degraded checks", async () => {

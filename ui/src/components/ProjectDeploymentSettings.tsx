@@ -317,6 +317,10 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
   const [form, setForm] = useState(EMPTY_TARGET_FORM);
   const [infraForm, setInfraForm] = useState(EMPTY_INFRA_TARGET_FORM);
   const [healthForm, setHealthForm] = useState(EMPTY_HEALTH_FORM);
+  const [externalMonitorToken, setExternalMonitorToken] = useState<{
+    healthCheckId: string;
+    token: string;
+  } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const targetQueryKey = queryKeys.projects.deploymentTargets(project.id, selectedCompanyId ?? undefined);
@@ -428,6 +432,22 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
         selectedCompanyId ?? undefined,
       ),
     onSuccess: invalidate,
+  });
+  const rotateExternalMonitorToken = useMutation({
+    mutationFn: (healthCheckId: string) =>
+      projectsApi.rotateInfraHealthExternalMonitorToken(project.id, healthCheckId, selectedCompanyId ?? undefined),
+    onSuccess: (result) => {
+      setExternalMonitorToken({ healthCheckId: result.healthCheck.id, token: result.token });
+      invalidate();
+    },
+  });
+  const revokeExternalMonitorToken = useMutation({
+    mutationFn: (healthCheckId: string) =>
+      projectsApi.revokeInfraHealthExternalMonitorToken(project.id, healthCheckId, selectedCompanyId ?? undefined),
+    onSuccess: (_result, healthCheckId) => {
+      setExternalMonitorToken((current) => (current?.healthCheckId === healthCheckId ? null : current));
+      invalidate();
+    },
   });
   const updateIncident = useMutation({
     mutationFn: ({ incidentId, status }: { incidentId: string; status: "investigating" | "resolved" | "ignored" }) =>
@@ -887,6 +907,22 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     {check.url ? <div className="break-all">URL: {check.url}</div> : null}
                     {check.expectedStatus ? <div>Expected: HTTP {check.expectedStatus}</div> : null}
                     {check.lastCheckedAt ? <div>Last checked: {formatDate(check.lastCheckedAt)}</div> : null}
+                    {check.lastSourceKind ? (
+                      <div>
+                        Source: {check.lastSourceKind}
+                        {check.lastSourceId ? ` · ${check.lastSourceId}` : ""}
+                      </div>
+                    ) : null}
+                    {check.externalMonitorEnabled ? (
+                      <div>
+                        External monitor token enabled{check.externalMonitorTokenHint ? ` · ...${check.externalMonitorTokenHint}` : ""}
+                      </div>
+                    ) : null}
+                    {externalMonitorToken?.healthCheckId === check.id ? (
+                      <div className="break-all rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-mono text-[11px] text-amber-200">
+                        New monitor token, shown once: {externalMonitorToken.token}
+                      </div>
+                    ) : null}
                     {check.lastError ? <div className="break-words text-destructive">Error: {check.lastError}</div> : null}
                   </div>
                 </div>
@@ -909,6 +945,26 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                   >
                     Unhealthy
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={rotateExternalMonitorToken.isPending}
+                    onClick={() => rotateExternalMonitorToken.mutate(check.id)}
+                  >
+                    {check.externalMonitorEnabled ? "Rotate monitor token" : "Create monitor token"}
+                  </Button>
+                  {check.externalMonitorEnabled ? (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="h-6 px-2"
+                      disabled={revokeExternalMonitorToken.isPending}
+                      onClick={() => revokeExternalMonitorToken.mutate(check.id)}
+                    >
+                      Revoke token
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </div>

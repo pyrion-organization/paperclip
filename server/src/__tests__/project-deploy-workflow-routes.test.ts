@@ -18,6 +18,9 @@ const mockProjectService = vi.hoisted(() => ({
   listInfraHealthChecks: vi.fn(),
   getInfraHealthCheck: vi.fn(),
   createInfraHealthCheck: vi.fn(),
+  rotateInfraHealthExternalMonitorToken: vi.fn(),
+  revokeInfraHealthExternalMonitorToken: vi.fn(),
+  recordExternalInfraHealthResult: vi.fn(),
   recordInfraHealthResult: vi.fn(),
   listInfraIncidents: vi.fn(),
   getInfraIncident: vi.fn(),
@@ -206,6 +209,12 @@ function buildInfraHealthCheck(overrides: Record<string, unknown> = {}) {
     lastCheckedAt: null,
     lastLatencyMs: null,
     lastError: null,
+    lastSourceKind: null,
+    lastSourceId: null,
+    lastSourceDetail: null,
+    lastSourceMetadata: null,
+    externalMonitorEnabled: false,
+    externalMonitorTokenHint: null,
     enabled: true,
     metadata: null,
     ...overrides,
@@ -345,6 +354,25 @@ describe("project deploy workflow routes", () => {
     mockProjectService.getInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
       buildInfraHealthCheck(data),
+    );
+    mockProjectService.rotateInfraHealthExternalMonitorToken.mockResolvedValue({
+      healthCheck: buildInfraHealthCheck({ externalMonitorEnabled: true, externalMonitorTokenHint: "abcd1234" }),
+      token: "pcmon_test_abcd1234",
+    });
+    mockProjectService.revokeInfraHealthExternalMonitorToken.mockResolvedValue(
+      buildInfraHealthCheck({ externalMonitorEnabled: false, externalMonitorTokenHint: null }),
+    );
+    mockProjectService.recordExternalInfraHealthResult.mockImplementation(async (_healthCheckId, _token, data) =>
+      buildInfraHealthCheck({
+        status: data.status,
+        lastCheckedAt: data.checkedAt ?? new Date("2026-05-23T00:00:00.000Z"),
+        lastLatencyMs: data.latencyMs ?? null,
+        lastError: data.error ?? null,
+        lastSourceKind: "external_monitor",
+        lastSourceId: data.sourceId ?? null,
+        lastSourceDetail: data.sourceDetail ?? null,
+        lastSourceMetadata: data.sourceMetadata ?? null,
+      }),
     );
     mockProjectService.recordInfraHealthResult.mockImplementation(async (_projectId, _healthCheckId, data) =>
       buildInfraHealthCheck({
@@ -702,6 +730,73 @@ describe("project deploy workflow routes", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(422);
     expect(mockIssueService.create).not.toHaveBeenCalled();
     expect(mockProjectService.createInfraIncident).not.toHaveBeenCalled();
+  });
+
+  it("rotates, uses, and revokes external monitor tokens for health checks", async () => {
+    const app = await createApp("board");
+
+    const rotateRes = await request(app)
+      .post("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888/external-monitor-token")
+      .send({});
+
+    expect(rotateRes.status, JSON.stringify(rotateRes.body)).toBe(200);
+    expect(rotateRes.body).toMatchObject({
+      token: "pcmon_test_abcd1234",
+      healthCheck: {
+        externalMonitorEnabled: true,
+        externalMonitorTokenHint: "abcd1234",
+      },
+    });
+
+    const recordRes = await request(app)
+      .post("/api/external/infra-health-checks/88888888-8888-4888-8888-888888888888/results")
+      .set("Authorization", "Bearer pcmon_test_abcd1234")
+      .send({
+        status: "degraded",
+        latencyMs: 1400,
+        sourceId: "uptime-monitor-1",
+        sourceDetail: "External uptime monitor reported slow response",
+        sourceMetadata: { region: "iad" },
+      });
+
+    expect(recordRes.status, JSON.stringify(recordRes.body)).toBe(200);
+    expect(mockProjectService.recordExternalInfraHealthResult).toHaveBeenCalledWith(
+      "88888888-8888-4888-8888-888888888888",
+      "pcmon_test_abcd1234",
+      expect.objectContaining({
+        status: "degraded",
+        latencyMs: 1400,
+        sourceId: "uptime-monitor-1",
+      }),
+    );
+    expect(mockIssueService.create).not.toHaveBeenCalled();
+    expect(mockProjectService.createInfraIncident).not.toHaveBeenCalled();
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        actorType: "system",
+        actorId: "external_monitor",
+        action: "project.infra_health_result_recorded",
+      }),
+    );
+
+    const revokeRes = await request(app)
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888/external-monitor-token");
+    expect(revokeRes.status, JSON.stringify(revokeRes.body)).toBe(200);
+    expect(mockProjectService.revokeInfraHealthExternalMonitorToken).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "88888888-8888-4888-8888-888888888888",
+    );
+  });
+
+  it("rejects external health results without a monitor token", async () => {
+    const app = await createApp("board");
+    const res = await request(app)
+      .post("/api/external/infra-health-checks/88888888-8888-4888-8888-888888888888/results")
+      .send({ status: "healthy" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(401);
+    expect(mockProjectService.recordExternalInfraHealthResult).not.toHaveBeenCalled();
   });
 
   it("creates approval-gated infra action proposals for open incidents", async () => {

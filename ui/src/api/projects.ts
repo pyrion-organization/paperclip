@@ -81,6 +81,15 @@ export const projectsApi = {
       projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/results`),
       data,
     ),
+  rotateInfraHealthExternalMonitorToken: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.post<{ healthCheck: ProjectInfraHealthCheck; token: string }>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/external-monitor-token`),
+      {},
+    ),
+  revokeInfraHealthExternalMonitorToken: (projectId: string, healthCheckId: string, companyId?: string) =>
+    api.delete<ProjectInfraHealthCheck>(
+      projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}/external-monitor-token`),
+    ),
   removeInfraHealthCheck: (projectId: string, healthCheckId: string, companyId?: string) =>
     api.delete<ProjectInfraHealthCheck>(
       projectPath(projectId, companyId, `/infra-health-checks/${encodeURIComponent(healthCheckId)}`),

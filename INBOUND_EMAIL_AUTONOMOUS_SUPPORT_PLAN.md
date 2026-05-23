@@ -914,6 +914,9 @@ Implemented the first infra topology and health foundation:
   providers, exposed on infra targets for planning and UI visibility,
 - validation that rejects provider credentials, tokens, passwords, and API keys
   from ordinary infrastructure target metadata,
+- per-health-check external monitor tokens that accept evidence-only status
+  reports through a narrow public endpoint without board, provider, deploy, or
+  repair authority,
 - no automatic provider repair, failover, DNS, SSH, or VPS mutation.
 
 Phase 6 is now implemented as a safe foundation. Provider repair and failover
@@ -952,9 +955,9 @@ foundation:
 - rejected source ID reuse when the raw message bytes differ,
 - kept external monitoring evidence-only and did not add provider mutations,
   automatic repair, failover, or production deploy execution.
-- added evidence-only health result source fields so external monitors can
-  submit status, source ID/detail, and metadata without gaining provider repair
-  authority.
+- added evidence-only health result source fields and token-protected external
+  monitor ingestion so external monitors can submit status, source ID/detail,
+  and metadata without gaining provider repair authority.
 - documented the external backup handoff format and operator downtime recovery
   procedure for preserved raw `.eml` messages.
 
