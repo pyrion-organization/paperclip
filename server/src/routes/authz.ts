@@ -78,6 +78,7 @@ export function getActorInfo(req: Request) {
     actorType: "user" as const,
     actorId: req.actor.userId ?? "board",
     agentId: null,
+    userId: req.actor.userId ?? "board",
     runId: req.actor.runId ?? null,
   };
 }

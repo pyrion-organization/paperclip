@@ -123,6 +123,23 @@ describe("calendar routes", () => {
     );
   });
 
+  it("passes board user attribution to calendar item creation", async () => {
+    const res = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/calendar/items")
+      .send({ title: "Renew domain", category: "domain" });
+
+    expect(res.status).toBe(201);
+    expect(mockCalendarService.create).toHaveBeenCalledWith(
+      "company-1",
+      expect.objectContaining({ title: "Renew domain" }),
+      expect.objectContaining({
+        actorType: "user",
+        actorId: "user-1",
+        userId: "user-1",
+      }),
+    );
+  });
+
   it("rejects agent direct item mutations", async () => {
     const res = await request(appForActor(agentActor))
       .post("/api/companies/company-1/calendar/items")
@@ -142,7 +159,7 @@ describe("calendar routes", () => {
       "company-1",
       "item-1",
       expect.objectContaining({ nextDueDate: "2026-06-30" }),
-      expect.objectContaining({ actorType: "user", actorId: "user-1" }),
+      expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
       { approvalConfirmed: true },
     );
   });
