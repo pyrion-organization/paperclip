@@ -159,6 +159,7 @@ export type ListPageOptions = {
 export type ListInboundEmailMessagesOptions = ListPageOptions & {
   status?: string;
   classificationCategory?: string;
+  classificationReview?: string;
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -173,6 +174,7 @@ export type ListInboundEmailExternalIntakeOptions = ListPageOptions & {
 type NormalizedListInboundEmailMessagesOptions = ListPageOptions & {
   status?: InboundEmailMessageStatus;
   classificationCategory?: InboundEmailClassificationCategory;
+  classificationReview?: "low_confidence";
   mailboxId?: string;
   q?: string;
   order?: "asc" | "desc";
@@ -182,6 +184,8 @@ export type ListPage<T> = {
   items: T[];
   nextCursor: string | null;
 };
+
+const INBOUND_EMAIL_CLASSIFICATION_REVIEW_CONFIDENCE_MAX = 60;
 
 export type EmailWorkerJobRunResult =
   | {
@@ -750,6 +754,11 @@ function normalizeListMessagesOptions(
     throw unprocessable("Invalid inbound email classification category");
   }
 
+  const classificationReviewInput = options?.classificationReview?.trim();
+  if (classificationReviewInput && classificationReviewInput !== "low_confidence") {
+    throw unprocessable("Invalid inbound email classification review filter");
+  }
+
   const mailboxId = options?.mailboxId?.trim();
   if (mailboxId && !UUID_RE.test(mailboxId)) {
     throw unprocessable("Invalid inbound email mailbox filter");
@@ -759,6 +768,7 @@ function normalizeListMessagesOptions(
     ...options,
     status: statusResult?.success ? statusResult.data : undefined,
     classificationCategory: classificationCategoryResult?.success ? classificationCategoryResult.data : undefined,
+    classificationReview: classificationReviewInput === "low_confidence" ? "low_confidence" : undefined,
     mailboxId: mailboxId || undefined,
   };
 }
@@ -2764,6 +2774,15 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
         }
         if (filters?.classificationCategory) {
           conditions.push(eq(inboundEmailMessages.classificationCategory, filters.classificationCategory));
+        }
+        if (filters?.classificationReview === "low_confidence") {
+          conditions.push(sql`(
+            ${inboundEmailMessages.classifiedAt} is not null
+            and (
+              ${inboundEmailMessages.classificationCategory} = 'unclear'
+              or coalesce(${inboundEmailMessages.classificationConfidence}, 0) <= ${INBOUND_EMAIL_CLASSIFICATION_REVIEW_CONFIDENCE_MAX}
+            )
+          )`);
         }
         if (filters?.mailboxId) {
           conditions.push(eq(inboundEmailMessages.mailboxId, filters.mailboxId));

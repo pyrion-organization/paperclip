@@ -82,6 +82,7 @@ const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; la
 const PROCESSED_EMAIL_PAGE_SIZE = 25;
 const EXTERNAL_INTAKE_PAGE_SIZE = 10;
 const QUARANTINE_PAGE_SIZE = 10;
+const CLASSIFICATION_REVIEW_PAGE_SIZE = 10;
 const QUARANTINE_CLASSIFICATIONS: InboundEmailClassificationCategory[] = [
   "unsafe_or_prompt_injection",
   "spam_or_irrelevant",
@@ -1169,6 +1170,77 @@ function QuarantineEmailList({ companyId }: { companyId: string }) {
   );
 }
 
+function ClassificationReviewList({ companyId }: { companyId: string }) {
+  const reviewQuery = useQuery({
+    queryKey: [...queryKeys.inboundEmail.messages(companyId), { classificationReview: "low_confidence" }],
+    queryFn: () => companiesApi.listInboundEmailMessages(companyId, {
+      classificationReview: "low_confidence",
+      limit: CLASSIFICATION_REVIEW_PAGE_SIZE,
+      order: "desc",
+    }),
+    enabled: Boolean(companyId),
+  });
+
+  const rows = reviewQuery.data?.items ?? [];
+
+  if (reviewQuery.isError) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <span className="font-medium">Classification review failed.</span>{" "}
+          {errorMessage(reviewQuery.error, "The low-confidence email list could not be loaded.")}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-card/60">
+      {reviewQuery.isLoading ? (
+        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading classification review...
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          No low-confidence or unclear classified emails need review.
+        </div>
+      ) : (
+        rows.map((message) => (
+          <div key={message.id} className="grid gap-2 border-t border-border px-4 py-3 first:border-t-0 lg:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1.1fr)_minmax(220px,1fr)_120px]">
+            <div className="min-w-0">
+              <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${statusClassName(message.status)}`}>
+                {messageStatusLabel(message.status)}
+              </Badge>
+              <div className="text-xs text-muted-foreground">{formatTime(message.receivedAt ?? message.createdAt)}</div>
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">{message.subject || "(No subject)"}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">{message.fromAddress || "Unknown sender"}</div>
+              <ClassificationBadges message={message} />
+            </div>
+            <div className="min-w-0 break-words text-xs text-muted-foreground">
+              {message.classificationSummary || message.error || message.skipReason || message.messageId || message.rawSha256}
+            </div>
+            <div className="flex items-start justify-start lg:justify-end">
+              {message.createdIssueId ? (
+                <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/issues/${message.createdIssueId}`}>
+                  <ExternalLink className="h-3 w-3" />
+                  Issue
+                </Link>
+              ) : (
+                <span className="text-xs text-muted-foreground">No issue</span>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) {
   const failedTotal = dashboard.summary.failedJobCount + dashboard.summary.failedMessageCount;
   const activeQueue = dashboard.summary.pendingJobCount;
@@ -1440,6 +1512,14 @@ export function InboundEmailOps() {
         defaultOpen={false}
       >
         <QuarantineEmailList companyId={selectedCompanyId!} />
+      </OpsPanel>
+
+      <OpsPanel
+        title="Classification Review"
+        description="Unclear or low-confidence classified emails that need operator review before tuning routing rules."
+        defaultOpen={false}
+      >
+        <ClassificationReviewList companyId={selectedCompanyId!} />
       </OpsPanel>
 
       <OpsPanel

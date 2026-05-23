@@ -815,6 +815,16 @@ Deliverables:
 - sample/eval corpus,
 - human-review queue for low-confidence cases.
 
+Implemented Phase 3 foundation without adding an LLM call path:
+
+- deterministic classifier remains the authoritative fallback and policy input,
+- low-confidence threshold is represented by the Email Ops Classification Review
+  queue for `unclear` or confidence <= 60 classified messages,
+- classifier eval corpus covers unsafe input, infra incidents, code bugs,
+  account/access, feature requests, how-to questions, and vague reports,
+- no classifier output can directly run agents, deploy code, or repair
+  infrastructure.
+
 ### Phase 4: Coding Agent Automation
 
 Allow safe code-bug reports to create assigned agent tasks.

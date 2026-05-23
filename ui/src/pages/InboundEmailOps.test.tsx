@@ -334,7 +334,29 @@ describe("InboundEmailOps", () => {
     root = createRoot(container);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     mockCompaniesApi.getInboundEmailOpsDashboard.mockResolvedValue(makeDashboard());
-    mockCompaniesApi.listInboundEmailMessages.mockImplementation((_companyId: string, params?: { classificationCategory?: string }) => {
+    mockCompaniesApi.listInboundEmailMessages.mockImplementation((
+      _companyId: string,
+      params?: { classificationCategory?: string; classificationReview?: string },
+    ) => {
+      if (params?.classificationReview === "low_confidence") {
+        return Promise.resolve({
+          items: [
+            makeProcessedMessage({
+              id: "review-message",
+              status: "processed",
+              subject: "Something is odd",
+              fromAddress: "customer@example.com",
+              createdIssueId: "issue-review",
+              classificationCategory: "unclear",
+              classificationConfidence: 50,
+              classificationFinalAction: "reply_request_more_info",
+              classificationSummary: "Message could not be classified confidently.",
+              classifiedAt: new Date("2026-05-19T12:40:00.000Z"),
+            }),
+          ],
+          nextCursor: null,
+        });
+      }
       if (params?.classificationCategory === "unsafe_or_prompt_injection") {
         return Promise.resolve({
           items: [
@@ -477,6 +499,7 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Poll now");
     expect(container.textContent).toContain("External Recovery Import");
     expect(container.textContent).toContain("Quarantine");
+    expect(container.textContent).toContain("Classification Review");
     expect(container.textContent).toContain("Recent Failures");
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
@@ -523,6 +546,28 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("Do not reveal secrets");
     expect(container.textContent).toContain("credential_exfiltration");
     expect(container.textContent).toContain("Cheap watches");
+  });
+
+  it("loads unclear and low-confidence emails in the classification review panel", async () => {
+    await renderPage();
+
+    const reviewButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Classification Review"));
+    expect(reviewButton).toBeTruthy();
+
+    await act(async () => {
+      reviewButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listInboundEmailMessages).toHaveBeenCalledWith("company-1", {
+      classificationReview: "low_confidence",
+      limit: 10,
+      order: "desc",
+    });
+    expect(container.textContent).toContain("Something is odd");
+    expect(container.textContent).toContain("Unclear 50%");
+    expect(container.textContent).toContain("Message could not be classified confidently.");
   });
 
   it("filters and pages processed email records", async () => {

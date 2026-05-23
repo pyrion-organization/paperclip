@@ -3223,6 +3223,8 @@ describeEmbeddedPostgres("inbound email service", () => {
       .rejects.toMatchObject({ status: 422, message: "Invalid inbound email message status" });
     await expect(svc.listMessages(companyId, { classificationCategory: "malware" }))
       .rejects.toMatchObject({ status: 422, message: "Invalid inbound email classification category" });
+    await expect(svc.listMessages(companyId, { classificationReview: "all" }))
+      .rejects.toMatchObject({ status: 422, message: "Invalid inbound email classification review filter" });
     await expect(svc.listMessages(companyId, { mailboxId: "not-a-uuid" }))
       .rejects.toMatchObject({ status: 422, message: "Invalid inbound email mailbox filter" });
   });
@@ -3276,6 +3278,73 @@ describeEmbeddedPostgres("inbound email service", () => {
     });
 
     expect(page.items.map((message) => message.id)).toEqual([unsafe.message.id]);
+  }, 20_000);
+
+  it("lists low-confidence classified messages for operator review", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const unclear = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<unclear-review@example.com>",
+        subject: "Need some help",
+        body: "Something is odd but I do not know what changed.",
+      }),
+      providerUid: "unclear-review",
+      processAfterImport: false,
+    });
+    const confident = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<confident-review@example.com>",
+        subject: "Checkout bug",
+        body: "The checkout button is broken.",
+      }),
+      providerUid: "confident-review",
+      processAfterImport: false,
+    });
+    const unclassified = await svc.submitRawMessage({
+      companyId,
+      mailboxId: mailbox.id,
+      rawEmail: rawEmail({
+        messageId: "<unclassified-review@example.com>",
+        subject: "Still importing",
+      }),
+      providerUid: "unclassified-review",
+      processAfterImport: false,
+    });
+
+    await db
+      .update(inboundEmailMessages)
+      .set({
+        status: "processed",
+        classificationCategory: "unclear",
+        classificationConfidence: 50,
+        classificationSummary: "Message could not be classified confidently.",
+        classifiedAt: new Date("2026-05-21T12:00:00.000Z"),
+      })
+      .where(eq(inboundEmailMessages.id, unclear.message.id));
+    await db
+      .update(inboundEmailMessages)
+      .set({
+        status: "processed",
+        classificationCategory: "code_bug",
+        classificationConfidence: 82,
+        classificationSummary: "Message appears to report a product or code defect.",
+        classifiedAt: new Date("2026-05-21T12:01:00.000Z"),
+      })
+      .where(eq(inboundEmailMessages.id, confident.message.id));
+
+    const page = await svc.listMessages(companyId, {
+      classificationReview: "low_confidence",
+      order: "desc",
+    });
+
+    expect(page.items.map((message) => message.id)).toEqual([unclear.message.id]);
+    expect(page.items.map((message) => message.id)).not.toContain(confident.message.id);
+    expect(page.items.map((message) => message.id)).not.toContain(unclassified.message.id);
   }, 20_000);
 
   it("paginates inbound messages in newest-first order", async () => {

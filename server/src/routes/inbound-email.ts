@@ -181,11 +181,21 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService) {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const classificationCategory =
       typeof req.query.classificationCategory === "string" ? req.query.classificationCategory : undefined;
+    const classificationReview =
+      typeof req.query.classificationReview === "string" ? req.query.classificationReview : undefined;
     const mailboxId = typeof req.query.mailboxId === "string" ? req.query.mailboxId : undefined;
     const q = typeof req.query.q === "string" ? req.query.q : undefined;
     const order = req.query.order === "desc" ? "desc" : "asc";
     res.json(
-      await svc.listMessages(companyId, { ...pageOptions(req), status, classificationCategory, mailboxId, q, order }),
+      await svc.listMessages(companyId, {
+        ...pageOptions(req),
+        status,
+        classificationCategory,
+        classificationReview,
+        mailboxId,
+        q,
+        order,
+      }),
     );
   });
 
