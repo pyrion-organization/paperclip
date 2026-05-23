@@ -3,7 +3,6 @@ export const EXTERNAL_INTAKE_RATE_LIMIT_MAX_REQUESTS = 30;
 
 export type ExternalIntakeRateLimitActor = {
   mailboxId: string;
-  tokenHash: string;
   ip: string;
 };
 
@@ -29,7 +28,7 @@ export function createExternalIntakeRateLimiter(options: {
   const hitsByKey = new Map<string, number[]>();
 
   function key(actor: ExternalIntakeRateLimitActor) {
-    return `${actor.mailboxId}:${actor.tokenHash}:${actor.ip}`;
+    return `${actor.mailboxId}:${actor.ip}`;
   }
 
   return {

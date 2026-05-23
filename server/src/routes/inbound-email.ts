@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
@@ -56,10 +55,6 @@ function externalIntakeTokenFromRequest(req: Request) {
   return req.header("x-paperclip-external-intake-token")?.trim() ?? "";
 }
 
-function hashExternalIntakeToken(token: string) {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 export type InboundEmailRoutesOptions = {
   externalIntakeRateLimiter?: ExternalIntakeRateLimiter;
 };
@@ -81,7 +76,6 @@ export function inboundEmailRoutes(db: Db, storage?: StorageService, options: In
       }
       const rateLimit = externalIntakeRateLimiter.consume({
         mailboxId,
-        tokenHash: hashExternalIntakeToken(token),
         ip: req.ip ?? "unknown",
       });
       res.setHeader("X-RateLimit-Limit", String(rateLimit.limit));

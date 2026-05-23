@@ -4119,6 +4119,62 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(records.map((record) => record.sourceId)).toEqual(["rate-limited-first"]);
   });
 
+  it("rate limits rotating invalid external intake tokens by mailbox and IP", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+    const app = express();
+    app.use(express.json({ limit: "11mb" }));
+    app.use((req, _res, next) => {
+      req.actor = {
+        type: "board",
+        source: "local_implicit",
+        userId: "board-user",
+        isInstanceAdmin: true,
+      };
+      next();
+    });
+    app.use(inboundEmailRoutes(db, undefined, {
+      externalIntakeRateLimiter: createExternalIntakeRateLimiter({
+        maxRequests: 1,
+        windowMs: 60_000,
+        now: () => 1_000,
+      }),
+    }));
+    app.use(errorHandler);
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", "Bearer wrong-token-1")
+      .send({
+        sourceKind: "webhook",
+        sourceId: "invalid-token-first",
+        rawEmail: rawEmail({ messageId: "<invalid-token-first@example.com>" }),
+      })
+      .expect(404);
+
+    const limited = await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", "Bearer wrong-token-2")
+      .send({
+        sourceKind: "webhook",
+        sourceId: "invalid-token-second",
+        rawEmail: rawEmail({ messageId: "<invalid-token-second@example.com>" }),
+      })
+      .expect(429);
+
+    expect(limited.body).toMatchObject({
+      error: "External inbound email intake rate limit exceeded",
+      retryAfterSeconds: 60,
+    });
+    expect(limited.headers["retry-after"]).toBe("60");
+
+    const records = await db
+      .select()
+      .from(inboundEmailExternalIntakeRecords)
+      .where(eq(inboundEmailExternalIntakeRecords.companyId, companyId));
+    expect(records).toHaveLength(0);
+  });
+
   it("deletes a mailbox, soft-deletes its secret, and cascades dependent rows", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
