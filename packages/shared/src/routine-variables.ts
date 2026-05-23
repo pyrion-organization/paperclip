@@ -84,7 +84,7 @@ export function stringifyRoutineVariableValue(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (value == null) return "";
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? String(value);
   } catch {
     return String(value);
   }
@@ -97,7 +97,7 @@ export function interpolateRoutineTemplate(
   if (template == null) return null;
   if (!values || Object.keys(values).length === 0) return template;
   return template.replace(ROUTINE_VARIABLE_MATCHER, (match, rawName: string) => {
-    if (!(rawName in values)) return match;
+    if (!Object.prototype.hasOwnProperty.call(values, rawName)) return match;
     return stringifyRoutineVariableValue(values[rawName]);
   });
 }

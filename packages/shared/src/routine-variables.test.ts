@@ -5,6 +5,7 @@ import {
   getBuiltinRoutineVariableValues,
   interpolateRoutineTemplate,
   isBuiltinRoutineVariable,
+  stringifyRoutineVariableValue,
   syncRoutineVariablesWithTemplate,
 } from "./routine-variables.js";
 
@@ -42,6 +43,16 @@ describe("routine variable helpers", () => {
         priority: "high",
       }),
     ).toBe("Review paperclip for high");
+  });
+
+  it("leaves inherited object properties unresolved during interpolation", () => {
+    expect(
+      interpolateRoutineTemplate("Run {{constructor}} on {{repo}}", { repo: "paperclip" }),
+    ).toBe("Run {{constructor}} on paperclip");
+  });
+
+  it("stringifies values when JSON serialization returns undefined", () => {
+    expect(stringifyRoutineVariableValue(Symbol("routine"))).toBe("Symbol(routine)");
   });
 
   it("identifies built-in variable names", () => {
