@@ -4,6 +4,8 @@ import type {
   GitPushResult,
   GitStatusResponse,
   Project,
+  ProjectDeployEvent,
+  ProjectDeploymentTarget,
   ProjectFileDetail,
   ProjectFilesBranchSyncResult,
   ProjectFilesSummary,
@@ -33,6 +35,26 @@ export const projectsApi = {
     api.post<Project>(`/companies/${companyId}/projects`, data),
   update: (id: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<Project>(projectPath(id, companyId), data),
+  listDeploymentTargets: (projectId: string, companyId?: string) =>
+    api.get<ProjectDeploymentTarget[]>(projectPath(projectId, companyId, "/deployment-targets")),
+  createDeploymentTarget: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectDeploymentTarget>(projectPath(projectId, companyId, "/deployment-targets"), data),
+  updateDeploymentTarget: (projectId: string, deploymentTargetId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectDeploymentTarget>(
+      projectPath(projectId, companyId, `/deployment-targets/${encodeURIComponent(deploymentTargetId)}`),
+      data,
+    ),
+  removeDeploymentTarget: (projectId: string, deploymentTargetId: string, companyId?: string) =>
+    api.delete<ProjectDeploymentTarget>(
+      projectPath(projectId, companyId, `/deployment-targets/${encodeURIComponent(deploymentTargetId)}`),
+    ),
+  listDeployEvents: (projectId: string, companyId?: string) =>
+    api.get<ProjectDeployEvent[]>(projectPath(projectId, companyId, "/deploy-events")),
+  requestDeployApproval: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<{ approval: import("@paperclipai/shared").Approval; deployEvent: ProjectDeployEvent | null }>(
+      projectPath(projectId, companyId, "/deploy-approvals"),
+      data,
+    ),
   listWorkspaces: (projectId: string, companyId?: string) =>
     api.get<ProjectWorkspace[]>(projectPath(projectId, companyId, "/workspaces")),
   createWorkspace: (projectId: string, data: Record<string, unknown>, companyId?: string) =>

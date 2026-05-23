@@ -1,0 +1,261 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Project, ProjectDeploymentTarget } from "@paperclipai/shared";
+import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { projectsApi } from "../api/projects";
+import { useCompany } from "../context/CompanyContext";
+import { queryKeys } from "../lib/queryKeys";
+import { cn, formatDate } from "../lib/utils";
+
+const EMPTY_TARGET_FORM = {
+  name: "",
+  environment: "production",
+  provider: "manual",
+  targetUrl: "",
+  healthCheckUrl: "",
+  rollbackInstructions: "",
+};
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide",
+        status === "active"
+          ? "bg-green-500/15 text-green-700 dark:text-green-300"
+          : status === "approval_requested"
+            ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+            : "bg-muted text-muted-foreground",
+      )}
+    >
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
+  return {
+    name: form.name.trim(),
+    environment: form.environment.trim() || "production",
+    provider: form.provider.trim() || "manual",
+    targetUrl: form.targetUrl.trim() || null,
+    healthCheckUrl: form.healthCheckUrl.trim() || null,
+    rollbackInstructions: form.rollbackInstructions.trim() || null,
+  };
+}
+
+export function ProjectDeploymentSettings({ project }: { project: Project }) {
+  const { selectedCompanyId } = useCompany();
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState(EMPTY_TARGET_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const targetQueryKey = queryKeys.projects.deploymentTargets(project.id, selectedCompanyId ?? undefined);
+  const eventQueryKey = queryKeys.projects.deployEvents(project.id, selectedCompanyId ?? undefined);
+  const { data: targets = [], isLoading: targetsLoading, isError: targetsError } = useQuery({
+    queryKey: targetQueryKey,
+    queryFn: () => projectsApi.listDeploymentTargets(project.id, selectedCompanyId ?? undefined),
+  });
+  const { data: events = [], isLoading: eventsLoading, isError: eventsError } = useQuery({
+    queryKey: eventQueryKey,
+    queryFn: () => projectsApi.listDeployEvents(project.id, selectedCompanyId ?? undefined),
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: targetQueryKey });
+    queryClient.invalidateQueries({ queryKey: eventQueryKey });
+  };
+
+  const createTarget = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      projectsApi.createDeploymentTarget(project.id, data, selectedCompanyId ?? undefined),
+    onSuccess: () => {
+      setForm(EMPTY_TARGET_FORM);
+      invalidate();
+    },
+  });
+  const updateTarget = useMutation({
+    mutationFn: ({ targetId, data }: { targetId: string; data: Record<string, unknown> }) =>
+      projectsApi.updateDeploymentTarget(project.id, targetId, data, selectedCompanyId ?? undefined),
+    onSuccess: () => {
+      setEditingId(null);
+      invalidate();
+    },
+  });
+  const removeTarget = useMutation({
+    mutationFn: (targetId: string) =>
+      projectsApi.removeDeploymentTarget(project.id, targetId, selectedCompanyId ?? undefined),
+    onSuccess: invalidate,
+  });
+
+  const submitTarget = () => {
+    const payload = normalizeTargetPayload(form);
+    if (!payload.name) return;
+    createTarget.mutate(payload);
+  };
+
+  const toggleTargetStatus = (target: ProjectDeploymentTarget) => {
+    updateTarget.mutate({
+      targetId: target.id,
+      data: { status: target.status === "active" ? "disabled" : "active" },
+    });
+  };
+
+  return (
+    <div className="space-y-4 py-4">
+      <div className="space-y-1">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Deployment
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Approved deploy workflow metadata. Agents can request approval against these targets, but production deploy remains gated.
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-md border border-border/70 p-3">
+        <div className="grid gap-2 md:grid-cols-2">
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.name}
+            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Target name"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.environment}
+            onChange={(event) => setForm((current) => ({ ...current, environment: event.target.value }))}
+            placeholder="production"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.provider}
+            onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
+            placeholder="manual"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.targetUrl}
+            onChange={(event) => setForm((current) => ({ ...current, targetUrl: event.target.value }))}
+            placeholder="https://app.example.com"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.healthCheckUrl}
+            onChange={(event) => setForm((current) => ({ ...current, healthCheckUrl: event.target.value }))}
+            placeholder="https://app.example.com/health"
+          />
+          <input
+            className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
+            value={form.rollbackInstructions}
+            onChange={(event) => setForm((current) => ({ ...current, rollbackInstructions: event.target.value }))}
+            placeholder="Rollback instructions"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="xs"
+            className="h-6 px-2"
+            disabled={!form.name.trim() || createTarget.isPending}
+            onClick={submitTarget}
+          >
+            {createTarget.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+            Add target
+          </Button>
+          {createTarget.isError ? <span className="text-xs text-destructive">Failed to add target.</span> : null}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {targetsLoading ? (
+          <div className="text-xs text-muted-foreground">Loading deploy targets...</div>
+        ) : targetsError ? (
+          <div className="text-xs text-destructive">Failed to load deploy targets.</div>
+        ) : targets.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No deployment targets configured.
+          </div>
+        ) : (
+          targets.map((target) => (
+            <div key={target.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{target.name}</span>
+                    <StatusPill status={target.status} />
+                    <span className="text-[11px] text-muted-foreground">
+                      {target.environment} · {target.provider}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                    {target.targetUrl ? <div className="break-all">Target: {target.targetUrl}</div> : null}
+                    {target.healthCheckUrl ? <div className="break-all">Health: {target.healthCheckUrl}</div> : null}
+                    {target.rollbackInstructions ? <div>Rollback: {target.rollbackInstructions}</div> : null}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="h-6 px-2"
+                    disabled={updateTarget.isPending && editingId === target.id}
+                    onClick={() => {
+                      setEditingId(target.id);
+                      toggleTargetStatus(target);
+                    }}
+                  >
+                    {target.status === "active" ? "Disable" : "Enable"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={removeTarget.isPending}
+                    aria-label={`Delete deployment target ${target.name}`}
+                    onClick={() => {
+                      if (window.confirm(`Delete deployment target "${target.name}"?`)) {
+                        removeTarget.mutate(target.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted-foreground">Deploy events</div>
+        {eventsLoading ? (
+          <div className="text-xs text-muted-foreground">Loading deploy events...</div>
+        ) : eventsError ? (
+          <div className="text-xs text-destructive">Failed to load deploy events.</div>
+        ) : events.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No deploy approval requests recorded yet.
+          </div>
+        ) : (
+          events.slice(0, 10).map((event) => (
+            <div key={event.id} className="rounded-md border border-border/70 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <StatusPill status={event.status} />
+                  <span className="truncate text-sm">{event.summary}</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{formatDate(event.createdAt)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span>{event.changedFiles.length} files</span>
+                <span>{event.testsRun.length} tests</span>
+                {event.approvalId ? <span>Approval {event.approvalId.slice(0, 8)}</span> : null}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

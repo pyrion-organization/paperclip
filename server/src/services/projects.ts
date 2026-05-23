@@ -2,6 +2,8 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   projects,
+  projectDeploymentTargets,
+  projectDeployEvents,
   projectGoals,
   goals,
   pluginManagedResources,
@@ -16,6 +18,8 @@ import {
   isUuidLike,
   normalizeProjectUrlKey,
   type ProjectCodebase,
+  type ProjectDeployEvent,
+  type ProjectDeploymentTarget,
   type ProjectClientRef,
   type ProjectExecutionWorkspacePolicy,
   type ProjectGoalRef,
@@ -33,6 +37,8 @@ import { resolveManagedProjectWorkspaceDir } from "../home-paths.js";
 import { listActiveProjectClientLinks } from "./project-clients.js";
 
 type ProjectRow = typeof projects.$inferSelect;
+type ProjectDeploymentTargetRow = typeof projectDeploymentTargets.$inferSelect;
+type ProjectDeployEventRow = typeof projectDeployEvents.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 type WorkspaceRuntimeServiceRow = typeof workspaceRuntimeServices.$inferSelect;
 const REPO_ONLY_CWD_SENTINEL = "/__paperclip_repo_only__";
@@ -54,6 +60,15 @@ type CreateWorkspaceInput = {
   isPrimary?: boolean;
 };
 type UpdateWorkspaceInput = Partial<CreateWorkspaceInput>;
+type CreateDeploymentTargetInput = Omit<
+  typeof projectDeploymentTargets.$inferInsert,
+  "companyId" | "projectId"
+>;
+type UpdateDeploymentTargetInput = Partial<CreateDeploymentTargetInput>;
+type CreateDeployEventInput = Omit<
+  typeof projectDeployEvents.$inferInsert,
+  "companyId" | "projectId"
+>;
 
 interface ProjectWithGoals extends Omit<ProjectRow, "executionWorkspacePolicy"> {
   urlKey: string;
@@ -171,6 +186,47 @@ function toWorkspace(
     runtimeConfig: readProjectWorkspaceRuntimeConfig((row.metadata as Record<string, unknown> | null) ?? null),
     isPrimary: row.isPrimary,
     runtimeServices,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toDeploymentTarget(row: ProjectDeploymentTargetRow): ProjectDeploymentTarget {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    name: row.name,
+    environment: row.environment,
+    provider: row.provider,
+    targetUrl: row.targetUrl ?? null,
+    healthCheckUrl: row.healthCheckUrl ?? null,
+    deployNotes: row.deployNotes ?? null,
+    rollbackInstructions: row.rollbackInstructions ?? null,
+    status: row.status as ProjectDeploymentTarget["status"],
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toDeployEvent(row: ProjectDeployEventRow): ProjectDeployEvent {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId,
+    deploymentTargetId: row.deploymentTargetId ?? null,
+    issueId: row.issueId ?? null,
+    approvalId: row.approvalId ?? null,
+    status: row.status as ProjectDeployEvent["status"],
+    summary: row.summary,
+    changedFiles: row.changedFiles ?? [],
+    testsRun: row.testsRun ?? [],
+    rollbackPlan: row.rollbackPlan,
+    maintenanceMessage: row.maintenanceMessage ?? null,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    createdByAgentId: row.createdByAgentId ?? null,
+    createdByUserId: row.createdByUserId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -826,6 +882,128 @@ export function projectService(db: Db) {
           if (!row) return null;
           return { ...row, urlKey: deriveProjectUrlKey(row.name, row.id) };
         }),
+
+    listDeploymentTargets: async (projectId: string): Promise<ProjectDeploymentTarget[]> => {
+      const rows = await db
+        .select()
+        .from(projectDeploymentTargets)
+        .where(eq(projectDeploymentTargets.projectId, projectId))
+        .orderBy(asc(projectDeploymentTargets.environment), asc(projectDeploymentTargets.name));
+      return rows.map(toDeploymentTarget);
+    },
+
+    getDeploymentTarget: async (
+      projectId: string,
+      deploymentTargetId: string,
+    ): Promise<ProjectDeploymentTarget | null> => {
+      const row = await db
+        .select()
+        .from(projectDeploymentTargets)
+        .where(
+          and(
+            eq(projectDeploymentTargets.projectId, projectId),
+            eq(projectDeploymentTargets.id, deploymentTargetId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeploymentTarget(row) : null;
+    },
+
+    createDeploymentTarget: async (
+      projectId: string,
+      data: CreateDeploymentTargetInput,
+    ): Promise<ProjectDeploymentTarget | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectDeploymentTargets)
+        .values({
+          ...data,
+          companyId: project.companyId,
+          projectId,
+          updatedAt: new Date(),
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeploymentTarget(row) : null;
+    },
+
+    updateDeploymentTarget: async (
+      projectId: string,
+      deploymentTargetId: string,
+      data: UpdateDeploymentTargetInput,
+    ): Promise<ProjectDeploymentTarget | null> => {
+      const row = await db
+        .update(projectDeploymentTargets)
+        .set({
+          ...data,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(projectDeploymentTargets.projectId, projectId),
+            eq(projectDeploymentTargets.id, deploymentTargetId),
+          ),
+        )
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeploymentTarget(row) : null;
+    },
+
+    removeDeploymentTarget: async (
+      projectId: string,
+      deploymentTargetId: string,
+    ): Promise<ProjectDeploymentTarget | null> => {
+      const row = await db
+        .delete(projectDeploymentTargets)
+        .where(
+          and(
+            eq(projectDeploymentTargets.projectId, projectId),
+            eq(projectDeploymentTargets.id, deploymentTargetId),
+          ),
+        )
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeploymentTarget(row) : null;
+    },
+
+    listDeployEvents: async (projectId: string): Promise<ProjectDeployEvent[]> => {
+      const rows = await db
+        .select()
+        .from(projectDeployEvents)
+        .where(eq(projectDeployEvents.projectId, projectId))
+        .orderBy(desc(projectDeployEvents.createdAt), desc(projectDeployEvents.id));
+      return rows.map(toDeployEvent);
+    },
+
+    createDeployEvent: async (
+      projectId: string,
+      data: CreateDeployEventInput,
+    ): Promise<ProjectDeployEvent | null> => {
+      const project = await db
+        .select({ id: projects.id, companyId: projects.companyId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .then((rows) => rows[0] ?? null);
+      if (!project) return null;
+
+      const row = await db
+        .insert(projectDeployEvents)
+        .values({
+          ...data,
+          companyId: project.companyId,
+          projectId,
+          updatedAt: new Date(),
+        })
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return row ? toDeployEvent(row) : null;
+    },
 
     listWorkspaces: async (projectId: string): Promise<ProjectWorkspace[]> => {
       const rows = await db

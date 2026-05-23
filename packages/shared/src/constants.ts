@@ -304,6 +304,17 @@ export const PROJECT_STATUSES = [
   "cancelled",
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const PROJECT_DEPLOYMENT_TARGET_STATUSES = ["active", "disabled"] as const;
+export type ProjectDeploymentTargetStatus = (typeof PROJECT_DEPLOYMENT_TARGET_STATUSES)[number];
+export const PROJECT_DEPLOY_EVENT_STATUSES = [
+  "approval_requested",
+  "approved",
+  "rejected",
+  "deployed",
+  "failed",
+  "rolled_back",
+] as const;
+export type ProjectDeployEventStatus = (typeof PROJECT_DEPLOY_EVENT_STATUSES)[number];
 
 export const CLIENT_STATUSES = ["active", "inactive", "archived"] as const;
 export type ClientStatus = (typeof CLIENT_STATUSES)[number];
@@ -395,6 +406,7 @@ export const APPROVAL_TYPES = [
   "approve_ceo_strategy",
   "budget_override_required",
   "request_board_approval",
+  "deploy_change",
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
 

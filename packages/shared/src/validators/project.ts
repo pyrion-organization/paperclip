@@ -1,6 +1,22 @@
 import { z } from "zod";
-import { PROJECT_STATUSES } from "../constants.js";
+import { PROJECT_DEPLOYMENT_TARGET_STATUSES, PROJECT_STATUSES } from "../constants.js";
 import { envConfigSchema } from "./secret.js";
+
+const optionalTrimmedText = (max = 4000) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim().length === 0 ? null : value),
+    z.string().trim().max(max).optional().nullable(),
+  );
+
+const optionalUrlSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim().length === 0 ? null : value),
+  z.string().trim().url().optional().nullable(),
+);
+
+const deployEvidenceListSchema = z
+  .array(z.string().trim().min(1).max(500))
+  .max(100)
+  .default([]);
 
 const executionWorkspaceStrategySchema = z
   .object({
@@ -122,6 +138,38 @@ export const updateProjectSchema = z.object(projectFields).partial();
 export type UpdateProject = z.infer<typeof updateProjectSchema>;
 
 export type ProjectExecutionWorkspacePolicy = z.infer<typeof projectExecutionWorkspacePolicySchema>;
+
+export const createProjectDeploymentTargetSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  environment: z.string().trim().min(1).max(80).default("production"),
+  provider: z.string().trim().min(1).max(80).default("manual"),
+  targetUrl: optionalUrlSchema,
+  healthCheckUrl: optionalUrlSchema,
+  deployNotes: optionalTrimmedText(),
+  rollbackInstructions: optionalTrimmedText(),
+  status: z.enum(PROJECT_DEPLOYMENT_TARGET_STATUSES).default("active"),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectDeploymentTarget = z.infer<typeof createProjectDeploymentTargetSchema>;
+
+export const updateProjectDeploymentTargetSchema = createProjectDeploymentTargetSchema.partial();
+
+export type UpdateProjectDeploymentTarget = z.infer<typeof updateProjectDeploymentTargetSchema>;
+
+export const createProjectDeployApprovalSchema = z.object({
+  issueId: z.string().uuid(),
+  deploymentTargetId: z.string().uuid(),
+  summary: z.string().trim().min(1).max(4000),
+  changedFiles: deployEvidenceListSchema,
+  testsRun: deployEvidenceListSchema,
+  rollbackPlan: z.string().trim().min(1).max(4000),
+  risk: optionalTrimmedText(2000),
+  maintenanceMessage: optionalTrimmedText(2000),
+  metadata: z.record(z.unknown()).optional().nullable(),
+});
+
+export type CreateProjectDeployApproval = z.infer<typeof createProjectDeployApprovalSchema>;
 
 export const projectFilesPathSchema = z.object({
   path: z.string().optional().default(""),

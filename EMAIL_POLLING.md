@@ -131,6 +131,17 @@ Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enab
 - Projectless triage, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
 - The created issue description still treats the original email as untrusted evidence; agents receive the Paperclip issue, not raw email authority.
 
+## Approved deploy workflow foundation
+
+Paperclip now stores deployment readiness metadata without executing production deploys automatically.
+
+- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, rollback instructions, and active/disabled status.
+- Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
+- Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
+- Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
+- Disabled targets cannot receive deploy approval requests.
+- This foundation is intentionally approval-gated. It does not SSH to servers, run deploy commands, change DNS, or send customer maintenance mail automatically.
+
 ## Project resolution
 
 The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.

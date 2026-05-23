@@ -113,6 +113,10 @@ export const queryKeys = {
   projects: {
     list: (companyId: string) => ["projects", companyId] as const,
     detail: (id: string) => ["projects", "detail", id] as const,
+    deploymentTargets: (projectId: string, companyId?: string) =>
+      ["projects", "deployment-targets", projectId, companyId ?? null] as const,
+    deployEvents: (projectId: string, companyId?: string) =>
+      ["projects", "deploy-events", projectId, companyId ?? null] as const,
     filesSummary: (projectId: string, companyId?: string) =>
       ["projects", "files-summary", projectId, companyId ?? null] as const,
     filesTree: (projectId: string, relativePath: string, showIgnored: boolean, companyId?: string) =>

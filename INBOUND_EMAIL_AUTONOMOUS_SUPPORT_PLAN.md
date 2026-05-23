@@ -850,6 +850,25 @@ Deliverables:
 - rollback instructions,
 - user maintenance updates.
 
+Implemented the approved-deploy foundation:
+
+- project deployment targets with environment, provider, URLs, notes, rollback
+  instructions, and active/disabled status,
+- `deploy_change` approvals linked to the project issue,
+- approval payload evidence for changed files, tests run, target snapshot,
+  issue snapshot, risk, rollback plan, and optional maintenance text,
+- deploy event records for approval requested/approved/rejected visibility,
+- compact project configuration UI for targets and recent deploy events,
+- no automatic production deploy execution.
+
+Remaining Phase 5 work:
+
+- turn approved deploy events into a manual/agent-assisted deploy execution
+  handoff,
+- send maintenance/update messages only after an approved operator policy is in
+  place,
+- add rollback execution/status tracking after deploy execution exists.
+
 ### Phase 6: Infra Agent
 
 Add controlled infrastructure incident handling.
@@ -894,14 +913,15 @@ These should be decided before later phases:
 
 Continue toward approved deploy readiness without broadening email authority.
 
-The next implementation slice should add the deploy-target and approval model
-needed after an agent fixes a code bug:
+The next implementation slice should add the manual deploy execution handoff
+after a `deploy_change` approval is accepted:
 
-- project deployment target metadata,
-- approval request records for inbound-email-originated fixes,
-- deploy log/status visibility,
-- rollback-plan capture,
-- user maintenance/update messages after approval.
+- mark approved deploy events ready for execution,
+- let the requesting agent continue with explicit approval context,
+- record deploy started/succeeded/failed/rolled_back events,
+- keep rollback execution manual or separately approved until the execution path
+  is proven,
+- prepare maintenance-message sending, but keep it opt-in and approval-gated.
 
 Do not add automatic production deploys until the approval and rollback path is
 implemented and covered by focused tests.

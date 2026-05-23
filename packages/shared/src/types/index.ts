@@ -114,6 +114,8 @@ export type {
   ProjectClientRef,
   ProjectCodebase,
   ProjectCodebaseOrigin,
+  ProjectDeployEvent,
+  ProjectDeploymentTarget,
   ProjectGoalRef,
   ProjectManagedByPlugin,
   ProjectWorkspace,

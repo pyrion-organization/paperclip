@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import type { Db } from "@paperclipai/db";
 import {
+  createProjectDeployApprovalSchema,
+  createProjectDeploymentTargetSchema,
   createProjectSchema,
   projectFileBranchCreateSchema,
   projectFileBranchPushSchema,
@@ -16,6 +18,7 @@ import {
   isUuidLike,
   matchWorkspaceRuntimeServiceToCommand,
   updateProjectSchema,
+  updateProjectDeploymentTargetSchema,
   updateProjectWorkspaceSchema,
   workspaceRuntimeControlTargetSchema,
 } from "@paperclipai/shared";
@@ -42,7 +45,10 @@ import { assertCanManageProjectWorkspaceRuntimeServices } from "./workspace-runt
 import { getTelemetryClient } from "../telemetry.js";
 import { appendWithCap } from "../adapters/utils.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
+import { approvalService } from "../services/approvals.js";
 import { environmentService } from "../services/environments.js";
+import { issueApprovalService } from "../services/issue-approvals.js";
+import { issueService } from "../services/issues.js";
 import { secretService } from "../services/secrets.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
@@ -56,6 +62,9 @@ export function projectRoutes(db: Db) {
   const workspaceOperations = workspaceOperationService(db);
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
   const environmentsSvc = environmentService(db);
+  const approvalsSvc = approvalService(db);
+  const issueApprovalsSvc = issueApprovalService(db);
+  const issuesSvc = issueService(db);
 
   async function assertProjectEnvironmentSelection(companyId: string, environmentId: string | null | undefined) {
     if (environmentId === undefined || environmentId === null) return;
@@ -305,6 +314,264 @@ export function projectRoutes(db: Db) {
     });
 
     res.json(project);
+  });
+
+  router.get("/projects/:id/deployment-targets", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listDeploymentTargets(id));
+  });
+
+  router.post("/projects/:id/deployment-targets", validate(createProjectDeploymentTargetSchema), async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const target = await svc.createDeploymentTarget(id, req.body);
+    if (!target) {
+      res.status(422).json({ error: "Invalid deployment target payload" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.deployment_target_created",
+      entityType: "project",
+      entityId: id,
+      details: {
+        deploymentTargetId: target.id,
+        name: target.name,
+        environment: target.environment,
+        provider: target.provider,
+      },
+    });
+
+    res.status(201).json(target);
+  });
+
+  router.patch(
+    "/projects/:id/deployment-targets/:deploymentTargetId",
+    validate(updateProjectDeploymentTargetSchema),
+    async (req, res) => {
+      assertBoard(req);
+      const id = req.params.id as string;
+      const deploymentTargetId = req.params.deploymentTargetId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+
+      const target = await svc.updateDeploymentTarget(id, deploymentTargetId, req.body);
+      if (!target) {
+        res.status(404).json({ error: "Deployment target not found" });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.deployment_target_updated",
+        entityType: "project",
+        entityId: id,
+        details: {
+          deploymentTargetId: target.id,
+          changedKeys: Object.keys(req.body).sort(),
+        },
+      });
+
+      res.json(target);
+    },
+  );
+
+  router.delete("/projects/:id/deployment-targets/:deploymentTargetId", async (req, res) => {
+    assertBoard(req);
+    const id = req.params.id as string;
+    const deploymentTargetId = req.params.deploymentTargetId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const target = await svc.removeDeploymentTarget(id, deploymentTargetId);
+    if (!target) {
+      res.status(404).json({ error: "Deployment target not found" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.deployment_target_deleted",
+      entityType: "project",
+      entityId: id,
+      details: { deploymentTargetId: target.id, name: target.name },
+    });
+
+    res.json(target);
+  });
+
+  router.get("/projects/:id/deploy-events", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    res.json(await svc.listDeployEvents(id));
+  });
+
+  router.post("/projects/:id/deploy-approvals", validate(createProjectDeployApprovalSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+
+    const body = req.body as {
+      issueId: string;
+      deploymentTargetId: string;
+      summary: string;
+      changedFiles: string[];
+      testsRun: string[];
+      rollbackPlan: string;
+      risk?: string | null;
+      maintenanceMessage?: string | null;
+      metadata?: Record<string, unknown> | null;
+    };
+    const [issue, deploymentTarget] = await Promise.all([
+      issuesSvc.getById(body.issueId),
+      svc.getDeploymentTarget(id, body.deploymentTargetId),
+    ]);
+    if (!issue || issue.companyId !== project.companyId) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    if (issue.projectId !== project.id) {
+      res.status(422).json({ error: "Deploy approval issue must belong to this project" });
+      return;
+    }
+    if (!deploymentTarget || deploymentTarget.companyId !== project.companyId) {
+      res.status(404).json({ error: "Deployment target not found" });
+      return;
+    }
+    if (deploymentTarget.status !== "active") {
+      res.status(422).json({ error: "Deployment target is disabled" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const approval = await approvalsSvc.create(project.companyId, {
+      type: "deploy_change",
+      requestedByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+      requestedByUserId: actor.actorType === "user" ? actor.actorId : null,
+      status: "pending",
+      payload: {
+        source: "project_deploy_workflow",
+        project: {
+          id: project.id,
+          name: project.name,
+          urlKey: project.urlKey,
+        },
+        issue: {
+          id: issue.id,
+          identifier: issue.identifier ?? null,
+          title: issue.title,
+          status: issue.status,
+          priority: issue.priority,
+          originKind: issue.originKind ?? null,
+          originId: issue.originId ?? null,
+        },
+        deploymentTarget: {
+          id: deploymentTarget.id,
+          name: deploymentTarget.name,
+          environment: deploymentTarget.environment,
+          provider: deploymentTarget.provider,
+          targetUrl: deploymentTarget.targetUrl,
+          healthCheckUrl: deploymentTarget.healthCheckUrl,
+        },
+        summary: body.summary,
+        changedFiles: body.changedFiles,
+        testsRun: body.testsRun,
+        risk: body.risk ?? null,
+        rollbackPlan: body.rollbackPlan,
+        maintenanceMessage: body.maintenanceMessage ?? null,
+        requestedAt: new Date().toISOString(),
+        metadata: body.metadata ?? null,
+      },
+      decisionNote: null,
+      decidedByUserId: null,
+      decidedAt: null,
+      updatedAt: new Date(),
+    });
+
+    await issueApprovalsSvc.linkManyForApproval(approval.id, [issue.id], {
+      agentId: actor.agentId,
+      userId: actor.actorType === "user" ? actor.actorId : null,
+    });
+
+    const deployEvent = await svc.createDeployEvent(project.id, {
+      deploymentTargetId: deploymentTarget.id,
+      issueId: issue.id,
+      approvalId: approval.id,
+      status: "approval_requested",
+      summary: body.summary,
+      changedFiles: body.changedFiles,
+      testsRun: body.testsRun,
+      rollbackPlan: body.rollbackPlan,
+      maintenanceMessage: body.maintenanceMessage ?? null,
+      metadata: {
+        risk: body.risk ?? null,
+        requestMetadata: body.metadata ?? null,
+      },
+      createdByAgentId: actor.actorType === "agent" ? actor.actorId : null,
+      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+    });
+
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.deploy_approval_requested",
+      entityType: "project",
+      entityId: project.id,
+      details: {
+        approvalId: approval.id,
+        deployEventId: deployEvent?.id ?? null,
+        issueId: issue.id,
+        deploymentTargetId: deploymentTarget.id,
+        environment: deploymentTarget.environment,
+      },
+    });
+
+    res.status(201).json({ approval, deployEvent });
   });
 
   router.get("/projects/:id/workspaces", async (req, res) => {

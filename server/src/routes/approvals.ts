@@ -1,5 +1,6 @@
 import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
+import { projectDeployEvents } from "@paperclipai/db";
 import {
   addApprovalCommentSchema,
   createApprovalSchema,
@@ -19,6 +20,7 @@ import {
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { redactEventPayload } from "../redaction.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
+import { eq } from "drizzle-orm";
 
 function redactApprovalPayload<T extends { payload: Record<string, unknown> }>(approval: T): T {
   return {
@@ -162,6 +164,13 @@ export function approvalRoutes(
         },
       });
 
+      if (approval.type === "deploy_change") {
+        await db
+          .update(projectDeployEvents)
+          .set({ status: "approved", updatedAt: new Date() })
+          .where(eq(projectDeployEvents.approvalId, approval.id));
+      }
+
       if (approval.requestedByAgentId) {
         try {
           const wakeRun = await heartbeat.wakeup(approval.requestedByAgentId, {
@@ -249,6 +258,13 @@ export function approvalRoutes(
         entityId: approval.id,
         details: { type: approval.type },
       });
+
+      if (approval.type === "deploy_change") {
+        await db
+          .update(projectDeployEvents)
+          .set({ status: "rejected", updatedAt: new Date() })
+          .where(eq(projectDeployEvents.approvalId, approval.id));
+      }
     }
 
     res.json(redactApprovalPayload(approval));

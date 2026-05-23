@@ -1,5 +1,11 @@
 import type { ClientMetadata } from "./client.js";
-import type { ClientStatus, PauseReason, ProjectStatus } from "../constants.js";
+import type {
+  ClientStatus,
+  PauseReason,
+  ProjectDeployEventStatus,
+  ProjectDeploymentTargetStatus,
+  ProjectStatus,
+} from "../constants.js";
 import type {
   ProjectExecutionWorkspacePolicy,
   ProjectWorkspaceRuntimeConfig,
@@ -202,6 +208,44 @@ export interface ProjectManagedByPlugin {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface ProjectDeploymentTarget {
+  id: string;
+  companyId: string;
+  projectId: string;
+  name: string;
+  environment: string;
+  provider: string;
+  targetUrl: string | null;
+  healthCheckUrl: string | null;
+  deployNotes: string | null;
+  rollbackInstructions: string | null;
+  status: ProjectDeploymentTargetStatus;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectDeployEvent {
+  id: string;
+  companyId: string;
+  projectId: string;
+  deploymentTargetId: string | null;
+  issueId: string | null;
+  approvalId: string | null;
+  status: ProjectDeployEventStatus;
+  summary: string;
+  changedFiles: string[];
+  testsRun: string[];
+  rollbackPlan: string;
+  maintenanceMessage: string | null;
+  metadata: Record<string, unknown> | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Project {
   id: string;
   companyId: string;
