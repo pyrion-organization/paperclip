@@ -34,6 +34,7 @@ import {
   instanceSettingsService,
   issueSchedulerService,
   projectInfraHealthRunnerService,
+  calendarService,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
 } from "./services/index.js";
@@ -690,6 +691,7 @@ export async function startServer(): Promise<StartedServer> {
     const heartbeat = heartbeatService(db as any, { pluginWorkerManager });
     const routines = routineService(db as any, { pluginWorkerManager });
     const issueScheduler = issueSchedulerService(db as any, heartbeat);
+    const calendar = calendarService(db as any);
   
     // Reap orphaned running runs at startup while in-memory execution state is empty,
     // then resume any persisted queued runs that were waiting on the previous process.
@@ -788,6 +790,22 @@ export async function startServer(): Promise<StartedServer> {
         })
         .catch((err) => {
           logger.error({ err }, "scheduled issue tick failed");
+        });
+
+      void calendar
+        .runScheduledScans(new Date())
+        .then((result) => {
+          if (
+            result.reminderScans > 0 ||
+            result.metadataScans > 0 ||
+            result.reminderIssuesCreated > 0 ||
+            result.metadataIssuesCreated > 0
+          ) {
+            logger.info({ ...result }, "calendar scheduler tick completed scans");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "calendar scheduler tick failed");
         });
 
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure

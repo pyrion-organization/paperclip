@@ -108,6 +108,13 @@ export const queryKeys = {
     instructionsFile: (clientId: string, relativePath: string) =>
       ["clients", "instructions-file", clientId, relativePath] as const,
   },
+  calendar: {
+    items: (companyId: string, filters?: Record<string, unknown>) =>
+      ["calendar", companyId, "items", filters ?? {}] as const,
+    detail: (companyId: string, itemId: string) => ["calendar", companyId, "items", itemId] as const,
+    dashboard: (companyId: string) => ["calendar", companyId, "dashboard"] as const,
+    missingMetadata: (companyId: string) => ["calendar", companyId, "missing-metadata"] as const,
+  },
   environments: {
     list: (companyId: string) => ["environments", companyId] as const,
   },

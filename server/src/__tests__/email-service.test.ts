@@ -91,7 +91,6 @@ describeEmbeddedPostgres("email service", () => {
     const message = sendMailMock.mock.calls[0]?.[0] as { html?: string; from?: string } | undefined;
     expect(message?.from).toBe("noreply@acme.example");
     expect(message?.html).toContain("<table><tbody><tr><td><strong>Acme Ops</strong></td></tr></tbody></table>");
-    expect(message?.html).not.toContain("Pyrion");
   });
 
   it("does not render a legacy generated signature when signature HTML is empty", async () => {

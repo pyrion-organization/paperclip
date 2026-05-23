@@ -1,5 +1,18 @@
 export type { Company } from "./company.js";
 export type {
+  CalendarDashboard,
+  CalendarDashboardBucket,
+  CalendarItem,
+  CalendarItemDetail,
+  CalendarItemDocument,
+  CalendarItemListResponse,
+  CalendarItemMetadata,
+  CalendarMetadataScanResult,
+  CalendarMissingMetadataFinding,
+  CalendarMissingMetadataSeverity,
+  CalendarScanResult,
+} from "./calendar.js";
+export type {
   InboundEmailClassificationCategory,
   InboundEmailClassificationSeverity,
   InboundEmailRecommendedAction,

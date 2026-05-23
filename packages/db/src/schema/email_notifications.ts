@@ -14,6 +14,29 @@ export type IssueCompletionEmailNotificationPayload = {
   completedAt: string;
 };
 
+export type CalendarReminderEmailNotificationPayload = {
+  calendarItemId: string;
+  title: string;
+  category: string;
+  riskLevel: string;
+  dueDate: string | null;
+  providerName: string | null;
+  amountCents: number | null;
+  currency: string;
+  purchaseEmail: string | null;
+  accountLoginEmail: string | null;
+  billingEmail: string | null;
+  loginUrl: string | null;
+  billingUrl: string | null;
+  documentationUrl: string | null;
+  notes: string | null;
+  daysUntilDue: number;
+};
+
+export type EmailNotificationPayload =
+  | IssueCompletionEmailNotificationPayload
+  | CalendarReminderEmailNotificationPayload;
+
 export const emailNotifications = pgTable(
   "email_notifications",
   {
@@ -25,7 +48,7 @@ export const emailNotifications = pgTable(
     recipientUserId: text("recipient_user_id"),
     recipientEmail: text("recipient_email"),
     subject: text("subject"),
-    payload: jsonb("payload").$type<IssueCompletionEmailNotificationPayload>(),
+    payload: jsonb("payload").$type<EmailNotificationPayload>(),
     requestedByActorType: text("requested_by_actor_type").notNull().default("system"),
     requestedByActorId: text("requested_by_actor_id").notNull().default("email-notifications"),
     requestedByAgentId: uuid("requested_by_agent_id").references(() => agents.id, { onDelete: "set null" }),

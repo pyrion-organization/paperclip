@@ -15,6 +15,7 @@ export {
   refreshIssueContinuationSummary,
 } from "./issue-continuation-summary.js";
 export { clientService } from "./clients.js";
+export { calendarService, calculateNextDueDate } from "./calendar.js";
 export { listActiveProjectClientLinks, type ActiveProjectClientLinkRow } from "./project-clients.js";
 export { projectService } from "./projects.js";
 export { projectFilesService, initWorkspaceGit } from "./project-files.js";

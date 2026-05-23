@@ -1,11 +1,17 @@
 import { asc, and, eq, lt, lte, sql } from "drizzle-orm";
-import type { Db, IssueCompletionEmailNotificationPayload } from "@paperclipai/db";
+import type {
+  CalendarReminderEmailNotificationPayload,
+  Db,
+  EmailNotificationPayload,
+  IssueCompletionEmailNotificationPayload,
+} from "@paperclipai/db";
 import { agents, authUsers, emailNotifications } from "@paperclipai/db";
 import { logger } from "../middleware/logger.js";
 import { logActivity } from "./activity-log.js";
-import { sendIssueCompletionEmailWithResult } from "./email.js";
+import { sendCalendarReminderEmailWithResult, sendIssueCompletionEmailWithResult } from "./email.js";
 
 const ISSUE_COMPLETION_KIND = "issue_completion";
+const CALENDAR_REMINDER_KIND = "calendar_reminder";
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 60_000;
 const DEFAULT_OUTBOX_LIMIT = 10;
@@ -55,6 +61,14 @@ function parseCompletedAt(value: string | null | undefined): Date {
   if (!value) return new Date();
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function isIssueCompletionPayload(payload: EmailNotificationPayload): payload is IssueCompletionEmailNotificationPayload {
+  return typeof (payload as IssueCompletionEmailNotificationPayload).issueTitle === "string";
+}
+
+function isCalendarReminderPayload(payload: EmailNotificationPayload): payload is CalendarReminderEmailNotificationPayload {
+  return typeof (payload as CalendarReminderEmailNotificationPayload).calendarItemId === "string";
 }
 
 function buildSubject(issue: IssueCompletionNotificationIssue): string {
@@ -383,14 +397,6 @@ async function claimNotification(db: Db, id: string, now: Date): Promise<typeof 
 }
 
 async function deliverNotification(db: Db, notification: typeof emailNotifications.$inferSelect): Promise<"sent" | "skipped"> {
-  if (notification.kind !== ISSUE_COMPLETION_KIND) {
-    await markNotificationSkipped(db, notification, "unsupported_kind");
-    return "skipped";
-  }
-  if (!notification.issueId) {
-    await markNotificationSkipped(db, notification, "issue_missing");
-    return "skipped";
-  }
   if (!notification.recipientEmail) {
     await markNotificationSkipped(db, notification, "recipient_missing");
     return "skipped";
@@ -400,19 +406,62 @@ async function deliverNotification(db: Db, notification: typeof emailNotificatio
     return "skipped";
   }
 
-  const result = await sendIssueCompletionEmailWithResult({
-    to: notification.recipientEmail,
-    issueTitle: notification.payload.issueTitle,
-    issueId: notification.issueId,
-    issueIdentifier: notification.payload.issueIdentifier,
-    completedByName: notification.payload.completedByName,
-    completedByKind: notification.payload.completedByKind,
-    agentComment: notification.payload.agentComment,
-    issueDescription: notification.payload.issueDescription,
-    completedAt: parseCompletedAt(notification.payload.completedAt),
-    db,
-    companyId: notification.companyId,
-  });
+  let result:
+    | Awaited<ReturnType<typeof sendIssueCompletionEmailWithResult>>
+    | Awaited<ReturnType<typeof sendCalendarReminderEmailWithResult>>;
+
+  if (notification.kind === ISSUE_COMPLETION_KIND) {
+    if (!notification.issueId) {
+      await markNotificationSkipped(db, notification, "issue_missing");
+      return "skipped";
+    }
+    if (!isIssueCompletionPayload(notification.payload)) {
+      await markNotificationSkipped(db, notification, "payload_invalid");
+      return "skipped";
+    }
+    result = await sendIssueCompletionEmailWithResult({
+      to: notification.recipientEmail,
+      issueTitle: notification.payload.issueTitle,
+      issueId: notification.issueId,
+      issueIdentifier: notification.payload.issueIdentifier,
+      completedByName: notification.payload.completedByName,
+      completedByKind: notification.payload.completedByKind,
+      agentComment: notification.payload.agentComment,
+      issueDescription: notification.payload.issueDescription,
+      completedAt: parseCompletedAt(notification.payload.completedAt),
+      db,
+      companyId: notification.companyId,
+    });
+  } else if (notification.kind === CALENDAR_REMINDER_KIND) {
+    if (!isCalendarReminderPayload(notification.payload)) {
+      await markNotificationSkipped(db, notification, "payload_invalid");
+      return "skipped";
+    }
+    result = await sendCalendarReminderEmailWithResult({
+      to: notification.recipientEmail,
+      title: notification.payload.title,
+      category: notification.payload.category,
+      riskLevel: notification.payload.riskLevel,
+      dueDate: notification.payload.dueDate,
+      providerName: notification.payload.providerName,
+      amountCents: notification.payload.amountCents,
+      currency: notification.payload.currency,
+      purchaseEmail: notification.payload.purchaseEmail,
+      accountLoginEmail: notification.payload.accountLoginEmail,
+      billingEmail: notification.payload.billingEmail,
+      loginUrl: notification.payload.loginUrl,
+      billingUrl: notification.payload.billingUrl,
+      documentationUrl: notification.payload.documentationUrl,
+      notes: notification.payload.notes,
+      daysUntilDue: notification.payload.daysUntilDue,
+      db,
+      companyId: notification.companyId,
+    });
+  } else {
+    await markNotificationSkipped(db, notification, "unsupported_kind");
+    return "skipped";
+  }
+
   if (result.status === "skipped") {
     await markNotificationSkipped(db, notification, result.reason);
     return "skipped";

@@ -11,6 +11,7 @@ import {
   SquarePen,
   Network,
   Boxes,
+  CalendarDays,
   Repeat,
   GitBranch,
   Settings,
@@ -127,6 +128,7 @@ export function Sidebar() {
 
         <SidebarSection label="Work">
           <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
+          <SidebarNavItem to="/calendar" label="Calendar" icon={CalendarDays} />
           <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
           <SidebarNavItem to="/goals" label="Goals" icon={Target} />
           {showWorkspacesLink ? (
