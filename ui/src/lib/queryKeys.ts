@@ -8,6 +8,7 @@ export const queryKeys = {
     mailboxes: (companyId: string) => ["companies", companyId, "inbound-email", "mailboxes"] as const,
     ops: (companyId: string) => ["companies", companyId, "inbound-email", "ops"] as const,
     messages: (companyId: string) => ["companies", companyId, "inbound-email", "messages"] as const,
+    externalIntake: (companyId: string) => ["companies", companyId, "inbound-email", "external-intake"] as const,
     rules: (companyId: string) => ["companies", companyId, "inbound-email", "rules"] as const,
     jobs: (companyId: string) => ["companies", companyId, "inbound-email", "jobs"] as const,
   },

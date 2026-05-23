@@ -940,6 +940,8 @@ foundation:
 - added `webhook`, `queue`, `object_storage`, and `manual_recovery` source
   kinds,
 - added board API import/list endpoints for external intake records,
+- added an Inbound Email Ops recovery panel for operator paste/import and
+  recent intake review,
 - routed imports through the existing raw inbound email importer so message
   dedupe, attachment recovery, processing jobs, classification, support replies,
   and issue creation stay centralized,
@@ -968,8 +970,6 @@ These should be decided before later phases:
 Continue Phase 7 by turning the recovery foundation into a practical operator
 fallback workflow:
 
-- add an operator-visible recovery/import UI surface for preserved external
-  support messages,
 - add explicit external monitoring evidence records and alert notes without
   provider mutations,
 - document the backup mailbox/object-storage handoff format operators should

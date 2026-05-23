@@ -4,7 +4,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Company, InboundEmailMessage, InboundEmailOpsDashboard } from "@paperclipai/shared";
+import type {
+  Company,
+  InboundEmailExternalIntakeRecord,
+  InboundEmailMessage,
+  InboundEmailOpsDashboard,
+} from "@paperclipai/shared";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MemoryRouter } from "@/lib/router";
 import { InboundEmailOps } from "./InboundEmailOps";
@@ -15,6 +20,8 @@ const mockCompaniesApi = vi.hoisted(() => ({
   retryInboundEmailMessage: vi.fn(),
   retryInboundEmailJob: vi.fn(),
   pollInboundEmailMailbox: vi.fn(),
+  listExternalInboundEmailIntake: vi.fn(),
+  importExternalInboundEmailMessage: vi.fn(),
 }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 let selectedCompany: Company;
@@ -272,6 +279,28 @@ function makeProcessedMessage(overrides: Partial<InboundEmailMessage> = {}): Inb
   };
 }
 
+function makeExternalIntakeRecord(overrides: Partial<InboundEmailExternalIntakeRecord> = {}): InboundEmailExternalIntakeRecord {
+  const now = new Date("2026-05-19T12:50:00.000Z");
+  return {
+    id: "external-intake-1",
+    companyId: "company-1",
+    mailboxId: "mailbox-1",
+    sourceKind: "manual_recovery",
+    sourceId: "operator-recovery-1",
+    sourceLocation: null,
+    rawSha256: "external-sha-1",
+    messageId: "external-message@example.com",
+    status: "imported",
+    inboundMessageId: "processed-message-1",
+    error: null,
+    metadata: {},
+    receivedAt: now,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
@@ -281,6 +310,12 @@ async function flushReact() {
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setTextareaValue(input: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
   setter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
@@ -319,6 +354,15 @@ describe("InboundEmailOps", () => {
     mockCompaniesApi.retryInboundEmailMessage.mockResolvedValue(undefined);
     mockCompaniesApi.retryInboundEmailJob.mockResolvedValue(undefined);
     mockCompaniesApi.pollInboundEmailMailbox.mockResolvedValue({ id: "poll-job-1", status: "pending" });
+    mockCompaniesApi.listExternalInboundEmailIntake.mockResolvedValue({
+      items: [makeExternalIntakeRecord()],
+      nextCursor: null,
+    });
+    mockCompaniesApi.importExternalInboundEmailMessage.mockResolvedValue({
+      status: "imported",
+      intakeRecord: makeExternalIntakeRecord({ id: "external-intake-2", sourceId: "operator-recovery-2" }),
+      message: makeProcessedMessage({ id: "processed-message-2" }),
+    });
   });
 
   afterEach(async () => {
@@ -366,6 +410,7 @@ describe("InboundEmailOps", () => {
     expect(container.textContent).toContain("1");
     expect(container.textContent).toContain("Configure");
     expect(container.textContent).toContain("Poll now");
+    expect(container.textContent).toContain("External Recovery Import");
     expect(container.textContent).toContain("Recent Failures");
     expect(container.textContent).toContain("Processed Emails");
     expect(container.textContent).toContain("Processed order email");
@@ -494,5 +539,60 @@ describe("InboundEmailOps", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
+  });
+
+  it("imports preserved external support email from the recovery panel", async () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    await renderPage();
+
+    const panelButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("External Recovery Import"));
+    expect(panelButton).toBeTruthy();
+
+    await act(async () => {
+      panelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.listExternalInboundEmailIntake).toHaveBeenCalledWith("company-1", {
+      limit: 10,
+      order: "desc",
+    });
+    expect(container.textContent).toContain("operator-recovery-1");
+
+    const sourceIdInput = container.querySelector("#external-intake-source-id") as HTMLInputElement | null;
+    const rawEmailInput = container.querySelector("#external-intake-raw-email") as HTMLTextAreaElement | null;
+    expect(sourceIdInput).toBeTruthy();
+    expect(rawEmailInput).toBeTruthy();
+
+    await act(async () => {
+      setInputValue(sourceIdInput!, "operator-recovery-2");
+      setTextareaValue(
+        rawEmailInput!,
+        "Message-ID: <operator-recovery-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Recovery\n\nBody",
+      );
+    });
+
+    const importButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Import preserved email"));
+    expect(importButton).toBeTruthy();
+
+    await act(async () => {
+      importButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushReact();
+
+    expect(mockCompaniesApi.importExternalInboundEmailMessage).toHaveBeenCalledWith("company-1", {
+      mailboxId: "mailbox-1",
+      sourceKind: "manual_recovery",
+      sourceId: "operator-recovery-2",
+      sourceLocation: null,
+      rawEmail: "Message-ID: <operator-recovery-2@example.com>\nFrom: customer@example.com\nTo: support@example.com\nSubject: Recovery\n\nBody",
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "ops"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "messages"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "jobs"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["companies", "company-1", "inbound-email", "external-intake"] });
+    expect(container.textContent).toContain("External intake recorded as imported");
   });
 });

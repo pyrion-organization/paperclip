@@ -3,6 +3,9 @@ import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   InboundEmailClassificationCategory,
+  InboundEmailExternalIntakeRecord,
+  InboundEmailExternalIntakeSourceKind,
+  InboundEmailExternalIntakeStatus,
   InboundEmailMessage,
   InboundEmailMessageStatus,
   InboundEmailOpsDashboard,
@@ -23,6 +26,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { companiesApi } from "../api/companies";
@@ -31,6 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { Link } from "@/lib/router";
@@ -75,6 +80,21 @@ const messageStatusFilters: Array<{ value: InboundEmailMessageStatus | "all"; la
 ];
 
 const PROCESSED_EMAIL_PAGE_SIZE = 25;
+const EXTERNAL_INTAKE_PAGE_SIZE = 10;
+
+const externalIntakeSourceKinds: Array<{ value: InboundEmailExternalIntakeSourceKind; label: string }> = [
+  { value: "manual_recovery", label: "Manual recovery" },
+  { value: "queue", label: "Queue backup" },
+  { value: "object_storage", label: "Object storage" },
+  { value: "webhook", label: "Webhook" },
+];
+
+const externalIntakeSourceLabels: Record<InboundEmailExternalIntakeSourceKind, string> = {
+  manual_recovery: "Manual recovery",
+  queue: "Queue backup",
+  object_storage: "Object storage",
+  webhook: "Webhook",
+};
 
 const classificationLabels: Record<InboundEmailClassificationCategory, string> = {
   code_bug: "Code bug",
@@ -484,6 +504,17 @@ function statusClassName(status: InboundEmailMessageStatus) {
   }
 }
 
+function externalIntakeStatusClassName(status: InboundEmailExternalIntakeStatus) {
+  switch (status) {
+    case "imported":
+      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+    case "duplicate":
+      return "border-border bg-muted/50 text-muted-foreground";
+    case "failed":
+      return "border-destructive/50 bg-destructive/10 text-destructive";
+  }
+}
+
 function classificationClassName(category: InboundEmailClassificationCategory | null | undefined) {
   switch (category) {
     case "code_bug":
@@ -553,6 +584,194 @@ function SupportReplyBadge({ message }: {
     >
       Reply: {label}
     </Badge>
+  );
+}
+
+function ExternalIntakeRecovery({
+  companyId,
+  mailboxes,
+  onImported,
+}: {
+  companyId: string;
+  mailboxes: InboundEmailOpsMailbox[];
+  onImported: () => void;
+}) {
+  const [mailboxId, setMailboxId] = useState(mailboxes[0]?.mailbox.id ?? "");
+  const [sourceKind, setSourceKind] = useState<InboundEmailExternalIntakeSourceKind>("manual_recovery");
+  const [sourceId, setSourceId] = useState("");
+  const [sourceLocation, setSourceLocation] = useState("");
+  const [rawEmail, setRawEmail] = useState("");
+
+  useEffect(() => {
+    if (!mailboxId && mailboxes[0]?.mailbox.id) {
+      setMailboxId(mailboxes[0].mailbox.id);
+    }
+  }, [mailboxId, mailboxes]);
+
+  const externalIntakeQuery = useQuery({
+    queryKey: [
+      ...queryKeys.inboundEmail.externalIntake(companyId),
+      { limit: EXTERNAL_INTAKE_PAGE_SIZE, order: "desc" },
+    ],
+    queryFn: () => companiesApi.listExternalInboundEmailIntake(companyId, {
+      limit: EXTERNAL_INTAKE_PAGE_SIZE,
+      order: "desc",
+    }),
+    enabled: Boolean(companyId),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: () => companiesApi.importExternalInboundEmailMessage(companyId, {
+      mailboxId,
+      sourceKind,
+      sourceId,
+      sourceLocation: sourceLocation.trim() || null,
+      rawEmail,
+    }),
+    onSuccess: () => {
+      setSourceId("");
+      setSourceLocation("");
+      setRawEmail("");
+      onImported();
+    },
+  });
+
+  const submitImport = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    importMutation.reset();
+    importMutation.mutate();
+  };
+
+  const canSubmit = Boolean(mailboxId && sourceId.trim() && rawEmail.trim()) && !importMutation.isPending;
+  const rows = externalIntakeQuery.data?.items ?? [];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(360px,1.05fr)]">
+      <form className="space-y-3" onSubmit={submitImport}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="external-intake-mailbox">Mailbox</label>
+            <Select value={mailboxId} onValueChange={setMailboxId} disabled={mailboxes.length === 0}>
+              <SelectTrigger id="external-intake-mailbox" size="sm" className="w-full">
+                <SelectValue placeholder="Mailbox" />
+              </SelectTrigger>
+              <SelectContent>
+                {mailboxes.map((item) => (
+                  <SelectItem key={item.mailbox.id} value={item.mailbox.id}>
+                    {item.mailbox.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-kind">Source</label>
+            <Select value={sourceKind} onValueChange={(value) => setSourceKind(value as InboundEmailExternalIntakeSourceKind)}>
+              <SelectTrigger id="external-intake-source-kind" size="sm" className="w-full">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                {externalIntakeSourceKinds.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-id">Source ID</label>
+          <Input
+            id="external-intake-source-id"
+            className="h-8 text-xs"
+            value={sourceId}
+            onChange={(event) => setSourceId(event.target.value)}
+            placeholder="backup-object-key, queue message ID, or webhook event ID"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground" htmlFor="external-intake-source-location">Source location</label>
+          <Input
+            id="external-intake-source-location"
+            className="h-8 text-xs"
+            value={sourceLocation}
+            onChange={(event) => setSourceLocation(event.target.value)}
+            placeholder="Optional object URL or mailbox backup path"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground" htmlFor="external-intake-raw-email">Raw email</label>
+          <Textarea
+            id="external-intake-raw-email"
+            className="min-h-36 font-mono text-xs"
+            value={rawEmail}
+            onChange={(event) => setRawEmail(event.target.value)}
+            placeholder={"Message-ID: <...>\nFrom: customer@example.com\nTo: support@example.com\nSubject: ...\n\nOriginal body"}
+          />
+        </div>
+        {importMutation.isError ? (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <span className="font-medium">External import failed.</span>{" "}
+              {errorMessage(importMutation.error, "The preserved message could not be imported.")}
+            </div>
+          </div>
+        ) : null}
+        {importMutation.isSuccess ? (
+          <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            External intake recorded as {importMutation.data.status}.
+          </div>
+        ) : null}
+        <Button type="submit" size="sm" disabled={!canSubmit}>
+          {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          Import preserved email
+        </Button>
+      </form>
+
+      <div className="overflow-hidden rounded-md border border-border bg-card/60">
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent external intake</div>
+          {externalIntakeQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+        </div>
+        {externalIntakeQuery.isError ? (
+          <div className="flex items-start gap-2 px-3 py-5 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {errorMessage(externalIntakeQuery.error, "External intake records could not be loaded.")}
+          </div>
+        ) : externalIntakeQuery.isLoading ? (
+          <div className="flex items-center gap-2 px-3 py-5 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading external intake...
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="px-3 py-5 text-xs text-muted-foreground">
+            No preserved external support messages have been imported yet.
+          </div>
+        ) : (
+          rows.map((record: InboundEmailExternalIntakeRecord) => (
+            <div key={record.id} className="grid gap-2 border-t border-border px-3 py-2 first:border-t-0 sm:grid-cols-[minmax(120px,0.7fr)_minmax(180px,1fr)_120px]">
+              <div className="min-w-0">
+                <Badge variant="outline" className={`mb-1 h-5 px-1.5 text-[11px] ${externalIntakeStatusClassName(record.status)}`}>
+                  {record.status}
+                </Badge>
+                <div className="text-xs text-muted-foreground">{formatRelative(record.createdAt)}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium">{externalIntakeSourceLabels[record.sourceKind]}</div>
+                <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{record.sourceId}</div>
+                {record.error ? <div className="mt-1 break-words text-[11px] text-destructive">{record.error}</div> : null}
+              </div>
+              <div className="min-w-0 text-xs text-muted-foreground sm:text-right">
+                {record.messageId ?? record.rawSha256.slice(0, 12)}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -827,7 +1046,7 @@ export function InboundEmailOps() {
     refetchInterval: 15_000,
   });
 
-  const invalidateInboundEmailState = (groups: Array<"ops" | "messages" | "jobs">) => {
+  const invalidateInboundEmailState = (groups: Array<"ops" | "messages" | "jobs" | "externalIntake">) => {
     if (!selectedCompanyId) return;
     for (const group of groups) {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail[group](selectedCompanyId) });
@@ -989,6 +1208,20 @@ export function InboundEmailOps() {
           ))
         )}
       </section>
+
+      <OpsPanel
+        title="External Recovery Import"
+        description="Import preserved raw support messages from backup mailboxes, webhooks, queues, or object storage."
+        defaultOpen={false}
+      >
+        <ExternalIntakeRecovery
+          companyId={selectedCompanyId!}
+          mailboxes={dashboard.mailboxes}
+          onImported={() => {
+            invalidateInboundEmailState(["ops", "messages", "jobs", "externalIntake"]);
+          }}
+        />
+      </OpsPanel>
 
       <OpsPanel
         title="Recent Failures"
