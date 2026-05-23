@@ -214,20 +214,20 @@ function changedKeys(input: Record<string, unknown>) {
 
 function requiresApprovalForPatch(existing: CalendarItemRow, patch: UpdateCalendarItem): string | null {
   if (patch.status === "cancelled" && existing.status !== "cancelled") return "Cancelling an obligation requires approval";
-  if (patch.nextDueDate && patch.nextDueDate !== dateOnly(existing.nextDueDate) && (
+  if (patch.nextDueDate !== undefined && patch.nextDueDate !== dateOnly(existing.nextDueDate) && (
     GOVERNED_CATEGORIES.has(existing.category) || HIGH_RISK.has(existing.riskLevel)
   )) {
     return "Changing the due date of governed or high-risk items requires approval";
   }
-  if (patch.dueDate && patch.dueDate !== dateOnly(existing.dueDate) && (
+  if (patch.dueDate !== undefined && patch.dueDate !== dateOnly(existing.dueDate) && (
     GOVERNED_CATEGORIES.has(existing.category) || HIGH_RISK.has(existing.riskLevel)
   )) {
     return "Changing the due date of governed or high-risk items requires approval";
   }
-  if (patch.accountLoginEmail && patch.accountLoginEmail !== existing.accountLoginEmail) return "Changing login email requires approval";
-  if (patch.recoveryEmail && patch.recoveryEmail !== existing.recoveryEmail) return "Changing recovery email requires approval";
-  if (patch.billingEmail && patch.billingEmail !== existing.billingEmail) return "Changing billing email requires approval";
-  if (patch.paymentMethodLabel && patch.paymentMethodLabel !== existing.paymentMethodLabel) return "Changing payment method requires approval";
+  if (patch.accountLoginEmail !== undefined && patch.accountLoginEmail !== existing.accountLoginEmail) return "Changing login email requires approval";
+  if (patch.recoveryEmail !== undefined && patch.recoveryEmail !== existing.recoveryEmail) return "Changing recovery email requires approval";
+  if (patch.billingEmail !== undefined && patch.billingEmail !== existing.billingEmail) return "Changing billing email requires approval";
+  if (patch.paymentMethodLabel !== undefined && patch.paymentMethodLabel !== existing.paymentMethodLabel) return "Changing payment method requires approval";
   return null;
 }
 
@@ -868,7 +868,9 @@ export function calendarService(db: Db) {
 
         for (const rule of matchingRules) {
           const dueText = dateOnly(item.nextDueDate) ?? "unknown";
-          const fingerprint = `${dueText}:${daysUntilDue}:${rule.createIssue ? "issue" : "email"}`;
+          const fingerprint = daysUntilDue < 0 && rule.createIssue
+            ? `${dueText}:overdue:issue`
+            : `${dueText}:${daysUntilDue}:${rule.createIssue ? "issue" : "email"}`;
           let linkedIssueId: string | null = null;
           if (createIssues && rule.createIssue) {
             const { issue, created } = await upsertIssue({
@@ -891,7 +893,7 @@ export function calendarService(db: Db) {
               ? `[Calendar Paperclip] OVERDUE: ${item.title}`
               : `[Calendar Paperclip] Upcoming deadline: ${item.title} - due ${dueText}`;
             const existingEmail = await db
-              .select({ id: emailNotifications.id })
+              .select({ id: emailNotifications.id, issueId: emailNotifications.issueId })
               .from(emailNotifications)
               .where(and(
                 eq(emailNotifications.companyId, companyId),
@@ -899,11 +901,15 @@ export function calendarService(db: Db) {
                 eq(sql<string>`${emailNotifications.payload}->>'calendarItemId'`, item.id),
                 eq(sql<string>`${emailNotifications.payload}->>'dueDate'`, dueText),
                 eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue)),
-                linkedIssueId ? eq(emailNotifications.issueId, linkedIssueId) : isNull(emailNotifications.issueId),
               ))
               .limit(1)
               .then((emailRows) => emailRows[0] ?? null);
-            if (!existingEmail) {
+            if (existingEmail && linkedIssueId && !existingEmail.issueId) {
+              await db
+                .update(emailNotifications)
+                .set({ issueId: linkedIssueId, updatedAt: now })
+                .where(eq(emailNotifications.id, existingEmail.id));
+            } else if (!existingEmail) {
               await db.insert(emailNotifications).values({
                 companyId,
                 kind: CALENDAR_EMAIL_NOTIFICATION_KIND,

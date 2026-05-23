@@ -224,12 +224,12 @@ function requiresGovernedSaveApproval(item: CalendarItem | null, payload: Create
   const highRisk = item.riskLevel === "high" || item.riskLevel === "critical";
   const governedCategory = ["fiscal", "legal", "domain", "certificate", "hosting"].includes(item.category);
   if (payload.status === "cancelled" && item.status !== "cancelled") return true;
-  if (payload.nextDueDate && payload.nextDueDate !== item.nextDueDate && (highRisk || governedCategory)) return true;
-  if (payload.dueDate && payload.dueDate !== item.dueDate && (highRisk || governedCategory)) return true;
-  if (payload.accountLoginEmail && payload.accountLoginEmail !== item.accountLoginEmail) return true;
-  if (payload.recoveryEmail && payload.recoveryEmail !== item.recoveryEmail) return true;
-  if (payload.billingEmail && payload.billingEmail !== item.billingEmail) return true;
-  if (payload.paymentMethodLabel && payload.paymentMethodLabel !== item.paymentMethodLabel) return true;
+  if (payload.nextDueDate !== undefined && payload.nextDueDate !== item.nextDueDate && (highRisk || governedCategory)) return true;
+  if (payload.dueDate !== undefined && payload.dueDate !== item.dueDate && (highRisk || governedCategory)) return true;
+  if (payload.accountLoginEmail !== undefined && payload.accountLoginEmail !== item.accountLoginEmail) return true;
+  if (payload.recoveryEmail !== undefined && payload.recoveryEmail !== item.recoveryEmail) return true;
+  if (payload.billingEmail !== undefined && payload.billingEmail !== item.billingEmail) return true;
+  if (payload.paymentMethodLabel !== undefined && payload.paymentMethodLabel !== item.paymentMethodLabel) return true;
   return false;
 }
 
@@ -781,7 +781,7 @@ export function Calendar() {
                     <Button variant="outline" onClick={() => completeMutation.mutate(selectedItem.id)} disabled={completeMutation.isPending}>
                       <CheckCircle2 className="mr-2 h-4 w-4" /> Complete
                     </Button>
-                    {selectedItem.status === "paused" ? (
+                    {selectedItem.status === "paused" || selectedItem.status === "pending_review" ? (
                       <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "activate" })}>
                         <Play className="mr-2 h-4 w-4" /> Activate
                       </Button>

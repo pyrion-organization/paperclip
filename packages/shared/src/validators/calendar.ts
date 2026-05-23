@@ -48,6 +48,13 @@ const optionalUrl = z
   .transform((value) => value || null);
 
 const metadataSchema = z.record(z.string(), z.unknown());
+const queryBooleanSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return value;
+}, z.boolean());
 
 export const calendarItemCategorySchema = z.enum(CALENDAR_ITEM_CATEGORIES);
 export const calendarItemStatusSchema = z.enum(CALENDAR_ITEM_STATUSES);
@@ -63,7 +70,7 @@ export const calendarItemFilterSchema = z.object({
   provider: z.string().trim().max(200).optional(),
   dueFrom: optionalDateOnly,
   dueTo: optionalDateOnly,
-  autoRenew: z.coerce.boolean().optional(),
+  autoRenew: queryBooleanSchema.optional(),
   paymentMethod: z.string().trim().max(160).optional(),
   purchaseEmail: z.string().trim().toLowerCase().max(320).optional(),
   billingEmail: z.string().trim().toLowerCase().max(320).optional(),

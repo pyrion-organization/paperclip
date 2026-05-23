@@ -229,11 +229,25 @@ describeEmbeddedPostgres("calendarService", () => {
       category: "certificate",
       riskLevel: "critical",
       nextDueDate: "2026-06-30",
+      dueDate: "2026-06-30",
       billingEmail: "billing@example.com",
+      paymentMethodLabel: "Company card",
     }));
 
     await expect(
       svc.update(companyId, created.id, { nextDueDate: "2026-07-30" }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { nextDueDate: null }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { dueDate: null }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { billingEmail: null }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { paymentMethodLabel: null }),
     ).rejects.toThrow(/requires approval/);
     await expect(
       svc.complete(companyId, created.id, { completedAt: new Date("2026-06-30T12:00:00.000Z") }),
@@ -299,6 +313,42 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(queuedEmails).toHaveLength(1);
   });
 
+  it("updates the same overdue issue across daily scans", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Overdue certificate",
+      category: "certificate",
+      riskLevel: "critical",
+      nextDueDate: "2026-05-30",
+      billingEmail: "billing@example.com",
+    }));
+
+    const first = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: false,
+    });
+    const second = await svc.runReminderScan(companyId, {
+      now: new Date("2026-06-01T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: false,
+    });
+
+    const overdueIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_REMINDER_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, created.id),
+      ));
+
+    expect(first.createdIssues).toBe(1);
+    expect(second.createdIssues).toBe(0);
+    expect(second.updatedIssues).toBe(1);
+    expect(overdueIssues).toHaveLength(1);
+    expect(overdueIssues[0]!.originFingerprint).toBe("2026-05-30:overdue:issue");
+  });
+
   it("dedupes reminder emails by calendar identity even without linked issues", async () => {
     await svc.create(companyId, item({
       title: "Shared SaaS renewal",
@@ -338,6 +388,54 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(first.queuedEmails).toBe(2);
     expect(second.queuedEmails).toBe(0);
     expect(queuedEmails).toHaveLength(2);
+  });
+
+  it("dedupes reminder emails when a later scan links an issue", async () => {
+    const created = await svc.create(companyId, item({
+      title: "Email before issue renewal",
+      category: "domain",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-30",
+      purchaseEmail: "owner@example.com",
+      serviceUrl: "https://example.com",
+      metadata: { registrar: "Registrar", domainName: "example.com" },
+    }));
+
+    const emailOnly = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const withIssue = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T01:00:00.000Z"),
+      createIssues: true,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+        eq(emailNotifications.recipientEmail, "ops@example.com"),
+      ));
+    const reminderIssues = await db
+      .select()
+      .from(issues)
+      .where(and(
+        eq(issues.companyId, companyId),
+        eq(issues.originKind, CALENDAR_REMINDER_ISSUE_ORIGIN_KIND),
+        eq(issues.originId, created.id),
+      ));
+
+    expect(emailOnly.queuedEmails).toBe(1);
+    expect(withIssue.createdIssues).toBe(1);
+    expect(withIssue.queuedEmails).toBe(0);
+    expect(queuedEmails).toHaveLength(1);
+    expect(queuedEmails[0]!.issueId).toBe(reminderIssues[0]!.id);
   });
 
   it("reports missing metadata through a weekly issue", async () => {

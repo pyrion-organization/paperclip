@@ -94,6 +94,17 @@ describe("calendar routes", () => {
     }));
   });
 
+  it("parses false auto-renew list filters without truthy string coercion", async () => {
+    const res = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/calendar/items")
+      .query({ autoRenew: "false" });
+
+    expect(res.status).toBe(200);
+    expect(mockCalendarService.list).toHaveBeenCalledWith("company-1", expect.objectContaining({
+      autoRenew: false,
+    }));
+  });
+
   it("allows same-company agents to create pending review email proposals", async () => {
     const res = await request(appForActor(agentActor))
       .post("/api/companies/company-1/calendar/email-proposals")
