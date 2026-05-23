@@ -50,6 +50,7 @@ type CalendarScanOptions = {
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const TERMINAL_CALENDAR_STATUSES = ["cancelled", "archived"];
+const DASHBOARD_ACTIVE_STATUSES = ["active", "overdue"];
 const GOVERNED_CATEGORIES = new Set(["fiscal", "legal", "domain", "certificate", "hosting"]);
 const HIGH_RISK = new Set(["high", "critical"]);
 const LOW_CONFIDENCE_THRESHOLD = 80;
@@ -557,7 +558,6 @@ export function calendarService(db: Db) {
           eq(calendarItems.companyId, companyId),
           eq(calendarItems.sourceKind, "email_agent"),
           eq(calendarItems.sourceEmailMessageId, input.sourceEmailMessageId),
-          eq(calendarItems.status, "pending_review"),
           sql`${calendarItems.metadata}->>'proposalMatchingKey' = ${fingerprint}`,
         ))
         .limit(1)
@@ -721,12 +721,12 @@ export function calendarService(db: Db) {
       in7.setUTCDate(in7.getUTCDate() + 7);
       const in30 = new Date(now);
       in30.setUTCDate(in30.getUTCDate() + 30);
-      const dueInRange = (max: Date) => rows.filter((row) => {
+      const activeRows = rows.filter((row) => DASHBOARD_ACTIVE_STATUSES.includes(row.status));
+      const dueInRange = (max: Date) => activeRows.filter((row) => {
         const due = parseDateOnly(row.nextDueDate);
         return due && daysBetween(now, due) >= 0 && due <= max;
       });
       const itemRows = rows.map(rowToItem);
-      const activeRows = rows.filter((row) => !TERMINAL_CALENDAR_STATUSES.includes(row.status));
       const upcoming30Rows = activeRows.filter((row) => {
         const due = parseDateOnly(row.nextDueDate);
         return due && daysBetween(now, due) >= 0 && due <= in30;
@@ -747,14 +747,14 @@ export function calendarService(db: Db) {
       return {
         companyId,
         generatedAt: now.toISOString(),
-        overdue: bucket("Overdue", rows.filter((row) => {
+        overdue: bucket("Overdue", activeRows.filter((row) => {
           const due = parseDateOnly(row.nextDueDate);
-          return row.status === "overdue" || Boolean(due && due < parseDateOnly(today)! && row.status !== "done");
+          return row.status === "overdue" || Boolean(due && due < parseDateOnly(today)!);
         })),
-        dueToday: bucket("Due today", rows.filter((row) => dateOnly(row.nextDueDate) === today && row.status !== "done")),
+        dueToday: bucket("Due today", activeRows.filter((row) => dateOnly(row.nextDueDate) === today)),
         dueIn7Days: bucket("Due in 7 days", dueInRange(in7)),
         dueIn30Days: bucket("Due in 30 days", dueInRange(in30)),
-        criticalItems: bucket("Critical items", rows.filter((row) => row.riskLevel === "critical" && row.status !== "done")),
+        criticalItems: bucket("Critical items", activeRows.filter((row) => row.riskLevel === "critical")),
         pendingReview: bucket("Pending review", rows.filter((row) => row.status === "pending_review")),
         missingMetadata: missing,
         recentlyCompleted: bucket("Recently completed", rows.filter((row) => row.status === "done").slice(0, 10)),

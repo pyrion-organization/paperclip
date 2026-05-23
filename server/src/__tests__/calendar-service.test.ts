@@ -463,6 +463,52 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(reportIssues).toHaveLength(1);
   });
 
+  it("excludes inactive items from dashboard metadata and cost summaries", async () => {
+    await svc.create(companyId, item({
+      title: "Active monthly cost",
+      category: "software_subscription",
+      riskLevel: "medium",
+      recurrenceType: "monthly",
+      amountCents: 5000,
+      nextDueDate: "2026-06-15",
+      billingEmail: "billing@example.com",
+    }));
+    const doneItem = await svc.create(companyId, item({
+      title: "Completed one-off without next date",
+      category: "software_subscription",
+      riskLevel: "medium",
+      nextDueDate: "2026-06-10",
+    }));
+    await svc.setStatus(companyId, doneItem.id, "active");
+    await db
+      .update(calendarItems)
+      .set({ status: "done", nextDueDate: null, updatedAt: new Date("2026-05-23T00:00:00.000Z") })
+      .where(eq(calendarItems.id, doneItem.id));
+    await svc.createEmailProposal(companyId, {
+      ...item({
+        title: "Pending proposal cost",
+        category: "software_subscription",
+        riskLevel: "medium",
+        recurrenceType: "monthly",
+        amountCents: 9000,
+        nextDueDate: "2026-06-20",
+        billingEmail: "billing@example.com",
+        sourceKind: "email_agent",
+        sourceEmailMessageId,
+        confidenceScore: 85,
+      }),
+      sourceEmailMessageId,
+      confidenceScore: 85,
+      matchingKey: "pending-cost:2026-06-20",
+    });
+
+    const dashboard = await svc.dashboard(companyId, new Date("2026-05-23T00:00:00.000Z"));
+
+    expect(dashboard.costSummary.monthlyRecurringCents).toBe(5000);
+    expect(dashboard.missingMetadata.find((finding) => finding.itemId === doneItem.id)).toBeUndefined();
+    expect(dashboard.pendingReview.count).toBe(1);
+  });
+
   it("runs scheduled scans once per company day and metadata week", async () => {
     await svc.create(companyId, item({
       title: "Scheduled domain scan",
@@ -556,5 +602,39 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(second.id).toBe(first.id);
     expect(proposals).toHaveLength(1);
     expect(reviewIssues).toHaveLength(1);
+  });
+
+  it("dedupes repeated email proposals after activation", async () => {
+    const payload = {
+      ...item({
+        title: "Activated proposal renewal",
+        category: "software_subscription",
+        providerName: "Activated Vendor",
+        nextDueDate: "2026-08-01",
+        billingEmail: "billing@example.com",
+        sourceKind: "email_agent",
+        sourceEmailMessageId,
+        confidenceScore: 85,
+      }),
+      sourceEmailMessageId,
+      confidenceScore: 85,
+      matchingKey: "activated-vendor:2026-08-01",
+    };
+
+    const first = await svc.createEmailProposal(companyId, payload);
+    await svc.setStatus(companyId, first.id, "active");
+    const second = await svc.createEmailProposal(companyId, payload);
+    const proposals = await db
+      .select()
+      .from(calendarItems)
+      .where(and(
+        eq(calendarItems.companyId, companyId),
+        eq(calendarItems.sourceKind, "email_agent"),
+        eq(calendarItems.sourceEmailMessageId, sourceEmailMessageId),
+      ));
+
+    expect(second.id).toBe(first.id);
+    expect(second.status).toBe("active");
+    expect(proposals).toHaveLength(1);
   });
 });
