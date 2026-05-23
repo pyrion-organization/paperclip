@@ -43,7 +43,11 @@ import type {
   UpdateInboundEmailMailbox,
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
-import { inboundEmailClassificationCategorySchema, inboundEmailMessageStatusSchema } from "@paperclipai/shared";
+import {
+  inboundEmailClassificationCategorySchema,
+  inboundEmailExternalIntakeMetadataSchema,
+  inboundEmailMessageStatusSchema,
+} from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import type { StorageService } from "../storage/types.js";
@@ -3298,7 +3302,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
       const raw = Buffer.from(input.rawEmail, "utf8");
       const rawSha256 = hashBuffer(raw);
       const sourceLocation = asNullableString(input.sourceLocation);
-      const metadata = asRecord(input.metadata);
+      const metadata = inboundEmailExternalIntakeMetadataSchema.parse(asRecord(input.metadata));
       const existing = await findExternalIntakeBySource({
         companyId,
         sourceKind: input.sourceKind,

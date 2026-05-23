@@ -968,6 +968,8 @@ foundation:
   and issue creation stay centralized,
 - added external intake activity events for imported, duplicate, failed, and
   conflicting source records without logging raw email bodies or metadata values,
+- rejected external intake metadata keys that look like credentials, tokens,
+  passwords, cookies, sessions, or API keys,
 - added a bounded board-only batch import endpoint with per-message imported,
   duplicate, and failed results so one bad preserved `.eml` does not block a
   downtime recovery batch,

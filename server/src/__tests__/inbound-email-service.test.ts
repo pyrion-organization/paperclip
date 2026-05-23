@@ -545,6 +545,27 @@ describeEmbeddedPostgres("inbound email service", () => {
     expect(serializedDetails).not.toContain("metadata-value-not-logged");
   });
 
+  it("rejects credential-shaped external intake metadata", async () => {
+    const companyId = await seedCompany();
+    const mailbox = await createMailbox(companyId);
+
+    await expect(svc.submitExternalIntakeMessage(companyId, {
+      mailboxId: mailbox.id,
+      sourceKind: "object_storage",
+      sourceId: "metadata-secret",
+      rawEmail: rawEmail({ messageId: "<metadata-secret@example.com>" }),
+      metadata: {
+        provider: "backup",
+        nested: {
+          apiToken: "do-not-store",
+        },
+      },
+    })).rejects.toThrow("External intake metadata must not contain credentials");
+
+    const records = await db.select().from(inboundEmailExternalIntakeRecords);
+    expect(records).toHaveLength(0);
+  });
+
   it("imports external intake messages in a per-item recovery batch", async () => {
     const companyId = await seedCompany();
     const mailbox = await createMailbox(companyId);
@@ -3998,6 +4019,17 @@ describeEmbeddedPostgres("inbound email service", () => {
       intakeRecord: { id: importRes.body.intakeRecord.id },
       message: { id: importRes.body.message.id },
     });
+
+    await request(app)
+      .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)
+      .set("Authorization", `Bearer ${tokenRes.body.token}`)
+      .send({
+        sourceKind: "webhook",
+        sourceId: "webhook-secret-metadata",
+        rawEmail: rawEmail({ messageId: "<external-secret-metadata@example.com>" }),
+        metadata: { apiToken: "do-not-store" },
+      })
+      .expect(400);
 
     await request(app)
       .post(`/external/inbound-email/mailboxes/${mailbox.id}/intake`)

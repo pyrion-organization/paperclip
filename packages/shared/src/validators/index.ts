@@ -33,6 +33,7 @@ export {
   inboundEmailProjectFallbackModeSchema,
   inboundEmailMessageStatusSchema,
   inboundEmailExternalIntakeSourceKindSchema,
+  inboundEmailExternalIntakeMetadataSchema,
   createInboundEmailMailboxSchema,
   updateInboundEmailMailboxSchema,
   createInboundEmailRuleSchema,

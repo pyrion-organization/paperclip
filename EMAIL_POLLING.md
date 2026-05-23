@@ -172,7 +172,7 @@ Paperclip can now record project infrastructure metadata without mutating provid
 
 Paperclip can preserve and recover raw support messages captured outside the normal IMAP polling path.
 
-- External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, error, metadata, and timestamps.
+- External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, non-secret metadata, error, and timestamps.
 - Each external intake outcome writes an activity event (`imported`, `duplicate`, `failed`, or source conflict) with source IDs, status, linked message, and metadata keys, but not raw email bodies or metadata values.
 - Supported source kinds are `webhook`, `queue`, `object_storage`, and `manual_recovery`. They represent preserved raw messages from an external backup mailbox, webhook provider, queue, or operator recovery run.
 - Operators can import a preserved raw message through `POST /api/companies/:companyId/inbound-email/external-intake/import`. The payload supplies `mailboxId`, `sourceKind`, `sourceId`, optional `sourceLocation`, optional `metadata`, and `rawEmail`.
@@ -208,7 +208,7 @@ During Paperclip downtime, the external support intake backup should preserve ea
 | `sourceId` | yes | Stable unique external ID, such as queue message ID, webhook event ID, or object key. Reusing the same source ID with different raw bytes is rejected. |
 | `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. |
 | `rawEmail` | yes | The original raw email including headers and body. Do not paste a rendered or summarized email. |
-| `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. |
+| `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. Keys that look like credentials, tokens, passwords, cookies, sessions, or API keys are rejected. |
 
 Recommended object-storage layout:
 

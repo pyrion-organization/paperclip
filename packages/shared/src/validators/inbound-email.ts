@@ -66,6 +66,23 @@ const hostnameSchema = z
 const mailboxNameSchema = z.string().trim().min(1).max(120);
 const optionalPatternSchema = z.string().max(500).nullable().optional();
 const labelIdsSchema = z.array(z.string().uuid()).max(20).optional();
+const FORBIDDEN_EXTERNAL_INTAKE_METADATA_KEY_PATTERN =
+  /(secret|token|password|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)/i;
+
+function hasForbiddenExternalIntakeMetadataKey(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some((entry) => hasForbiddenExternalIntakeMetadataKey(entry));
+  return Object.entries(value as Record<string, unknown>).some(([key, entry]) =>
+    FORBIDDEN_EXTERNAL_INTAKE_METADATA_KEY_PATTERN.test(key) ||
+    hasForbiddenExternalIntakeMetadataKey(entry),
+  );
+}
+
+export const inboundEmailExternalIntakeMetadataSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => !hasForbiddenExternalIntakeMetadataKey(value), {
+    message: "External intake metadata must not contain credentials, tokens, passwords, cookies, or API keys",
+  });
 
 export const createInboundEmailMailboxSchema = z.object({
   name: mailboxNameSchema,
@@ -132,7 +149,7 @@ export const importExternalInboundEmailMessageSchema = z.object({
   rawEmail: z.string().min(1).max(10_000_000),
   receivedAt: z.coerce.date().nullable().optional(),
   processAfterImport: z.boolean().optional().default(true),
-  metadata: z.record(z.string(), z.unknown()).optional().default({}),
+  metadata: inboundEmailExternalIntakeMetadataSchema.optional().default({}),
 }).strict();
 
 export type ImportExternalInboundEmailMessage = z.infer<typeof importExternalInboundEmailMessageSchema>;
@@ -149,7 +166,7 @@ export const submitExternalInboundEmailIntakeSchema = z.object({
   sourceLocation: z.string().trim().min(1).max(2000).nullable().optional(),
   rawEmail: z.string().min(1).max(10_000_000),
   receivedAt: z.coerce.date().nullable().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional().default({}),
+  metadata: inboundEmailExternalIntakeMetadataSchema.optional().default({}),
 }).strict();
 
 export type SubmitExternalInboundEmailIntake = z.infer<typeof submitExternalInboundEmailIntakeSchema>;
