@@ -29,10 +29,14 @@ const builtinAdaptersByType = new Map<string, UIAdapterModule>();
 // Tracks which builtin types currently have an active external override.
 const activeExternalOverrides = new Set<string>();
 
+// Tracks non-builtin external adapters registered from the latest server sync.
+const activeExternalAdapterTypes = new Set<string>();
+
 // Generation counter to discard stale dynamic parser loads. When an override
 // is deactivated while a load is in-flight, the generation is bumped and the
 // stale result is discarded in its .then() handler.
 const overrideGeneration = new Map<string, number>();
+const externalAdapterGeneration = new Map<string, number>();
 
 // Subscriber list — components can register to be notified when adapters change
 // (e.g., when a dynamic parser replaces a placeholder).
@@ -221,8 +225,19 @@ export function syncExternalAdapters(
 
   // ── Non-builtin externals ───────────────────────────────────────────────
 
+  for (const type of [...activeExternalAdapterTypes]) {
+    if (enabledExternalTypes.has(type)) continue;
+
+    activeExternalAdapterTypes.delete(type);
+    externalAdapterGeneration.set(type, (externalAdapterGeneration.get(type) ?? 0) + 1);
+    invalidateDynamicParser(type);
+    unregisterUIAdapter(type);
+    notifyAdapterChange();
+  }
+
   for (const { type, label } of serverAdapters) {
     if (builtinTypes.has(type)) continue; // handled above
+    if (!enabledExternalTypes.has(type)) continue;
 
     const existing = adaptersByType.get(type);
 
@@ -235,6 +250,9 @@ export function syncExternalAdapters(
     // Use the existing built-in parser as fallback (if any) so we don't
     // regress to the generic process parser while the dynamic one loads.
     const fallbackParser = existing?.parseStdoutLine ?? processUIAdapter.parseStdoutLine;
+    activeExternalAdapterTypes.add(type);
+    const gen = (externalAdapterGeneration.get(type) ?? 0) + 1;
+    externalAdapterGeneration.set(type, gen);
 
     registerUIAdapter({
       type,
@@ -243,7 +261,7 @@ export function syncExternalAdapters(
         if (!loadStarted) {
           loadStarted = true;
           loadDynamicParser(type).then((parserModule) => {
-            if (parserModule) {
+            if (parserModule && externalAdapterGeneration.get(type) === gen) {
               registerUIAdapter({
                 type,
                 label,

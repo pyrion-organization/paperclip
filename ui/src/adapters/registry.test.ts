@@ -5,9 +5,9 @@ import {
   getUIAdapter,
   listUIAdapters,
   registerUIAdapter,
+  syncExternalAdapters,
   unregisterUIAdapter,
 } from "./registry";
-import { processUIAdapter } from "./process";
 import { SchemaConfigFields } from "./schema-config-fields";
 
 const externalUIAdapter: UIAdapterModule = {
@@ -20,10 +20,12 @@ const externalUIAdapter: UIAdapterModule = {
 
 describe("ui adapter registry", () => {
   beforeEach(() => {
+    syncExternalAdapters([]);
     unregisterUIAdapter("external_test");
   });
 
   afterEach(() => {
+    syncExternalAdapters([]);
     unregisterUIAdapter("external_test");
   });
 
@@ -47,5 +49,24 @@ describe("ui adapter registry", () => {
     expect(fallback.type).toBe("external_test");
     // But it uses the schema-based config fields for external adapter forms.
     expect(fallback.ConfigFields).toBe(SchemaConfigFields);
+  });
+
+  it("does not register disabled external adapters from server sync", () => {
+    syncExternalAdapters([
+      { type: "external_test", label: "External Test", disabled: true },
+    ]);
+
+    expect(findUIAdapter("external_test")).toBeNull();
+    expect(listUIAdapters().some((adapter) => adapter.type === "external_test")).toBe(false);
+  });
+
+  it("removes non-builtin external adapters missing from a later server sync", () => {
+    syncExternalAdapters([{ type: "external_test", label: "External Test" }]);
+    expect(findUIAdapter("external_test")).not.toBeNull();
+
+    syncExternalAdapters([]);
+
+    expect(findUIAdapter("external_test")).toBeNull();
+    expect(listUIAdapters().some((adapter) => adapter.type === "external_test")).toBe(false);
   });
 });
