@@ -44,6 +44,7 @@ import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
 import { maybePersistWorktreeRuntimePorts } from "./worktree-config.js";
+import { clearDatabaseRuntimeState, writeDatabaseRuntimeState } from "./database-runtime-state.js";
 import { initTelemetry, getTelemetryClient } from "./telemetry.js";
 import { conflict } from "./errors.js";
 import type {
@@ -443,6 +444,14 @@ export async function startServer(): Promise<StartedServer> {
     logger.info("Embedded PostgreSQL ready");
     activeDatabaseConnectionString = embeddedConnectionString;
     resolvedEmbeddedPostgresPort = port;
+    writeDatabaseRuntimeState({
+      mode: "embedded-postgres",
+      connectionString: embeddedConnectionString,
+      pid: process.pid,
+      embeddedPostgresDataDir: dataDir,
+      embeddedPostgresPort: port,
+      updatedAt: new Date().toISOString(),
+    });
     startupDbInfo = { mode: "embedded-postgres", dataDir, port };
   }
   
@@ -926,6 +935,9 @@ export async function startServer(): Promise<StartedServer> {
         } catch (err) {
           logger.error({ err }, "Failed to stop embedded PostgreSQL cleanly");
         }
+      }
+      if (resolvedEmbeddedPostgresPort !== null) {
+        clearDatabaseRuntimeState();
       }
 
       process.exit(0);

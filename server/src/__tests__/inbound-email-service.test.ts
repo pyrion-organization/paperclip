@@ -2237,6 +2237,7 @@ describeEmbeddedPostgres("inbound email service", () => {
         svc.updateMailbox(companyId, mailbox.id, {
           name: "Rotation changed",
           host: "mail.example.com",
+          supportRepliesEnabled: true,
           password: "rotated-secret",
         }),
       ).rejects.toThrow(/Failed query: insert into "company_secret_versions"/);
@@ -2249,6 +2250,7 @@ describeEmbeddedPostgres("inbound email service", () => {
         name: "Rotation rollback",
         host: "imap.example.com",
         username: "rollback@example.com",
+        supportRepliesEnabled: false,
         passwordSecretName: `__inbound_email_password__:${mailbox.id}`,
       });
       const versions = await db
@@ -2305,6 +2307,7 @@ describeEmbeddedPostgres("inbound email service", () => {
         svc.updateMailbox(companyId, mailbox.id, {
           name: "Clear changed",
           host: "mail.example.com",
+          supportRepliesEnabled: true,
           password: null,
         }),
       ).rejects.toThrow(/Failed query: update "inbound_email_mailboxes"/);
@@ -2317,6 +2320,7 @@ describeEmbeddedPostgres("inbound email service", () => {
         name: "Clear rollback",
         host: "imap.example.com",
         username: "clear@example.com",
+        supportRepliesEnabled: false,
         passwordSecretName: `__inbound_email_password__:${mailbox.id}`,
       });
       const storedSecrets = await db
@@ -3259,12 +3263,15 @@ describeEmbeddedPostgres("inbound email service", () => {
     const fixedNow = new Date("2026-05-19T10:00:30Z");
     const enqueued1 = await svc.enqueueDueMailboxPollJobs(fixedNow);
     const enqueued2 = await svc.enqueueDueMailboxPollJobs(new Date(fixedNow.getTime() + 5_000));
+    const enqueued3 = await svc.enqueueDueMailboxPollJobs(new Date(fixedNow.getTime() + 65_000));
 
     expect(enqueued1).toBe(1);
     expect(enqueued2).toBe(0);
+    expect(enqueued3).toBe(0);
     const activeRows = await db.select().from(backgroundJobs);
     const active = activeRows.filter((r) => r.kind === "email.poll_mailbox" && (r.status === "pending" || r.status === "running" || r.status === "retrying"));
     expect(active.length).toBe(1);
+    expect(active[0]!.dedupeKey).toMatch(/:scheduled$/);
   }, 20_000);
 
   it("does not schedule enabled mailboxes without configured passwords", async () => {

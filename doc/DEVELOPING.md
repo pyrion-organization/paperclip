@@ -125,7 +125,7 @@ Inbound email ingestion runs as a dedicated worker process backed by the primary
 pnpm worker:email
 ```
 
-Run the API server separately. The worker reads enabled company mailboxes, claims `email.*` jobs from `background_jobs`, imports raw messages, deduplicates by `Message-ID` and raw SHA-256, and creates Paperclip issues from accepted messages. If `DATABASE_URL` is unset, the worker connects to the configured embedded PostgreSQL port; in local dev that means the API server should already be running and owning the embedded database process.
+Run the API server separately. The worker reads enabled company mailboxes, claims `email.*` jobs from `background_jobs`, imports raw messages, deduplicates by `Message-ID` and raw SHA-256, and creates Paperclip issues from accepted messages. If `DATABASE_URL` is unset, the worker reads the active embedded PostgreSQL connection written by the running API server instead of guessing the configured port; start the API first, or set `DATABASE_URL` explicitly for standalone worker runs.
 
 ## One-Command Local Run
 

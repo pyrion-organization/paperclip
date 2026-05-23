@@ -1,5 +1,7 @@
 import { createDb, applyPendingMigrations } from "@paperclipai/db";
 import { loadConfig } from "./config.js";
+import type { Config } from "./config.js";
+import { isProcessRunning, readDatabaseRuntimeState } from "./database-runtime-state.js";
 import { logger } from "./middleware/logger.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { inboundEmailService } from "./services/inbound-email.js";
@@ -28,9 +30,25 @@ export function sleepUntilEmailWorkerWake(ms: number, control: EmailWorkerContro
   });
 }
 
-function resolveDatabaseUrl(config: ReturnType<typeof loadConfig>): string {
+export function resolveEmailWorkerDatabaseUrl(config: Config, runtimeStatePath?: string): string {
   if (config.databaseUrl) return config.databaseUrl;
-  return `postgres://paperclip:paperclip@127.0.0.1:${config.embeddedPostgresPort}/paperclip`;
+  const runtimeState = readDatabaseRuntimeState(runtimeStatePath);
+  if (!runtimeState) {
+    throw new Error(
+      "Inbound email worker in embedded PostgreSQL mode requires the API server to be running first so the active database port can be discovered. Start the API before `pnpm worker:email`, or set DATABASE_URL explicitly.",
+    );
+  }
+  if (!isProcessRunning(runtimeState.pid)) {
+    throw new Error(
+      "Inbound email worker found stale embedded PostgreSQL runtime state. Start the API before `pnpm worker:email`, or set DATABASE_URL explicitly.",
+    );
+  }
+  if (runtimeState.embeddedPostgresDataDir !== config.embeddedPostgresDataDir) {
+    throw new Error(
+      "Inbound email worker embedded PostgreSQL runtime state points at a different data directory. Start the matching API instance, or set DATABASE_URL explicitly.",
+    );
+  }
+  return runtimeState.connectionString;
 }
 
 export async function startEmailWorker() {
@@ -45,7 +63,7 @@ export async function startEmailWorker() {
     process.env.PAPERCLIP_SECRETS_MASTER_KEY_FILE = config.secretsMasterKeyFilePath;
   }
 
-  const databaseUrl = resolveDatabaseUrl(config);
+  const databaseUrl = resolveEmailWorkerDatabaseUrl(config);
   await applyPendingMigrations(config.databaseMigrationUrl ?? databaseUrl);
 
   const db = createDb(databaseUrl);

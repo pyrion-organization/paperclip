@@ -227,6 +227,10 @@ function secretNameForMailbox(mailboxId: string): string {
   return `${INBOUND_EMAIL_PASSWORD_SECRET_PREFIX}:${mailboxId}`;
 }
 
+function scheduledMailboxPollDedupeKey(mailboxId: string): string {
+  return `${mailboxId}:scheduled`;
+}
+
 type RawMailboxRow = typeof inboundEmailMailboxes.$inferSelect;
 type RedactedMailbox =
   & Omit<RawMailboxRow, "passwordSecretName">
@@ -2178,6 +2182,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
               folder: existing.folder,
               tls: existing.tls,
               pollIntervalSeconds: existing.pollIntervalSeconds,
+              supportRepliesEnabled: existing.supportRepliesEnabled,
               passwordSecretName: existing.passwordSecretName,
               updatedAt: new Date(),
             })
@@ -2463,7 +2468,7 @@ export function inboundEmailService(db: Db, storage?: StorageService) {
           companyId: mailbox.companyId,
           kind: EMAIL_POLL_MAILBOX_JOB_KIND,
           payload: { mailboxId: mailbox.id },
-          dedupeKey: `${mailbox.id}:${Math.floor(now.getTime() / intervalMs)}`,
+          dedupeKey: scheduledMailboxPollDedupeKey(mailbox.id),
           maxAttempts: 3,
         });
         if (result.inserted) enqueued += 1;
