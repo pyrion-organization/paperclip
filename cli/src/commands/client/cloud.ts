@@ -236,8 +236,17 @@ export async function pushCloud(opts: CloudPushOptions): Promise<unknown> {
 
 export async function discoverUpstream(remoteUrl: string): Promise<UpstreamDiscovery> {
   const base = new URL(remoteUrl);
-  const discoveryUrl = new URL("/.well-known/paperclip-upstream", base);
+  const discoveryUrl = new URL("/.well-known/paperclip-upstream", base.origin);
+  const stackId = firstPathSegment(base.pathname);
+  if (stackId) {
+    discoveryUrl.searchParams.set("stackId", stackId);
+  }
   return requestCloudJson<UpstreamDiscovery>(discoveryUrl.toString(), { method: "GET" });
+}
+
+function firstPathSegment(pathname: string): string | null {
+  const segment = pathname.split("/").find(Boolean);
+  return segment && segment.toLowerCase() !== "dashboard" ? segment : null;
 }
 
 export function assertDiscoveryCompatible(discovery: UpstreamDiscovery): void {

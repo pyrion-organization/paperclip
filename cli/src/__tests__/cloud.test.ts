@@ -8,6 +8,7 @@ import {
   buildBundleFromLocalCompany,
   cloudCommandExitCodes,
   connectCloud,
+  discoverUpstream,
   resolveDeviceCodeExpiresAt,
 } from "../commands/client/cloud.js";
 import {
@@ -81,6 +82,20 @@ describe("cloud CLI helpers", () => {
   it("hard-blocks incompatible transfer schema versions with the stable schema exit code", () => {
     expect(() => assertDiscoveryCompatible(discovery({ supportedSchemaMajor: 99 }))).toThrow(/schema mismatch/i);
     expect(cloudCommandExitCodes.schemaMismatch).toBe(3);
+  });
+
+  it("preserves path-scoped cloud URLs as stack discovery ids", async () => {
+    const requested: string[] = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      requested.push(String(url));
+      return jsonResponse(discovery());
+    }) as typeof fetch;
+
+    await discoverUpstream("https://cloud.example.test/stack-a");
+
+    expect(requested).toEqual([
+      "https://cloud.example.test/.well-known/paperclip-upstream?stackId=stack-a",
+    ]);
   });
 
   it("falls back to a bounded device-code expiry when the cloud omits or malforms expiresAt", () => {

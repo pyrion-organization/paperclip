@@ -554,6 +554,18 @@ function createRoutineEnvFingerprint(env: unknown) {
   return crypto.createHash("sha256").update(canonical).digest("hex");
 }
 
+function isPaperclipRuntimeEnvKey(key: string) {
+  return key.startsWith("PAPERCLIP_");
+}
+
+function stripPaperclipRuntimeEnvBindings(envValue: unknown): Record<string, unknown> | null {
+  if (!envValue || typeof envValue !== "object" || Array.isArray(envValue)) return null;
+  const filtered = Object.fromEntries(
+    Object.entries(envValue as Record<string, unknown>).filter(([key]) => !isPaperclipRuntimeEnvKey(key)),
+  );
+  return Object.keys(filtered).length > 0 ? filtered : null;
+}
+
 function readManagedRoutineIssueTemplate(defaultsJson: Record<string, unknown> | null | undefined) {
   const value = defaultsJson?.issueTemplate;
   if (!isPlainRecord(value)) return null;
@@ -1758,14 +1770,24 @@ export function routineService(
     const { run, routine, allVariables } = input;
     const scriptArgs = routine.scriptCommandArgs ?? [];
 
-    // Build env: pass all resolved variables as ROUTINE_VAR_<NAME>
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(allVariables)) {
-      env[`ROUTINE_VAR_${key.toUpperCase()}`] = String(value);
-    }
-
     let output = "";
     try {
+      const routineEnv = stripPaperclipRuntimeEnvBindings(routine.env);
+      const routineEnvResolution = routineEnv
+        ? await secretsSvc.resolveEnvBindings(routine.companyId, routineEnv, {
+            consumerType: "routine",
+            consumerId: routine.id,
+            actorType: "system",
+            actorId: null,
+          })
+        : { env: {} as Record<string, string> };
+
+      // Pass configured routine env plus all resolved variables as ROUTINE_VAR_<NAME>.
+      const env: Record<string, string> = { ...routineEnvResolution.env };
+      for (const [key, value] of Object.entries(allVariables)) {
+        env[`ROUTINE_VAR_${key.toUpperCase()}`] = String(value);
+      }
+
       let command: string;
       let args: string[];
       let cwd: string;

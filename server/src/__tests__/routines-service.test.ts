@@ -535,6 +535,45 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     expect(runAfter.dispatchFingerprint).not.toBe(runBefore.dispatchFingerprint);
   });
 
+  it("resolves routine env bindings into script process env", async () => {
+    const { companyId, svc } = await seedFixture();
+    const secrets = secretService(db);
+    const secret = await secrets.create(companyId, {
+      name: `script-secret-${randomUUID()}`,
+      provider: "local_encrypted",
+      value: "secret-value",
+    });
+
+    const routine = await svc.create(
+      companyId,
+      {
+        projectId: null,
+        goalId: null,
+        parentIssueId: null,
+        title: "script env routine",
+        description: null,
+        assigneeAgentId: null,
+        priority: "medium",
+        status: "active",
+        concurrencyPolicy: "always_enqueue",
+        catchUpPolicy: "skip_missed",
+        executionMode: "bash_command",
+        scriptPath: "printf '%s:%s:%s' \"$ROUTINE_API_KEY\" \"$ROUTINE_PLAIN\" \"$PAPERCLIP_API_KEY\"",
+        env: {
+          ROUTINE_API_KEY: { type: "secret_ref", secretId: secret.id, version: "latest" },
+          ROUTINE_PLAIN: { type: "plain", value: "plain-value" },
+          PAPERCLIP_API_KEY: { type: "plain", value: "spoofed" },
+        },
+      },
+      {},
+    );
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("completed");
+    expect(run.scriptOutput).toBe("secret-value:plain-value:");
+  });
+
   it("rejects stale routine baseRevisionId updates", async () => {
     const { routine, svc } = await seedFixture();
     const updated = await svc.update(routine.id, { description: "new description" }, {});
