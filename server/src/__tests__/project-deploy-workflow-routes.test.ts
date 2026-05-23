@@ -931,6 +931,82 @@ describe("project deploy workflow routes", () => {
     expect(mockProjectService.createInfraIncident).not.toHaveBeenCalled();
   });
 
+  it("validates relation IDs before updating infrastructure incidents", async () => {
+    const app = await createApp("board");
+    const repairApproval = buildApproval({
+      type: "infra_repair",
+      payload: { project: { id: "11111111-1111-4111-8111-111111111111" } },
+    });
+    mockApprovalService.getById.mockResolvedValueOnce(repairApproval);
+
+    const body = {
+      infraTargetId: "77777777-7777-4777-8777-777777777777",
+      healthCheckId: "88888888-8888-4888-8888-888888888888",
+      issueId: "22222222-2222-4222-8222-222222222222",
+      repairApprovalId: "44444444-4444-4444-8444-444444444444",
+    };
+    const res = await request(app)
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/infra-incidents/99999999-9999-4999-8999-999999999999")
+      .send(body);
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.getInfraTarget).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "77777777-7777-4777-8777-777777777777",
+    );
+    expect(mockProjectService.getInfraHealthCheck).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "88888888-8888-4888-8888-888888888888",
+    );
+    expect(mockIssueService.getById).toHaveBeenCalledWith("22222222-2222-4222-8222-222222222222");
+    expect(mockApprovalService.getById).toHaveBeenCalledWith("44444444-4444-4444-8444-444444444444");
+    expect(mockProjectService.updateInfraIncident).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "99999999-9999-4999-8999-999999999999",
+      body,
+    );
+  });
+
+  it("rejects cross-company relation IDs when updating infrastructure incidents", async () => {
+    const app = await createApp("board");
+    const endpoint =
+      "/api/projects/11111111-1111-4111-8111-111111111111/infra-incidents/99999999-9999-4999-8999-999999999999";
+
+    mockProjectService.getInfraTarget.mockResolvedValueOnce(buildInfraTarget({ companyId: "other-company" }));
+    let res = await request(app)
+      .patch(endpoint)
+      .send({ infraTargetId: "77777777-7777-4777-8777-777777777777" });
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toBe("Infrastructure incident target is invalid");
+
+    mockProjectService.getInfraHealthCheck.mockResolvedValueOnce(buildInfraHealthCheck({ companyId: "other-company" }));
+    res = await request(app)
+      .patch(endpoint)
+      .send({ healthCheckId: "88888888-8888-4888-8888-888888888888" });
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toBe("Infrastructure incident health check is invalid");
+
+    mockIssueService.getById.mockResolvedValueOnce(buildIssue({ companyId: "other-company" }));
+    res = await request(app)
+      .patch(endpoint)
+      .send({ issueId: "22222222-2222-4222-8222-222222222222" });
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toBe("Infrastructure incident issue is invalid");
+
+    mockApprovalService.getById.mockResolvedValueOnce(buildApproval({
+      companyId: "other-company",
+      type: "infra_repair",
+      payload: { project: { id: "11111111-1111-4111-8111-111111111111" } },
+    }));
+    res = await request(app)
+      .patch(endpoint)
+      .send({ repairApprovalId: "44444444-4444-4444-8444-444444444444" });
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toBe("Infrastructure incident repair approval is invalid");
+
+    expect(mockProjectService.updateInfraIncident).not.toHaveBeenCalled();
+  });
+
   it("rotates, uses, and revokes external monitor tokens for health checks", async () => {
     const app = await createApp("board");
 

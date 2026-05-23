@@ -202,7 +202,10 @@ function DeployCommandRecords({
         },
         companyId,
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.deployEvents(projectId, companyId) });
+    },
   });
   const executeCommand = useMutation({
     mutationFn: (commandType: "deploy" | "rollback") =>

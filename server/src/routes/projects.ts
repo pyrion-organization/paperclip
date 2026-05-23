@@ -162,6 +162,61 @@ export function projectRoutes(db: Db) {
     return req.header("x-paperclip-monitor-token")?.trim() ?? "";
   }
 
+  function approvalPayloadProjectId(payload: unknown): string | null {
+    if (!payload || typeof payload !== "object" || !("project" in payload)) return null;
+    const project = (payload as { project?: unknown }).project;
+    if (!project || typeof project !== "object" || !("id" in project)) return null;
+    const id = (project as { id?: unknown }).id;
+    return typeof id === "string" ? id : null;
+  }
+
+  async function validateInfraIncidentRelations(input: {
+    projectId: string;
+    companyId: string;
+    data: {
+      infraTargetId?: string | null;
+      healthCheckId?: string | null;
+      issueId?: string | null;
+      repairApprovalId?: string | null;
+    };
+    res: Response;
+  }): Promise<boolean> {
+    if (input.data.infraTargetId) {
+      const infraTarget = await svc.getInfraTarget(input.projectId, input.data.infraTargetId);
+      if (!infraTarget || infraTarget.companyId !== input.companyId) {
+        input.res.status(422).json({ error: "Infrastructure incident target is invalid" });
+        return false;
+      }
+    }
+    if (input.data.healthCheckId) {
+      const healthCheck = await svc.getInfraHealthCheck(input.projectId, input.data.healthCheckId);
+      if (!healthCheck || healthCheck.companyId !== input.companyId) {
+        input.res.status(422).json({ error: "Infrastructure incident health check is invalid" });
+        return false;
+      }
+    }
+    if (input.data.issueId) {
+      const issue = await issuesSvc.getById(input.data.issueId);
+      if (!issue || issue.companyId !== input.companyId || issue.projectId !== input.projectId) {
+        input.res.status(422).json({ error: "Infrastructure incident issue is invalid" });
+        return false;
+      }
+    }
+    if (input.data.repairApprovalId) {
+      const approval = await approvalsSvc.getById(input.data.repairApprovalId);
+      if (
+        !approval ||
+        approval.companyId !== input.companyId ||
+        approval.type !== "infra_repair" ||
+        approvalPayloadProjectId(approval.payload) !== input.projectId
+      ) {
+        input.res.status(422).json({ error: "Infrastructure incident repair approval is invalid" });
+        return false;
+      }
+    }
+    return true;
+  }
+
   router.param("id", async (req, _res, next, rawId) => {
     try {
       req.params.id = await normalizeProjectReference(req, rawId);
@@ -974,27 +1029,7 @@ export function projectRoutes(db: Db) {
       return;
     }
     assertCompanyAccess(req, project.companyId);
-    if (req.body.infraTargetId) {
-      const infraTarget = await svc.getInfraTarget(id, req.body.infraTargetId);
-      if (!infraTarget || infraTarget.companyId !== project.companyId) {
-        res.status(422).json({ error: "Infrastructure incident target is invalid" });
-        return;
-      }
-    }
-    if (req.body.healthCheckId) {
-      const healthCheck = await svc.getInfraHealthCheck(id, req.body.healthCheckId);
-      if (!healthCheck || healthCheck.companyId !== project.companyId) {
-        res.status(422).json({ error: "Infrastructure incident health check is invalid" });
-        return;
-      }
-    }
-    if (req.body.issueId) {
-      const issue = await issuesSvc.getById(req.body.issueId);
-      if (!issue || issue.companyId !== project.companyId || issue.projectId !== project.id) {
-        res.status(422).json({ error: "Infrastructure incident issue is invalid" });
-        return;
-      }
-    }
+    if (!(await validateInfraIncidentRelations({ projectId: id, companyId: project.companyId, data: req.body, res }))) return;
 
     const incident = await svc.createInfraIncident(id, req.body);
     if (!incident) {
@@ -1029,6 +1064,8 @@ export function projectRoutes(db: Db) {
         return;
       }
       assertCompanyAccess(req, project.companyId);
+
+      if (!(await validateInfraIncidentRelations({ projectId: id, companyId: project.companyId, data: req.body, res }))) return;
 
       const incident = await svc.updateInfraIncident(id, incidentId, req.body);
       if (!incident) {
