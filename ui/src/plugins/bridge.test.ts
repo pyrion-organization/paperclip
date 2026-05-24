@@ -344,16 +344,33 @@ describe("plugin SDK FileTree bridge", () => {
 });
 
 describe("plugin SDK markdown component bridge", () => {
-  it("injects markdown display and editor components through the bridge runtime", () => {
+  it("injects every shim-exported SDK UI component through the bridge runtime", () => {
     initPluginBridge(React, ReactDOM);
 
     const registry = globalThis.__paperclipPluginBridge__?.sdkUi ?? {};
-    expect(registry.MarkdownBlock).toBeTypeOf("function");
-    expect(registry.MarkdownEditor).toBeTypeOf("function");
-    expect(registry.IssuesList).toBeTypeOf("function");
-    expect(registry.AssigneePicker).toBeTypeOf("function");
-    expect(registry.ProjectPicker).toBeTypeOf("function");
-    expect(registry.ManagedRoutinesList).toBeTypeOf("function");
+    const shimExportedComponents = [
+      "MetricCard",
+      "StatusBadge",
+      "DataTable",
+      "TimeseriesChart",
+      "MarkdownBlock",
+      "MarkdownEditor",
+      "KeyValueList",
+      "ActionBar",
+      "LogView",
+      "JsonTree",
+      "Spinner",
+      "ErrorBoundary",
+      "FileTree",
+      "IssuesList",
+      "AssigneePicker",
+      "ProjectPicker",
+      "ManagedRoutinesList",
+    ];
+
+    for (const name of shimExportedComponents) {
+      expect(registry[name], name).toBeTypeOf("function");
+    }
   });
 
   it("renders plugin-provided markdown components when registered by the host", () => {

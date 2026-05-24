@@ -598,6 +598,50 @@ type PluginKeyValueListProps = {
   pairs: Array<{ label: string; value: ReactNode }>;
 };
 
+type PluginTimeseriesDataPoint = {
+  timestamp: string;
+  value: number;
+  label?: string;
+};
+
+type PluginTimeseriesChartProps = {
+  data: PluginTimeseriesDataPoint[];
+  title?: string;
+  yLabel?: string;
+  type?: "line" | "bar";
+  height?: number;
+  loading?: boolean;
+};
+
+type PluginActionBarItem = {
+  label: string;
+  actionKey: string;
+  params?: Record<string, unknown>;
+  variant?: "default" | "primary" | "destructive";
+  confirm?: boolean;
+  confirmMessage?: string;
+};
+
+type PluginActionBarProps = {
+  actions: PluginActionBarItem[];
+  onSuccess?: (actionKey: string, result: unknown) => void;
+  onError?: (actionKey: string, error: unknown) => void;
+};
+
+type PluginLogViewEntry = {
+  timestamp: string;
+  level: "info" | "warn" | "error" | "debug";
+  message: string;
+  meta?: Record<string, unknown>;
+};
+
+type PluginLogViewProps = {
+  entries: PluginLogViewEntry[];
+  maxHeight?: string;
+  autoScroll?: boolean;
+  loading?: boolean;
+};
+
 function PluginSdkKeyValueList({ pairs }: PluginKeyValueListProps) {
   return createElement(
     "dl",
@@ -609,12 +653,160 @@ function PluginSdkKeyValueList({ pairs }: PluginKeyValueListProps) {
   );
 }
 
+function PluginSdkTimeseriesChart({
+  data,
+  title,
+  yLabel,
+  type = "line",
+  height = 200,
+  loading,
+}: PluginTimeseriesChartProps) {
+  if (loading) return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading...");
+  if (!data.length) return createElement("div", { className: "text-sm text-muted-foreground" }, "No data.");
+
+  const width = 600;
+  const padding = 24;
+  const values = data.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const xStep = data.length > 1 ? (width - padding * 2) / (data.length - 1) : 0;
+  const points = data.map((point, index) => {
+    const x = padding + xStep * index;
+    const y = padding + ((max - point.value) / range) * (height - padding * 2);
+    return { x, y, point };
+  });
+
+  return createElement(
+    "div",
+    { className: "rounded-md border bg-card p-3" },
+    title ? createElement("div", { className: "mb-2 text-sm font-medium" }, title) : null,
+    createElement(
+      "svg",
+      {
+        role: "img",
+        "aria-label": title ?? yLabel ?? "Timeseries chart",
+        viewBox: `0 0 ${width} ${height}`,
+        className: "h-auto w-full overflow-visible",
+      },
+      type === "bar"
+        ? points.map(({ x, y, point }, index) => createElement("rect", {
+          key: `${point.timestamp}:${index}`,
+          x: x - Math.max(2, xStep * 0.3),
+          y,
+          width: Math.max(4, xStep * 0.6 || 12),
+          height: Math.max(1, height - padding - y),
+          rx: 2,
+          className: "fill-primary/70",
+        }))
+        : createElement("polyline", {
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 2,
+          className: "text-primary",
+          points: points.map(({ x, y }) => `${x},${y}`).join(" "),
+        }),
+    ),
+    yLabel ? createElement("div", { className: "mt-1 text-xs text-muted-foreground" }, yLabel) : null,
+  );
+}
+
 function PluginSdkMetricCard({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
   return createElement(
     "div",
     { className: "rounded-md border bg-card p-3" },
     createElement("div", { className: "text-xs font-medium uppercase tracking-wide text-muted-foreground" }, label),
     createElement("div", { className: "mt-1 text-lg font-semibold" }, `${value}${unit ?? ""}`),
+  );
+}
+
+function PluginSdkActionButton({
+  action,
+  onSuccess,
+  onError,
+}: {
+  action: PluginActionBarItem;
+  onSuccess?: PluginActionBarProps["onSuccess"];
+  onError?: PluginActionBarProps["onError"];
+}) {
+  const runAction = usePluginAction(action.actionKey);
+  const [pending, setPending] = useState(false);
+  const className = {
+    default: "border-input bg-background hover:bg-muted",
+    primary: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+    destructive: "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90",
+  }[action.variant ?? "default"];
+
+  return createElement(
+    "button",
+    {
+      type: "button",
+      disabled: pending,
+      className: `inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${className}`,
+      onClick: async () => {
+        if (
+          action.confirm
+          && typeof window !== "undefined"
+          && !window.confirm(action.confirmMessage ?? `Run ${action.label}?`)
+        ) {
+          return;
+        }
+        setPending(true);
+        try {
+          const result = await runAction(action.params);
+          onSuccess?.(action.actionKey, result);
+        } catch (error) {
+          onError?.(action.actionKey, error);
+        } finally {
+          setPending(false);
+        }
+      },
+    },
+    pending ? "Running..." : action.label,
+  );
+}
+
+function PluginSdkActionBar({ actions, onSuccess, onError }: PluginActionBarProps) {
+  return createElement(
+    "div",
+    { className: "flex flex-wrap items-center gap-2" },
+    actions.map((action) => createElement(PluginSdkActionButton, {
+      key: action.actionKey,
+      action,
+      onSuccess,
+      onError,
+    })),
+  );
+}
+
+function PluginSdkLogView({
+  entries,
+  maxHeight = "400px",
+  loading,
+}: PluginLogViewProps) {
+  if (loading) return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading...");
+  if (!entries.length) return createElement("div", { className: "text-sm text-muted-foreground" }, "No log entries.");
+
+  const levelClassName = {
+    info: "text-sky-600",
+    warn: "text-amber-600",
+    error: "text-red-600",
+    debug: "text-muted-foreground",
+  };
+
+  return createElement(
+    "div",
+    {
+      className: "overflow-auto rounded-md border bg-muted/30 p-2 font-mono text-xs",
+      style: { maxHeight },
+    },
+    entries.map((entry, index) => createElement(
+      "div",
+      { key: `${entry.timestamp}:${index}`, className: "grid grid-cols-[max-content_max-content_minmax(0,1fr)] gap-2 py-0.5" },
+      createElement("span", { className: "text-muted-foreground" }, entry.timestamp),
+      createElement("span", { className: levelClassName[entry.level] }, entry.level.toUpperCase()),
+      createElement("span", { className: "min-w-0 whitespace-pre-wrap break-words" }, entry.message),
+    )),
   );
 }
 
@@ -688,7 +880,10 @@ export function initPluginBridge(
       MetricCard: PluginSdkMetricCard,
       StatusBadge: PluginSdkStatusBadge,
       DataTable: PluginSdkDataTable,
+      TimeseriesChart: PluginSdkTimeseriesChart,
       KeyValueList: PluginSdkKeyValueList,
+      ActionBar: PluginSdkActionBar,
+      LogView: PluginSdkLogView,
       JsonTree: PluginSdkJsonTree,
       Spinner: PluginSdkSpinner,
       ErrorBoundary: PluginSdkErrorBoundary,
