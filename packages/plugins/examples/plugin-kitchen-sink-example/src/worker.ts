@@ -888,6 +888,11 @@ async function registerToolHandlers(ctx: PluginContext): Promise<void> {
         projectId: runCtx.projectId,
         title: payload.title,
         description: payload.description,
+        originRunId: runCtx.runId,
+        actor: {
+          actorAgentId: runCtx.agentId,
+          actorRunId: runCtx.runId,
+        },
       });
       return {
         content: `Created issue ${issue.title}`,

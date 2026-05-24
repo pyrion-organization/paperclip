@@ -97,4 +97,47 @@ describe("kitchen sink example plugin", () => {
       lastWebhook: expect.objectContaining({ requestId: "webhook-1" }),
     });
   });
+
+  it("attributes issues created by the agent tool to the invoking run", async () => {
+    const harness = createTestHarness({ manifest });
+    await plugin.definition.setup(harness.ctx);
+
+    const issueCreateInputs: Parameters<typeof harness.ctx.issues.create>[0][] = [];
+    const createIssue = harness.ctx.issues.create.bind(harness.ctx.issues);
+    harness.ctx.issues.create = async (input) => {
+      issueCreateInputs.push(input);
+      return await createIssue(input);
+    };
+
+    await expect(
+      harness.executeTool(
+        TOOL_NAMES.createIssue,
+        { title: "Tool-created issue", description: "Created from a test run" },
+        {
+          companyId: "company-1",
+          projectId: "project-1",
+          agentId: "agent-1",
+          runId: "run-1",
+        },
+      ),
+    ).resolves.toMatchObject({
+      content: "Created issue Tool-created issue",
+      data: {
+        originRunId: "run-1",
+      },
+    });
+
+    expect(issueCreateInputs).toHaveLength(1);
+    expect(issueCreateInputs[0]).toMatchObject({
+      companyId: "company-1",
+      projectId: "project-1",
+      title: "Tool-created issue",
+      description: "Created from a test run",
+      originRunId: "run-1",
+      actor: {
+        actorAgentId: "agent-1",
+        actorRunId: "run-1",
+      },
+    });
+  });
 });
