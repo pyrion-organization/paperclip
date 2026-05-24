@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentApiKeys, agents, boardApiKeys } from "@paperclipai/db";
 import { actorMiddleware } from "../middleware/auth.js";
 
 function createSelectChain(rows: unknown[]) {
@@ -9,6 +11,18 @@ function createSelectChain(rows: unknown[]) {
       return {
         where() {
           return Promise.resolve(rows);
+        },
+      };
+    },
+  };
+}
+
+function createTableSelectChain(rowsByTable: Map<unknown, unknown[]>) {
+  return {
+    from(table: unknown) {
+      return {
+        where() {
+          return Promise.resolve(rowsByTable.get(table) ?? []);
         },
       };
     },
@@ -132,5 +146,44 @@ describe("actorMiddleware authenticated session profile", () => {
       email: "owner@example.com",
       emailVerified: true,
     });
+  });
+
+  it("rejects agent API keys whose agent belongs to another company", async () => {
+    const update = vi.fn();
+    const token = "stale-key";
+    const db = {
+      select: vi.fn(() => createTableSelectChain(new Map<unknown, unknown[]>([
+        [boardApiKeys, []],
+        [agentApiKeys, [{
+          id: "key-1",
+          agentId: "agent-1",
+          companyId: "company-b",
+          keyHash: createHash("sha256").update(token).digest("hex"),
+          revokedAt: null,
+        }]],
+        [agents, [{
+          id: "agent-1",
+          companyId: "company-a",
+          status: "idle",
+        }]],
+      ]))),
+      update,
+    } as any;
+    const app = express();
+    app.use(
+      actorMiddleware(db, {
+        deploymentMode: "authenticated",
+        resolveSession: async () => null,
+      }),
+    );
+    app.get("/actor", (req, res) => {
+      res.json(req.actor);
+    });
+
+    const res = await request(app).get("/actor").set("authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ type: "none", source: "none" });
+    expect(update).not.toHaveBeenCalled();
   });
 });

@@ -170,21 +170,26 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
       return;
     }
 
-    await db
-      .update(agentApiKeys)
-      .set({ lastUsedAt: new Date() })
-      .where(eq(agentApiKeys.id, key.id));
-
     const agentRecord = await db
       .select()
       .from(agents)
       .where(eq(agents.id, key.agentId))
       .then((rows) => rows[0] ?? null);
 
-    if (!agentRecord || agentRecord.status === "terminated" || agentRecord.status === "pending_approval") {
+    if (
+      !agentRecord
+      || agentRecord.companyId !== key.companyId
+      || agentRecord.status === "terminated"
+      || agentRecord.status === "pending_approval"
+    ) {
       next();
       return;
     }
+
+    await db
+      .update(agentApiKeys)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(agentApiKeys.id, key.id));
 
     req.actor = {
       type: "agent",
