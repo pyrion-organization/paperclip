@@ -247,21 +247,32 @@ export function invalidateConfigSchemaCache(adapterType: string): void {
 // ---------------------------------------------------------------------------
 
 function useConfigSchema(adapterType: string): AdapterConfigSchema | null {
-  const [schema, setSchema] = useState<AdapterConfigSchema | null>(
-    schemaCache.get(adapterType) ?? null,
-  );
+  const [schemaState, setSchemaState] = useState<{
+    adapterType: string;
+    schema: AdapterConfigSchema | null;
+  }>(() => ({
+    adapterType,
+    schema: schemaCache.get(adapterType) ?? null,
+  }));
 
   useEffect(() => {
     let cancelled = false;
+    setSchemaState({
+      adapterType,
+      schema: schemaCache.get(adapterType) ?? null,
+    });
     fetchConfigSchema(adapterType).then((s) => {
-      if (!cancelled) setSchema(s);
+      if (!cancelled) setSchemaState({ adapterType, schema: s });
     });
     return () => {
       cancelled = true;
     };
   }, [adapterType]);
 
-  return schema;
+  if (schemaState.adapterType !== adapterType) {
+    return schemaCache.get(adapterType) ?? null;
+  }
+  return schemaState.schema;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,23 +341,23 @@ export function SchemaConfigFields({
 }: AdapterConfigFieldsProps) {
   const schema = useConfigSchema(adapterType);
 
-  const [defaultsApplied, setDefaultsApplied] = useState(false);
+  const [defaultsAppliedFor, setDefaultsAppliedFor] = useState<string | null>(null);
   useEffect(() => {
-    if (!schema || !isCreate || defaultsApplied) return;
-    const defaults: Record<string, unknown> = {};
+    if (!schema || !isCreate || defaultsAppliedFor === adapterType) return;
+    const nextValues: Record<string, unknown> = {};
+    const existingValues = values?.adapterSchemaValues ?? {};
     for (const field of schema.fields) {
+      if (Object.prototype.hasOwnProperty.call(existingValues, field.key)) {
+        nextValues[field.key] = existingValues[field.key];
+      }
       const def = getDefaultValue(field);
       if (def !== undefined && def !== "") {
-        defaults[field.key] = def;
+        nextValues[field.key] = def;
       }
     }
-    if (Object.keys(defaults).length > 0) {
-      set?.({
-        adapterSchemaValues: { ...values?.adapterSchemaValues, ...defaults },
-      });
-    }
-    setDefaultsApplied(true);
-  }, [schema, isCreate, defaultsApplied, set, values?.adapterSchemaValues]);
+    set?.({ adapterSchemaValues: nextValues });
+    setDefaultsAppliedFor(adapterType);
+  }, [adapterType, schema, isCreate, defaultsAppliedFor, set, values?.adapterSchemaValues]);
 
   if (!schema || schema.fields.length === 0) return null;
 
