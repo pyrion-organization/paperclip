@@ -9,6 +9,7 @@ import {
   companySecrets,
   companySecretVersions,
   createDb,
+  emailNotifications,
   executionWorkspaces,
   heartbeatRuns,
   instanceSettings,
@@ -68,6 +69,7 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
     } else {
       process.env.PAPERCLIP_SECRETS_PROVIDER = originalSecretsProviderEnv;
     }
+    await db.delete(emailNotifications);
     await db.delete(activityLog);
     await db.delete(issueInboxArchives);
     await db.delete(issueReadStates);
@@ -835,6 +837,45 @@ describeEmbeddedPostgres("routine service live-execution coalescing", () => {
       includeRoutineExecutions: true,
     });
     expect(inboxIssues.map((issue) => issue.id)).toContain(run.linkedIssueId);
+  });
+
+  it("queues the routine notification email when a routine execution issue is marked done during run sync", async () => {
+    const { issueSvc, routine, svc } = await seedFixture();
+    await svc.update(routine.id, { notificationEmail: "routine-owner@example.com" }, {});
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).toBeTruthy();
+
+    await issueSvc.update(run.linkedIssueId!, { status: "done" });
+    await svc.syncRunStatusForIssue(run.linkedIssueId!, {
+      actor: {
+        actorType: "agent",
+        actorId: routine.assigneeAgentId!,
+        agentId: routine.assigneeAgentId!,
+        runId: null,
+      },
+      previousStatus: "in_progress",
+      requestedStatus: "done",
+      agentComment: "Finished from the routine issue.",
+      processCompletionEmailAfterEnqueue: false,
+    });
+
+    const [notification] = await db
+      .select()
+      .from(emailNotifications)
+      .where(eq(emailNotifications.issueId, run.linkedIssueId!));
+    expect(notification).toMatchObject({
+      kind: "issue_completion",
+      status: "pending",
+      recipientEmail: "routine-owner@example.com",
+      requestedByActorType: "agent",
+      requestedByActorId: routine.assigneeAgentId,
+    });
+    expect(notification?.payload).toMatchObject({
+      issueTitle: routine.title,
+      agentComment: "Finished from the routine issue.",
+    });
   });
 
   it("waits for the assignee wakeup to be queued before returning the routine run", async () => {

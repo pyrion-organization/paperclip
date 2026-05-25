@@ -2324,7 +2324,12 @@ export function issueRoutes(
       return { issue, recoveryAction };
     });
 
-    await routinesSvc.syncRunStatusForIssue(result.issue.id);
+    await routinesSvc.syncRunStatusForIssue(result.issue.id, {
+      actor,
+      agentComment: resolutionNote ?? null,
+      previousStatus: existing.status,
+      requestedStatus: sourceIssueStatus ?? null,
+    });
 
     if (sourceIssueStatus && existing.status !== result.issue.status) {
       await logActivity(db, {
@@ -3801,7 +3806,7 @@ export function issueRoutes(
         blocks: updatedRelations.blocks,
       };
     }
-    await routinesSvc.syncRunStatusForIssue(issue.id);
+    await routinesSvc.syncRunStatusForIssue(issue.id, { sendCompletionEmail: false });
 
     if (actor.runId) {
       await heartbeat.reportRunActivity(actor.runId).catch((err) =>

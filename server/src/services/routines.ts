@@ -69,6 +69,7 @@ import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./is
 import { logActivity } from "./activity-log.js";
 import { runChildProcess } from "../adapters/utils.js";
 import { sendRemediationResultEmail, sendRoutineFailureEmail, sendRoutineSuccessEmail } from "./email.js";
+import { enqueueIssueCompletionEmailNotification } from "./email-notifications.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
@@ -89,6 +90,20 @@ const WEEKDAY_INDEX: Record<string, number> = {
 type Actor = { agentId?: string | null; userId?: string | null; runId?: string | null };
 type RoutineRow = typeof routines.$inferSelect;
 type RoutineTriggerRow = typeof routineTriggers.$inferSelect;
+type RoutineIssueCompletionEmailActor = {
+  actorType: "agent" | "user" | "system" | "plugin";
+  actorId: string;
+  agentId?: string | null;
+  runId?: string | null;
+};
+type SyncRunStatusForIssueOptions = {
+  actor?: RoutineIssueCompletionEmailActor | null;
+  agentComment?: string | null;
+  previousStatus?: string | null;
+  requestedStatus?: string | null;
+  sendCompletionEmail?: boolean;
+  processCompletionEmailAfterEnqueue?: boolean;
+};
 
 interface RoutineTriggerSecretRestoreMaterial extends RoutineTriggerSecretMaterial {
   triggerId: string;
@@ -3411,11 +3426,17 @@ export function routineService(
       return { triggered };
     },
 
-    syncRunStatusForIssue: async (issueId: string) => {
+    syncRunStatusForIssue: async (issueId: string, options: SyncRunStatusForIssueOptions = {}) => {
       const issue = await db
         .select({
           id: issues.id,
+          companyId: issues.companyId,
+          title: issues.title,
+          identifier: issues.identifier,
+          description: issues.description,
           status: issues.status,
+          completedAt: issues.completedAt,
+          createdByUserId: issues.createdByUserId,
           originKind: issues.originKind,
           originRunId: issues.originRunId,
         })
@@ -3510,10 +3531,48 @@ export function routineService(
       if (issue.originKind !== "routine_execution") return null;
 
       if (issue.status === "done") {
-        return finalizeRun(issue.originRunId, {
+        const run = await db
+          .select()
+          .from(routineRuns)
+          .where(eq(routineRuns.id, issue.originRunId))
+          .then((rows) => rows[0] ?? null);
+        const shouldSendCompletionEmail =
+          options.sendCompletionEmail !== false &&
+          !!run &&
+          run.status !== "completed";
+        const finalized = await finalizeRun(issue.originRunId, {
           status: "completed",
           completedAt: new Date(),
         });
+        if (shouldSendCompletionEmail) {
+          const routine = run ? await getRoutineById(run.routineId) : null;
+          const recipientEmail = routine?.companyId === issue.companyId
+            ? routine.notificationEmail?.trim() || null
+            : null;
+          await enqueueIssueCompletionEmailNotification(db, {
+            issue: {
+              id: issue.id,
+              companyId: issue.companyId,
+              title: issue.title,
+              identifier: issue.identifier,
+              description: issue.description,
+              completedAt: issue.completedAt ?? new Date(),
+            },
+            creatorUserId: issue.createdByUserId,
+            recipientEmail,
+            actor: options.actor ?? {
+              actorType: "system",
+              actorId: "routine",
+              agentId: null,
+              runId: null,
+            },
+            agentComment: options.agentComment ?? null,
+            previousStatus: options.previousStatus ?? null,
+            requestedStatus: options.requestedStatus ?? "done",
+            processAfterEnqueue: options.processCompletionEmailAfterEnqueue,
+          });
+        }
+        return finalized;
       }
       if (issue.status === "blocked" || issue.status === "cancelled") {
         return finalizeRun(issue.originRunId, {
