@@ -4,6 +4,7 @@ import {
   CALENDAR_ITEM_CATEGORIES,
   CALENDAR_RECURRENCE_TYPES,
   CALENDAR_RISK_LEVELS,
+  type CalendarDashboard,
   type CalendarItem,
   type CalendarItemCategory,
   type CalendarItemStatus,
@@ -49,6 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 const NO_COMPANY = "__none__";
@@ -223,6 +225,57 @@ function dueLabel(item: CalendarItem) {
   return `${diff}d`;
 }
 
+function daysUntilDue(item: CalendarItem) {
+  if (!item.nextDueDate) return null;
+  const due = new Date(`${item.nextDueDate}T00:00:00Z`);
+  const today = new Date();
+  return Math.round((Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86_400_000);
+}
+
+function compactToken(value: string) {
+  return value.toLowerCase().replace(/[_\s-]+/g, "");
+}
+
+function matchesToken(item: CalendarItem, searchText: string, rawToken: string, missingDetailsIds: ReadonlySet<string>) {
+  const token = rawToken.trim().toLowerCase();
+  if (!token) return true;
+  const [prefix, ...rest] = token.split(":");
+  const prefixedValue = rest.join(":").trim();
+  const dueDiff = daysUntilDue(item);
+  const withinDays = (days: number) => dueDiff != null && dueDiff >= 0 && dueDiff <= days;
+  if (prefixedValue) {
+    const value = compactToken(prefixedValue);
+    if (prefix === "status") return compactToken(item.status).includes(value);
+    if (prefix === "risk") return compactToken(item.riskLevel).includes(value);
+    if (prefix === "category") return compactToken(item.category).includes(value);
+    if (prefix === "provider") return compactToken(item.providerName ?? "").includes(value);
+    if (prefix === "email") {
+      return [item.purchaseEmail, item.accountLoginEmail, item.billingEmail, item.recoveryEmail, item.technicalContactEmail]
+        .some((email) => compactToken(email ?? "").includes(value));
+    }
+    if (prefix === "due") {
+      if (value === "overdue") return dueDiff != null && dueDiff < 0;
+      if (value === "today") return dueDiff === 0;
+      if (value === "7d" || value === "7days") return withinDays(7);
+      if (value === "30d" || value === "30days") return withinDays(30);
+      return compactToken(item.nextDueDate ?? "").includes(value);
+    }
+  }
+  if (token === "overdue") return item.status === "overdue" || (dueDiff != null && dueDiff < 0);
+  if (token === "today") return dueDiff === 0;
+  if (token === "7d" || token === "7days") return withinDays(7);
+  if (token === "30d" || token === "30days") return withinDays(30);
+  if (["critical", "high", "medium", "low"].includes(token)) return item.riskLevel === token;
+  if (token === "review") return item.status === "pending_review";
+  if (token === "missing") return missingDetailsIds.has(item.id);
+  if (token === "autorenew" || token === "auto-renew") return item.autoRenew;
+  if (token === "manual") return item.manualActionRequired;
+  if (token === "domain") return item.category === "domain";
+  if (token === "software") return item.category === "software_subscription";
+  if (token === "monthly" || token === "yearly") return item.recurrenceType === token;
+  return searchText.includes(token);
+}
+
 function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
   if (!item) return false;
   const highRisk = item.riskLevel === "high" || item.riskLevel === "critical";
@@ -295,6 +348,65 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return date.toLocaleString();
+}
+
+function dashboardMissingDetails(dashboard: CalendarDashboard | undefined) {
+  return dashboard?.missingDetails ?? dashboard?.missingMetadata ?? [];
+}
+
+function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | undefined }) {
+  const status = dashboard?.reminderStatus;
+  const hasFailures = (status?.failedEmails ?? 0) > 0;
+  return (
+    <Card className={cn(hasFailures && "border-destructive/40 bg-destructive/5")}>
+      <CardHeader className="py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="text-sm">Automatic reminders</CardTitle>
+          <span className={cn("text-xs font-medium", hasFailures ? "text-destructive" : "text-muted-foreground")}>
+            {hasFailures ? "Email attention needed" : "Backend controlled"}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-3 pb-3 text-sm sm:grid-cols-2 xl:grid-cols-6">
+        <div>
+          <div className="text-xs text-muted-foreground">Last scan</div>
+          <div className="font-medium">{formatDateTime(status?.lastScanAt)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Items scanned</div>
+          <div className="font-medium tabular-nums">{status?.scannedItems ?? 0}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Issues</div>
+          <div className="font-medium tabular-nums">{status ? `${status.createdIssues}/${status.updatedIssues}` : "0/0"}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Queued/skipped</div>
+          <div className="font-medium tabular-nums">{status ? `${status.queuedEmails}/${status.skippedEmails}` : "0/0"}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Email state</div>
+          <div className="font-medium tabular-nums">{status ? `${status.pendingEmails} pending, ${status.sentEmails} sent` : "0 pending, 0 sent"}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Failures</div>
+          <div className={cn("font-medium tabular-nums", hasFailures && "text-destructive")}>{status?.failedEmails ?? 0}</div>
+          {status?.latestEmailFailureAt ? (
+            <div className="truncate text-xs text-muted-foreground" title={status.latestEmailFailureError ?? undefined}>
+              {formatDateTime(status.latestEmailFailureAt)}
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function Calendar() {
   const { selectedCompanyId } = useCompany();
   const companyId = selectedCompanyId ?? NO_COMPANY;
@@ -304,6 +416,7 @@ export function Calendar() {
   const [form, setForm] = useState<ItemFormState>(() => emptyForm());
   const [searchQuery, setSearchQuery] = useState("");
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [itemDialogTab, setItemDialogTab] = useState("overview");
   const [operationError, setOperationError] = useState<string | null>(null);
   const isEditing = selectedItemId !== null;
 
@@ -406,10 +519,11 @@ export function Calendar() {
 
   const items = itemsQuery.data?.items ?? [];
   const smartSearch = searchQuery.trim().toLowerCase();
+  const missingDetails = dashboardMissingDetails(dashboardQuery.data);
   const missingDetailsByItemId = useMemo(() => {
-    const entries = dashboardQuery.data?.missingMetadata ?? [];
-    return new Map(entries.map((finding) => [finding.itemId, finding]));
-  }, [dashboardQuery.data?.missingMetadata]);
+    return new Map(missingDetails.map((finding) => [finding.itemId, finding]));
+  }, [missingDetails]);
+  const missingDetailsIds = useMemo(() => new Set(missingDetails.map((finding) => finding.itemId)), [missingDetails]);
   const searchRows = useMemo(() => items.map((item) => ({
     item,
     searchText: itemSearchText(item),
@@ -418,14 +532,15 @@ export function Calendar() {
     if (!smartSearch) return searchRows.map((row) => row.item);
     const terms = smartSearch.split(/\s+/).filter(Boolean);
     return searchRows
-      .filter((row) => terms.every((term) => row.searchText.includes(term)))
+      .filter((row) => terms.every((term) => matchesToken(row.item, row.searchText, term, missingDetailsIds)))
       .map((row) => row.item);
-  }, [searchRows, smartSearch]);
+  }, [missingDetailsIds, searchRows, smartSearch]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
 
   const openCreateDialog = () => {
     setSelectedItemId(null);
     setForm(emptyForm());
+    setItemDialogTab("overview");
     setOperationError(null);
     setItemDialogOpen(true);
   };
@@ -433,6 +548,7 @@ export function Calendar() {
   const openEditDialog = (item: CalendarItem) => {
     setSelectedItemId(item.id);
     setForm(formFromItem(item));
+    setItemDialogTab("overview");
     setOperationError(null);
     setItemDialogOpen(true);
   };
@@ -443,6 +559,7 @@ export function Calendar() {
     if (item) {
       setForm(formFromItem(item));
     }
+    setItemDialogTab("overview");
     setOperationError(null);
     setItemDialogOpen(true);
   };
@@ -488,17 +605,19 @@ export function Calendar() {
         <BucketTile label="30 days" value={dashboard?.dueIn30Days.count ?? 0} />
         <BucketTile label="Critical" value={dashboard?.criticalItems.count ?? 0} tone={(dashboard?.criticalItems.count ?? 0) > 0 ? "danger" : "default"} />
         <BucketTile label="Review" value={dashboard?.pendingReview.count ?? 0} />
-        <BucketTile label="Details" value={dashboard?.missingMetadata.length ?? 0} tone={(dashboard?.missingMetadata.length ?? 0) > 0 ? "warn" : "default"} />
+        <BucketTile label="Details" value={missingDetails.length} tone={missingDetails.length > 0 ? "warn" : "default"} />
         <BucketTile label="30d Cost" value={formatCents(dashboard?.costSummary.upcoming30DaysCents ?? 0)} />
       </div>
 
-      {dashboard?.missingMetadata.length ? (
+      <ReminderStatusPanel dashboard={dashboard} />
+
+      {missingDetails.length ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Missing Details</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {dashboard.missingMetadata.slice(0, 9).map((finding) => (
+            {missingDetails.slice(0, 9).map((finding) => (
               <button
                 key={finding.itemId}
                 type="button"
@@ -573,11 +692,11 @@ export function Calendar() {
                         openEditDialog(item);
                       }}
                     >
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-3 py-2 align-top">
                         <div className="font-medium">{item.nextDueDate ?? "Unset"}</div>
                         <div className="text-xs text-muted-foreground">{dueLabel(item)}</div>
                       </td>
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-3 py-2 align-top">
                         <div className="font-medium">{item.title}</div>
                         <div className="line-clamp-1 text-xs text-muted-foreground">{item.notes}</div>
                         {missingDetailsByItemId.has(item.id) ? (
@@ -589,24 +708,24 @@ export function Calendar() {
                           </div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3 align-top">{titleCase(item.category)}</td>
-                      <td className="px-4 py-3 align-top">{item.providerName ?? "Not set"}</td>
-                      <td className="px-4 py-3 align-top">
+                      <td className="px-3 py-2 align-top">{titleCase(item.category)}</td>
+                      <td className="px-3 py-2 align-top">{item.providerName ?? "Not set"}</td>
+                      <td className="px-3 py-2 align-top">
                         <span className={cn("inline-flex items-center gap-1 text-xs font-medium", item.riskLevel === "critical" && "text-destructive")}>
                           {item.riskLevel === "critical" ? <ShieldAlert className="h-3.5 w-3.5" /> : null}
                           {titleCase(item.riskLevel)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 align-top">{item.amountCents == null ? "-" : formatCents(item.amountCents)}</td>
-                      <td className="px-4 py-3 align-top">{item.autoRenew ? "Yes" : "No"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                      <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : formatCents(item.amountCents)}</td>
+                      <td className="px-3 py-2 align-top">{item.autoRenew ? "Yes" : "No"}</td>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">
                         <div>{item.paymentMethodLabel ?? "-"}</div>
                         <div>{item.costCenter ?? ""}</div>
                       </td>
-                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">{item.purchaseEmail ?? "-"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">{item.accountLoginEmail ?? "-"}</td>
-                      <td className="px-4 py-3 align-top text-xs text-muted-foreground">{item.billingEmail ?? "-"}</td>
-                      <td className="px-4 py-3 align-top"><StatusBadge status={item.status} /></td>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">{item.purchaseEmail ?? "-"}</td>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">{item.accountLoginEmail ?? "-"}</td>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground">{item.billingEmail ?? "-"}</td>
+                      <td className="px-3 py-2 align-top"><StatusBadge status={item.status} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -627,124 +746,134 @@ export function Calendar() {
               </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 overflow-y-auto px-6 py-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Title">
-                  <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-                </Field>
-                <Field label="Description">
-                  <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Category">
-                    <Select value={form.category} onValueChange={(category) => setForm((current) => ({ ...current, category: category as CalendarItemCategory }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}</SelectContent>
-                    </Select>
+              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="gap-4">
+                <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+                  <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
+                  <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
+                  <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
+                  <TabsTrigger value="links" data-testid="calendar-tab-links" onClick={() => setItemDialogTab("links")}>Links</TabsTrigger>
+                  <TabsTrigger value="notes" data-testid="calendar-tab-notes" onClick={() => setItemDialogTab("notes")}>Notes</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview" className="grid gap-3 md:grid-cols-2">
+                  <Field label="Title">
+                    <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
                   </Field>
-                  <Field label="Risk">
-                    <Select value={form.riskLevel} onValueChange={(riskLevel) => setForm((current) => ({ ...current, riskLevel: riskLevel as CalendarRiskLevel }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <Field label="Description">
+                    <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
                   </Field>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Due Date">
-                    <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Category">
+                      <Select value={form.category} onValueChange={(category) => setForm((current) => ({ ...current, category: category as CalendarItemCategory }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Risk">
+                      <Select value={form.riskLevel} onValueChange={(riskLevel) => setForm((current) => ({ ...current, riskLevel: riskLevel as CalendarRiskLevel }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Due Date">
+                      <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
+                    </Field>
+                    <Field label="Due Time">
+                      <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Timezone">
+                      <Input value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
+                    </Field>
+                    <Field label="Recurrence">
+                      <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                  {form.recurrenceType === "custom_rrule" ? (
+                    <Field label="Recurrence Rule">
+                      <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
+                    </Field>
+                  ) : null}
+                  <Field label="Provider">
+                    <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />
                   </Field>
-                  <Field label="Due Time">
-                    <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
-                  </Field>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Timezone">
-                    <Input value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
-                  </Field>
-                  <Field label="Recurrence">
-                    <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                {form.recurrenceType === "custom_rrule" ? (
-                  <Field label="Recurrence Rule">
-                    <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
-                  </Field>
-                ) : null}
-                <Field label="Provider">
-                  <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />
-                </Field>
-                <div className="grid grid-cols-[1fr_90px] gap-3">
-                  <Field label="Amount">
-                    <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
-                  </Field>
-                  <Field label="Currency">
-                    <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
-                  </Field>
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.autoRenew}
-                    onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
-                  />
-                  Auto-renew
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.manualActionRequired}
-                    onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
-                  />
-                  Manual action required
-                </label>
-                <div className="grid gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Client">
+                      <Select value={form.relatedClientId || NONE} onValueChange={(relatedClientId) => setForm((current) => ({ ...current, relatedClientId: relatedClientId === NONE ? "" : relatedClientId }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>None</SelectItem>
+                          {(clientsQuery.data?.data ?? []).map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Project">
+                      <Select value={form.relatedProjectId || NONE} onValueChange={(relatedProjectId) => setForm((current) => ({ ...current, relatedProjectId: relatedProjectId === NONE ? "" : relatedProjectId }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>None</SelectItem>
+                          {(projectsQuery.data ?? []).map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                </TabsContent>
+                <TabsContent value="payment" className="grid gap-3 md:grid-cols-2">
+                  <div className="grid grid-cols-[1fr_90px] gap-3">
+                    <Field label="Amount">
+                      <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
+                    </Field>
+                    <Field label="Currency">
+                      <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
+                    </Field>
+                  </div>
                   <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
                   <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
                   <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Client">
-                    <Select value={form.relatedClientId || NONE} onValueChange={(relatedClientId) => setForm((current) => ({ ...current, relatedClientId: relatedClientId === NONE ? "" : relatedClientId }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {(clientsQuery.data?.data ?? []).map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Project">
-                    <Select value={form.relatedProjectId || NONE} onValueChange={(relatedProjectId) => setForm((current) => ({ ...current, relatedProjectId: relatedProjectId === NONE ? "" : relatedProjectId }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {(projectsQuery.data ?? []).map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="grid gap-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.autoRenew}
+                      onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
+                    />
+                    Auto-renew
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.manualActionRequired}
+                      onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
+                    />
+                    Manual action required
+                  </label>
+                </TabsContent>
+                <TabsContent value="contacts" className="grid gap-3 md:grid-cols-2">
                   <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
                   <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
                   <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
                   <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
                   <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
-                </div>
-                <div className="grid gap-3">
+                </TabsContent>
+                <TabsContent value="links" className="grid gap-3 md:grid-cols-2">
                   <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
                   <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
                   <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
                   <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
-                </div>
-                <Field label="Notes">
-                  <Textarea rows={4} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-                </Field>
-                <Field label="Internal Notes">
-                  <Textarea rows={3} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
-                </Field>
-              </div>
-
+                </TabsContent>
+                <TabsContent value="notes" className="grid gap-3">
+                  <Field label="Notes">
+                    <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+                  </Field>
+                  <Field label="Internal Notes">
+                    <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
+                  </Field>
+                </TabsContent>
+              </Tabs>
             </div>
             <DialogFooter className="border-t border-border px-6 py-4">
               <div className="flex flex-1 flex-wrap gap-2">

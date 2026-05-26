@@ -7,10 +7,11 @@ export type {
   CalendarItemDocument,
   CalendarItemListResponse,
   CalendarItemMetadata,
-  CalendarMetadataScanResult,
+  CalendarMissingDetailsFinding,
+  CalendarMissingDetailsSeverity,
   CalendarMissingMetadataFinding,
   CalendarMissingMetadataSeverity,
-  CalendarScanResult,
+  CalendarReminderStatus,
 } from "./calendar.js";
 export type {
   InboundEmailClassificationCategory,

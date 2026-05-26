@@ -137,15 +137,6 @@ export const completeCalendarItemSchema = z.object({
 export type CompleteCalendarItem = z.infer<typeof completeCalendarItemSchema>;
 export type CompleteCalendarItemInput = z.input<typeof completeCalendarItemSchema>;
 
-export const calendarScanSchema = z.object({
-  now: z.string().datetime().optional(),
-  recipientEmail: optionalEmail,
-  sendEmail: z.boolean().optional().default(false),
-  createIssues: z.boolean().optional().default(true),
-}).strict();
-export type CalendarScan = z.infer<typeof calendarScanSchema>;
-export type CalendarScanInput = z.input<typeof calendarScanSchema>;
-
 export const createCalendarItemDocumentSchema = z.object({
   documentType: calendarDocumentTypeSchema.optional().default("other"),
   documentId: z.string().uuid().optional().nullable(),

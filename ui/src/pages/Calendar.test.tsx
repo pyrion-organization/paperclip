@@ -94,6 +94,17 @@ function makeDetail(item: CalendarItem): CalendarItemDetail {
 }
 
 function makeDashboard(items: CalendarItem[]): CalendarDashboard {
+  const missingDetails = [
+    {
+      itemId: items[0]!.id,
+      title: items[0]!.title,
+      category: items[0]!.category,
+      riskLevel: items[0]!.riskLevel,
+      severity: "high" as const,
+      missingFields: ["registrar", "domain/service URL"],
+      message: "Domain renewal is missing registrar, domain/service URL",
+    },
+  ];
   return {
     companyId: "company-1",
     generatedAt: "2026-05-26T00:00:00.000Z",
@@ -103,17 +114,22 @@ function makeDashboard(items: CalendarItem[]): CalendarDashboard {
     dueIn30Days: { label: "Due in 30 days", items, count: items.length },
     criticalItems: { label: "Critical items", items: items.filter((item) => item.riskLevel === "critical"), count: 1 },
     pendingReview: { label: "Pending review", items: [], count: 0 },
-    missingMetadata: [
-      {
-        itemId: items[0]!.id,
-        title: items[0]!.title,
-        category: items[0]!.category,
-        riskLevel: items[0]!.riskLevel,
-        severity: "high",
-        missingFields: ["registrar", "domain/service URL"],
-        message: "Domain renewal is missing registrar, domain/service URL",
-      },
-    ],
+    missingDetails,
+    missingMetadata: missingDetails,
+    reminderStatus: {
+      lastScanAt: "2026-05-26T12:00:00.000Z",
+      scannedItems: 4,
+      createdIssues: 1,
+      updatedIssues: 2,
+      queuedEmails: 3,
+      skippedEmails: 1,
+      pendingEmails: 2,
+      sentEmails: 5,
+      failedEmails: 0,
+      skippedDeliveryEmails: 0,
+      latestEmailFailureAt: null,
+      latestEmailFailureError: null,
+    },
     recentlyCompleted: { label: "Recently completed", items: [], count: 0 },
     costSummary: {
       monthlyRecurringCents: 0,
@@ -257,14 +273,56 @@ describe("Calendar", () => {
     expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).toBeNull();
   });
 
+  it("supports smart filter tokens in the single search box", async () => {
+    await renderPage();
+
+    const search = container.querySelector("input[placeholder='Search calendar items']") as HTMLInputElement;
+    await act(async () => {
+      setInputValue(search, "missing critical domain");
+    });
+    await flushReact();
+
+    expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='calendar-item-row-item-2']")).toBeNull();
+
+    await act(async () => {
+      setInputValue(search, "category:software risk:medium email:ap@example.com");
+    });
+    await flushReact();
+
+    expect(container.querySelector("[data-testid='calendar-item-row-item-2']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).toBeNull();
+  });
+
   it("shows automatic missing details UI without manual scan controls", async () => {
     await renderPage();
 
     expect(document.body.textContent).not.toContain("Reminder Scan");
     expect(document.body.textContent).not.toContain("Metadata Scan");
+    expect(document.body.textContent).toContain("Automatic reminders");
+    expect(document.body.textContent).toContain("Backend controlled");
+    expect(document.body.textContent).toContain("2 pending, 5 sent");
     expect(document.body.textContent).toContain("Missing Details");
     expect(document.body.textContent).toContain("Details");
     expect(container.querySelector("[data-testid='calendar-item-missing-details-item-1']")).not.toBeNull();
+  });
+
+  it("surfaces reminder email failures", async () => {
+    mockCalendarApi.dashboard.mockImplementation(async () => ({
+      ...makeDashboard(items),
+      reminderStatus: {
+        ...makeDashboard(items).reminderStatus,
+        failedEmails: 2,
+        latestEmailFailureAt: "2026-05-26T13:00:00.000Z",
+        latestEmailFailureError: "SMTP rejected message",
+      },
+    }));
+
+    await renderPage();
+
+    expect(document.body.textContent).toContain("Email attention needed");
+    expect(document.body.textContent).toContain("Failures");
+    expect(document.body.textContent).toContain("2");
   });
 
   it("opens an item from a missing details card", async () => {
@@ -297,5 +355,28 @@ describe("Calendar", () => {
     expect(mockCalendarApi.detail).toHaveBeenCalledWith("company-1", "stale-item");
     expect(document.body.textContent).toContain("Item Detail");
     expect(document.body.textContent).toContain("Hidden renewal");
+  });
+
+  it("organizes item editing into tabs", async () => {
+    await renderPage();
+
+    await act(async () => {
+      (container.querySelector("[data-testid='calendar-item-row-item-1']") as HTMLTableRowElement).click();
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Overview");
+    expect(document.body.textContent).toContain("Payment");
+    expect(document.body.textContent).toContain("Contacts");
+    expect(document.body.textContent).toContain("Links");
+    expect(document.body.textContent).toContain("Notes");
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-payment']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Payment Method");
+    expect(document.body.textContent).toContain("Cost Center");
   });
 });

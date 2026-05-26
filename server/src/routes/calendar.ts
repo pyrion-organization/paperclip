@@ -3,7 +3,6 @@ import type { Db } from "@paperclipai/db";
 import {
   calendarEmailProposalSchema,
   calendarItemFilterSchema,
-  calendarScanSchema,
   completeCalendarItemSchema,
   createCalendarItemDocumentSchema,
   createCalendarItemSchema,
@@ -38,6 +37,12 @@ export function calendarRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     res.json(await svc.missingMetadata(companyId));
+  });
+
+  router.get("/companies/:companyId/calendar/missing-details", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    res.json(await svc.missingDetails(companyId));
   });
 
   router.get("/companies/:companyId/calendar/items/:itemId", async (req, res) => {
@@ -146,27 +151,6 @@ export function calendarRoutes(db: Db) {
       res.status(201).json(doc);
     },
   );
-
-  router.post("/companies/:companyId/calendar/run-reminder-scan", validate(calendarScanSchema), async (req, res) => {
-    const companyId = req.params.companyId as string;
-    assertCompanyAccess(req, companyId);
-    assertBoard(req);
-    const result = await svc.runReminderScan(companyId, {
-      now: req.body.now ? new Date(req.body.now) : undefined,
-      recipientEmail: req.body.recipientEmail,
-      sendEmail: req.body.sendEmail,
-      createIssues: req.body.createIssues,
-      actor: getActorInfo(req),
-    });
-    res.json(result);
-  });
-
-  router.post("/companies/:companyId/calendar/run-metadata-scan", async (req, res) => {
-    const companyId = req.params.companyId as string;
-    assertCompanyAccess(req, companyId);
-    assertBoard(req);
-    res.json(await svc.runMetadataScan(companyId, { actor: getActorInfo(req) }));
-  });
 
   return router;
 }

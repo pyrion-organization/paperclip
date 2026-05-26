@@ -5,6 +5,7 @@ import type {
   CalendarItemDetail,
   CalendarItemDocument,
   CalendarItemListResponse,
+  CalendarMissingDetailsFinding,
   CalendarMissingMetadataFinding,
   CompleteCalendarItemInput,
   CreateCalendarItemInput,
@@ -51,6 +52,8 @@ export const calendarApi = {
     api.get<CalendarItemDetail>(`/companies/${companyId}/calendar/items/${itemId}`),
   dashboard: (companyId: string) =>
     api.get<CalendarDashboard>(`/companies/${companyId}/calendar/dashboard`),
+  missingDetails: (companyId: string) =>
+    api.get<CalendarMissingDetailsFinding[]>(`/companies/${companyId}/calendar/missing-details`),
   missingMetadata: (companyId: string) =>
     api.get<CalendarMissingMetadataFinding[]>(`/companies/${companyId}/calendar/missing-metadata`),
   create: (companyId: string, input: CreateCalendarItemInput) =>

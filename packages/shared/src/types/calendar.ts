@@ -131,7 +131,10 @@ export interface CalendarDashboard {
   dueIn30Days: CalendarDashboardBucket;
   criticalItems: CalendarDashboardBucket;
   pendingReview: CalendarDashboardBucket;
+  missingDetails: CalendarMissingDetailsFinding[];
+  /** @deprecated Use missingDetails. */
   missingMetadata: CalendarMissingMetadataFinding[];
+  reminderStatus: CalendarReminderStatus;
   recentlyCompleted: CalendarDashboardBucket;
   costSummary: {
     monthlyRecurringCents: number;
@@ -141,35 +144,35 @@ export interface CalendarDashboard {
   };
 }
 
-export type CalendarMissingMetadataSeverity = "high" | "medium" | "low";
-
-export interface CalendarMissingMetadataFinding {
-  itemId: string;
-  title: string;
-  category: CalendarItemCategory;
-  riskLevel: CalendarRiskLevel;
-  severity: CalendarMissingMetadataSeverity;
-  missingFields: string[];
-  message: string;
-}
-
-export interface CalendarScanResult {
-  companyId: string;
-  scannedAt: string;
+export interface CalendarReminderStatus {
+  lastScanAt: string | null;
   scannedItems: number;
   createdIssues: number;
   updatedIssues: number;
   queuedEmails: number;
   skippedEmails: number;
-  markedOverdue: number;
-  skipped: number;
+  pendingEmails: number;
+  sentEmails: number;
+  failedEmails: number;
+  skippedDeliveryEmails: number;
+  latestEmailFailureAt: string | null;
+  latestEmailFailureError: string | null;
 }
 
-export interface CalendarMetadataScanResult {
-  companyId: string;
-  scannedAt: string;
-  scannedItems: number;
-  findingCount: number;
-  createdIssueId: string | null;
-  updatedIssueId: string | null;
+export type CalendarMissingDetailsSeverity = "high" | "medium" | "low";
+
+export interface CalendarMissingDetailsFinding {
+  itemId: string;
+  title: string;
+  category: CalendarItemCategory;
+  riskLevel: CalendarRiskLevel;
+  severity: CalendarMissingDetailsSeverity;
+  missingFields: string[];
+  message: string;
 }
+
+/** @deprecated Use CalendarMissingDetailsSeverity. */
+export type CalendarMissingMetadataSeverity = CalendarMissingDetailsSeverity;
+
+/** @deprecated Use CalendarMissingDetailsFinding. */
+export type CalendarMissingMetadataFinding = CalendarMissingDetailsFinding;

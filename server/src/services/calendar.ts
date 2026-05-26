@@ -334,7 +334,27 @@ function normalizeRecipientEmails(input: Array<string | null | undefined>) {
   return [...new Set(input.map((email) => email?.trim().toLowerCase()).filter((email): email is string => Boolean(email)))];
 }
 
-function missingMetadataForItem(item: CalendarItemRow) {
+function toIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  return typeof value === "string" ? new Date(value).toISOString() : value.toISOString();
+}
+
+function readDetailNumber(details: Record<string, unknown> | null | undefined, key: string) {
+  const value = details?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function readDetailString(details: Record<string, unknown> | null | undefined, key: string) {
+  const value = details?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function missingDetailsForItem(item: CalendarItemRow) {
   const missing: string[] = [];
   if (!item.nextDueDate) missing.push("next due date");
   if (HIGH_RISK.has(item.riskLevel) && !item.providerName) missing.push("provider");
@@ -364,7 +384,9 @@ function missingMetadataForItem(item: CalendarItemRow) {
   };
 }
 
-function metadataReportDescription(findings: Array<NonNullable<ReturnType<typeof missingMetadataForItem>>>) {
+const missingMetadataForItem = missingDetailsForItem;
+
+function missingDetailsReportDescription(findings: Array<NonNullable<ReturnType<typeof missingDetailsForItem>>>) {
   const grouped = {
     high: findings.filter((finding) => finding.severity === "high"),
     medium: findings.filter((finding) => finding.severity === "medium"),
@@ -375,7 +397,7 @@ function metadataReportDescription(findings: Array<NonNullable<ReturnType<typeof
     return `${label}:\n${rows.map((row) => `- ${row.title}: ${row.missingFields.join(", ")}`).join("\n")}`;
   };
   return [
-    "Weekly Calendar Paperclip missing metadata report.",
+    "Weekly Calendar Paperclip missing details report.",
     "",
     renderGroup("High priority", grouped.high),
     "",
@@ -384,6 +406,8 @@ function metadataReportDescription(findings: Array<NonNullable<ReturnType<typeof
     renderGroup("Low priority", grouped.low),
   ].join("\n");
 }
+
+const metadataReportDescription = missingDetailsReportDescription;
 
 export function calendarService(db: Db) {
   const issuesSvc = issueService(db);
@@ -424,6 +448,55 @@ export function calendarService(db: Db) {
       entityId,
       details,
     });
+  }
+
+  async function reminderStatus(companyId: string) {
+    const [latestScan] = await db
+      .select({
+        details: activityLog.details,
+        createdAt: activityLog.createdAt,
+      })
+      .from(activityLog)
+      .where(and(
+        eq(activityLog.companyId, companyId),
+        eq(activityLog.action, "calendar.reminder_scan_completed"),
+      ))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(1);
+    const emailRows = await db
+      .select({
+        status: emailNotifications.status,
+        failedAt: emailNotifications.failedAt,
+        lastError: emailNotifications.lastError,
+      })
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+    let latestFailureAt: Date | null = null;
+    let latestEmailFailureError: string | null = null;
+    for (const row of emailRows) {
+      if (!row.failedAt) continue;
+      if (!latestFailureAt || row.failedAt > latestFailureAt) {
+        latestFailureAt = row.failedAt;
+        latestEmailFailureError = row.lastError ?? null;
+      }
+    }
+    return {
+      lastScanAt: readDetailString(latestScan?.details, "scannedAt") ?? toIso(latestScan?.createdAt),
+      scannedItems: readDetailNumber(latestScan?.details, "scannedItems"),
+      createdIssues: readDetailNumber(latestScan?.details, "createdIssues"),
+      updatedIssues: readDetailNumber(latestScan?.details, "updatedIssues"),
+      queuedEmails: readDetailNumber(latestScan?.details, "queuedEmails"),
+      skippedEmails: readDetailNumber(latestScan?.details, "skippedEmails"),
+      pendingEmails: emailRows.filter((row) => row.status === "pending" || row.status === "sending").length,
+      sentEmails: emailRows.filter((row) => row.status === "sent").length,
+      failedEmails: emailRows.filter((row) => row.status === "failed").length,
+      skippedDeliveryEmails: emailRows.filter((row) => row.status === "skipped").length,
+      latestEmailFailureAt: toIso(latestFailureAt),
+      latestEmailFailureError,
+    };
   }
 
   async function findOpenIssue(companyId: string, originKind: string, originId: string, originFingerprint: string) {
@@ -743,6 +816,7 @@ export function calendarService(db: Db) {
       const in30 = new Date(now);
       in30.setUTCDate(in30.getUTCDate() + 30);
       const activeRows = rows.filter((row) => DASHBOARD_ACTIVE_STATUSES.includes(row.status));
+      const status = await reminderStatus(companyId);
       const dueInRange = (max: Date) => activeRows.filter((row) => {
         const due = parseDateOnly(row.nextDueDate);
         return due && daysBetween(now, due) >= 0 && due <= max;
@@ -759,7 +833,7 @@ export function calendarService(db: Db) {
         .filter((row) => row.recurrenceType === "yearly" && row.amountCents != null)
         .reduce((sum, row) => sum + (row.amountCents ?? 0), 0);
       const upcoming30DaysCents = upcoming30Rows.reduce((sum, row) => sum + (row.amountCents ?? 0), 0);
-      const missing = activeRows.map(missingMetadataForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
+      const missing = activeRows.map(missingDetailsForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
       const bucket = (label: string, bucketRows: CalendarItemRow[]) => ({
         label,
         items: bucketRows.map(rowToItem),
@@ -777,7 +851,9 @@ export function calendarService(db: Db) {
         dueIn30Days: bucket("Due in 30 days", dueInRange(in30)),
         criticalItems: bucket("Critical items", activeRows.filter((row) => row.riskLevel === "critical")),
         pendingReview: bucket("Pending review", rows.filter((row) => row.status === "pending_review")),
+        missingDetails: missing,
         missingMetadata: missing,
+        reminderStatus: status,
         recentlyCompleted: bucket("Recently completed", rows.filter((row) => row.status === "done").slice(0, 10)),
         costSummary: {
           monthlyRecurringCents,
@@ -788,13 +864,17 @@ export function calendarService(db: Db) {
       };
     },
 
-    async missingMetadata(companyId: string) {
+    async missingDetails(companyId: string) {
       const rows = await db
         .select()
         .from(calendarItems)
         .where(and(eq(calendarItems.companyId, companyId), inArray(calendarItems.status, ["active", "pending_review", "overdue"])))
         .orderBy(asc(calendarItems.nextDueDate), asc(calendarItems.title));
-      return rows.map(missingMetadataForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
+      return rows.map(missingDetailsForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
+    },
+
+    async missingMetadata(companyId: string) {
+      return this.missingDetails(companyId);
     },
 
     async runMetadataScan(companyId: string, opts: { now?: Date; actor?: Actor } = {}) {
@@ -814,7 +894,7 @@ export function calendarService(db: Db) {
       if (findings.length > 0) {
         const { issue, created } = await upsertIssue({
           companyId,
-          title: `Calendar missing metadata report (${currentWeekKey(now)})`,
+          title: `Calendar missing details report (${currentWeekKey(now)})`,
           description: metadataReportDescription(findings),
           priority: findings.some((finding) => finding.severity === "high") ? "high" : "medium",
           originKind: CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND,
@@ -973,6 +1053,7 @@ export function calendarService(db: Db) {
         entityType: "company",
         entityId: companyId,
         details: {
+          scannedAt: now.toISOString(),
           scanDate: formatDateOnly(now),
           scannedItems: rows.length,
           createdIssues,

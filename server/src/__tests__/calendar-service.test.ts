@@ -524,8 +524,50 @@ describeEmbeddedPostgres("calendarService", () => {
     const dashboard = await svc.dashboard(companyId, new Date("2026-05-23T00:00:00.000Z"));
 
     expect(dashboard.costSummary.monthlyRecurringCents).toBe(5000);
+    expect(dashboard.missingDetails.find((finding) => finding.itemId === doneItem.id)).toBeUndefined();
     expect(dashboard.missingMetadata.find((finding) => finding.itemId === doneItem.id)).toBeUndefined();
     expect(dashboard.pendingReview.count).toBe(1);
+  });
+
+  it("includes missing details and reminder email status on the dashboard", async () => {
+    await svc.create(companyId, item({
+      title: "Dashboard SaaS renewal",
+      category: "software_subscription",
+      riskLevel: "medium",
+      nextDueDate: "2026-06-07",
+      amountCents: 5000,
+    }));
+    await svc.runReminderScan(companyId, {
+      now: new Date("2026-06-04T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    await db
+      .update(emailNotifications)
+      .set({
+        status: "failed",
+        failedAt: new Date("2026-06-04T01:00:00.000Z"),
+        lastError: "SMTP rejected message",
+      })
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+
+    const dashboard = await svc.dashboard(companyId, new Date("2026-06-04T02:00:00.000Z"));
+
+    expect(dashboard.missingDetails).toHaveLength(1);
+    expect(dashboard.missingMetadata).toEqual(dashboard.missingDetails);
+    expect(dashboard.reminderStatus).toMatchObject({
+      scannedItems: 1,
+      queuedEmails: 1,
+      failedEmails: 1,
+      pendingEmails: 0,
+      latestEmailFailureError: "SMTP rejected message",
+    });
+    expect(dashboard.reminderStatus.lastScanAt).toBe("2026-06-04T00:00:00.000Z");
+    expect(dashboard.reminderStatus.latestEmailFailureAt).toBe("2026-06-04T01:00:00.000Z");
   });
 
   it("runs scheduled scans once per company day and metadata week", async () => {
@@ -561,6 +603,35 @@ describeEmbeddedPostgres("calendarService", () => {
       "admin@example.com",
       "owner-admin@example.com",
     ]);
+  });
+
+  it("skips scheduled reminder emails when no owner or admin recipient is active", async () => {
+    await db
+      .update(companyMemberships)
+      .set({ status: "inactive" })
+      .where(eq(companyMemberships.companyId, companyId));
+    try {
+      await svc.create(companyId, item({
+        title: "No recipient domain scan",
+        category: "domain",
+        riskLevel: "critical",
+        nextDueDate: "2026-06-30",
+        purchaseEmail: "owner@example.com",
+        serviceUrl: "https://example.com",
+        metadata: { registrar: "Registrar", domainName: "example.com" },
+      }));
+
+      const result = await svc.runScheduledScans(new Date("2026-05-31T08:00:00.000Z"));
+
+      expect(result.reminderScans).toBe(1);
+      expect(result.reminderEmailsQueued).toBe(0);
+      expect(result.reminderEmailsSkipped).toBe(1);
+    } finally {
+      await db
+        .update(companyMemberships)
+        .set({ status: "active" })
+        .where(eq(companyMemberships.companyId, companyId));
+    }
   });
 
   it("creates email proposals as pending-review items with review issues", async () => {

@@ -7,6 +7,7 @@ import { errorHandler } from "../middleware/index.js";
 const mockCalendarService = vi.hoisted(() => ({
   list: vi.fn(),
   dashboard: vi.fn(),
+  missingDetails: vi.fn(),
   missingMetadata: vi.fn(),
   getById: vi.fn(),
   create: vi.fn(),
@@ -15,8 +16,6 @@ const mockCalendarService = vi.hoisted(() => ({
   complete: vi.fn(),
   setStatus: vi.fn(),
   addDocument: vi.fn(),
-  runReminderScan: vi.fn(),
-  runMetadataScan: vi.fn(),
 }));
 
 vi.mock("../services/index.js", () => ({
@@ -55,6 +54,7 @@ describe("calendar routes", () => {
     vi.clearAllMocks();
     mockCalendarService.list.mockResolvedValue({ items: [], total: 0 });
     mockCalendarService.dashboard.mockResolvedValue({ companyId: "company-1" });
+    mockCalendarService.missingDetails.mockResolvedValue([]);
     mockCalendarService.missingMetadata.mockResolvedValue([]);
     mockCalendarService.getById.mockResolvedValue({ id: "item-1", companyId: "company-1", documents: [], activity: [] });
     mockCalendarService.create.mockResolvedValue({ id: "item-1", companyId: "company-1" });
@@ -63,8 +63,6 @@ describe("calendar routes", () => {
     mockCalendarService.complete.mockResolvedValue({ id: "item-1", companyId: "company-1" });
     mockCalendarService.setStatus.mockResolvedValue({ id: "item-1", companyId: "company-1" });
     mockCalendarService.addDocument.mockResolvedValue({ id: "doc-1", companyId: "company-1" });
-    mockCalendarService.runReminderScan.mockResolvedValue({ scannedItems: 0 });
-    mockCalendarService.runMetadataScan.mockResolvedValue({ scannedItems: 0 });
   });
 
   it("passes company-scoped list filters through shared validation", async () => {
@@ -103,6 +101,30 @@ describe("calendar routes", () => {
     expect(mockCalendarService.list).toHaveBeenCalledWith("company-1", expect.objectContaining({
       autoRenew: false,
     }));
+  });
+
+  it("exposes missing details while keeping the old missing metadata alias", async () => {
+    const detailsRes = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/calendar/missing-details");
+    const metadataRes = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/calendar/missing-metadata");
+
+    expect(detailsRes.status).toBe(200);
+    expect(metadataRes.status).toBe(200);
+    expect(mockCalendarService.missingDetails).toHaveBeenCalledWith("company-1");
+    expect(mockCalendarService.missingMetadata).toHaveBeenCalledWith("company-1");
+  });
+
+  it("does not expose manual calendar scan routes", async () => {
+    const reminderRes = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/calendar/run-reminder-scan")
+      .send({ sendEmail: true });
+    const metadataRes = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/calendar/run-metadata-scan")
+      .send({});
+
+    expect(reminderRes.status).toBe(404);
+    expect(metadataRes.status).toBe(404);
   });
 
   it("allows same-company agents to create pending review email proposals", async () => {
