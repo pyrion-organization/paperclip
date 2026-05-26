@@ -1,9 +1,7 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
-import { Button } from "@/components/ui/button";
-import { useTranslation } from "@/i18n";
+import { Navigate, Outlet, Route, Routes, useLocation } from "@/lib/router";
 import { useCompany } from "./context/CompanyContext";
-import { useDialog, useDialogActions } from "./context/DialogContext";
+import { useDialog } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox-tabs";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
@@ -13,6 +11,12 @@ const CloudAccessGate = lazy(() =>
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
 const OnboardingWizard = lazy(() =>
   import("./components/OnboardingWizard").then(({ OnboardingWizard }) => ({ default: OnboardingWizard })),
+);
+const OnboardingRoutePage = lazy(() =>
+  import("./pages/OnboardingRoutePage").then(({ OnboardingRoutePage }) => ({ default: OnboardingRoutePage })),
+);
+const NoCompaniesStartPage = lazy(() =>
+  import("./pages/NoCompaniesStartPage").then(({ NoCompaniesStartPage }) => ({ default: NoCompaniesStartPage })),
 );
 const Dashboard = lazy(() => import("./pages/Dashboard").then(({ Dashboard }) => ({ default: Dashboard })));
 const DashboardLive = lazy(() => import("./pages/DashboardLive").then(({ DashboardLive }) => ({ default: DashboardLive })));
@@ -210,46 +214,6 @@ function LegacySettingsRedirect() {
   return <Navigate to={`/instance/settings/general${location.search}${location.hash}`} replace />;
 }
 
-function OnboardingRoutePage() {
-  const { companies } = useCompany();
-  const { openOnboarding } = useDialogActions();
-  const { companyPrefix } = useParams<{ companyPrefix?: string }>();
-  const matchedCompany = companyPrefix
-    ? companies.find((company) => company.issuePrefix.toUpperCase() === companyPrefix.toUpperCase()) ?? null
-    : null;
-
-  const title = matchedCompany
-    ? `Add another agent to ${matchedCompany.name}`
-    : companies.length > 0
-      ? "Create another company"
-      : "Create your first company";
-  const description = matchedCompany
-    ? "Run onboarding again to add an agent and a starter task for this company."
-    : companies.length > 0
-      ? "Run onboarding again to create another company and seed its first agent."
-      : "Get started by creating a company and your first agent.";
-
-  return (
-    <div className="mx-auto max-w-xl py-10">
-      <div className="rounded-lg border border-border bg-card p-6">
-        <h1 className="text-xl font-semibold">{title}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
-        <div className="mt-4">
-          <Button
-            onClick={() =>
-              matchedCompany
-                ? openOnboarding({ initialStep: 2, companyId: matchedCompany.id })
-                : openOnboarding()
-            }
-          >
-            {matchedCompany ? "Add Agent" : "Start Onboarding"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CompanyRootRedirect() {
   const { companies, selectedCompany, loading } = useCompany();
   const location = useLocation();
@@ -300,29 +264,6 @@ function UnprefixedBoardRedirect() {
       to={`/${targetCompany.issuePrefix}${location.pathname}${location.search}${location.hash}`}
       replace
     />
-  );
-}
-
-function NoCompaniesStartPage() {
-  const { openOnboarding } = useDialogActions();
-  const { t } = useTranslation();
-
-  return (
-    <div className="mx-auto max-w-xl py-10">
-      <div className="rounded-lg border border-border bg-card p-6">
-        <h1 className="text-xl font-semibold">
-          {t("app.noCompanies.title", { defaultValue: "Create your first company" })}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {t("app.noCompanies.description", { defaultValue: "Get started by creating a company." })}
-        </p>
-        <div className="mt-4">
-          <Button onClick={() => openOnboarding()}>
-            {t("app.noCompanies.newCompany", { defaultValue: "New Company" })}
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
 

@@ -5,7 +5,6 @@ import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { ResizableSidebarPane } from "./ResizableSidebarPane";
-import { SidebarAccountMenu } from "./SidebarAccountMenu";
 import { useDialogActions, useDialogState } from "../context/DialogContext";
 import { GeneralSettingsProvider } from "../context/GeneralSettingsContext";
 import { usePanel } from "../context/PanelContext";
@@ -59,6 +58,9 @@ const BUILT_IN_COMPANY_ROUTE_SEGMENTS = new Set([
   "workspaces",
 ]);
 const Sidebar = lazy(() => import("./Sidebar").then((module) => ({ default: module.Sidebar })));
+const SidebarAccountMenu = lazy(() =>
+  import("./SidebarAccountMenu").then((module) => ({ default: module.SidebarAccountMenu })),
+);
 const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
@@ -122,6 +124,28 @@ function CompanySidebarPlaceholder({
         isCollapsed && !isMobile ? "w-16" : "w-60",
       )}
     />
+  );
+}
+
+function SidebarAccountMenuPlaceholder({
+  isCollapsed,
+  isMobile,
+}: {
+  isCollapsed: boolean;
+  isMobile: boolean;
+}) {
+  return (
+    <div className="w-full shrink-0 border-t border-border bg-background px-2 py-2" aria-hidden="true">
+      <div
+        className={cn(
+          "flex w-full items-center gap-2.5 px-3 py-2",
+          isCollapsed && !isMobile && "justify-center px-2",
+        )}
+      >
+        <div className="size-6 shrink-0 rounded-full bg-muted" />
+        {(!isCollapsed || isMobile) ? <div className="h-3 w-20 rounded bg-muted" /> : null}
+      </div>
+    </div>
   );
 }
 
@@ -226,6 +250,20 @@ export function Layout() {
     },
     refetchIntervalInBackground: true,
   });
+  const accountMenuPlaceholder = (
+    <SidebarAccountMenuPlaceholder isCollapsed={isCollapsed} isMobile={isMobile} />
+  );
+  const accountMenu = companySidebarReady ? (
+    <Suspense fallback={accountMenuPlaceholder}>
+      <SidebarAccountMenu
+        deploymentMode={health?.deploymentMode}
+        instanceSettingsTarget={instanceSettingsTarget}
+        version={health?.version}
+      />
+    </Suspense>
+  ) : (
+    accountMenuPlaceholder
+  );
   const keyboardShortcutsEnabled = useQuery({
     queryKey: queryKeys.instance.generalSettings,
     queryFn: () => instanceSettingsApi.getGeneral(),
@@ -494,11 +532,7 @@ export function Layout() {
                 )}
               </div>
             </div>
-            <SidebarAccountMenu
-              deploymentMode={health?.deploymentMode}
-              instanceSettingsTarget={instanceSettingsTarget}
-              version={health?.version}
-            />
+            {accountMenu}
           </div>
         ) : (
           <ResizableSidebarPane
@@ -521,11 +555,7 @@ export function Layout() {
                   companySidebar
                 )}
               </div>
-              <SidebarAccountMenu
-                deploymentMode={health?.deploymentMode}
-                instanceSettingsTarget={instanceSettingsTarget}
-                version={health?.version}
-              />
+              {accountMenu}
             </div>
           </ResizableSidebarPane>
         )}
