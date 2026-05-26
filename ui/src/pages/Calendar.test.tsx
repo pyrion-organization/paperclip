@@ -429,11 +429,16 @@ describe("Calendar", () => {
   it("organizes item editing into tabs", async () => {
     await renderPage();
 
+    expect(container.firstElementChild?.className).toContain("overflow-y-auto");
+
     await act(async () => {
       (container.querySelector("[data-testid='calendar-item-row-item-1']") as HTMLTableRowElement).click();
     });
     await flushReact();
 
+    const dialog = document.body.querySelector("[data-testid='calendar-item-dialog']") as HTMLElement;
+    expect(dialog.className).toContain("h-[calc(100dvh-2rem)]");
+    expect(dialog.className).toContain("overflow-hidden");
     expect(document.body.textContent).toContain("Overview");
     expect(document.body.textContent).toContain("Payment");
     expect(document.body.textContent).toContain("Contacts");
@@ -451,6 +456,7 @@ describe("Calendar", () => {
     });
     await flushReact();
 
+    expect(dialog.className).toContain("h-[calc(100dvh-2rem)]");
     expect(document.body.textContent).toContain("Payment Method");
     expect(document.body.textContent).toContain("Cost Center");
   });

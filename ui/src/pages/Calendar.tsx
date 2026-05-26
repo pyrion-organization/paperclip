@@ -564,7 +564,7 @@ export function Calendar() {
   const dashboard = dashboardQuery.data;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-4">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Calendar</h1>
@@ -622,8 +622,8 @@ export function Calendar() {
         </Card>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        <Card className="min-h-0">
+      <div>
+        <Card>
           <CardHeader className="gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-base">Items</CardTitle>
@@ -638,7 +638,7 @@ export function Calendar() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="min-h-0 overflow-auto p-0">
+          <CardContent className="overflow-x-auto p-0">
             {items.length === 0 ? (
               <div className="p-6">
                 <EmptyState icon={CalendarDays} message={searchQuery.trim() ? "No calendar items match this search." : "Create an item to start tracking obligations."} />
@@ -724,8 +724,11 @@ export function Calendar() {
         </Card>
 
         <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
-            <DialogHeader className="border-b border-border px-6 py-4 pr-12">
+          <DialogContent
+            data-testid="calendar-item-dialog"
+            className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(820px,calc(100dvh-2rem))] sm:max-w-4xl"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-5 py-3 pr-12">
               <div className="flex items-center justify-between gap-3">
                 <DialogTitle>{isEditing ? "Item Detail" : "New Item"}</DialogTitle>
                 {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
@@ -734,9 +737,9 @@ export function Calendar() {
                 Track the due date, owner, payment, account, and proof details for this obligation.
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 overflow-y-auto px-6 py-4">
-              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="gap-4">
-                <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+            <div className="min-h-0 flex-1 px-5 py-3">
+              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
+                <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto">
                   <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
                   <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
                   <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
@@ -745,7 +748,8 @@ export function Calendar() {
                   {selectedItem ? <TabsTrigger value="documents" data-testid="calendar-tab-documents" onClick={() => setItemDialogTab("documents")}>Documents</TabsTrigger> : null}
                   {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
                 </TabsList>
-                <TabsContent value="overview" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Title">
                     <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
                   </Field>
@@ -834,8 +838,10 @@ export function Calendar() {
                       </Select>
                     </Field>
                   </div>
+                  </div>
                 </TabsContent>
-                <TabsContent value="payment" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="payment" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <div className="grid grid-cols-[1fr_90px] gap-3">
                     <Field label="Amount">
                       <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
@@ -863,29 +869,37 @@ export function Calendar() {
                     />
                     Manual action required
                   </label>
+                  </div>
                 </TabsContent>
-                <TabsContent value="contacts" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="contacts" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
                   <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
                   <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
                   <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
                   <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="links" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="links" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
                   <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
                   <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
                   <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="notes" className="grid gap-3">
+                <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3">
                   <Field label="Notes">
                     <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
                   </Field>
                   <Field label="Internal Notes">
                     <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
                   </Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="documents" className="grid gap-2">
+                <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-2">
                   {selectedDocuments.length === 0 ? (
                     <div className="border border-border p-3 text-sm text-muted-foreground">No documents linked.</div>
                   ) : selectedDocuments.map((document) => (
@@ -902,8 +916,10 @@ export function Calendar() {
                       {document.notes ? <div className="mt-2 text-xs text-muted-foreground">{document.notes}</div> : null}
                     </div>
                   ))}
+                  </div>
                 </TabsContent>
-                <TabsContent value="history" className="grid gap-2">
+                <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-2">
                   {selectedActivity.length === 0 ? (
                     <div className="border border-border p-3 text-sm text-muted-foreground">No activity recorded.</div>
                   ) : selectedActivity.map((entry) => (
@@ -917,10 +933,11 @@ export function Calendar() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
-            <DialogFooter className="border-t border-border px-6 py-4">
+            <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
               <div className="flex flex-1 flex-wrap gap-2">
                 <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
                   {isEditing ? "Save" : "Create"}
