@@ -12,22 +12,32 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Fragment, useMemo } from "react";
-import { PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
-import { PluginLauncherOutlet, usePluginLaunchers } from "@/plugins/launchers";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 type GlobalToolbarContext = { companyId: string | null; companyPrefix: string | null };
 
-function GlobalToolbarPlugins({ context }: { context: GlobalToolbarContext }) {
-  const { slots } = usePluginSlots({ slotTypes: ["globalToolbarButton"], companyId: context.companyId });
-  const { launchers } = usePluginLaunchers({ placementZones: ["globalToolbarButton"], companyId: context.companyId, enabled: !!context.companyId });
-  if (slots.length === 0 && launchers.length === 0) return null;
-  return (
-    <div className="flex items-center gap-1 ml-auto shrink-0 pl-2">
-      <PluginSlotOutlet slotTypes={["globalToolbarButton"]} context={context} className="flex items-center gap-1" />
-      <PluginLauncherOutlet placementZones={["globalToolbarButton"]} context={context} className="flex items-center gap-1" />
-    </div>
-  );
+const PLUGIN_CHROME_BOOT_DELAY_MS = 1_000;
+const GlobalToolbarPlugins = lazy(() =>
+  import("@/plugins/GlobalToolbarPlugins").then((module) => ({ default: module.GlobalToolbarPlugins })),
+);
+
+function useDeferredPluginChrome(enabled: boolean) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setReady(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setReady(true);
+    }, PLUGIN_CHROME_BOOT_DELAY_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled]);
+
+  return ready;
 }
 
 export function BreadcrumbBar() {
@@ -43,7 +53,12 @@ export function BreadcrumbBar() {
     [selectedCompanyId, selectedCompany?.issuePrefix],
   );
 
-  const globalToolbarSlots = <GlobalToolbarPlugins context={globalToolbarSlotContext} />;
+  const pluginChromeReady = useDeferredPluginChrome(Boolean(selectedCompanyId));
+  const globalToolbarSlots = pluginChromeReady ? (
+    <Suspense fallback={null}>
+      <GlobalToolbarPlugins context={globalToolbarSlotContext} />
+    </Suspense>
+  ) : null;
 
   if (isMobile && mobileToolbar) {
     return (

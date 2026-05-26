@@ -36,15 +36,44 @@ import { queryKeys } from "../lib/queryKeys";
 import { scheduleMainContentFocus } from "../lib/main-content-focus";
 import { cn } from "../lib/utils";
 import { NotFoundPage } from "../pages/NotFound";
-import { PluginSlotMount, resolveRouteSidebarSlot, usePluginSlots } from "../plugins/slots";
 
 const INSTANCE_SETTINGS_MEMORY_KEY = "paperclip.lastInstanceSettingsPath";
+const BUILT_IN_COMPANY_ROUTE_SEGMENTS = new Set([
+  "activity",
+  "agents",
+  "approvals",
+  "calendar",
+  "clients",
+  "companies",
+  "company",
+  "costs",
+  "dashboard",
+  "design-guide",
+  "email",
+  "execution-workspaces",
+  "goals",
+  "inbox",
+  "onboarding",
+  "org",
+  "plugins",
+  "projects",
+  "routines",
+  "search",
+  "settings",
+  "skills",
+  "u",
+  "usage",
+  "workspaces",
+]);
 const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
 const CommandPalette = lazy(() => import("./CommandPalette").then((module) => ({ default: module.CommandPalette })));
 const CreateClientDialog = lazy(() => import("./CreateClientDialog").then((module) => ({ default: module.CreateClientDialog })));
 const NewAgentDialog = lazy(() => import("./NewAgentDialog").then((module) => ({ default: module.NewAgentDialog })));
+const RouteSidebarPlugins = lazy(() =>
+  import("../plugins/RouteSidebarPlugins").then((module) => ({ default: module.RouteSidebarPlugins })),
+);
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -107,31 +136,24 @@ export function Layout() {
   );
   const routeSidebarCompanyId = matchedCompany?.id ?? null;
   const routeSidebarCompanyPrefix = matchedCompany?.issuePrefix ?? null;
-  const { slots: routeSidebarSlots } = usePluginSlots({
-    slotTypes: ["page", "routeSidebar"],
-    companyId: routeSidebarCompanyId,
-    enabled: Boolean(routeSidebarCompanyId && pluginRoutePath),
-  });
-  const routeSidebarSlot = useMemo(
-    () => resolveRouteSidebarSlot(routeSidebarSlots, pluginRoutePath),
-    [pluginRoutePath, routeSidebarSlots],
+  const isPluginRouteSidebarCandidate = Boolean(
+    routeSidebarCompanyId
+      && routeSidebarCompanyPrefix
+      && pluginRoutePath
+      && !BUILT_IN_COMPANY_ROUTE_SEGMENTS.has(pluginRoutePath),
   );
-  const sidebarContext = useMemo(
-    () => ({
-      companyId: routeSidebarCompanyId,
-      companyPrefix: routeSidebarCompanyPrefix,
-    }),
-    [routeSidebarCompanyId, routeSidebarCompanyPrefix],
-  );
-  const companySidebar = routeSidebarSlot ? (
-    <PluginSlotMount
-      slot={routeSidebarSlot}
-      context={sidebarContext}
-      className="h-full w-full"
-      missingBehavior="placeholder"
-    />
+  const defaultCompanySidebar = <Sidebar />;
+  const companySidebar = isPluginRouteSidebarCandidate ? (
+    <Suspense fallback={defaultCompanySidebar}>
+      <RouteSidebarPlugins
+        companyId={routeSidebarCompanyId!}
+        companyPrefix={routeSidebarCompanyPrefix!}
+        routePath={pluginRoutePath!}
+        fallback={defaultCompanySidebar}
+      />
+    </Suspense>
   ) : (
-    <Sidebar />
+    defaultCompanySidebar
   );
   const { data: health } = useQuery({
     queryKey: queryKeys.health,

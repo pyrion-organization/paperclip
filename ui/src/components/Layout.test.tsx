@@ -160,6 +160,41 @@ vi.mock("../plugins/slots", async () => {
   };
 });
 
+vi.mock("../plugins/RouteSidebarPlugins", async () => {
+  const actual = await vi.importActual<typeof import("../plugins/slots")>("../plugins/slots");
+  return {
+    RouteSidebarPlugins: ({
+      companyId,
+      companyPrefix,
+      routePath,
+      fallback,
+    }: {
+      companyId: string;
+      companyPrefix: string;
+      routePath: string;
+      fallback: ReactNode;
+    }) => {
+      mockUsePluginSlots({
+        slotTypes: ["page", "routeSidebar"],
+        companyId,
+        enabled: Boolean(companyId && routePath),
+      });
+      const routeSidebarSlot = actual.resolveRouteSidebarSlot(
+        mockPluginSlots.slots as unknown as Parameters<typeof actual.resolveRouteSidebarSlot>[0],
+        routePath,
+      );
+      if (!routeSidebarSlot) return <>{fallback}</>;
+
+      mockPluginSlotContexts.push({ companyId, companyPrefix });
+      return (
+        <div data-plugin-slot-class="h-full w-full">
+          Plugin route sidebar: {routeSidebarSlot.displayName}
+        </div>
+      );
+    },
+  };
+});
+
 vi.mock("../context/DialogContext", () => ({
   useDialog: () => ({
     openNewIssue: vi.fn(),
@@ -249,6 +284,7 @@ async function act(callback: () => void | Promise<void>) {
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
+    await vi.dynamicImportSettled();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 }
