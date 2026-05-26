@@ -11,7 +11,7 @@ vi.mock("../api/issues", () => ({
 }));
 
 import { describe, expect, it, vi } from "vitest";
-import { __liveUpdatesTestUtils } from "./LiveUpdatesProvider";
+import { __liveUpdatesTestUtils } from "./LiveUpdatesRuntime";
 import { queryKeys } from "../lib/queryKeys";
 
 describe("LiveUpdatesProvider issue invalidation", () => {
