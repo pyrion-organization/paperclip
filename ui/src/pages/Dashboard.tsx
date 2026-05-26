@@ -21,11 +21,13 @@ import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn, formatCents } from "../lib/utils";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
-import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
 import type { Agent, Issue } from "@paperclipai/shared";
 
+const ActiveAgentsPanel = lazy(() =>
+  import("../components/ActiveAgentsPanel").then(({ ActiveAgentsPanel }) => ({ default: ActiveAgentsPanel })),
+);
 const DashboardPluginSlotOutlet = lazy(() =>
   import("@/plugins/LazyPluginSlotOutlet").then(({ LazyPluginSlotOutlet }) => ({ default: LazyPluginSlotOutlet })),
 );
@@ -217,7 +219,9 @@ export function Dashboard() {
         </div>
       )}
 
-      <ActiveAgentsPanel companyId={selectedCompanyId!} />
+      <Suspense fallback={null}>
+        <ActiveAgentsPanel companyId={selectedCompanyId!} />
+      </Suspense>
 
       {data && (
         <>

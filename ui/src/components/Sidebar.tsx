@@ -1,12 +1,12 @@
 import { lazy, Suspense } from "react";
 import {
   Inbox,
-  Activity,
   CircleDot,
   Target,
   LayoutDashboard,
   DollarSign,
   Gauge,
+  Activity,
   History,
   Search,
   SquarePen,
@@ -25,19 +25,27 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
-import { SidebarProjects } from "./SidebarProjects";
-import { SidebarAgents } from "./SidebarAgents";
 import { useDialogActions } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { heartbeatsApi } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
-import { useSidebarBadges } from "../hooks/useSidebarBadges";
 import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
-import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
 
+const SidebarCompanyMenu = lazy(() =>
+  import("./SidebarCompanyMenu").then((module) => ({ default: module.SidebarCompanyMenu })),
+);
+const SidebarProjects = lazy(() =>
+  import("./SidebarProjects").then((module) => ({ default: module.SidebarProjects })),
+);
+const SidebarAgents = lazy(() =>
+  import("./SidebarAgents").then((module) => ({ default: module.SidebarAgents })),
+);
+const SidebarInboxNavItem = lazy(() =>
+  import("./SidebarInboxNavItem").then((module) => ({ default: module.SidebarInboxNavItem })),
+);
 const SidebarWorkPluginExtensions = lazy(() =>
   import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarWorkPluginExtensions })),
 );
@@ -49,7 +57,6 @@ export function Sidebar() {
   const { openNewIssue } = useDialogActions();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { isCollapsed, isMobile, toggleCollapsed } = useSidebar();
-  const inboxBadge = useSidebarBadges(selectedCompanyId);
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
     queryFn: () => instanceSettingsApi.getExperimental(),
@@ -71,7 +78,11 @@ export function Sidebar() {
   return (
     <aside className={cn("h-full min-h-0 border-r border-border bg-background flex flex-col", isCollapsed && !isMobile ? "w-16" : "w-60")}>
       <div className={cn("flex items-center gap-1 px-2 h-12 shrink-0", isCollapsed && "justify-center")}>
-        {!isCollapsed && <SidebarCompanyMenu />}
+        {!isCollapsed && (
+          <Suspense fallback={<div className="min-w-0 flex-1" />}>
+            <SidebarCompanyMenu />
+          </Suspense>
+        )}
         <Button
           asChild
           variant="ghost"
@@ -115,14 +126,9 @@ export function Sidebar() {
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/usage" label="Usage" icon={Gauge} />
-          <SidebarNavItem
-            to="/inbox"
-            label="Inbox"
-            icon={Inbox}
-            badge={inboxBadge.inbox}
-            badgeTone={inboxBadge.failedRuns > 0 ? "danger" : "default"}
-            alert={inboxBadge.failedRuns > 0}
-          />
+          <Suspense fallback={<SidebarNavItem to="/inbox" label="Inbox" icon={Inbox} />}>
+            <SidebarInboxNavItem companyId={selectedCompanyId} />
+          </Suspense>
         </div>
 
         <SidebarSection label="Work">
@@ -138,9 +144,13 @@ export function Sidebar() {
           </Suspense>
         </SidebarSection>
 
-        <SidebarProjects />
+        <Suspense fallback={null}>
+          <SidebarProjects />
+        </Suspense>
 
-        <SidebarAgents />
+        <Suspense fallback={null}>
+          <SidebarAgents />
+        </Suspense>
 
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Users} />

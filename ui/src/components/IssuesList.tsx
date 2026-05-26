@@ -69,11 +69,14 @@ import {
   KANBAN_COLUMN_PAGE_SIZE_OPTIONS,
   type KanbanColumnPageSize,
 } from "./KanbanBoard";
-import { buildIssueTree, countDescendants } from "../lib/issue-tree";
-import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
-import { statusBadge } from "../lib/status-colors";
-import { workflowSort } from "../lib/workflow-sort";
-import { isSuccessfulRunHandoffRequired } from "../lib/successful-run-handoff";
+import {
+  buildIssueTree,
+  buildSubIssueDefaultsForViewer,
+  countDescendants,
+  isSuccessfulRunHandoffRequired,
+  pausedIssueBadgeClassName,
+  workflowSort,
+} from "../lib/issues-list-runtime";
 import type { Issue, IssueStatus, Project } from "@paperclipai/shared";
 import { ISSUE_STATUSES } from "@paperclipai/shared/constants";
 const ISSUE_SEARCH_DEBOUNCE_MS = 250;
@@ -1783,7 +1786,7 @@ export function IssuesList({
                             {issueBadge ? (
                               issueBadge === "Paused" ? (
                                 <span
-                                  className={cn("ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium", statusBadge.paused)}
+                                  className={cn("ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium", pausedIssueBadgeClassName)}
                                   aria-label="Paused"
                                   title="Paused"
                                 >
