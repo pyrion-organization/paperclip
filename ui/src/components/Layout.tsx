@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
-import { Sidebar } from "./Sidebar";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { WorktreeBanner } from "./WorktreeBanner";
@@ -59,6 +58,7 @@ const BUILT_IN_COMPANY_ROUTE_SEGMENTS = new Set([
   "usage",
   "workspaces",
 ]);
+const Sidebar = lazy(() => import("./Sidebar").then((module) => ({ default: module.Sidebar })));
 const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
@@ -79,6 +79,51 @@ const InstanceSidebar = lazy(() => import("./InstanceSidebar").then((module) => 
 const CompanySettingsSidebar = lazy(() =>
   import("./CompanySettingsSidebar").then((module) => ({ default: module.CompanySettingsSidebar })),
 );
+
+type LayoutIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function useDeferredCompanySidebarReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as LayoutIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 1_200 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 250);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
+}
+
+function CompanySidebarPlaceholder({
+  isCollapsed,
+  isMobile,
+}: {
+  isCollapsed: boolean;
+  isMobile: boolean;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "h-full min-h-0 border-r border-border bg-background",
+        isCollapsed && !isMobile ? "w-16" : "w-60",
+      )}
+    />
+  );
+}
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -118,6 +163,7 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
+  const companySidebarReady = useDeferredCompanySidebarReady();
   const isInstanceSettingsRoute = location.pathname.startsWith("/instance/");
   const isCompanySettingsRoute = location.pathname.includes("/company/settings");
   const onboardingTriggered = useRef(false);
@@ -148,8 +194,17 @@ export function Layout() {
       && pluginRoutePath
       && !BUILT_IN_COMPANY_ROUTE_SEGMENTS.has(pluginRoutePath),
   );
-  const defaultCompanySidebar = <Sidebar />;
-  const companySidebar = isPluginRouteSidebarCandidate ? (
+  const companySidebarPlaceholder = (
+    <CompanySidebarPlaceholder isCollapsed={isCollapsed} isMobile={isMobile} />
+  );
+  const defaultCompanySidebar = companySidebarReady ? (
+    <Suspense fallback={companySidebarPlaceholder}>
+      <Sidebar />
+    </Suspense>
+  ) : (
+    companySidebarPlaceholder
+  );
+  const companySidebar = companySidebarReady && isPluginRouteSidebarCandidate ? (
     <Suspense fallback={defaultCompanySidebar}>
       <RouteSidebarPlugins
         companyId={routeSidebarCompanyId!}

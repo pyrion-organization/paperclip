@@ -289,6 +289,7 @@ async function act(callback: () => void | Promise<void>) {
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
     await vi.dynamicImportSettled();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     await vi.dynamicImportSettled();
