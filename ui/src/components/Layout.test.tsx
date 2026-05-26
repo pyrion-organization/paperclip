@@ -291,6 +291,7 @@ async function flushReact() {
     await Promise.resolve();
     await vi.dynamicImportSettled();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await vi.dynamicImportSettled();
   });
 }
 

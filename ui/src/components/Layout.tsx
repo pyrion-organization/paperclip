@@ -2,8 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { Sidebar } from "./Sidebar";
-import { InstanceSidebar } from "./InstanceSidebar";
-import { CompanySettingsSidebar } from "./CompanySettingsSidebar";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { WorktreeBanner } from "./WorktreeBanner";
@@ -77,6 +75,10 @@ const KeyboardShortcutsCheatsheet = lazy(() =>
 const ToastViewport = lazy(() => import("./ToastViewport").then((module) => ({ default: module.ToastViewport })));
 const MobileBottomNav = lazy(() => import("./MobileBottomNav").then((module) => ({ default: module.MobileBottomNav })));
 const DevRestartBanner = lazy(() => import("./DevRestartBanner").then((module) => ({ default: module.DevRestartBanner })));
+const InstanceSidebar = lazy(() => import("./InstanceSidebar").then((module) => ({ default: module.InstanceSidebar })));
+const CompanySettingsSidebar = lazy(() =>
+  import("./CompanySettingsSidebar").then((module) => ({ default: module.CompanySettingsSidebar })),
+);
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -425,9 +427,13 @@ export function Layout() {
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <div className="w-60 shrink-0 overflow-hidden">
                 {isInstanceSettingsRoute ? (
-                  <InstanceSidebar />
+                  <Suspense fallback={null}>
+                    <InstanceSidebar />
+                  </Suspense>
                 ) : isCompanySettingsRoute ? (
-                  <CompanySettingsSidebar />
+                  <Suspense fallback={null}>
+                    <CompanySettingsSidebar />
+                  </Suspense>
                 ) : (
                   companySidebar
                 )}
@@ -449,9 +455,13 @@ export function Layout() {
             <div className="flex h-full min-h-0 flex-col">
               <div className="min-h-0 flex-1 overflow-hidden">
                 {isInstanceSettingsRoute ? (
-                  <InstanceSidebar />
+                  <Suspense fallback={null}>
+                    <InstanceSidebar />
+                  </Suspense>
                 ) : isCompanySettingsRoute ? (
-                  <CompanySettingsSidebar />
+                  <Suspense fallback={null}>
+                    <CompanySettingsSidebar />
+                  </Suspense>
                 ) : (
                   companySidebar
                 )}
