@@ -23,15 +23,10 @@ import {
 import { Component, createElement, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { User } from "lucide-react";
-import {
-  FileTree,
-  type FileTreeProps as HostFileTreeProps,
-} from "@/components/FileTree";
+import type { FileTreeProps as HostFileTreeProps } from "@/components/FileTree";
+import type { ManagedRoutinesListProps } from "@/components/ManagedRoutinesList";
 import { AgentIcon } from "@/components/AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "@/components/InlineEntitySelector";
-import { IssuesList as HostIssuesList } from "@/components/IssuesList";
-import { ManagedRoutinesList as HostManagedRoutinesList } from "@/components/ManagedRoutinesList";
-import { MarkdownBody } from "@/components/MarkdownBody";
 import { accessApi } from "@/api/access";
 import { agentsApi } from "@/api/agents";
 import { authApi } from "@/api/auth";
@@ -112,7 +107,23 @@ function PluginSdkFileTree({
   onSelectFile,
   ...props
 }: PluginFileTreeProps) {
-  return createElement(FileTree, {
+  const [FileTreeComponent, setFileTreeComponent] = useState<ComponentType<HostFileTreeProps> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("@/components/FileTree").then((module) => {
+      if (!cancelled) setFileTreeComponent(() => module.FileTree);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!FileTreeComponent) {
+    return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading files...");
+  }
+
+  return createElement(FileTreeComponent, {
     ...props,
     selectedFile,
     expandedDirs: toPathSet(expandedPaths),
@@ -130,6 +141,41 @@ type PluginMarkdownBlockProps = {
   wikiLinkRoot?: string;
   resolveWikiLinkHref?: (target: string, label: string) => string | null | undefined;
 };
+
+function PluginSdkMarkdownBlock({
+  content,
+  className,
+  enableWikiLinks,
+  wikiLinkRoot,
+  resolveWikiLinkHref,
+}: PluginMarkdownBlockProps) {
+  const [MarkdownBodyComponent, setMarkdownBodyComponent] = useState<ComponentType<Record<string, unknown>> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("@/components/MarkdownBody").then((module) => {
+      if (!cancelled) {
+        setMarkdownBodyComponent(() => module.MarkdownBody as unknown as ComponentType<Record<string, unknown>>);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!MarkdownBodyComponent) {
+    return createElement("div", { className: `whitespace-pre-wrap ${className ?? ""}`.trim() }, content);
+  }
+
+  return createElement(MarkdownBodyComponent, {
+    className,
+    softBreaks: false,
+    enableWikiLinks,
+    wikiLinkRoot,
+    resolveWikiLinkHref,
+    children: content,
+  });
+}
 
 type PluginMarkdownEditorProps = {
   value: string;
@@ -245,6 +291,7 @@ function PluginSdkIssuesList({
   searchWithinLoadedIssues = true,
 }: PluginIssuesListProps) {
   const queryClient = useQueryClient();
+  const [IssuesListComponent, setIssuesListComponent] = useState<ComponentType<Record<string, unknown>> | null>(null);
   const issueFilters = useMemo(
     () => compactIssueFilters({
       ...(filters ?? {}),
@@ -258,6 +305,18 @@ function PluginSdkIssuesList({
     () => ["plugins", "sdk-ui", "issues-list", companyId ?? "__no-company__", issueFilters] as const,
     [companyId, issueFilters],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    import("@/components/IssuesList").then((module) => {
+      if (!cancelled) {
+        setIssuesListComponent(() => module.IssuesList as unknown as ComponentType<Record<string, unknown>>);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(companyId ?? "__no-company__"),
@@ -305,7 +364,11 @@ function PluginSdkIssuesList({
     return createElement("div", { className: "text-sm text-muted-foreground" }, "Select a company to view issues.");
   }
 
-  return createElement(HostIssuesList, {
+  if (!IssuesListComponent) {
+    return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading issues...");
+  }
+
+  return createElement(IssuesListComponent, {
     issues: issues ?? [],
     isLoading,
     error: error as Error | null,
@@ -319,6 +382,26 @@ function PluginSdkIssuesList({
     searchWithinLoadedIssues,
     onUpdateIssue: (id: string, data: Record<string, unknown>) => updateIssue.mutate({ id, data }),
   });
+}
+
+function PluginSdkManagedRoutinesList(props: ManagedRoutinesListProps) {
+  const [ManagedRoutinesListComponent, setManagedRoutinesListComponent] = useState<ComponentType<ManagedRoutinesListProps> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("@/components/ManagedRoutinesList").then((module) => {
+      if (!cancelled) setManagedRoutinesListComponent(() => module.ManagedRoutinesList);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!ManagedRoutinesListComponent) {
+    return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading routines...");
+  }
+
+  return createElement(ManagedRoutinesListComponent, props);
 }
 
 function PluginSdkAssigneePicker({
@@ -861,21 +944,7 @@ export function initPluginBridge(
       useHostNavigation,
       usePluginStream,
       usePluginToast,
-      MarkdownBlock: ({
-        content,
-        className,
-        enableWikiLinks,
-        wikiLinkRoot,
-        resolveWikiLinkHref,
-      }: PluginMarkdownBlockProps) =>
-        createElement(MarkdownBody, {
-          className,
-          softBreaks: false,
-          enableWikiLinks,
-          wikiLinkRoot,
-          resolveWikiLinkHref,
-          children: content,
-        }),
+      MarkdownBlock: PluginSdkMarkdownBlock,
       MetricCard: PluginSdkMetricCard,
       StatusBadge: PluginSdkStatusBadge,
       DataTable: PluginSdkDataTable,
@@ -891,7 +960,7 @@ export function initPluginBridge(
       IssuesList: PluginSdkIssuesList,
       AssigneePicker: PluginSdkAssigneePicker,
       ProjectPicker: PluginSdkProjectPicker,
-      ManagedRoutinesList: HostManagedRoutinesList,
+      ManagedRoutinesList: PluginSdkManagedRoutinesList,
     },
   };
 }

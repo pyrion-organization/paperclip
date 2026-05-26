@@ -305,7 +305,7 @@ describe("plugin SDK FileTree bridge", () => {
     },
   ];
 
-  it("injects the host FileTree implementation through the bridge runtime", () => {
+  it("defers the host FileTree implementation behind a lightweight fallback", () => {
     initPluginBridge(React, ReactDOM);
 
     const html = renderToStaticMarkup(
@@ -318,9 +318,9 @@ describe("plugin SDK FileTree bridge", () => {
       }),
     );
 
-    expect(html).toContain('role="tree"');
-    expect(html).toContain("wiki");
-    expect(html).toContain("index.md");
+    expect(html).toContain("Loading files...");
+    expect(html).not.toContain('role="tree"');
+    expect(html).not.toContain("index.md");
   });
 
   it("throws a clear error when the host FileTree implementation is missing", () => {
