@@ -3,10 +3,12 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
+  authUsers,
   calendarItemDocuments,
   calendarItems,
   clients,
   companies,
+  companyMemberships,
   createDb,
   emailNotifications,
   inboundEmailMailboxes,
@@ -48,6 +50,9 @@ describeEmbeddedPostgres("calendarService", () => {
   const projectId = randomUUID();
   const mailboxId = randomUUID();
   const sourceEmailMessageId = randomUUID();
+  const ownerUserId = "calendar-owner-user";
+  const adminUserId = "calendar-admin-user";
+  const viewerUserId = "calendar-viewer-user";
 
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-calendar-service-");
@@ -67,6 +72,18 @@ describeEmbeddedPostgres("calendarService", () => {
         issuePrefix: "OTH",
         requireBoardApprovalForNewAgents: false,
       },
+    ]);
+
+    const now = new Date("2026-05-01T00:00:00.000Z");
+    await db.insert(authUsers).values([
+      { id: ownerUserId, name: "Calendar Owner", email: "owner-admin@example.com", createdAt: now, updatedAt: now },
+      { id: adminUserId, name: "Calendar Admin", email: "admin@example.com", createdAt: now, updatedAt: now },
+      { id: viewerUserId, name: "Calendar Viewer", email: "viewer@example.com", createdAt: now, updatedAt: now },
+    ]);
+    await db.insert(companyMemberships).values([
+      { companyId, principalType: "user", principalId: ownerUserId, status: "active", membershipRole: "owner" },
+      { companyId, principalType: "user", principalId: adminUserId, status: "active", membershipRole: "admin" },
+      { companyId, principalType: "user", principalId: viewerUserId, status: "active", membershipRole: "viewer" },
     ]);
 
     await db.insert(clients).values([
@@ -112,7 +129,9 @@ describeEmbeddedPostgres("calendarService", () => {
     await db.delete(inboundEmailMailboxes);
     await db.delete(projects);
     await db.delete(clients);
+    await db.delete(companyMemberships);
     await db.delete(companies);
+    await db.delete(authUsers);
     await tempDb?.cleanup();
   });
 
@@ -527,8 +546,21 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(first.reminderScans).toBe(1);
     expect(first.metadataScans).toBe(1);
     expect(first.reminderIssuesCreated).toBe(1);
+    expect(first.reminderEmailsQueued).toBe(2);
     expect(second.reminderScans).toBe(0);
     expect(second.metadataScans).toBe(0);
+
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+    expect(queuedEmails.map((email) => email.recipientEmail).sort()).toEqual([
+      "admin@example.com",
+      "owner-admin@example.com",
+    ]);
   });
 
   it("creates email proposals as pending-review items with review issues", async () => {

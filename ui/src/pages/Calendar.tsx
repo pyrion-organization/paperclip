@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CALENDAR_ITEM_CATEGORIES,
-  CALENDAR_ITEM_STATUSES,
   CALENDAR_RECURRENCE_TYPES,
   CALENDAR_RISK_LEVELS,
   type CalendarItem,
@@ -19,7 +18,6 @@ import {
   ClipboardCheck,
   Pause,
   Play,
-  RefreshCw,
   Search,
   ShieldAlert,
 } from "lucide-react";
@@ -35,6 +33,13 @@ import { queryKeys } from "../lib/queryKeys";
 import { cn, formatCents } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -47,7 +52,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 const NO_COMPANY = "__none__";
-const ALL = "__all__";
 const NONE = "__none_value__";
 
 type ItemFormState = {
@@ -237,15 +241,47 @@ function confirmGovernedChange(message: string) {
   return window.confirm(message);
 }
 
+function itemSearchText(item: CalendarItem) {
+  return [
+    item.title,
+    item.description,
+    item.notes,
+    item.internalNotes,
+    titleCase(item.category),
+    titleCase(item.status),
+    titleCase(item.riskLevel),
+    item.providerName,
+    item.nextDueDate,
+    item.dueTime,
+    item.timezone,
+    item.amountCents == null ? null : formatCents(item.amountCents),
+    item.currency,
+    item.autoRenew ? "auto renew" : "manual renew",
+    item.manualActionRequired ? "manual action" : "automatic",
+    item.paymentMethodLabel,
+    item.paymentOwner,
+    item.costCenter,
+    item.purchaseEmail,
+    item.accountLoginEmail,
+    item.billingEmail,
+    item.recoveryEmail,
+    item.technicalContactEmail,
+    item.serviceUrl,
+    item.loginUrl,
+    item.billingUrl,
+    item.documentationUrl,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
 function BucketTile({ label, value, tone = "default" }: { label: string; value: number | string; tone?: "default" | "danger" | "warn" }) {
   return (
     <div className={cn(
-      "border border-border p-4",
+      "min-w-0 border border-border px-3 py-2",
       tone === "danger" && "border-destructive/40 bg-destructive/5",
       tone === "warn" && "border-amber-500/40 bg-amber-500/5",
     )}>
-      <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="truncate text-[11px] uppercase text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }
@@ -267,41 +303,13 @@ export function Calendar() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [form, setForm] = useState<ItemFormState>(() => emptyForm());
-  const [filters, setFilters] = useState({
-    status: ALL,
-    category: ALL,
-    riskLevel: ALL,
-    autoRenew: ALL,
-    provider: "",
-    paymentMethod: "",
-    purchaseEmail: "",
-    billingEmail: "",
-    dueFrom: "",
-    dueTo: "",
-    relatedClientId: ALL,
-    relatedProjectId: ALL,
-  });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Calendar" }]);
   }, [setBreadcrumbs]);
-
-  const normalizedFilters = useMemo(() => ({
-    status: filters.status === ALL ? undefined : filters.status,
-    category: filters.category === ALL ? undefined : filters.category,
-    riskLevel: filters.riskLevel === ALL ? undefined : filters.riskLevel,
-    autoRenew: filters.autoRenew === ALL ? undefined : filters.autoRenew === "true",
-    provider: filters.provider || undefined,
-    paymentMethod: filters.paymentMethod || undefined,
-    purchaseEmail: filters.purchaseEmail || undefined,
-    billingEmail: filters.billingEmail || undefined,
-    dueFrom: filters.dueFrom || undefined,
-    dueTo: filters.dueTo || undefined,
-    relatedClientId: filters.relatedClientId === ALL ? undefined : filters.relatedClientId,
-    relatedProjectId: filters.relatedProjectId === ALL ? undefined : filters.relatedProjectId,
-    limit: 200,
-  }), [filters]);
 
   const dashboardQuery = useQuery({
     queryKey: queryKeys.calendar.dashboard(companyId),
@@ -309,8 +317,8 @@ export function Calendar() {
     enabled: !!selectedCompanyId,
   });
   const itemsQuery = useQuery({
-    queryKey: queryKeys.calendar.items(companyId, normalizedFilters),
-    queryFn: () => calendarApi.list(companyId, normalizedFilters),
+    queryKey: queryKeys.calendar.items(companyId, { limit: 500 }),
+    queryFn: () => calendarApi.list(companyId, { limit: 500 }),
     enabled: !!selectedCompanyId,
   });
   const detailQuery = useQuery({
@@ -356,6 +364,7 @@ export function Calendar() {
       setSelectedItemId(item.id);
       setFormMode("edit");
       setForm(formFromItem(item));
+      setItemDialogOpen(false);
       setOperationError(null);
       invalidateCalendar();
     },
@@ -396,11 +405,7 @@ export function Calendar() {
     onError: (err) => setOperationError(err instanceof Error ? err.message : "Status update failed"),
   });
   const scanMutation = useMutation({
-    mutationFn: async (kind: "reminders" | "metadata") => {
-      if (kind === "reminders") {
-        await calendarApi.runReminderScan(companyId, { createIssues: true, sendEmail: false });
-        return;
-      }
+    mutationFn: async () => {
       await calendarApi.runMetadataScan(companyId);
     },
     onSuccess: () => {
@@ -411,7 +416,32 @@ export function Calendar() {
   });
 
   const items = itemsQuery.data?.items ?? [];
+  const smartSearch = searchQuery.trim().toLowerCase();
+  const visibleItems = useMemo(() => {
+    if (!smartSearch) return items;
+    const terms = smartSearch.split(/\s+/).filter(Boolean);
+    return items.filter((item) => {
+      const haystack = itemSearchText(item);
+      return terms.every((term) => haystack.includes(term));
+    });
+  }, [items, smartSearch]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
+
+  const openCreateDialog = () => {
+    setFormMode("create");
+    setSelectedItemId(null);
+    setForm(emptyForm());
+    setOperationError(null);
+    setItemDialogOpen(true);
+  };
+
+  const openEditDialog = (item: CalendarItem) => {
+    setSelectedItemId(item.id);
+    setFormMode("edit");
+    setForm(formFromItem(item));
+    setOperationError(null);
+    setItemDialogOpen(true);
+  };
 
   useEffect(() => {
     if (formMode !== "edit" || !selectedItem) return;
@@ -436,15 +466,11 @@ export function Calendar() {
           <p className="text-sm text-muted-foreground">Obligations, renewals, documents, and reminder work.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => scanMutation.mutate("metadata")} disabled={scanMutation.isPending}>
+          <Button variant="outline" size="sm" onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}>
             <ClipboardCheck className="mr-2 h-4 w-4" />
             Metadata Scan
           </Button>
-          <Button variant="outline" size="sm" onClick={() => scanMutation.mutate("reminders")} disabled={scanMutation.isPending}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Reminder Scan
-          </Button>
-          <Button size="sm" onClick={() => { setFormMode("create"); setSelectedItemId(null); setForm(emptyForm()); }}>
+          <Button size="sm" onClick={openCreateDialog}>
             <CalendarDays className="mr-2 h-4 w-4" />
             New Item
           </Button>
@@ -455,7 +481,7 @@ export function Calendar() {
         <div className="border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{operationError}</div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
         <BucketTile label="Overdue" value={dashboard?.overdue.count ?? 0} tone={(dashboard?.overdue.count ?? 0) > 0 ? "danger" : "default"} />
         <BucketTile label="Today" value={dashboard?.dueToday.count ?? 0} tone={(dashboard?.dueToday.count ?? 0) > 0 ? "warn" : "default"} />
         <BucketTile label="7 days" value={dashboard?.dueIn7Days.count ?? 0} />
@@ -492,104 +518,29 @@ export function Calendar() {
         </Card>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="min-h-0 flex-1">
         <Card className="min-h-0">
           <CardHeader className="gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-base">Items</CardTitle>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    className="h-9 w-52 pl-8"
-                    placeholder="Provider"
-                    value={filters.provider}
-                    onChange={(event) => setFilters((current) => ({ ...current, provider: event.target.value }))}
-                  />
-                </div>
-                <Select value={filters.status} onValueChange={(status) => setFilters((current) => ({ ...current, status }))}>
-                  <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All status</SelectItem>
-                    {CALENDAR_ITEM_STATUSES.map((status) => <SelectItem key={status} value={status}>{titleCase(status)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={filters.category} onValueChange={(category) => setFilters((current) => ({ ...current, category }))}>
-                  <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All categories</SelectItem>
-                    {CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={filters.riskLevel} onValueChange={(riskLevel) => setFilters((current) => ({ ...current, riskLevel }))}>
-                  <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All risk</SelectItem>
-                    {CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={filters.autoRenew} onValueChange={(autoRenew) => setFilters((current) => ({ ...current, autoRenew }))}>
-                  <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>Any renew</SelectItem>
-                    <SelectItem value="true">Auto-renew</SelectItem>
-                    <SelectItem value="false">Manual</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="relative w-full sm:w-96">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  className="h-9 w-40"
-                  type="date"
-                  value={filters.dueFrom}
-                  onChange={(event) => setFilters((current) => ({ ...current, dueFrom: event.target.value }))}
+                  className="h-9 pl-8"
+                  placeholder="Search calendar items"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
                 />
-                <Input
-                  className="h-9 w-40"
-                  type="date"
-                  value={filters.dueTo}
-                  onChange={(event) => setFilters((current) => ({ ...current, dueTo: event.target.value }))}
-                />
-                <Input
-                  className="h-9 w-44"
-                  placeholder="Payment method"
-                  value={filters.paymentMethod}
-                  onChange={(event) => setFilters((current) => ({ ...current, paymentMethod: event.target.value }))}
-                />
-                <Input
-                  className="h-9 w-44"
-                  placeholder="Purchase email"
-                  value={filters.purchaseEmail}
-                  onChange={(event) => setFilters((current) => ({ ...current, purchaseEmail: event.target.value }))}
-                />
-                <Input
-                  className="h-9 w-44"
-                  placeholder="Billing email"
-                  value={filters.billingEmail}
-                  onChange={(event) => setFilters((current) => ({ ...current, billingEmail: event.target.value }))}
-                />
-                <Select value={filters.relatedClientId} onValueChange={(relatedClientId) => setFilters((current) => ({ ...current, relatedClientId }))}>
-                  <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All clients</SelectItem>
-                    {(clientsQuery.data?.data ?? []).map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={filters.relatedProjectId} onValueChange={(relatedProjectId) => setFilters((current) => ({ ...current, relatedProjectId }))}>
-                  <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All projects</SelectItem>
-                    {(projectsQuery.data ?? []).map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
           </CardHeader>
           <CardContent className="min-h-0 overflow-auto p-0">
-            {items.length === 0 ? (
+            {visibleItems.length === 0 ? (
               <div className="p-6">
-                <EmptyState icon={CalendarDays} message="Create an item to start tracking obligations." />
+                <EmptyState icon={CalendarDays} message={items.length === 0 ? "Create an item to start tracking obligations." : "No calendar items match this search."} />
               </div>
             ) : (
-              <table className="w-full min-w-[1280px] text-sm">
+              <table className="w-full min-w-[1100px] text-sm">
                 <thead className="border-y border-border bg-muted/40 text-xs text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2 text-left font-medium">Due</th>
@@ -607,11 +558,11 @@ export function Calendar() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
+                  {visibleItems.map((item) => (
                     <tr
                       key={item.id}
                       className={cn("cursor-pointer border-b border-border hover:bg-muted/40", selectedItemId === item.id && "bg-muted")}
-                      onClick={() => { setSelectedItemId(item.id); setFormMode("edit"); setForm(formFromItem(item)); }}
+                      onClick={() => openEditDialog(item)}
                     >
                       <td className="px-4 py-3 align-top">
                         <div className="font-medium">{item.nextDueDate ?? "Unset"}</div>
@@ -647,14 +598,16 @@ export function Calendar() {
           </CardContent>
         </Card>
 
-        <div className="min-h-0 overflow-auto">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">{formMode === "edit" ? "Item Detail" : "New Item"}</CardTitle>
+        <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
+          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+            <DialogHeader className="border-b border-border px-6 py-4 pr-12">
+              <div className="flex items-center justify-between gap-3">
+                <DialogTitle>{formMode === "edit" ? "Item Detail" : "New Item"}</DialogTitle>
               {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <div className="grid gap-3">
+              </div>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto px-6 py-4">
+              <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Title">
                   <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
                 </Field>
@@ -772,7 +725,9 @@ export function Calendar() {
                 </Field>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+            </div>
+            <DialogFooter className="border-t border-border px-6 py-4">
+              <div className="flex flex-1 flex-wrap gap-2">
                 <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
                   {formMode === "edit" ? "Save" : "Create"}
                 </Button>
@@ -796,44 +751,10 @@ export function Calendar() {
                   </>
                 ) : null}
               </div>
+            </DialogFooter>
 
-              {selectedItem ? (
-                <div className="border-t border-border pt-4">
-                  <div className="mb-2 text-sm font-medium">Documents</div>
-                  {detailQuery.data?.documents.length ? (
-                    <div className="grid gap-2">
-                      {detailQuery.data.documents.map((doc) => (
-                        <div key={doc.id} className="border border-border p-2 text-sm">
-                          <div className="font-medium">{doc.title ?? titleCase(doc.documentType)}</div>
-                          <div className="text-xs text-muted-foreground">{doc.url ?? doc.documentId ?? doc.assetId ?? doc.sourceEmailAttachmentId}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No documents linked.</div>
-                  )}
-                </div>
-              ) : null}
-              {selectedItem ? (
-                <div className="border-t border-border pt-4">
-                  <div className="mb-2 text-sm font-medium">History</div>
-                  {detailQuery.data?.activity.length ? (
-                    <div className="grid gap-2">
-                      {detailQuery.data.activity.map((entry) => (
-                        <div key={entry.id} className="border border-border p-2 text-sm">
-                          <div className="font-medium">{entry.action.replaceAll("_", " ").replaceAll(".", " ")}</div>
-                          <div className="text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No activity recorded.</div>
-                  )}
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

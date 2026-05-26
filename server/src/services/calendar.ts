@@ -3,10 +3,12 @@ import type { Db } from "@paperclipai/db";
 import {
   activityLog,
   assets,
+  authUsers,
   calendarItemDocuments,
   calendarItems,
   clients,
   companies,
+  companyMemberships,
   documents,
   emailNotifications,
   inboundEmailAttachments,
@@ -43,6 +45,7 @@ type CalendarDocumentRow = typeof calendarItemDocuments.$inferSelect;
 type CalendarScanOptions = {
   now?: Date;
   recipientEmail?: string | null;
+  recipientEmails?: string[] | null;
   sendEmail?: boolean;
   createIssues?: boolean;
   actor?: Actor;
@@ -327,6 +330,10 @@ function calendarEmailPayload(item: CalendarItemRow, daysUntilDue: number) {
   };
 }
 
+function normalizeRecipientEmails(input: Array<string | null | undefined>) {
+  return [...new Set(input.map((email) => email?.trim().toLowerCase()).filter((email): email is string => Boolean(email)))];
+}
+
 function missingMetadataForItem(item: CalendarItemRow) {
   const missing: string[] = [];
   if (!item.nextDueDate) missing.push("next due date");
@@ -470,6 +477,20 @@ export function calendarService(db: Db) {
       createdByUserId: input.actor?.userId ?? null,
     });
     return { issue, created: true };
+  }
+
+  async function listScheduledReminderRecipients(companyId: string) {
+    const rows = await db
+      .select({ email: authUsers.email })
+      .from(companyMemberships)
+      .innerJoin(authUsers, eq(authUsers.id, companyMemberships.principalId))
+      .where(and(
+        eq(companyMemberships.companyId, companyId),
+        eq(companyMemberships.principalType, "user"),
+        eq(companyMemberships.status, "active"),
+        inArray(companyMemberships.membershipRole, ["owner", "admin"]),
+      ));
+    return normalizeRecipientEmails(rows.map((row) => row.email));
   }
 
   return {
@@ -839,8 +860,13 @@ export function calendarService(db: Db) {
       let createdIssues = 0;
       let updatedIssues = 0;
       let queuedEmails = 0;
+      let skippedEmails = 0;
       let markedOverdue = 0;
       let skipped = 0;
+      const recipientEmails = normalizeRecipientEmails([
+        opts.recipientEmail,
+        ...(opts.recipientEmails ?? []),
+      ]);
 
       for (const item of rows) {
         const due = parseDateOnly(item.nextDueDate);
@@ -888,43 +914,50 @@ export function calendarService(db: Db) {
             else updatedIssues += 1;
           }
 
-          if (sendEmail && rule.sendEmail && opts.recipientEmail) {
+          if (sendEmail && rule.sendEmail) {
+            if (recipientEmails.length === 0) {
+              skippedEmails += 1;
+              continue;
+            }
             const subject = daysUntilDue < 0
               ? `[Calendar Paperclip] OVERDUE: ${item.title}`
               : `[Calendar Paperclip] Upcoming deadline: ${item.title} - due ${dueText}`;
-            const existingEmail = await db
-              .select({ id: emailNotifications.id, issueId: emailNotifications.issueId })
-              .from(emailNotifications)
-              .where(and(
-                eq(emailNotifications.companyId, companyId),
-                eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
-                eq(sql<string>`${emailNotifications.payload}->>'calendarItemId'`, item.id),
-                eq(sql<string>`${emailNotifications.payload}->>'dueDate'`, dueText),
-                eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue)),
-              ))
-              .limit(1)
-              .then((emailRows) => emailRows[0] ?? null);
-            if (existingEmail && linkedIssueId && !existingEmail.issueId) {
-              await db
-                .update(emailNotifications)
-                .set({ issueId: linkedIssueId, updatedAt: now })
-                .where(eq(emailNotifications.id, existingEmail.id));
-            } else if (!existingEmail) {
-              await db.insert(emailNotifications).values({
-                companyId,
-                kind: CALENDAR_EMAIL_NOTIFICATION_KIND,
-                status: "pending",
-                issueId: linkedIssueId,
-                recipientEmail: opts.recipientEmail,
-                subject,
-                payload: calendarEmailPayload(item, daysUntilDue),
-                requestedByActorType: opts.actor?.actorType ?? "system",
-                requestedByActorId: opts.actor?.actorId ?? "calendar",
-                requestedByAgentId: opts.actor?.agentId ?? null,
-                requestedByRunId: opts.actor?.runId ?? null,
-                scheduledAt: now,
-              });
-              queuedEmails += 1;
+            for (const recipientEmail of recipientEmails) {
+              const existingEmail = await db
+                .select({ id: emailNotifications.id, issueId: emailNotifications.issueId })
+                .from(emailNotifications)
+                .where(and(
+                  eq(emailNotifications.companyId, companyId),
+                  eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+                  eq(emailNotifications.recipientEmail, recipientEmail),
+                  eq(sql<string>`${emailNotifications.payload}->>'calendarItemId'`, item.id),
+                  eq(sql<string>`${emailNotifications.payload}->>'dueDate'`, dueText),
+                  eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue)),
+                ))
+                .limit(1)
+                .then((emailRows) => emailRows[0] ?? null);
+              if (existingEmail && linkedIssueId && !existingEmail.issueId) {
+                await db
+                  .update(emailNotifications)
+                  .set({ issueId: linkedIssueId, updatedAt: now })
+                  .where(eq(emailNotifications.id, existingEmail.id));
+              } else if (!existingEmail) {
+                await db.insert(emailNotifications).values({
+                  companyId,
+                  kind: CALENDAR_EMAIL_NOTIFICATION_KIND,
+                  status: "pending",
+                  issueId: linkedIssueId,
+                  recipientEmail,
+                  subject,
+                  payload: calendarEmailPayload(item, daysUntilDue),
+                  requestedByActorType: opts.actor?.actorType ?? "system",
+                  requestedByActorId: opts.actor?.actorId ?? "calendar",
+                  requestedByAgentId: opts.actor?.agentId ?? null,
+                  requestedByRunId: opts.actor?.runId ?? null,
+                  scheduledAt: now,
+                });
+                queuedEmails += 1;
+              }
             }
           }
         }
@@ -945,6 +978,7 @@ export function calendarService(db: Db) {
           createdIssues,
           updatedIssues,
           queuedEmails,
+          skippedEmails,
           markedOverdue,
           skipped,
         },
@@ -957,6 +991,7 @@ export function calendarService(db: Db) {
         createdIssues,
         updatedIssues,
         queuedEmails,
+        skippedEmails,
         markedOverdue,
         skipped,
       };
@@ -976,6 +1011,8 @@ export function calendarService(db: Db) {
       let metadataScans = 0;
       let reminderIssuesCreated = 0;
       let reminderIssuesUpdated = 0;
+      let reminderEmailsQueued = 0;
+      let reminderEmailsSkipped = 0;
       let metadataIssuesCreated = 0;
       let metadataIssuesUpdated = 0;
 
@@ -992,15 +1029,19 @@ export function calendarService(db: Db) {
           .limit(1)
           .then((rows) => Boolean(rows[0]));
         if (!reminderAlreadyRan) {
+          const recipientEmails = await listScheduledReminderRecipients(row.companyId);
           const result = await this.runReminderScan(row.companyId, {
             now,
             createIssues: true,
-            sendEmail: false,
+            sendEmail: true,
+            recipientEmails,
             actor: { actorType: "system", actorId: "calendar_scheduler" },
           });
           reminderScans += 1;
           reminderIssuesCreated += result.createdIssues;
           reminderIssuesUpdated += result.updatedIssues;
+          reminderEmailsQueued += result.queuedEmails;
+          reminderEmailsSkipped += result.skippedEmails;
         }
 
         const metadataAlreadyRan = await db
@@ -1031,6 +1072,8 @@ export function calendarService(db: Db) {
         metadataScans,
         reminderIssuesCreated,
         reminderIssuesUpdated,
+        reminderEmailsQueued,
+        reminderEmailsSkipped,
         metadataIssuesCreated,
         metadataIssuesUpdated,
       };

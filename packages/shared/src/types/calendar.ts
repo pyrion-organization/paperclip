@@ -160,6 +160,7 @@ export interface CalendarScanResult {
   createdIssues: number;
   updatedIssues: number;
   queuedEmails: number;
+  skippedEmails: number;
   markedOverdue: number;
   skipped: number;
 }
