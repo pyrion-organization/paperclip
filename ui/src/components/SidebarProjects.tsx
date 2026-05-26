@@ -1,17 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, Plus } from "lucide-react";
-import {
-  DndContext,
-  MouseSensor,
-  closestCenter,
-  type DragEndEvent,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useSidebar } from "../context/SidebarContext";
@@ -42,6 +32,9 @@ const PROJECT_SORT_CHOICES: SidebarSectionRadioChoice[] = [
   { value: "recent", label: "Recent" },
 ];
 const REORDER_POINTER_MEDIA = "(hover: hover) and (pointer: fine)";
+const SidebarProjectReorderList = lazy(() =>
+  import("./SidebarProjectReorderList").then((module) => ({ default: module.SidebarProjectReorderList })),
+);
 
 type ProjectItemProps = {
   activeProjectRef: string | null;
@@ -183,33 +176,6 @@ function ProjectItem({
   );
 }
 
-function SortableProjectItem(props: ProjectItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: props.project.id });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 10 : undefined,
-      }}
-      className={cn(isDragging && "opacity-80")}
-      {...attributes}
-      {...listeners}
-    >
-      <ProjectItem {...props} isDragging={isDragging} />
-    </div>
-  );
-}
-
 export function SidebarProjects() {
   const [open, setOpen] = useState(true);
   const { selectedCompany, selectedCompanyId } = useCompany();
@@ -262,12 +228,6 @@ export function SidebarProjects() {
 
   const projectMatch = location.pathname.match(/^\/(?:[^/]+\/)?projects\/([^/]+)/);
   const activeProjectRef = projectMatch?.[1] ?? null;
-  const sensors = useSensors(
-    // Project reordering is intentionally desktop-only; touch should remain tap/scroll behavior.
-    useSensor(MouseSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-  );
 
   useEffect(() => {
     if (!sortModeStorageKey) {
@@ -310,23 +270,7 @@ export function SidebarProjects() {
     [sortModeStorageKey],
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      if (!isTopMode) return;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      const ids = orderedProjects.map((project) => project.id);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      persistOrder(arrayMove(ids, oldIndex, newIndex));
-    },
-    [isTopMode, orderedProjects, persistOrder],
-  );
-
-  const renderProject = (project: Project) => (
+  const renderProject = (project: Project, isDragging = false) => (
     <ProjectItem
       key={project.id}
       activeProjectRef={activeProjectRef}
@@ -337,7 +281,14 @@ export function SidebarProjects() {
       project={project}
       projectSidebarSlots={projectSidebarSlots}
       setSidebarOpen={setSidebarOpen}
+      isDragging={isDragging}
     />
+  );
+
+  const renderProjectList = (projectsToRender: Project[]) => (
+    <div className="flex flex-col gap-0.5">
+      {projectsToRender.map((project: Project) => renderProject(project))}
+    </div>
   );
 
   return (
@@ -362,36 +313,15 @@ export function SidebarProjects() {
       }}
     >
       {canReorderProjects ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={orderedProjects.map((project) => project.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="flex flex-col gap-0.5">
-              {orderedProjects.map((project: Project) => (
-                <SortableProjectItem
-                  key={project.id}
-                activeProjectRef={activeProjectRef}
-                companyId={selectedCompanyId}
-                companyPrefix={selectedCompany?.issuePrefix ?? null}
-                isMobile={isMobile}
-                isCollapsed={isCollapsed}
-                project={project}
-                projectSidebarSlots={projectSidebarSlots}
-                setSidebarOpen={setSidebarOpen}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+        <Suspense fallback={renderProjectList(orderedProjects)}>
+          <SidebarProjectReorderList
+            projects={orderedProjects}
+            onReorder={persistOrder}
+            renderProject={(project, state) => renderProject(project, state.isDragging)}
+          />
+        </Suspense>
       ) : (
-        <div className="flex flex-col gap-0.5">
-          {sortedProjects.map((project: Project) => renderProject(project))}
-        </div>
+        renderProjectList(sortedProjects)
       )}
     </SidebarSection>
   );
