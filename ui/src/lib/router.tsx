@@ -3,13 +3,17 @@ import * as RouterDom from "react-router-dom";
 import type { NavigateOptions, To } from "react-router-dom";
 import type { Issue } from "@paperclipai/shared";
 import { useCompany } from "@/context/CompanyContext";
-import { IssueLinkQuicklook } from "@/components/IssueLinkQuicklook";
 import {
   applyCompanyPrefix,
   extractCompanyPrefixFromPath,
   normalizeCompanyPrefix,
 } from "@/lib/company-routes";
+import { withIssueDetailHeaderSeed } from "@/lib/issueDetailBreadcrumb";
 import { parseIssuePathIdFromPath } from "@/lib/issue-reference";
+
+const IssueLinkQuicklook = React.lazy(() =>
+  import("@/components/IssueLinkQuicklook").then((module) => ({ default: module.IssueLinkQuicklook })),
+);
 
 function resolveTo(to: To, companyPrefix: string | null): To {
   if (typeof to === "string") {
@@ -46,9 +50,84 @@ export * from "react-router-dom";
 type CompanyLinkProps = React.ComponentProps<typeof RouterDom.Link> & {
   disableIssueQuicklook?: boolean;
   issuePrefetch?: Issue | null;
-  issueQuicklookSide?: React.ComponentProps<typeof IssueLinkQuicklook>["issueQuicklookSide"];
-  issueQuicklookAlign?: React.ComponentProps<typeof IssueLinkQuicklook>["issueQuicklookAlign"];
+  issueQuicklookSide?: "top" | "right" | "bottom" | "left";
+  issueQuicklookAlign?: "start" | "center" | "end";
 };
+
+type IssueQuicklookLinkProps = CompanyLinkProps & {
+  issuePathId: string;
+};
+
+const IssueQuicklookLink = React.forwardRef<HTMLAnchorElement, IssueQuicklookLinkProps>(
+  function IssueQuicklookLinkImpl(
+    {
+      issuePathId,
+      to,
+      state,
+      disableIssueQuicklook = false,
+      issuePrefetch = null,
+      issueQuicklookSide,
+      issueQuicklookAlign,
+      onMouseEnter,
+      onFocus,
+      onTouchStart,
+      onClickCapture,
+      ...props
+    },
+    ref,
+  ) {
+    const [armed, setArmed] = React.useState(disableIssueQuicklook);
+    const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
+    const armQuicklook = React.useCallback(() => setArmed(true), []);
+    const fallbackLink = (
+      <RouterDom.Link
+        ref={ref}
+        to={to}
+        state={prefetchedState}
+        onMouseEnter={(event) => {
+          armQuicklook();
+          onMouseEnter?.(event);
+        }}
+        onFocus={(event) => {
+          armQuicklook();
+          onFocus?.(event);
+        }}
+        onTouchStart={(event) => {
+          armQuicklook();
+          onTouchStart?.(event);
+        }}
+        onClickCapture={(event) => {
+          armQuicklook();
+          onClickCapture?.(event);
+        }}
+        {...props}
+      />
+    );
+
+    if (disableIssueQuicklook || !armed) {
+      return fallbackLink;
+    }
+
+    return (
+      <React.Suspense fallback={fallbackLink}>
+        <IssueLinkQuicklook
+          ref={ref}
+          to={to}
+          state={state}
+          issuePathId={issuePathId}
+          issuePrefetch={issuePrefetch}
+          issueQuicklookSide={issueQuicklookSide}
+          issueQuicklookAlign={issueQuicklookAlign}
+          onMouseEnter={onMouseEnter}
+          onFocus={onFocus}
+          onTouchStart={onTouchStart}
+          onClickCapture={onClickCapture}
+          {...props}
+        />
+      </React.Suspense>
+    );
+  },
+);
 
 export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
   function CompanyLink({
@@ -65,7 +144,7 @@ export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
 
     if (issuePathId) {
       return (
-        <IssueLinkQuicklook
+        <IssueQuicklookLink
           ref={ref}
           to={resolvedTo}
           issuePathId={issuePathId}
