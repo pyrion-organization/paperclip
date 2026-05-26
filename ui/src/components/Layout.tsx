@@ -6,17 +6,13 @@ import { InstanceSidebar } from "./InstanceSidebar";
 import { CompanySettingsSidebar } from "./CompanySettingsSidebar";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
-import { PropertiesPanel } from "./PropertiesPanel";
-import { KeyboardShortcutsCheatsheet } from "./KeyboardShortcutsCheatsheet";
-import { ToastViewport } from "./ToastViewport";
-import { MobileBottomNav } from "./MobileBottomNav";
 import { WorktreeBanner } from "./WorktreeBanner";
-import { DevRestartBanner } from "./DevRestartBanner";
 import { ResizableSidebarPane } from "./ResizableSidebarPane";
 import { SidebarAccountMenu } from "./SidebarAccountMenu";
 import { useDialogActions, useDialogState } from "../context/DialogContext";
 import { GeneralSettingsProvider } from "../context/GeneralSettingsContext";
 import { usePanel } from "../context/PanelContext";
+import { useToastState } from "../context/ToastContext";
 import { useCompany } from "../context/CompanyContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
@@ -74,6 +70,13 @@ const NewAgentDialog = lazy(() => import("./NewAgentDialog").then((module) => ({
 const RouteSidebarPlugins = lazy(() =>
   import("../plugins/RouteSidebarPlugins").then((module) => ({ default: module.RouteSidebarPlugins })),
 );
+const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
+const KeyboardShortcutsCheatsheet = lazy(() =>
+  import("./KeyboardShortcutsCheatsheet").then((module) => ({ default: module.KeyboardShortcutsCheatsheet })),
+);
+const ToastViewport = lazy(() => import("./ToastViewport").then((module) => ({ default: module.ToastViewport })));
+const MobileBottomNav = lazy(() => import("./MobileBottomNav").then((module) => ({ default: module.MobileBottomNav })));
+const DevRestartBanner = lazy(() => import("./DevRestartBanner").then((module) => ({ default: module.DevRestartBanner })));
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -96,7 +99,8 @@ export function Layout() {
   const { sidebarOpen, setSidebarOpen, toggleSidebar, isMobile, isCollapsed } = useSidebar();
   const { openNewIssue, openOnboarding } = useDialogActions();
   const { newIssueOpen, newProjectOpen, newGoalOpen, newClientOpen, newAgentOpen } = useDialogState();
-  const { togglePanelVisible } = usePanel();
+  const { panelContent, togglePanelVisible } = usePanel();
+  const toasts = useToastState();
   const {
     companies,
     loading: companiesLoading,
@@ -396,7 +400,11 @@ export function Layout() {
         Skip to Main Content
       </a>
       <WorktreeBanner />
-      <DevRestartBanner devServer={health?.devServer} />
+      {health?.devServer?.enabled && health.devServer.restartRequired ? (
+        <Suspense fallback={null}>
+          <DevRestartBanner devServer={health.devServer} />
+        </Suspense>
+      ) : null}
       <div className={cn("min-h-0 flex-1", isMobile ? "w-full" : "flex overflow-hidden")}>
         {isMobile && sidebarOpen && (
           <button
@@ -489,11 +497,19 @@ export function Layout() {
                 <Outlet />
               )}
             </main>
-            <PropertiesPanel />
+            {panelContent ? (
+              <Suspense fallback={null}>
+                <PropertiesPanel />
+              </Suspense>
+            ) : null}
           </div>
         </div>
       </div>
-      {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
+      {isMobile ? (
+        <Suspense fallback={null}>
+          <MobileBottomNav visible={mobileNavVisible} />
+        </Suspense>
+      ) : null}
       <Suspense fallback={null}>
         {commandPaletteLoaded ? (
           <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
@@ -506,8 +522,16 @@ export function Layout() {
         {newClientOpen ? <CreateClientDialog /> : null}
         {newAgentOpen ? <NewAgentDialog /> : null}
       </Suspense>
-      <KeyboardShortcutsCheatsheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-      <ToastViewport />
+      {shortcutsOpen ? (
+        <Suspense fallback={null}>
+          <KeyboardShortcutsCheatsheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+        </Suspense>
+      ) : null}
+      {toasts.length > 0 ? (
+        <Suspense fallback={null}>
+          <ToastViewport />
+        </Suspense>
+      ) : null}
       </div>
     </GeneralSettingsProvider>
   );

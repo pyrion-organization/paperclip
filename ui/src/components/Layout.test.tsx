@@ -215,8 +215,13 @@ vi.mock("../context/DialogContext", () => ({
 
 vi.mock("../context/PanelContext", () => ({
   usePanel: () => ({
+    panelContent: null,
     togglePanelVisible: vi.fn(),
   }),
+}));
+
+vi.mock("../context/ToastContext", () => ({
+  useToastState: () => [],
 }));
 
 vi.mock("../context/CompanyContext", () => ({
