@@ -67,8 +67,9 @@ export interface CalendarItem {
   updatedByUserId: string | null;
   lastCheckedAt: string | null;
   lastReminderScannedAt: string | null;
-  lastMetadataScannedAt: string | null;
+  lastDetailsScannedAt: string | null;
   lastCompletedAt: string | null;
+  reminderPolicy: CalendarReminderPolicy;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,8 +133,6 @@ export interface CalendarDashboard {
   criticalItems: CalendarDashboardBucket;
   pendingReview: CalendarDashboardBucket;
   missingDetails: CalendarMissingDetailsFinding[];
-  /** @deprecated Use missingDetails. */
-  missingMetadata: CalendarMissingMetadataFinding[];
   reminderStatus: CalendarReminderStatus;
   recentlyCompleted: CalendarDashboardBucket;
   costSummary: {
@@ -157,6 +156,27 @@ export interface CalendarReminderStatus {
   skippedDeliveryEmails: number;
   latestEmailFailureAt: string | null;
   latestEmailFailureError: string | null;
+  failedEmailDetails: CalendarReminderEmailFailure[];
+}
+
+export interface CalendarReminderEmailFailure {
+  id: string;
+  calendarItemId: string | null;
+  title: string | null;
+  recipientEmail: string | null;
+  dueDate: string | null;
+  failedAt: string | null;
+  attempts: number;
+  lastError: string | null;
+}
+
+export interface CalendarReminderPolicy {
+  daysBefore: number[];
+  createsIssue: boolean;
+  sendsEmail: boolean;
+  overdueCreatesIssue: boolean;
+  overdueSendsEmail: boolean;
+  summary: string;
 }
 
 export type CalendarMissingDetailsSeverity = "high" | "medium" | "low";
@@ -170,9 +190,3 @@ export interface CalendarMissingDetailsFinding {
   missingFields: string[];
   message: string;
 }
-
-/** @deprecated Use CalendarMissingDetailsSeverity. */
-export type CalendarMissingMetadataSeverity = CalendarMissingDetailsSeverity;
-
-/** @deprecated Use CalendarMissingDetailsFinding. */
-export type CalendarMissingMetadataFinding = CalendarMissingDetailsFinding;

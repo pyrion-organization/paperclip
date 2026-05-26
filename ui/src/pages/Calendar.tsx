@@ -14,8 +14,10 @@ import {
 } from "@paperclipai/shared";
 import {
   Archive,
+  AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  Info,
   Pause,
   Play,
   Search,
@@ -50,6 +52,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -225,57 +228,6 @@ function dueLabel(item: CalendarItem) {
   return `${diff}d`;
 }
 
-function daysUntilDue(item: CalendarItem) {
-  if (!item.nextDueDate) return null;
-  const due = new Date(`${item.nextDueDate}T00:00:00Z`);
-  const today = new Date();
-  return Math.round((Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86_400_000);
-}
-
-function compactToken(value: string) {
-  return value.toLowerCase().replace(/[_\s-]+/g, "");
-}
-
-function matchesToken(item: CalendarItem, searchText: string, rawToken: string, missingDetailsIds: ReadonlySet<string>) {
-  const token = rawToken.trim().toLowerCase();
-  if (!token) return true;
-  const [prefix, ...rest] = token.split(":");
-  const prefixedValue = rest.join(":").trim();
-  const dueDiff = daysUntilDue(item);
-  const withinDays = (days: number) => dueDiff != null && dueDiff >= 0 && dueDiff <= days;
-  if (prefixedValue) {
-    const value = compactToken(prefixedValue);
-    if (prefix === "status") return compactToken(item.status).includes(value);
-    if (prefix === "risk") return compactToken(item.riskLevel).includes(value);
-    if (prefix === "category") return compactToken(item.category).includes(value);
-    if (prefix === "provider") return compactToken(item.providerName ?? "").includes(value);
-    if (prefix === "email") {
-      return [item.purchaseEmail, item.accountLoginEmail, item.billingEmail, item.recoveryEmail, item.technicalContactEmail]
-        .some((email) => compactToken(email ?? "").includes(value));
-    }
-    if (prefix === "due") {
-      if (value === "overdue") return dueDiff != null && dueDiff < 0;
-      if (value === "today") return dueDiff === 0;
-      if (value === "7d" || value === "7days") return withinDays(7);
-      if (value === "30d" || value === "30days") return withinDays(30);
-      return compactToken(item.nextDueDate ?? "").includes(value);
-    }
-  }
-  if (token === "overdue") return item.status === "overdue" || (dueDiff != null && dueDiff < 0);
-  if (token === "today") return dueDiff === 0;
-  if (token === "7d" || token === "7days") return withinDays(7);
-  if (token === "30d" || token === "30days") return withinDays(30);
-  if (["critical", "high", "medium", "low"].includes(token)) return item.riskLevel === token;
-  if (token === "review") return item.status === "pending_review";
-  if (token === "missing") return missingDetailsIds.has(item.id);
-  if (token === "autorenew" || token === "auto-renew") return item.autoRenew;
-  if (token === "manual") return item.manualActionRequired;
-  if (token === "domain") return item.category === "domain";
-  if (token === "software") return item.category === "software_subscription";
-  if (token === "monthly" || token === "yearly") return item.recurrenceType === token;
-  return searchText.includes(token);
-}
-
 function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
   if (!item) return false;
   const highRisk = item.riskLevel === "high" || item.riskLevel === "critical";
@@ -292,38 +244,6 @@ function requiresGovernedSaveApproval(item: CalendarItem | null, payload: Create
 
 function confirmGovernedChange(message: string) {
   return window.confirm(message);
-}
-
-function itemSearchText(item: CalendarItem) {
-  return [
-    item.title,
-    item.description,
-    item.notes,
-    item.internalNotes,
-    titleCase(item.category),
-    titleCase(item.status),
-    titleCase(item.riskLevel),
-    item.providerName,
-    item.nextDueDate,
-    item.dueTime,
-    item.timezone,
-    item.amountCents == null ? null : formatCents(item.amountCents),
-    item.currency,
-    item.autoRenew ? "auto renew" : "manual renew",
-    item.manualActionRequired ? "manual action" : "automatic",
-    item.paymentMethodLabel,
-    item.paymentOwner,
-    item.costCenter,
-    item.purchaseEmail,
-    item.accountLoginEmail,
-    item.billingEmail,
-    item.recoveryEmail,
-    item.technicalContactEmail,
-    item.serviceUrl,
-    item.loginUrl,
-    item.billingUrl,
-    item.documentationUrl,
-  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function BucketTile({ label, value, tone = "default" }: { label: string; value: number | string; tone?: "default" | "danger" | "warn" }) {
@@ -355,8 +275,34 @@ function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString();
 }
 
+function formatDateOnly(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(date.getUTCDate(), lastDay));
+  return next;
+}
+
+function nextDuePreview(form: ItemFormState) {
+  if (!form.nextDueDate || form.recurrenceType === "none" || form.recurrenceType === "manual") {
+    return "Completion will close this item unless you set the next date manually.";
+  }
+  const due = new Date(`${form.nextDueDate}T00:00:00Z`);
+  if (Number.isNaN(due.getTime())) return "Set a valid due date to preview recurrence.";
+  if (form.recurrenceType === "monthly") return `Completing advances to ${formatDateOnly(addMonths(due, 1))}.`;
+  if (form.recurrenceType === "quarterly") return `Completing advances to ${formatDateOnly(addMonths(due, 3))}.`;
+  if (form.recurrenceType === "semiannual") return `Completing advances to ${formatDateOnly(addMonths(due, 6))}.`;
+  if (form.recurrenceType === "yearly") return `Completing advances to ${formatDateOnly(addMonths(due, 12))}.`;
+  return form.recurrenceRule.trim()
+    ? "Completion uses the custom RRULE to calculate the next due date."
+    : "Add a custom RRULE before relying on automatic recurrence.";
+}
+
 function dashboardMissingDetails(dashboard: CalendarDashboard | undefined) {
-  return dashboard?.missingDetails ?? dashboard?.missingMetadata ?? [];
+  return dashboard?.missingDetails ?? [];
 }
 
 function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | undefined }) {
@@ -395,7 +341,35 @@ function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | und
         </div>
         <div>
           <div className="text-xs text-muted-foreground">Failures</div>
-          <div className={cn("font-medium tabular-nums", hasFailures && "text-destructive")}>{status?.failedEmails ?? 0}</div>
+          {hasFailures ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-auto px-0 py-0 font-medium tabular-nums text-destructive hover:bg-transparent">
+                  <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                  {status?.failedEmails ?? 0}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-96">
+                <div className="mb-2 text-sm font-medium">Failed reminder emails</div>
+                <div className="grid gap-2">
+                  {(status?.failedEmailDetails ?? []).length === 0 ? (
+                    <div className="text-xs text-muted-foreground">No failure details were recorded.</div>
+                  ) : status?.failedEmailDetails.map((failure) => (
+                    <div key={failure.id} className="border border-border p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{failure.title ?? "Calendar reminder"}</span>
+                        <span className="text-muted-foreground">{failure.attempts} attempts</span>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">{failure.recipientEmail ?? "No recipient"}{failure.dueDate ? ` - due ${failure.dueDate}` : ""}</div>
+                      {failure.lastError ? <div className="mt-1 text-destructive">{failure.lastError}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <div className="font-medium tabular-nums">{status?.failedEmails ?? 0}</div>
+          )}
           {status?.latestEmailFailureAt ? (
             <div className="truncate text-xs text-muted-foreground" title={status.latestEmailFailureError ?? undefined}>
               {formatDateTime(status.latestEmailFailureAt)}
@@ -415,6 +389,7 @@ export function Calendar() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [form, setForm] = useState<ItemFormState>(() => emptyForm());
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [itemDialogTab, setItemDialogTab] = useState("overview");
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -424,14 +399,25 @@ export function Calendar() {
     setBreadcrumbs([{ label: "Calendar" }]);
   }, [setBreadcrumbs]);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery]);
+
   const dashboardQuery = useQuery({
     queryKey: queryKeys.calendar.dashboard(companyId),
     queryFn: () => calendarApi.dashboard(companyId),
     enabled: !!selectedCompanyId,
   });
+  const itemListFilters = useMemo(() => ({
+    limit: 500,
+    q: debouncedSearchQuery || undefined,
+  }), [debouncedSearchQuery]);
   const itemsQuery = useQuery({
-    queryKey: queryKeys.calendar.items(companyId, { limit: 500 }),
-    queryFn: () => calendarApi.list(companyId, { limit: 500 }),
+    queryKey: queryKeys.calendar.items(companyId, itemListFilters),
+    queryFn: () => calendarApi.list(companyId, itemListFilters),
     enabled: !!selectedCompanyId,
   });
   const detailQuery = useQuery({
@@ -518,23 +504,10 @@ export function Calendar() {
   });
 
   const items = itemsQuery.data?.items ?? [];
-  const smartSearch = searchQuery.trim().toLowerCase();
   const missingDetails = dashboardMissingDetails(dashboardQuery.data);
   const missingDetailsByItemId = useMemo(() => {
     return new Map(missingDetails.map((finding) => [finding.itemId, finding]));
   }, [missingDetails]);
-  const missingDetailsIds = useMemo(() => new Set(missingDetails.map((finding) => finding.itemId)), [missingDetails]);
-  const searchRows = useMemo(() => items.map((item) => ({
-    item,
-    searchText: itemSearchText(item),
-  })), [items]);
-  const visibleItems = useMemo(() => {
-    if (!smartSearch) return searchRows.map((row) => row.item);
-    const terms = smartSearch.split(/\s+/).filter(Boolean);
-    return searchRows
-      .filter((row) => terms.every((term) => matchesToken(row.item, row.searchText, term, missingDetailsIds)))
-      .map((row) => row.item);
-  }, [missingDetailsIds, searchRows, smartSearch]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
 
   const openCreateDialog = () => {
@@ -655,9 +628,9 @@ export function Calendar() {
             </div>
           </CardHeader>
           <CardContent className="min-h-0 overflow-auto p-0">
-            {visibleItems.length === 0 ? (
+            {items.length === 0 ? (
               <div className="p-6">
-                <EmptyState icon={CalendarDays} message={items.length === 0 ? "Create an item to start tracking obligations." : "No calendar items match this search."} />
+                <EmptyState icon={CalendarDays} message={searchQuery.trim() ? "No calendar items match this search." : "Create an item to start tracking obligations."} />
               </div>
             ) : (
               <table className="w-full min-w-[1100px] text-sm">
@@ -678,7 +651,7 @@ export function Calendar() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleItems.map((item) => (
+                  {items.map((item) => (
                     <tr
                       key={item.id}
                       role="button"
@@ -694,7 +667,12 @@ export function Calendar() {
                     >
                       <td className="px-3 py-2 align-top">
                         <div className="font-medium">{item.nextDueDate ?? "Unset"}</div>
-                        <div className="text-xs text-muted-foreground">{dueLabel(item)}</div>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <span>{dueLabel(item)}</span>
+                          <span title={item.reminderPolicy.summary} aria-label="Reminder policy">
+                            <Info className="h-3.5 w-3.5" />
+                          </span>
+                        </div>
                       </td>
                       <td className="px-3 py-2 align-top">
                         <div className="font-medium">{item.title}</div>
@@ -798,6 +776,27 @@ export function Calendar() {
                     <Field label="Recurrence Rule">
                       <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
                     </Field>
+                  ) : null}
+                  <div className="border border-border bg-muted/20 p-3 text-sm md:col-span-2">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
+                    <div className="mt-1">{nextDuePreview(form)}</div>
+                  </div>
+                  {selectedItem?.reminderPolicy ? (
+                    <div className="border border-border p-3 text-sm md:col-span-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-medium uppercase text-muted-foreground">Reminder policy</div>
+                          <div className="mt-1">{selectedItem.reminderPolicy.summary}</div>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedItem.reminderPolicy.daysBefore.length ? selectedItem.reminderPolicy.daysBefore.map((day) => (
+                            <span key={day} className="border border-border px-2 py-0.5 text-xs">{day}d</span>
+                          )) : (
+                            <span className="border border-border px-2 py-0.5 text-xs">overdue</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   ) : null}
                   <Field label="Provider">
                     <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />

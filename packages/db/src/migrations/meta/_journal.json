@@ -904,6 +904,13 @@
       "when": 1779524121261,
       "tag": "0128_project_deploy_command_execution",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1779803852635,
+      "tag": "0129_calendar_missing_details_rename",
+      "breakpoints": true
     }
   ]
 }

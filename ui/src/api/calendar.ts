@@ -6,7 +6,6 @@ import type {
   CalendarItemDocument,
   CalendarItemListResponse,
   CalendarMissingDetailsFinding,
-  CalendarMissingMetadataFinding,
   CompleteCalendarItemInput,
   CreateCalendarItemInput,
   CreateCalendarItemDocumentInput,
@@ -15,6 +14,7 @@ import type {
 import { api } from "./client";
 
 type CalendarFilters = {
+  q?: string;
   status?: string;
   category?: string;
   riskLevel?: string;
@@ -54,8 +54,6 @@ export const calendarApi = {
     api.get<CalendarDashboard>(`/companies/${companyId}/calendar/dashboard`),
   missingDetails: (companyId: string) =>
     api.get<CalendarMissingDetailsFinding[]>(`/companies/${companyId}/calendar/missing-details`),
-  missingMetadata: (companyId: string) =>
-    api.get<CalendarMissingMetadataFinding[]>(`/companies/${companyId}/calendar/missing-metadata`),
   create: (companyId: string, input: CreateCalendarItemInput) =>
     api.post<CalendarItem>(`/companies/${companyId}/calendar/items`, input),
   createEmailProposal: (companyId: string, input: CalendarEmailProposalInput) =>

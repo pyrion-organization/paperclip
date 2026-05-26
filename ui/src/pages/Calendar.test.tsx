@@ -81,8 +81,16 @@ function makeItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
     updatedByUserId: null,
     lastCheckedAt: null,
     lastReminderScannedAt: null,
-    lastMetadataScannedAt: null,
+    lastDetailsScannedAt: null,
     lastCompletedAt: null,
+    reminderPolicy: {
+      daysBefore: [90, 60, 30, 15, 7, 1],
+      createsIssue: true,
+      sendsEmail: true,
+      overdueCreatesIssue: true,
+      overdueSendsEmail: true,
+      summary: "90/60/30/15/7/1 days before due; creates issue; sends email. Overdue items create an issue and email.",
+    },
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-01T00:00:00.000Z",
     ...overrides,
@@ -115,7 +123,6 @@ function makeDashboard(items: CalendarItem[]): CalendarDashboard {
     criticalItems: { label: "Critical items", items: items.filter((item) => item.riskLevel === "critical"), count: 1 },
     pendingReview: { label: "Pending review", items: [], count: 0 },
     missingDetails,
-    missingMetadata: missingDetails,
     reminderStatus: {
       lastScanAt: "2026-05-26T12:00:00.000Z",
       scannedItems: 4,
@@ -129,6 +136,7 @@ function makeDashboard(items: CalendarItem[]): CalendarDashboard {
       skippedDeliveryEmails: 0,
       latestEmailFailureAt: null,
       latestEmailFailureError: null,
+      failedEmailDetails: [],
     },
     recentlyCompleted: { label: "Recently completed", items: [], count: 0 },
     costSummary: {
@@ -144,6 +152,42 @@ async function flushReact() {
   await act(async () => {
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+async function flushDebouncedSearch() {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+  });
+  await flushReact();
+}
+
+function itemMatchesQuery(item: CalendarItem, q: string | undefined) {
+  if (!q?.trim()) return true;
+  const haystack = [
+    item.title,
+    item.providerName,
+    item.category,
+    item.riskLevel,
+    item.nextDueDate,
+    item.paymentMethodLabel,
+    item.purchaseEmail,
+    item.accountLoginEmail,
+    item.billingEmail,
+    item.notes,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return q.toLowerCase().split(/\s+/).every((token) => {
+    if (token === "missing") return item.id === "item-1";
+    if (token.startsWith("category:")) return item.category.includes(token.slice("category:".length));
+    if (token.startsWith("risk:")) return item.riskLevel.includes(token.slice("risk:".length));
+    if (token.startsWith("email:")) return [
+      item.purchaseEmail,
+      item.accountLoginEmail,
+      item.billingEmail,
+      item.recoveryEmail,
+      item.technicalContactEmail,
+    ].some((email) => (email ?? "").toLowerCase().includes(token.slice("email:".length)));
+    return haystack.includes(token);
   });
 }
 
@@ -186,7 +230,10 @@ describe("Calendar", () => {
       }),
     ];
     mockCalendarApi.dashboard.mockImplementation(async () => makeDashboard(items));
-    mockCalendarApi.list.mockImplementation(async () => ({ items, total: items.length }));
+    mockCalendarApi.list.mockImplementation(async (_companyId: string, filters?: { q?: string }) => {
+      const filtered = items.filter((candidate) => itemMatchesQuery(candidate, filters?.q));
+      return { items: filtered, total: filtered.length };
+    });
     mockCalendarApi.detail.mockImplementation(async (_companyId: string, itemId: string) => {
       const item = items.find((candidate) => candidate.id === itemId);
       if (!item) throw new Error("missing item");
@@ -267,10 +314,13 @@ describe("Calendar", () => {
     await act(async () => {
       setInputValue(search, "SaaSBox ap@example.com invoice 2026-07 medium");
     });
-    await flushReact();
+    await flushDebouncedSearch();
 
     expect(container.querySelector("[data-testid='calendar-item-row-item-2']")).not.toBeNull();
     expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).toBeNull();
+    expect(mockCalendarApi.list).toHaveBeenLastCalledWith("company-1", expect.objectContaining({
+      q: "SaaSBox ap@example.com invoice 2026-07 medium",
+    }));
   });
 
   it("supports smart filter tokens in the single search box", async () => {
@@ -280,7 +330,7 @@ describe("Calendar", () => {
     await act(async () => {
       setInputValue(search, "missing critical domain");
     });
-    await flushReact();
+    await flushDebouncedSearch();
 
     expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).not.toBeNull();
     expect(container.querySelector("[data-testid='calendar-item-row-item-2']")).toBeNull();
@@ -288,7 +338,7 @@ describe("Calendar", () => {
     await act(async () => {
       setInputValue(search, "category:software risk:medium email:ap@example.com");
     });
-    await flushReact();
+    await flushDebouncedSearch();
 
     expect(container.querySelector("[data-testid='calendar-item-row-item-2']")).not.toBeNull();
     expect(container.querySelector("[data-testid='calendar-item-row-item-1']")).toBeNull();
@@ -315,6 +365,16 @@ describe("Calendar", () => {
         failedEmails: 2,
         latestEmailFailureAt: "2026-05-26T13:00:00.000Z",
         latestEmailFailureError: "SMTP rejected message",
+        failedEmailDetails: [{
+          id: "email-1",
+          calendarItemId: "item-1",
+          title: "Domain renewal",
+          recipientEmail: "ops@example.com",
+          dueDate: "2026-06-30",
+          failedAt: "2026-05-26T13:00:00.000Z",
+          attempts: 3,
+          lastError: "SMTP rejected message",
+        }],
       },
     }));
 
@@ -323,6 +383,15 @@ describe("Calendar", () => {
     expect(document.body.textContent).toContain("Email attention needed");
     expect(document.body.textContent).toContain("Failures");
     expect(document.body.textContent).toContain("2");
+
+    await act(async () => {
+      (document.body.querySelector("button.text-destructive") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Failed reminder emails");
+    expect(document.body.textContent).toContain("ops@example.com");
+    expect(document.body.textContent).toContain("SMTP rejected message");
   });
 
   it("opens an item from a missing details card", async () => {
@@ -370,6 +439,10 @@ describe("Calendar", () => {
     expect(document.body.textContent).toContain("Contacts");
     expect(document.body.textContent).toContain("Links");
     expect(document.body.textContent).toContain("Notes");
+    expect(document.body.textContent).toContain("Recurrence behavior");
+    expect(document.body.textContent).toContain("Completing advances to 2027-06-30");
+    expect(document.body.textContent).toContain("Reminder policy");
+    expect(document.body.textContent).toContain("90/60/30/15/7/1 days before due");
 
     await act(async () => {
       (document.body.querySelector("[data-testid='calendar-tab-payment']") as HTMLButtonElement).click();

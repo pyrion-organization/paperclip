@@ -206,7 +206,7 @@ export const ISSUE_ORIGIN_KINDS = [
   "routine_execution",
   "routine_remediation",
   "calendar_reminder",
-  "calendar_missing_metadata",
+  "calendar_missing_details",
   "calendar_email_proposal",
   "stale_active_run_evaluation",
   "harness_liveness_escalation",
@@ -592,7 +592,7 @@ export const CALENDAR_DOCUMENT_TYPES = [
 export type CalendarDocumentType = (typeof CALENDAR_DOCUMENT_TYPES)[number];
 
 export const CALENDAR_REMINDER_ISSUE_ORIGIN_KIND = "calendar_reminder" as const;
-export const CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND = "calendar_missing_metadata" as const;
+export const CALENDAR_MISSING_DETAILS_ISSUE_ORIGIN_KIND = "calendar_missing_details" as const;
 export const CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND = "calendar_email_proposal" as const;
 export const CALENDAR_EMAIL_NOTIFICATION_KIND = "calendar_reminder" as const;
 

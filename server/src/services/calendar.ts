@@ -19,7 +19,11 @@ import {
 import {
   CALENDAR_EMAIL_NOTIFICATION_KIND,
   CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND,
-  CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND,
+  CALENDAR_MISSING_DETAILS_ISSUE_ORIGIN_KIND,
+  CALENDAR_ITEM_CATEGORIES,
+  CALENDAR_ITEM_STATUSES,
+  CALENDAR_RECURRENCE_TYPES,
+  CALENDAR_RISK_LEVELS,
   CALENDAR_REMINDER_ISSUE_ORIGIN_KIND,
   type CalendarItemCategory,
   type CalendarRiskLevel,
@@ -76,6 +80,11 @@ const REMINDER_DEFAULTS: Array<{
   { category: "payment_payable", daysBefore: [7, 3, 1], createIssue: true, sendEmail: true },
 ];
 
+const CALENDAR_CATEGORY_SET = new Set<string>(CALENDAR_ITEM_CATEGORIES);
+const CALENDAR_STATUS_SET = new Set<string>(CALENDAR_ITEM_STATUSES);
+const CALENDAR_RISK_SET = new Set<string>(CALENDAR_RISK_LEVELS);
+const CALENDAR_RECURRENCE_SET = new Set<string>(CALENDAR_RECURRENCE_TYPES);
+
 function dateOnly(value: string | Date | null | undefined): string | null {
   if (!value) return null;
   if (typeof value === "string") return value.slice(0, 10);
@@ -107,6 +116,106 @@ function daysBetween(from: Date, to: Date): number {
   const fromUtc = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
   const toUtc = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
   return Math.round((toUtc - fromUtc) / 86_400_000);
+}
+
+function compactToken(value: string) {
+  return value.toLowerCase().replace(/[_\s-]+/g, "");
+}
+
+function tokenizeSearch(query: string | null | undefined) {
+  return (query ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function calendarItemSearchText(item: CalendarItemRow) {
+  return [
+    item.title,
+    item.description,
+    item.notes,
+    item.internalNotes,
+    item.category,
+    item.status,
+    item.riskLevel,
+    item.providerName,
+    dateOnly(item.nextDueDate),
+    item.dueTime,
+    item.timezone,
+    item.amountCents == null ? null : String(item.amountCents / 100),
+    item.currency,
+    item.autoRenew ? "auto renew autorenew" : "manual renew",
+    item.manualActionRequired ? "manual action" : "automatic",
+    item.paymentMethodLabel,
+    item.paymentOwner,
+    item.costCenter,
+    item.purchaseEmail,
+    item.accountLoginEmail,
+    item.billingEmail,
+    item.recoveryEmail,
+    item.technicalContactEmail,
+    item.serviceUrl,
+    item.loginUrl,
+    item.billingUrl,
+    item.documentationUrl,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function calendarItemDaysUntilDue(item: CalendarItemRow, now: Date) {
+  const due = parseDateOnly(item.nextDueDate);
+  return due ? daysBetween(now, due) : null;
+}
+
+function matchesCalendarSearchToken(item: CalendarItemRow, rawToken: string, now: Date) {
+  const token = rawToken.trim().toLowerCase();
+  if (!token) return true;
+  const [prefix, ...rest] = token.split(":");
+  const prefixedValue = rest.join(":").trim();
+  const dueDiff = calendarItemDaysUntilDue(item, now);
+  const withinDays = (days: number) => dueDiff != null && dueDiff >= 0 && dueDiff <= days;
+  const compactValue = prefixedValue ? compactToken(prefixedValue) : "";
+
+  if (prefixedValue) {
+    if (prefix === "status") return compactToken(item.status).includes(compactValue);
+    if (prefix === "risk") return compactToken(item.riskLevel).includes(compactValue);
+    if (prefix === "category") return compactToken(item.category).includes(compactValue);
+    if (prefix === "provider") return compactToken(item.providerName ?? "").includes(compactValue);
+    if (prefix === "email") {
+      return [
+        item.purchaseEmail,
+        item.accountLoginEmail,
+        item.billingEmail,
+        item.recoveryEmail,
+        item.technicalContactEmail,
+      ].some((email) => compactToken(email ?? "").includes(compactValue));
+    }
+    if (prefix === "due") {
+      if (compactValue === "overdue") return dueDiff != null && dueDiff < 0;
+      if (compactValue === "today") return dueDiff === 0;
+      if (compactValue === "7d" || compactValue === "7days") return withinDays(7);
+      if (compactValue === "30d" || compactValue === "30days") return withinDays(30);
+      return compactToken(dateOnly(item.nextDueDate) ?? "").includes(compactValue);
+    }
+  }
+
+  const compact = compactToken(token);
+  if (token === "overdue") return item.status === "overdue" || (dueDiff != null && dueDiff < 0);
+  if (token === "today") return dueDiff === 0;
+  if (token === "7d" || token === "7days") return withinDays(7);
+  if (token === "30d" || token === "30days") return withinDays(30);
+  if (CALENDAR_RISK_SET.has(token)) return item.riskLevel === token;
+  if (token === "review") return item.status === "pending_review";
+  if (token === "missing") return missingDetailsForItem(item) !== null;
+  if (token === "autorenew" || token === "auto-renew") return item.autoRenew;
+  if (token === "manual") return item.manualActionRequired;
+  if (CALENDAR_CATEGORY_SET.has(token)) return item.category === token;
+  if (token === "software") return item.category === "software_subscription";
+  if (CALENDAR_STATUS_SET.has(token)) return item.status === token;
+  if (CALENDAR_RECURRENCE_SET.has(token)) return item.recurrenceType === token;
+  const searchText = calendarItemSearchText(item);
+  return searchText.includes(token) || compactToken(searchText).includes(compact);
+}
+
+function calendarItemMatchesSearch(item: CalendarItemRow, query: string | null | undefined, now: Date) {
+  const tokens = tokenizeSearch(query);
+  return tokens.length === 0 || tokens.every((token) => matchesCalendarSearchToken(item, token, now));
 }
 
 function currentWeekKey(now: Date): string {
@@ -202,6 +311,7 @@ function rowToItem<T extends CalendarItemRow>(row: T) {
     dueDate: dateOnly(row.dueDate),
     nextDueDate: dateOnly(row.nextDueDate),
     metadata: normalizeMetadata(row.metadata),
+    reminderPolicy: reminderPolicyFor(row),
   };
 }
 
@@ -268,6 +378,28 @@ function reminderDefaultsFor(item: CalendarItemRow, daysUntilDue: number) {
     if (rule.riskLevel && rule.riskLevel !== item.riskLevel) return false;
     return rule.daysBefore.includes(daysUntilDue);
   });
+}
+
+function reminderPolicyFor(item: CalendarItemRow) {
+  const matching = REMINDER_DEFAULTS.filter((rule) => {
+    if (rule.category && rule.category !== item.category) return false;
+    if (rule.riskLevel && rule.riskLevel !== item.riskLevel) return false;
+    return true;
+  });
+  const daysBefore = [...new Set(matching.flatMap((rule) => rule.daysBefore))].sort((a, b) => b - a);
+  const createsIssue = matching.some((rule) => rule.createIssue);
+  const sendsEmail = matching.some((rule) => rule.sendEmail);
+  const summary = daysBefore.length === 0
+    ? "No scheduled pre-due reminders. Overdue items still create an issue and email."
+    : `${daysBefore.join("/")} days before due; ${createsIssue ? "creates issue" : "email only"}; ${sendsEmail ? "sends email" : "no email"}. Overdue items create an issue and email.`;
+  return {
+    daysBefore,
+    createsIssue,
+    sendsEmail,
+    overdueCreatesIssue: true,
+    overdueSendsEmail: true,
+    summary,
+  };
 }
 
 function issuePriorityForRisk(risk: string): "critical" | "high" | "medium" | "low" {
@@ -384,8 +516,6 @@ function missingDetailsForItem(item: CalendarItemRow) {
   };
 }
 
-const missingMetadataForItem = missingDetailsForItem;
-
 function missingDetailsReportDescription(findings: Array<NonNullable<ReturnType<typeof missingDetailsForItem>>>) {
   const grouped = {
     high: findings.filter((finding) => finding.severity === "high"),
@@ -406,8 +536,6 @@ function missingDetailsReportDescription(findings: Array<NonNullable<ReturnType<
     renderGroup("Low priority", grouped.low),
   ].join("\n");
 }
-
-const metadataReportDescription = missingDetailsReportDescription;
 
 export function calendarService(db: Db) {
   const issuesSvc = issueService(db);
@@ -465,7 +593,11 @@ export function calendarService(db: Db) {
       .limit(1);
     const emailRows = await db
       .select({
+        id: emailNotifications.id,
         status: emailNotifications.status,
+        recipientEmail: emailNotifications.recipientEmail,
+        payload: emailNotifications.payload,
+        attempts: emailNotifications.attempts,
         failedAt: emailNotifications.failedAt,
         lastError: emailNotifications.lastError,
       })
@@ -474,6 +606,23 @@ export function calendarService(db: Db) {
         eq(emailNotifications.companyId, companyId),
         eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
       ));
+    const failedEmailDetails = emailRows
+      .filter((row) => row.status === "failed")
+      .sort((a, b) => (b.failedAt?.getTime() ?? 0) - (a.failedAt?.getTime() ?? 0))
+      .slice(0, 5)
+      .map((row) => {
+        const payload = row.payload && "calendarItemId" in row.payload ? row.payload : null;
+        return {
+          id: row.id,
+          calendarItemId: payload?.calendarItemId ?? null,
+          title: payload?.title ?? null,
+          recipientEmail: row.recipientEmail ?? null,
+          dueDate: payload?.dueDate ?? null,
+          failedAt: toIso(row.failedAt),
+          attempts: row.attempts,
+          lastError: row.lastError ?? null,
+        };
+      });
     let latestFailureAt: Date | null = null;
     let latestEmailFailureError: string | null = null;
     for (const row of emailRows) {
@@ -496,6 +645,7 @@ export function calendarService(db: Db) {
       skippedDeliveryEmails: emailRows.filter((row) => row.status === "skipped").length,
       latestEmailFailureAt: toIso(latestFailureAt),
       latestEmailFailureError,
+      failedEmailDetails,
     };
   }
 
@@ -580,6 +730,7 @@ export function calendarService(db: Db) {
       billingEmail?: string;
       relatedClientId?: string;
       relatedProjectId?: string;
+      q?: string;
       limit?: number;
       offset?: number;
     } = {}) {
@@ -597,6 +748,21 @@ export function calendarService(db: Db) {
       if (filters.relatedClientId) conditions.push(eq(calendarItems.relatedClientId, filters.relatedClientId));
       if (filters.relatedProjectId) conditions.push(eq(calendarItems.relatedProjectId, filters.relatedProjectId));
       const where = and(...conditions);
+      if (filters.q?.trim()) {
+        const rows = await db
+          .select()
+          .from(calendarItems)
+          .where(where)
+          .orderBy(asc(calendarItems.nextDueDate), asc(calendarItems.title));
+        const now = new Date();
+        const matched = rows.filter((row) => calendarItemMatchesSearch(row, filters.q, now));
+        const offset = filters.offset ?? 0;
+        const limit = filters.limit ?? 100;
+        return {
+          items: matched.slice(offset, offset + limit).map(rowToItem),
+          total: matched.length,
+        };
+      }
       const [countRow] = await db.select({ count: sql<number>`count(*)::int` }).from(calendarItems).where(where);
       const rows = await db
         .select()
@@ -852,7 +1018,6 @@ export function calendarService(db: Db) {
         criticalItems: bucket("Critical items", activeRows.filter((row) => row.riskLevel === "critical")),
         pendingReview: bucket("Pending review", rows.filter((row) => row.status === "pending_review")),
         missingDetails: missing,
-        missingMetadata: missing,
         reminderStatus: status,
         recentlyCompleted: bucket("Recently completed", rows.filter((row) => row.status === "done").slice(0, 10)),
         costSummary: {
@@ -873,20 +1038,16 @@ export function calendarService(db: Db) {
       return rows.map(missingDetailsForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
     },
 
-    async missingMetadata(companyId: string) {
-      return this.missingDetails(companyId);
-    },
-
-    async runMetadataScan(companyId: string, opts: { now?: Date; actor?: Actor } = {}) {
+    async runDetailsScan(companyId: string, opts: { now?: Date; actor?: Actor } = {}) {
       const now = opts.now ?? new Date();
       const rows = await db
         .select()
         .from(calendarItems)
         .where(and(eq(calendarItems.companyId, companyId), inArray(calendarItems.status, ["active", "pending_review", "overdue"])));
-      const findings = rows.map(missingMetadataForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
+      const findings = rows.map(missingDetailsForItem).filter((finding): finding is NonNullable<typeof finding> => Boolean(finding));
       await db
         .update(calendarItems)
-        .set({ lastMetadataScannedAt: now, updatedAt: now })
+        .set({ lastDetailsScannedAt: now, updatedAt: now })
         .where(and(eq(calendarItems.companyId, companyId), inArray(calendarItems.status, ["active", "pending_review", "overdue"])));
 
       let createdIssueId: string | null = null;
@@ -895,9 +1056,9 @@ export function calendarService(db: Db) {
         const { issue, created } = await upsertIssue({
           companyId,
           title: `Calendar missing details report (${currentWeekKey(now)})`,
-          description: metadataReportDescription(findings),
+          description: missingDetailsReportDescription(findings),
           priority: findings.some((finding) => finding.severity === "high") ? "high" : "medium",
-          originKind: CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND,
+          originKind: CALENDAR_MISSING_DETAILS_ISSUE_ORIGIN_KIND,
           originId: companyId,
           originFingerprint: currentWeekKey(now),
           actor: opts.actor,
@@ -912,7 +1073,7 @@ export function calendarService(db: Db) {
         actorId: opts.actor?.actorId ?? "calendar",
         agentId: opts.actor?.agentId ?? null,
         runId: opts.actor?.runId ?? null,
-        action: "calendar.metadata_scan_completed",
+        action: "calendar.details_scan_completed",
         entityType: "company",
         entityId: companyId,
         details: { weekKey: currentWeekKey(now), findingCount: findings.length, createdIssueId, updatedIssueId },
@@ -1089,13 +1250,13 @@ export function calendarService(db: Db) {
 
       let companiesScanned = 0;
       let reminderScans = 0;
-      let metadataScans = 0;
+      let detailsScans = 0;
       let reminderIssuesCreated = 0;
       let reminderIssuesUpdated = 0;
       let reminderEmailsQueued = 0;
       let reminderEmailsSkipped = 0;
-      let metadataIssuesCreated = 0;
-      let metadataIssuesUpdated = 0;
+      let detailsIssuesCreated = 0;
+      let detailsIssuesUpdated = 0;
 
       for (const row of companyRows) {
         companiesScanned += 1;
@@ -1125,24 +1286,24 @@ export function calendarService(db: Db) {
           reminderEmailsSkipped += result.skippedEmails;
         }
 
-        const metadataAlreadyRan = await db
+        const detailsAlreadyRan = await db
           .select({ id: activityLog.id })
           .from(activityLog)
           .where(and(
             eq(activityLog.companyId, row.companyId),
-            eq(activityLog.action, "calendar.metadata_scan_completed"),
+            eq(activityLog.action, "calendar.details_scan_completed"),
             sql`${activityLog.details}->>'weekKey' = ${week}`,
           ))
           .limit(1)
           .then((rows) => Boolean(rows[0]));
-        if (!metadataAlreadyRan) {
-          const result = await this.runMetadataScan(row.companyId, {
+        if (!detailsAlreadyRan) {
+          const result = await this.runDetailsScan(row.companyId, {
             now,
             actor: { actorType: "system", actorId: "calendar_scheduler" },
           });
-          metadataScans += 1;
-          if (result.createdIssueId) metadataIssuesCreated += 1;
-          if (result.updatedIssueId) metadataIssuesUpdated += 1;
+          detailsScans += 1;
+          if (result.createdIssueId) detailsIssuesCreated += 1;
+          if (result.updatedIssueId) detailsIssuesUpdated += 1;
         }
       }
 
@@ -1150,13 +1311,13 @@ export function calendarService(db: Db) {
         scannedAt: now.toISOString(),
         companiesScanned,
         reminderScans,
-        metadataScans,
+        detailsScans,
         reminderIssuesCreated,
         reminderIssuesUpdated,
         reminderEmailsQueued,
         reminderEmailsSkipped,
-        metadataIssuesCreated,
-        metadataIssuesUpdated,
+        detailsIssuesCreated,
+        detailsIssuesUpdated,
       };
     },
   };

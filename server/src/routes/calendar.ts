@@ -33,12 +33,6 @@ export function calendarRoutes(db: Db) {
     res.json(await svc.dashboard(companyId));
   });
 
-  router.get("/companies/:companyId/calendar/missing-metadata", async (req, res) => {
-    const companyId = req.params.companyId as string;
-    assertCompanyAccess(req, companyId);
-    res.json(await svc.missingMetadata(companyId));
-  });
-
   router.get("/companies/:companyId/calendar/missing-details", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

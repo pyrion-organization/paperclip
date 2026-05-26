@@ -8,7 +8,6 @@ const mockCalendarService = vi.hoisted(() => ({
   list: vi.fn(),
   dashboard: vi.fn(),
   missingDetails: vi.fn(),
-  missingMetadata: vi.fn(),
   getById: vi.fn(),
   create: vi.fn(),
   createEmailProposal: vi.fn(),
@@ -55,7 +54,6 @@ describe("calendar routes", () => {
     mockCalendarService.list.mockResolvedValue({ items: [], total: 0 });
     mockCalendarService.dashboard.mockResolvedValue({ companyId: "company-1" });
     mockCalendarService.missingDetails.mockResolvedValue([]);
-    mockCalendarService.missingMetadata.mockResolvedValue([]);
     mockCalendarService.getById.mockResolvedValue({ id: "item-1", companyId: "company-1", documents: [], activity: [] });
     mockCalendarService.create.mockResolvedValue({ id: "item-1", companyId: "company-1" });
     mockCalendarService.createEmailProposal.mockResolvedValue({ id: "item-1", companyId: "company-1", status: "pending_review" });
@@ -77,6 +75,7 @@ describe("calendar routes", () => {
         billingEmail: "BILLING@EXAMPLE.COM",
         relatedClientId: "22222222-2222-4222-8222-222222222222",
         relatedProjectId: "33333333-3333-4333-8333-333333333333",
+        q: "missing critical",
       });
 
     expect(res.status).toBe(200);
@@ -89,6 +88,7 @@ describe("calendar routes", () => {
       billingEmail: "billing@example.com",
       relatedClientId: "22222222-2222-4222-8222-222222222222",
       relatedProjectId: "33333333-3333-4333-8333-333333333333",
+      q: "missing critical",
     }));
   });
 
@@ -103,16 +103,15 @@ describe("calendar routes", () => {
     }));
   });
 
-  it("exposes missing details while keeping the old missing metadata alias", async () => {
+  it("exposes missing details without the old missing metadata alias", async () => {
     const detailsRes = await request(appForActor(boardActor))
       .get("/api/companies/company-1/calendar/missing-details");
     const metadataRes = await request(appForActor(boardActor))
       .get("/api/companies/company-1/calendar/missing-metadata");
 
     expect(detailsRes.status).toBe(200);
-    expect(metadataRes.status).toBe(200);
+    expect(metadataRes.status).toBe(404);
     expect(mockCalendarService.missingDetails).toHaveBeenCalledWith("company-1");
-    expect(mockCalendarService.missingMetadata).toHaveBeenCalledWith("company-1");
   });
 
   it("does not expose manual calendar scan routes", async () => {

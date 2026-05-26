@@ -19,7 +19,7 @@ import {
 import {
   CALENDAR_EMAIL_PROPOSAL_ISSUE_ORIGIN_KIND,
   CALENDAR_EMAIL_NOTIFICATION_KIND,
-  CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND,
+  CALENDAR_MISSING_DETAILS_ISSUE_ORIGIN_KIND,
   CALENDAR_REMINDER_ISSUE_ORIGIN_KIND,
   createCalendarItemSchema,
 } from "@paperclipai/shared";
@@ -199,6 +199,30 @@ describeEmbeddedPostgres("calendarService", () => {
       dueFrom: "2026-06-01",
       dueTo: "2026-06-30",
     });
+
+    expect(listed.total).toBe(1);
+    expect(listed.items[0]!.id).toBe(matching.id);
+  });
+
+  it("applies server-side smart text filters", async () => {
+    const matching = await svc.create(companyId, item({
+      title: "Smart filter domain",
+      category: "domain",
+      riskLevel: "critical",
+      providerName: "Smart Registrar",
+      nextDueDate: "2026-07-01",
+      purchaseEmail: "owner@example.com",
+    }));
+    await svc.create(companyId, item({
+      title: "Smart filter saas",
+      category: "software_subscription",
+      riskLevel: "medium",
+      providerName: "Smart SaaS",
+      nextDueDate: "2026-07-01",
+      billingEmail: "ap@example.com",
+    }));
+
+    const listed = await svc.list(companyId, { q: "missing critical domain provider:smart" });
 
     expect(listed.total).toBe(1);
     expect(listed.items[0]!.id).toBe(matching.id);
@@ -457,7 +481,7 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(queuedEmails[0]!.issueId).toBe(reminderIssues[0]!.id);
   });
 
-  it("reports missing metadata through a weekly issue", async () => {
+  it("reports missing details through a weekly issue", async () => {
     await svc.create(companyId, item({
       title: "Incomplete domain",
       category: "domain",
@@ -465,15 +489,15 @@ describeEmbeddedPostgres("calendarService", () => {
       nextDueDate: "2026-07-01",
     }));
 
-    const first = await svc.runMetadataScan(companyId, { now: new Date("2026-05-23T00:00:00.000Z") });
-    const second = await svc.runMetadataScan(companyId, { now: new Date("2026-05-23T01:00:00.000Z") });
+    const first = await svc.runDetailsScan(companyId, { now: new Date("2026-05-23T00:00:00.000Z") });
+    const second = await svc.runDetailsScan(companyId, { now: new Date("2026-05-23T01:00:00.000Z") });
 
     const reportIssues = await db
       .select()
       .from(issues)
       .where(and(
         eq(issues.companyId, companyId),
-        eq(issues.originKind, CALENDAR_MISSING_METADATA_ISSUE_ORIGIN_KIND),
+        eq(issues.originKind, CALENDAR_MISSING_DETAILS_ISSUE_ORIGIN_KIND),
       ));
 
     expect(first.findingCount).toBe(1);
@@ -482,7 +506,7 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(reportIssues).toHaveLength(1);
   });
 
-  it("excludes inactive items from dashboard metadata and cost summaries", async () => {
+  it("excludes inactive items from dashboard missing details and cost summaries", async () => {
     await svc.create(companyId, item({
       title: "Active monthly cost",
       category: "software_subscription",
@@ -525,7 +549,6 @@ describeEmbeddedPostgres("calendarService", () => {
 
     expect(dashboard.costSummary.monthlyRecurringCents).toBe(5000);
     expect(dashboard.missingDetails.find((finding) => finding.itemId === doneItem.id)).toBeUndefined();
-    expect(dashboard.missingMetadata.find((finding) => finding.itemId === doneItem.id)).toBeUndefined();
     expect(dashboard.pendingReview.count).toBe(1);
   });
 
@@ -558,7 +581,6 @@ describeEmbeddedPostgres("calendarService", () => {
     const dashboard = await svc.dashboard(companyId, new Date("2026-06-04T02:00:00.000Z"));
 
     expect(dashboard.missingDetails).toHaveLength(1);
-    expect(dashboard.missingMetadata).toEqual(dashboard.missingDetails);
     expect(dashboard.reminderStatus).toMatchObject({
       scannedItems: 1,
       queuedEmails: 1,
@@ -566,11 +588,17 @@ describeEmbeddedPostgres("calendarService", () => {
       pendingEmails: 0,
       latestEmailFailureError: "SMTP rejected message",
     });
+    expect(dashboard.reminderStatus.failedEmailDetails[0]).toMatchObject({
+      title: "Dashboard SaaS renewal",
+      recipientEmail: "ops@example.com",
+      dueDate: "2026-06-07",
+      lastError: "SMTP rejected message",
+    });
     expect(dashboard.reminderStatus.lastScanAt).toBe("2026-06-04T00:00:00.000Z");
     expect(dashboard.reminderStatus.latestEmailFailureAt).toBe("2026-06-04T01:00:00.000Z");
   });
 
-  it("runs scheduled scans once per company day and metadata week", async () => {
+  it("runs scheduled scans once per company day and details week", async () => {
     await svc.create(companyId, item({
       title: "Scheduled domain scan",
       category: "domain",
@@ -586,11 +614,11 @@ describeEmbeddedPostgres("calendarService", () => {
 
     expect(first.companiesScanned).toBe(1);
     expect(first.reminderScans).toBe(1);
-    expect(first.metadataScans).toBe(1);
+    expect(first.detailsScans).toBe(1);
     expect(first.reminderIssuesCreated).toBe(1);
     expect(first.reminderEmailsQueued).toBe(2);
     expect(second.reminderScans).toBe(0);
-    expect(second.metadataScans).toBe(0);
+    expect(second.detailsScans).toBe(0);
 
     const queuedEmails = await db
       .select()

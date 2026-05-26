@@ -9,8 +9,8 @@ export type {
   CalendarItemMetadata,
   CalendarMissingDetailsFinding,
   CalendarMissingDetailsSeverity,
-  CalendarMissingMetadataFinding,
-  CalendarMissingMetadataSeverity,
+  CalendarReminderEmailFailure,
+  CalendarReminderPolicy,
   CalendarReminderStatus,
 } from "./calendar.js";
 export type {

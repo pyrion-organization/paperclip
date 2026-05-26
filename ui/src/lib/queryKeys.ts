@@ -116,7 +116,6 @@ export const queryKeys = {
     detail: (companyId: string, itemId: string) => ["calendar", companyId, "items", itemId] as const,
     dashboard: (companyId: string) => ["calendar", companyId, "dashboard"] as const,
     missingDetails: (companyId: string) => ["calendar", companyId, "missing-details"] as const,
-    missingMetadata: (companyId: string) => ["calendar", companyId, "missing-metadata"] as const,
   },
   environments: {
     list: (companyId: string) => ["environments", companyId] as const,

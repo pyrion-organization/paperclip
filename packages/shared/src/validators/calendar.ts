@@ -64,6 +64,7 @@ export const calendarSourceKindSchema = z.enum(CALENDAR_SOURCE_KINDS);
 export const calendarDocumentTypeSchema = z.enum(CALENDAR_DOCUMENT_TYPES);
 
 export const calendarItemFilterSchema = z.object({
+  q: z.string().trim().max(500).optional(),
   status: calendarItemStatusSchema.optional(),
   category: calendarItemCategorySchema.optional(),
   riskLevel: calendarRiskLevelSchema.optional(),

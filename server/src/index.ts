@@ -844,9 +844,9 @@ export async function startServer(): Promise<StartedServer> {
         .then((result) => {
           if (
             result.reminderScans > 0 ||
-            result.metadataScans > 0 ||
+            result.detailsScans > 0 ||
             result.reminderIssuesCreated > 0 ||
-            result.metadataIssuesCreated > 0
+            result.detailsIssuesCreated > 0
           ) {
             logger.info({ ...result }, "calendar scheduler tick completed scans");
           }

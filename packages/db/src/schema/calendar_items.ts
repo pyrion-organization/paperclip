@@ -65,7 +65,7 @@ export const calendarItems = pgTable(
 
     lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
     lastReminderScannedAt: timestamp("last_reminder_scanned_at", { withTimezone: true }),
-    lastMetadataScannedAt: timestamp("last_metadata_scanned_at", { withTimezone: true }),
+    lastDetailsScannedAt: timestamp("last_details_scanned_at", { withTimezone: true }),
     lastCompletedAt: timestamp("last_completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
