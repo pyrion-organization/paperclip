@@ -1,10 +1,11 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, approvals, companies, costEvents, heartbeatRuns, issues } from "@paperclipai/db";
 import { notFound } from "../errors.js";
 import { budgetService } from "./budgets.js";
 
 const DASHBOARD_RUN_ACTIVITY_DAYS = 14;
+const DASHBOARD_RECENT_ISSUES_LIMIT = 10;
 
 function formatUtcDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -25,7 +26,10 @@ function getRecentUtcDateKeys(now: Date, days: number): string[] {
 export function dashboardService(db: Db) {
   const budgets = budgetService(db);
   return {
-    summary: async (companyId: string) => {
+    summary: async (
+      companyId: string,
+      options: { includeIssueDetails?: boolean } = {},
+    ) => {
       const company = await db
         .select()
         .from(companies)
@@ -128,6 +132,62 @@ export function dashboardService(db: Db) {
         bucket.total += count;
       }
 
+      const issueActivity = new Map(
+        runActivityDays.map((date) => [
+          date,
+          { date, priorities: {} as Record<string, number>, statuses: {} as Record<string, number>, total: 0 },
+        ]),
+      );
+      const recentIssues = [];
+      if (options.includeIssueDetails === true) {
+        const issueActivityDayExpr = sql<string>`to_char(${issues.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+        const issueActivityRows = await db
+          .select({
+            date: issueActivityDayExpr,
+            priority: issues.priority,
+            status: issues.status,
+            count: sql<number>`count(*)::double precision`,
+          })
+          .from(issues)
+          .where(
+            and(
+              eq(issues.companyId, companyId),
+              isNull(issues.hiddenAt),
+              gte(issues.createdAt, runActivityStart),
+            ),
+          )
+          .groupBy(issueActivityDayExpr, issues.priority, issues.status);
+
+        for (const row of issueActivityRows) {
+          const bucket = issueActivity.get(row.date);
+          if (!bucket) continue;
+          const count = Number(row.count);
+          bucket.priorities[row.priority] = (bucket.priorities[row.priority] ?? 0) + count;
+          bucket.statuses[row.status] = (bucket.statuses[row.status] ?? 0) + count;
+          bucket.total += count;
+        }
+
+        recentIssues.push(
+          ...await db
+            .select({
+              id: issues.id,
+              identifier: issues.identifier,
+              title: issues.title,
+              status: issues.status,
+              priority: issues.priority,
+              assigneeAgentId: issues.assigneeAgentId,
+              assigneeAgentName: agents.name,
+              createdAt: issues.createdAt,
+              updatedAt: issues.updatedAt,
+            })
+            .from(issues)
+            .leftJoin(agents, eq(agents.id, issues.assigneeAgentId))
+            .where(and(eq(issues.companyId, companyId), isNull(issues.hiddenAt)))
+            .orderBy(desc(issues.updatedAt))
+            .limit(DASHBOARD_RECENT_ISSUES_LIMIT),
+        );
+      }
+
       const utilization =
         company.budgetMonthlyCents > 0
           ? (monthSpendCents / company.budgetMonthlyCents) * 100
@@ -156,6 +216,8 @@ export function dashboardService(db: Db) {
           pausedProjects: budgetOverview.pausedProjectCount,
         },
         runActivity: Array.from(runActivity.values()),
+        issueActivity: Array.from(issueActivity.values()),
+        recentIssues,
       };
     },
   };

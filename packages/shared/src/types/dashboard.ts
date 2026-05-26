@@ -6,6 +6,25 @@ export interface DashboardRunActivityDay {
   total: number;
 }
 
+export interface DashboardIssueActivityDay {
+  date: string;
+  priorities: Record<string, number>;
+  statuses: Record<string, number>;
+  total: number;
+}
+
+export interface DashboardRecentIssue {
+  id: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  assigneeAgentId: string | null;
+  assigneeAgentName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface DashboardSummary {
   companyId: string;
   agents: {
@@ -33,4 +52,6 @@ export interface DashboardSummary {
     pausedProjects: number;
   };
   runActivity: DashboardRunActivityDay[];
+  issueActivity: DashboardIssueActivityDay[];
+  recentIssues: DashboardRecentIssue[];
 }

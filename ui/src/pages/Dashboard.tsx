@@ -4,9 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "../api/dashboard";
 import { activityApi } from "../api/activity";
 import { accessApi } from "../api/access";
-import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
-import { projectsApi } from "../api/projects";
 import { buildCompanyUserProfileMap } from "../lib/company-members";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
@@ -23,7 +21,7 @@ import { cn, formatCents } from "../lib/utils";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
-import type { Agent, Issue } from "@paperclipai/shared";
+import type { Agent, DashboardRecentIssue } from "@paperclipai/shared";
 
 const ActiveAgentsPanel = lazy(() =>
   import("../components/ActiveAgentsPanel").then(({ ActiveAgentsPanel }) => ({ default: ActiveAgentsPanel })),
@@ -34,15 +32,38 @@ const DashboardPluginSlotOutlet = lazy(() =>
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
-function getRecentIssues(issues: Issue[]): Issue[] {
-  return [...issues]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+type DashboardIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function useDeferredDashboardDetailsReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as DashboardIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 1_500 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 350);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
 }
 
 export function Dashboard() {
   const { selectedCompanyId, companies } = useCompany();
   const { openOnboarding } = useDialogActions();
   const { setBreadcrumbs } = useBreadcrumbs();
+  const dashboardDetailsReady = useDeferredDashboardDetailsReady();
   const [animatedActivityIds, setAnimatedActivityIds] = useState<Set<string>>(new Set());
   const seenActivityIdsRef = useRef<Set<string>>(new Set());
   const hydratedActivityRef = useRef(false);
@@ -51,7 +72,7 @@ export function Dashboard() {
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
     queryFn: () => agentsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
   useEffect(() => {
@@ -67,25 +88,13 @@ export function Dashboard() {
   const { data: activity } = useQuery({
     queryKey: [...queryKeys.activity(selectedCompanyId!), { limit: DASHBOARD_ACTIVITY_LIMIT }],
     queryFn: () => activityApi.list(selectedCompanyId!, { limit: DASHBOARD_ACTIVITY_LIMIT }),
-    enabled: !!selectedCompanyId,
-  });
-
-  const { data: issues } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
-    queryFn: () => issuesApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
-  });
-
-  const { data: projects } = useQuery({
-    queryKey: queryKeys.projects.list(selectedCompanyId!),
-    queryFn: () => projectsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
   const { data: companyMembers } = useQuery({
     queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId!),
     queryFn: () => accessApi.listUserDirectory(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
   const userProfileMap = useMemo(
@@ -93,7 +102,7 @@ export function Dashboard() {
     [companyMembers?.users],
   );
 
-  const recentIssues = issues ? getRecentIssues(issues) : [];
+  const recentIssues: DashboardRecentIssue[] = data?.recentIssues ?? [];
   const recentActivity = useMemo(() => (activity ?? []).slice(0, 10), [activity]);
 
   useEffect(() => {
@@ -159,22 +168,16 @@ export function Dashboard() {
 
   const entityNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
+    for (const i of recentIssues) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
     for (const a of agents ?? []) map.set(`agent:${a.id}`, a.name);
-    for (const p of projects ?? []) map.set(`project:${p.id}`, p.name);
     return map;
-  }, [issues, agents, projects]);
+  }, [recentIssues, agents]);
 
   const entityTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues ?? []) map.set(`issue:${i.id}`, i.title);
+    for (const i of recentIssues) map.set(`issue:${i.id}`, i.title);
     return map;
-  }, [issues]);
-
-  const agentName = (id: string | null) => {
-    if (!id || !agents) return null;
-    return agents.find((a) => a.id === id)?.name ?? null;
-  };
+  }, [recentIssues]);
 
   if (!selectedCompanyId) {
     if (companies.length === 0) {
@@ -196,7 +199,16 @@ export function Dashboard() {
     return <PageSkeleton variant="dashboard" />;
   }
 
-  const hasNoAgents = agents !== undefined && agents.length === 0;
+  if (!data) {
+    return error ? (
+      <p className="text-sm text-destructive">{error.message}</p>
+    ) : (
+      <PageSkeleton variant="dashboard" />
+    );
+  }
+
+  const agentTotal = data.agents.active + data.agents.running + data.agents.paused + data.agents.error;
+  const hasNoAgents = agentTotal === 0;
 
   return (
     <div className="space-y-6">
@@ -219,9 +231,11 @@ export function Dashboard() {
         </div>
       )}
 
-      <Suspense fallback={null}>
-        <ActiveAgentsPanel companyId={selectedCompanyId!} />
-      </Suspense>
+      {dashboardDetailsReady ? (
+        <Suspense fallback={null}>
+          <ActiveAgentsPanel companyId={selectedCompanyId!} />
+        </Suspense>
+      ) : null}
 
       {data && (
         <>
@@ -303,28 +317,30 @@ export function Dashboard() {
               <RunActivityChart activity={data.runActivity} />
             </ChartCard>
             <ChartCard title="Issues by Priority" subtitle="Last 14 days">
-              <PriorityChart issues={issues ?? []} />
+              <PriorityChart activity={data.issueActivity} />
             </ChartCard>
             <ChartCard title="Issues by Status" subtitle="Last 14 days">
-              <IssueStatusChart issues={issues ?? []} />
+              <IssueStatusChart activity={data.issueActivity} />
             </ChartCard>
             <ChartCard title="Success Rate" subtitle="Last 14 days">
               <SuccessRateChart activity={data.runActivity} />
             </ChartCard>
           </div>
 
-          <Suspense fallback={null}>
-            <DashboardPluginSlotOutlet
-              slotTypes={["dashboardWidget"]}
-              context={{ companyId: selectedCompanyId }}
-              className="grid gap-4 md:grid-cols-2"
-              itemClassName="rounded-lg border bg-card p-4 shadow-sm"
-            />
-          </Suspense>
+          {dashboardDetailsReady ? (
+            <Suspense fallback={null}>
+              <DashboardPluginSlotOutlet
+                slotTypes={["dashboardWidget"]}
+                context={{ companyId: selectedCompanyId }}
+                className="grid gap-4 md:grid-cols-2"
+                itemClassName="rounded-lg border bg-card p-4 shadow-sm"
+              />
+            </Suspense>
+          ) : null}
 
           <div className="grid md:grid-cols-2 gap-4">
             {/* Recent Activity */}
-            {recentActivity.length > 0 && (
+            {dashboardDetailsReady && recentActivity.length > 0 && (
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                   Recent Activity
@@ -365,7 +381,7 @@ export function Dashboard() {
                       <div className="flex items-start gap-2 sm:items-center sm:gap-3">
                         {/* Status icon - left column on mobile */}
                         <span className="shrink-0 sm:hidden">
-                          <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} />
+                          <StatusIcon status={issue.status} />
                         </span>
 
                         {/* Right column on mobile: title + metadata stacked */}
@@ -374,14 +390,13 @@ export function Dashboard() {
                             {issue.title}
                           </span>
                           <span className="flex items-center gap-2 sm:order-1 sm:shrink-0">
-                            <span className="hidden sm:inline-flex"><StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} /></span>
+                            <span className="hidden sm:inline-flex"><StatusIcon status={issue.status} /></span>
                             <span className="text-xs font-mono text-muted-foreground">
                               {issue.identifier ?? issue.id.slice(0, 8)}
                             </span>
                             {issue.assigneeAgentId && (() => {
-                              const name = agentName(issue.assigneeAgentId);
-                              return name
-                                ? <span className="hidden sm:inline-flex"><Identity name={name} size="sm" /></span>
+                              return issue.assigneeAgentName
+                                ? <span className="hidden sm:inline-flex"><Identity name={issue.assigneeAgentName} size="sm" /></span>
                                 : null;
                             })()}
                             <span className="text-xs text-muted-foreground sm:hidden">&middot;</span>

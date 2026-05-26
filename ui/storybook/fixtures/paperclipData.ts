@@ -1316,6 +1316,13 @@ export const storybookDashboardSummary: DashboardSummary = {
     { date: "2026-04-19", succeeded: 5, failed: 0, other: 1, total: 6 },
     { date: "2026-04-20", succeeded: 4, failed: 0, other: 2, total: 6 },
   ],
+  issueActivity: [
+    { date: "2026-04-07", priorities: { high: 1 }, statuses: { in_progress: 1 }, total: 1 },
+    { date: "2026-04-08", priorities: { medium: 2 }, statuses: { todo: 1, blocked: 1 }, total: 2 },
+    { date: "2026-04-09", priorities: { critical: 1 }, statuses: { blocked: 1 }, total: 1 },
+    { date: "2026-04-10", priorities: { low: 1, medium: 1 }, statuses: { done: 2 }, total: 2 },
+  ],
+  recentIssues: [],
 };
 
 export const storybookLiveRuns: LiveRunForIssue[] = [

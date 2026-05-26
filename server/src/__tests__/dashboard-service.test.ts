@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, issues } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -48,6 +48,7 @@ describeEmbeddedPostgres("dashboard service", () => {
 
   afterEach(async () => {
     await db.delete(heartbeatRuns);
+    await db.delete(issues);
     await db.delete(agents);
     await db.delete(companies);
   });
@@ -146,8 +147,41 @@ describeEmbeddedPostgres("dashboard service", () => {
         createdAt: weekAgo,
       },
     ]);
+    await db.insert(issues).values([
+      {
+        id: randomUUID(),
+        companyId,
+        title: "Recent high-priority work",
+        status: "in_progress",
+        priority: "high",
+        assigneeAgentId: agentId,
+        identifier: "PAP-3",
+        createdAt: today,
+        updatedAt: today,
+      },
+      {
+        id: randomUUID(),
+        companyId,
+        title: "Older blocked work",
+        status: "blocked",
+        priority: "critical",
+        identifier: "PAP-2",
+        createdAt: weekAgo,
+        updatedAt: weekAgo,
+      },
+      {
+        id: randomUUID(),
+        companyId: otherCompanyId,
+        title: "Other company work",
+        status: "in_progress",
+        priority: "high",
+        identifier: "OTH-1",
+        createdAt: today,
+        updatedAt: today,
+      },
+    ]);
 
-    const summary = await dashboardService(db).summary(companyId);
+    const summary = await dashboardService(db).summary(companyId, { includeIssueDetails: true });
 
     expect(summary.runActivity).toHaveLength(14);
     const todayBucket = summary.runActivity.find((bucket) => bucket.date === utcDateKey(today));
@@ -164,6 +198,26 @@ describeEmbeddedPostgres("dashboard service", () => {
       failed: 2,
       other: 1,
       total: 3,
+    });
+
+    expect(summary.issueActivity).toHaveLength(14);
+    const todayIssues = summary.issueActivity.find((bucket) => bucket.date === utcDateKey(today));
+    const weekAgoIssues = summary.issueActivity.find((bucket) => bucket.date === utcDateKey(weekAgo));
+    expect(todayIssues).toMatchObject({
+      priorities: { high: 1 },
+      statuses: { in_progress: 1 },
+      total: 1,
+    });
+    expect(weekAgoIssues).toMatchObject({
+      priorities: { critical: 1 },
+      statuses: { blocked: 1 },
+      total: 1,
+    });
+    expect(summary.recentIssues.map((issue) => issue.identifier)).toEqual(["PAP-3", "PAP-2"]);
+    expect(summary.recentIssues[0]).toMatchObject({
+      assigneeAgentId: agentId,
+      assigneeAgentName: "CodexCoder",
+      title: "Recent high-priority work",
     });
   });
 });
