@@ -31,6 +31,7 @@ import {
   thematicBreakPlugin,
   type RealmPlugin,
 } from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
 import {
   buildAgentMentionHref,
   buildProjectMentionHref,

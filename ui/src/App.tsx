@@ -1,73 +1,108 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/i18n";
-import { Layout } from "./components/Layout";
-import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
-import { Dashboard } from "./pages/Dashboard";
-import { DashboardLive } from "./pages/DashboardLive";
-import { Companies } from "./pages/Companies";
-import { Agents } from "./pages/Agents";
-import { AgentDetail } from "./pages/AgentDetail";
-import { Clients } from "./pages/Clients";
-import { ClientDetail } from "./pages/ClientDetail";
-import { Projects } from "./pages/Projects";
-import { ProjectDetail } from "./pages/ProjectDetail";
-import { ProjectWorkspaceDetail } from "./pages/ProjectWorkspaceDetail";
-import { Workspaces } from "./pages/Workspaces";
-import { Issues } from "./pages/Issues";
-import { Search } from "./pages/Search";
-import { IssueDetail } from "./pages/IssueDetail";
-import { IssueChatLongThreadPerf } from "./pages/IssueChatLongThreadPerf";
-import { Calendar } from "./pages/Calendar";
-import { Routines } from "./pages/Routines";
-import { RoutineDetail } from "./pages/RoutineDetail";
-import { UserProfile } from "./pages/UserProfile";
-import { ExecutionWorkspaceDetail } from "./pages/ExecutionWorkspaceDetail";
-import { Goals } from "./pages/Goals";
-import { GoalDetail } from "./pages/GoalDetail";
-import { Approvals } from "./pages/Approvals";
-import { ApprovalDetail } from "./pages/ApprovalDetail";
-import { Costs } from "./pages/Costs";
-import { Usage } from "./pages/Usage";
-import { Activity } from "./pages/Activity";
-import { Inbox } from "./pages/Inbox";
-import { CompanySettings } from "./pages/CompanySettings";
-import { CompanyEmailSettings } from "./pages/CompanyEmailSettings";
-import { InboundEmailOps } from "./pages/InboundEmailOps";
-import { CompanyInstructions } from "./pages/CompanyInstructions";
-import { CompanyEnvironments } from "./pages/CompanyEnvironments";
-import { CompanySettingsPluginPage } from "./pages/CompanySettingsPluginPage";
-import { CompanyAccess, CompanyAccessLegacyRoute } from "./pages/CompanyAccess";
-import { CloudUpstream } from "./pages/CloudUpstream";
-import { CloudUpstreamUxLab } from "./pages/CloudUpstreamUxLab";
-import { CompanyInvites } from "./pages/CompanyInvites";
-import { CompanySkills } from "./pages/CompanySkills";
-import { Secrets } from "./pages/Secrets";
-import { CompanyExport } from "./pages/CompanyExport";
-import { CompanyImport } from "./pages/CompanyImport";
-import { DesignGuide } from "./pages/DesignGuide";
-import { InstanceGeneralSettings } from "./pages/InstanceGeneralSettings";
-import { InstanceAccess } from "./pages/InstanceAccess";
-import { InstanceSettings } from "./pages/InstanceSettings";
-import { InstanceExperimentalSettings } from "./pages/InstanceExperimentalSettings";
-import { ProfileSettings } from "./pages/ProfileSettings";
-import { PluginManager } from "./pages/PluginManager";
-import { PluginSettings } from "./pages/PluginSettings";
-import { AdapterManager } from "./pages/AdapterManager";
-import { PluginPage } from "./pages/PluginPage";
-import { OrgChart } from "./pages/OrgChart";
-import { NewAgent } from "./pages/NewAgent";
-import { AuthPage } from "./pages/Auth";
-import { BoardClaimPage } from "./pages/BoardClaim";
-import { CliAuthPage } from "./pages/CliAuth";
-import { InviteLandingPage } from "./pages/InviteLanding";
-import { JoinRequestQueue } from "./pages/JoinRequestQueue";
-import { NotFoundPage } from "./pages/NotFound";
 import { useCompany } from "./context/CompanyContext";
-import { useDialogActions } from "./context/DialogContext";
-import { loadLastInboxTab } from "./lib/inbox";
+import { useDialog, useDialogActions } from "./context/DialogContext";
+import { loadLastInboxTab } from "./lib/inbox-tabs";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
+
+const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
+const OnboardingWizard = lazy(() =>
+  import("./components/OnboardingWizard").then(({ OnboardingWizard }) => ({ default: OnboardingWizard })),
+);
+const Dashboard = lazy(() => import("./pages/Dashboard").then(({ Dashboard }) => ({ default: Dashboard })));
+const DashboardLive = lazy(() => import("./pages/DashboardLive").then(({ DashboardLive }) => ({ default: DashboardLive })));
+const Companies = lazy(() => import("./pages/Companies").then(({ Companies }) => ({ default: Companies })));
+const Agents = lazy(() => import("./pages/Agents").then(({ Agents }) => ({ default: Agents })));
+const AgentDetail = lazy(() => import("./pages/AgentDetail").then(({ AgentDetail }) => ({ default: AgentDetail })));
+const Clients = lazy(() => import("./pages/Clients").then(({ Clients }) => ({ default: Clients })));
+const ClientDetail = lazy(() => import("./pages/ClientDetail").then(({ ClientDetail }) => ({ default: ClientDetail })));
+const Projects = lazy(() => import("./pages/Projects").then(({ Projects }) => ({ default: Projects })));
+const ProjectDetail = lazy(() => import("./pages/ProjectDetail").then(({ ProjectDetail }) => ({ default: ProjectDetail })));
+const ProjectWorkspaceDetail = lazy(() =>
+  import("./pages/ProjectWorkspaceDetail").then(({ ProjectWorkspaceDetail }) => ({ default: ProjectWorkspaceDetail })),
+);
+const Workspaces = lazy(() => import("./pages/Workspaces").then(({ Workspaces }) => ({ default: Workspaces })));
+const Issues = lazy(() => import("./pages/Issues").then(({ Issues }) => ({ default: Issues })));
+const Search = lazy(() => import("./pages/Search").then(({ Search }) => ({ default: Search })));
+const IssueDetail = lazy(() => import("./pages/IssueDetail").then(({ IssueDetail }) => ({ default: IssueDetail })));
+const IssueChatLongThreadPerf = lazy(() =>
+  import("./pages/IssueChatLongThreadPerf").then(({ IssueChatLongThreadPerf }) => ({ default: IssueChatLongThreadPerf })),
+);
+const Calendar = lazy(() => import("./pages/Calendar").then(({ Calendar }) => ({ default: Calendar })));
+const Routines = lazy(() => import("./pages/Routines").then(({ Routines }) => ({ default: Routines })));
+const RoutineDetail = lazy(() => import("./pages/RoutineDetail").then(({ RoutineDetail }) => ({ default: RoutineDetail })));
+const UserProfile = lazy(() => import("./pages/UserProfile").then(({ UserProfile }) => ({ default: UserProfile })));
+const ExecutionWorkspaceDetail = lazy(() =>
+  import("./pages/ExecutionWorkspaceDetail").then(({ ExecutionWorkspaceDetail }) => ({ default: ExecutionWorkspaceDetail })),
+);
+const Goals = lazy(() => import("./pages/Goals").then(({ Goals }) => ({ default: Goals })));
+const GoalDetail = lazy(() => import("./pages/GoalDetail").then(({ GoalDetail }) => ({ default: GoalDetail })));
+const Approvals = lazy(() => import("./pages/Approvals").then(({ Approvals }) => ({ default: Approvals })));
+const ApprovalDetail = lazy(() => import("./pages/ApprovalDetail").then(({ ApprovalDetail }) => ({ default: ApprovalDetail })));
+const Costs = lazy(() => import("./pages/Costs").then(({ Costs }) => ({ default: Costs })));
+const Usage = lazy(() => import("./pages/Usage").then(({ Usage }) => ({ default: Usage })));
+const Activity = lazy(() => import("./pages/Activity").then(({ Activity }) => ({ default: Activity })));
+const Inbox = lazy(() => import("./pages/Inbox").then(({ Inbox }) => ({ default: Inbox })));
+const CompanySettings = lazy(() => import("./pages/CompanySettings").then(({ CompanySettings }) => ({ default: CompanySettings })));
+const CompanyEmailSettings = lazy(() =>
+  import("./pages/CompanyEmailSettings").then(({ CompanyEmailSettings }) => ({ default: CompanyEmailSettings })),
+);
+const InboundEmailOps = lazy(() => import("./pages/InboundEmailOps").then(({ InboundEmailOps }) => ({ default: InboundEmailOps })));
+const CompanyInstructions = lazy(() =>
+  import("./pages/CompanyInstructions").then(({ CompanyInstructions }) => ({ default: CompanyInstructions })),
+);
+const CompanyEnvironments = lazy(() =>
+  import("./pages/CompanyEnvironments").then(({ CompanyEnvironments }) => ({ default: CompanyEnvironments })),
+);
+const CompanySettingsPluginPage = lazy(() =>
+  import("./pages/CompanySettingsPluginPage").then(({ CompanySettingsPluginPage }) => ({ default: CompanySettingsPluginPage })),
+);
+const CompanyAccess = lazy(() => import("./pages/CompanyAccess").then(({ CompanyAccess }) => ({ default: CompanyAccess })));
+const CompanyAccessLegacyRoute = lazy(() =>
+  import("./pages/CompanyAccess").then(({ CompanyAccessLegacyRoute }) => ({ default: CompanyAccessLegacyRoute })),
+);
+const CloudUpstream = lazy(() => import("./pages/CloudUpstream").then(({ CloudUpstream }) => ({ default: CloudUpstream })));
+const CloudUpstreamUxLab = lazy(() =>
+  import("./pages/CloudUpstreamUxLab").then(({ CloudUpstreamUxLab }) => ({ default: CloudUpstreamUxLab })),
+);
+const CompanyInvites = lazy(() => import("./pages/CompanyInvites").then(({ CompanyInvites }) => ({ default: CompanyInvites })));
+const CompanySkills = lazy(() => import("./pages/CompanySkills").then(({ CompanySkills }) => ({ default: CompanySkills })));
+const Secrets = lazy(() => import("./pages/Secrets").then(({ Secrets }) => ({ default: Secrets })));
+const CompanyExport = lazy(() => import("./pages/CompanyExport").then(({ CompanyExport }) => ({ default: CompanyExport })));
+const CompanyImport = lazy(() => import("./pages/CompanyImport").then(({ CompanyImport }) => ({ default: CompanyImport })));
+const DesignGuide = lazy(() => import("./pages/DesignGuide").then(({ DesignGuide }) => ({ default: DesignGuide })));
+const InstanceGeneralSettings = lazy(() =>
+  import("./pages/InstanceGeneralSettings").then(({ InstanceGeneralSettings }) => ({ default: InstanceGeneralSettings })),
+);
+const InstanceAccess = lazy(() => import("./pages/InstanceAccess").then(({ InstanceAccess }) => ({ default: InstanceAccess })));
+const InstanceSettings = lazy(() => import("./pages/InstanceSettings").then(({ InstanceSettings }) => ({ default: InstanceSettings })));
+const InstanceExperimentalSettings = lazy(() =>
+  import("./pages/InstanceExperimentalSettings").then(({ InstanceExperimentalSettings }) => ({ default: InstanceExperimentalSettings })),
+);
+const ProfileSettings = lazy(() => import("./pages/ProfileSettings").then(({ ProfileSettings }) => ({ default: ProfileSettings })));
+const PluginManager = lazy(() => import("./pages/PluginManager").then(({ PluginManager }) => ({ default: PluginManager })));
+const PluginSettings = lazy(() => import("./pages/PluginSettings").then(({ PluginSettings }) => ({ default: PluginSettings })));
+const AdapterManager = lazy(() => import("./pages/AdapterManager").then(({ AdapterManager }) => ({ default: AdapterManager })));
+const PluginPage = lazy(() => import("./pages/PluginPage").then(({ PluginPage }) => ({ default: PluginPage })));
+const OrgChart = lazy(() => import("./pages/OrgChart").then(({ OrgChart }) => ({ default: OrgChart })));
+const NewAgent = lazy(() => import("./pages/NewAgent").then(({ NewAgent }) => ({ default: NewAgent })));
+const AuthPage = lazy(() => import("./pages/Auth").then(({ AuthPage }) => ({ default: AuthPage })));
+const BoardClaimPage = lazy(() => import("./pages/BoardClaim").then(({ BoardClaimPage }) => ({ default: BoardClaimPage })));
+const CliAuthPage = lazy(() => import("./pages/CliAuth").then(({ CliAuthPage }) => ({ default: CliAuthPage })));
+const InviteLandingPage = lazy(() =>
+  import("./pages/InviteLanding").then(({ InviteLandingPage }) => ({ default: InviteLandingPage })),
+);
+const JoinRequestQueue = lazy(() =>
+  import("./pages/JoinRequestQueue").then(({ JoinRequestQueue }) => ({ default: JoinRequestQueue })),
+);
+const NotFoundPage = lazy(() => import("./pages/NotFound").then(({ NotFoundPage }) => ({ default: NotFoundPage })));
+
+function RouteFallback() {
+  return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
+}
 
 function boardRoutes() {
   return (
@@ -289,73 +324,89 @@ function NoCompaniesStartPage() {
   );
 }
 
+function OnboardingWizardMount() {
+  const { onboardingOpen } = useDialog();
+  const location = useLocation();
+  const routeCanOpenOnboarding = /(^|\/)onboarding$/.test(location.pathname);
+
+  if (!onboardingOpen && !routeCanOpenOnboarding) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <OnboardingWizard />
+    </Suspense>
+  );
+}
+
 export function App() {
   return (
     <>
-      <Routes>
-        <Route path="auth" element={<AuthPage />} />
-        <Route path="board-claim/:token" element={<BoardClaimPage />} />
-        <Route path="cli-auth/:id" element={<CliAuthPage />} />
-        <Route path="invite/:token" element={<InviteLandingPage />} />
-        <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
-        <Route path="ux-lab/cloud-upstream" element={<CloudUpstreamUxLab />} />
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="auth" element={<AuthPage />} />
+          <Route path="board-claim/:token" element={<BoardClaimPage />} />
+          <Route path="cli-auth/:id" element={<CliAuthPage />} />
+          <Route path="invite/:token" element={<InviteLandingPage />} />
+          <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
+          <Route path="ux-lab/cloud-upstream" element={<CloudUpstreamUxLab />} />
 
-        <Route element={<CloudAccessGate />}>
-          <Route index element={<CompanyRootRedirect />} />
-          <Route path="onboarding" element={<OnboardingRoutePage />} />
-          <Route path="instance" element={<Navigate to="/instance/settings/general" replace />} />
-          <Route path="instance/settings" element={<Layout />}>
-            <Route index element={<Navigate to="general" replace />} />
-            <Route path="profile" element={<ProfileSettings />} />
-            <Route path="general" element={<InstanceGeneralSettings />} />
-            <Route path="access" element={<InstanceAccess />} />
-            <Route path="heartbeats" element={<InstanceSettings />} />
-            <Route path="experimental" element={<InstanceExperimentalSettings />} />
-            <Route path="plugins" element={<PluginManager />} />
-            <Route path="plugins/:pluginId" element={<PluginSettings />} />
-            <Route path="adapters" element={<AdapterManager />} />
+          <Route element={<CloudAccessGate />}>
+            <Route index element={<CompanyRootRedirect />} />
+            <Route path="onboarding" element={<OnboardingRoutePage />} />
+            <Route path="instance" element={<Navigate to="/instance/settings/general" replace />} />
+            <Route path="instance/settings" element={<Layout />}>
+              <Route index element={<Navigate to="general" replace />} />
+              <Route path="profile" element={<ProfileSettings />} />
+              <Route path="general" element={<InstanceGeneralSettings />} />
+              <Route path="access" element={<InstanceAccess />} />
+              <Route path="heartbeats" element={<InstanceSettings />} />
+              <Route path="experimental" element={<InstanceExperimentalSettings />} />
+              <Route path="plugins" element={<PluginManager />} />
+              <Route path="plugins/:pluginId" element={<PluginSettings />} />
+              <Route path="adapters" element={<AdapterManager />} />
+            </Route>
+            <Route path="companies" element={<UnprefixedBoardRedirect />} />
+            <Route path="issues" element={<UnprefixedBoardRedirect />} />
+            <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
+            <Route path="calendar" element={<UnprefixedBoardRedirect />} />
+            <Route path="routines" element={<UnprefixedBoardRedirect />} />
+            <Route path="routines/:routineId" element={<UnprefixedBoardRedirect />} />
+            <Route path="u/:userSlug" element={<UnprefixedBoardRedirect />} />
+            <Route path="skills/*" element={<UnprefixedBoardRedirect />} />
+            <Route path="settings" element={<LegacySettingsRedirect />} />
+            <Route path="settings/*" element={<LegacySettingsRedirect />} />
+            <Route path="email/ops" element={<UnprefixedBoardRedirect />} />
+            <Route path="agents" element={<UnprefixedBoardRedirect />} />
+            <Route path="agents/new" element={<UnprefixedBoardRedirect />} />
+            <Route path="agents/:agentId" element={<UnprefixedBoardRedirect />} />
+            <Route path="agents/:agentId/:tab" element={<UnprefixedBoardRedirect />} />
+            <Route path="agents/:agentId/runs/:runId" element={<UnprefixedBoardRedirect />} />
+            <Route path="clients" element={<UnprefixedBoardRedirect />} />
+            <Route path="clients/:clientId" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/overview" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/files" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/issues" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/issues/:filter" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/workspaces" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/workspaces/:workspaceId" element={<UnprefixedBoardRedirect />} />
+            <Route path="projects/:projectId/configuration" element={<UnprefixedBoardRedirect />} />
+            <Route path="workspaces" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId/services" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId/configuration" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
+            <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
+            <Route path=":companyPrefix" element={<Layout />}>
+              {boardRoutes()}
+            </Route>
+            <Route path="*" element={<NotFoundPage scope="global" />} />
           </Route>
-          <Route path="companies" element={<UnprefixedBoardRedirect />} />
-          <Route path="issues" element={<UnprefixedBoardRedirect />} />
-          <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
-          <Route path="calendar" element={<UnprefixedBoardRedirect />} />
-          <Route path="routines" element={<UnprefixedBoardRedirect />} />
-          <Route path="routines/:routineId" element={<UnprefixedBoardRedirect />} />
-          <Route path="u/:userSlug" element={<UnprefixedBoardRedirect />} />
-          <Route path="skills/*" element={<UnprefixedBoardRedirect />} />
-          <Route path="settings" element={<LegacySettingsRedirect />} />
-          <Route path="settings/*" element={<LegacySettingsRedirect />} />
-          <Route path="email/ops" element={<UnprefixedBoardRedirect />} />
-          <Route path="agents" element={<UnprefixedBoardRedirect />} />
-          <Route path="agents/new" element={<UnprefixedBoardRedirect />} />
-          <Route path="agents/:agentId" element={<UnprefixedBoardRedirect />} />
-          <Route path="agents/:agentId/:tab" element={<UnprefixedBoardRedirect />} />
-          <Route path="agents/:agentId/runs/:runId" element={<UnprefixedBoardRedirect />} />
-          <Route path="clients" element={<UnprefixedBoardRedirect />} />
-          <Route path="clients/:clientId" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects/:projectId" element={<UnprefixedBoardRedirect />} />
-      <Route path="projects/:projectId/overview" element={<UnprefixedBoardRedirect />} />
-      <Route path="projects/:projectId/files" element={<UnprefixedBoardRedirect />} />
-      <Route path="projects/:projectId/issues" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects/:projectId/issues/:filter" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects/:projectId/workspaces" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects/:projectId/workspaces/:workspaceId" element={<UnprefixedBoardRedirect />} />
-          <Route path="projects/:projectId/configuration" element={<UnprefixedBoardRedirect />} />
-          <Route path="workspaces" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId/services" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId/configuration" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
-          <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
-          <Route path=":companyPrefix" element={<Layout />}>
-            {boardRoutes()}
-          </Route>
-          <Route path="*" element={<NotFoundPage scope="global" />} />
-        </Route>
-      </Routes>
-      <OnboardingWizard />
+        </Routes>
+      </Suspense>
+      <OnboardingWizardMount />
     </>
   );
 }

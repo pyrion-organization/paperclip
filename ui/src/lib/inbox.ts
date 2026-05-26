@@ -13,19 +13,25 @@ import {
   type IssueFilterState,
 } from "./issue-filters";
 import { formatAssigneeUserLabel } from "./assignees";
+import type { InboxTab } from "./inbox-tabs";
+
+export {
+  INBOX_LAST_TAB_KEY,
+  loadLastInboxTab,
+  saveLastInboxTab,
+  type InboxTab,
+} from "./inbox-tabs";
 
 export const RECENT_ISSUES_LIMIT = 100;
 export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
-export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
 export const INBOX_ISSUE_COLUMNS_KEY = "paperclip:inbox:issue-columns";
 export const INBOX_NESTING_KEY = "paperclip:inbox:nesting";
 export const INBOX_GROUP_BY_KEY = "paperclip:inbox:group-by";
 export const INBOX_FILTER_PREFERENCES_KEY_PREFIX = "paperclip:inbox:filters";
 export const INBOX_COLLAPSED_GROUPS_KEY_PREFIX = "paperclip:inbox:collapsed-groups";
-export type InboxTab = "mine" | "recent" | "unread" | "blocked" | "all";
 export type InboxCategoryFilter =
   | "everything"
   | "issues_i_touched"
@@ -625,31 +631,6 @@ export function saveInboxNesting(enabled: boolean) {
 
 export function resolveInboxNestingEnabled(preferenceEnabled: boolean, isMobile: boolean): boolean {
   return preferenceEnabled && !isMobile;
-}
-
-export function loadLastInboxTab(): InboxTab {
-  try {
-    const raw = localStorage.getItem(INBOX_LAST_TAB_KEY);
-    if (
-      raw === "all"
-      || raw === "unread"
-      || raw === "recent"
-      || raw === "mine"
-      || raw === "blocked"
-    ) return raw;
-    if (raw === "new") return "mine";
-    return "mine";
-  } catch {
-    return "mine";
-  }
-}
-
-export function saveLastInboxTab(tab: InboxTab) {
-  try {
-    localStorage.setItem(INBOX_LAST_TAB_KEY, tab);
-  } catch {
-    // Ignore localStorage failures.
-  }
 }
 
 export function isMineInboxTab(tab: InboxTab): boolean {
