@@ -5,10 +5,7 @@ import type {
   CalendarItemDetail,
   CalendarItemDocument,
   CalendarItemListResponse,
-  CalendarMetadataScanResult,
   CalendarMissingMetadataFinding,
-  CalendarScanInput,
-  CalendarScanResult,
   CompleteCalendarItemInput,
   CreateCalendarItemInput,
   CreateCalendarItemDocumentInput,
@@ -74,8 +71,4 @@ export const calendarApi = {
     api.post<CalendarItem>(`/companies/${companyId}/calendar/items/${itemId}/cancel${approvalParam(approvalConfirmed)}`, {}),
   addDocument: (companyId: string, itemId: string, input: CreateCalendarItemDocumentInput) =>
     api.post<CalendarItemDocument>(`/companies/${companyId}/calendar/items/${itemId}/documents`, input),
-  runReminderScan: (companyId: string, input: CalendarScanInput = {}) =>
-    api.post<CalendarScanResult>(`/companies/${companyId}/calendar/run-reminder-scan`, input),
-  runMetadataScan: (companyId: string) =>
-    api.post<CalendarMetadataScanResult>(`/companies/${companyId}/calendar/run-metadata-scan`, {}),
 };

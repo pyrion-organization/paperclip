@@ -15,7 +15,6 @@ import {
   Archive,
   CalendarDays,
   CheckCircle2,
-  ClipboardCheck,
   Pause,
   Play,
   Search,
@@ -36,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -301,11 +301,11 @@ export function Calendar() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [form, setForm] = useState<ItemFormState>(() => emptyForm());
   const [searchQuery, setSearchQuery] = useState("");
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const isEditing = selectedItemId !== null;
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Calendar" }]);
@@ -324,17 +324,17 @@ export function Calendar() {
   const detailQuery = useQuery({
     queryKey: selectedItemId ? queryKeys.calendar.detail(companyId, selectedItemId) : ["calendar", companyId, "no-detail"],
     queryFn: () => calendarApi.detail(companyId, selectedItemId!),
-    enabled: !!selectedCompanyId && !!selectedItemId,
+    enabled: !!selectedCompanyId && itemDialogOpen && !!selectedItemId,
   });
   const clientsQuery = useQuery({
     queryKey: queryKeys.clients.list(companyId),
     queryFn: () => clientsApi.list(companyId, { limit: 200 }),
-    enabled: !!selectedCompanyId,
+    enabled: !!selectedCompanyId && itemDialogOpen,
   });
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.list(companyId),
     queryFn: () => projectsApi.list(companyId),
-    enabled: !!selectedCompanyId,
+    enabled: !!selectedCompanyId && itemDialogOpen,
   });
 
   const invalidateCalendar = () => {
@@ -348,7 +348,7 @@ export function Calendar() {
       if (!selectedCompanyId) throw new Error("No company selected");
       const payload = payloadFromForm(form);
       if (!payload.title) throw new Error("Title is required");
-      if (formMode === "edit" && selectedItemId) {
+      if (isEditing && selectedItemId) {
         const requiresApproval = requiresGovernedSaveApproval(selectedItem, payload);
         const approvalConfirmed = requiresApproval
           ? confirmGovernedChange("This governed calendar change requires operator approval. Continue?")
@@ -362,7 +362,6 @@ export function Calendar() {
     },
     onSuccess: (item) => {
       setSelectedItemId(item.id);
-      setFormMode("edit");
       setForm(formFromItem(item));
       setItemDialogOpen(false);
       setOperationError(null);
@@ -404,31 +403,27 @@ export function Calendar() {
     },
     onError: (err) => setOperationError(err instanceof Error ? err.message : "Status update failed"),
   });
-  const scanMutation = useMutation({
-    mutationFn: async () => {
-      await calendarApi.runMetadataScan(companyId);
-    },
-    onSuccess: () => {
-      setOperationError(null);
-      invalidateCalendar();
-    },
-    onError: (err) => setOperationError(err instanceof Error ? err.message : "Scan failed"),
-  });
 
   const items = itemsQuery.data?.items ?? [];
   const smartSearch = searchQuery.trim().toLowerCase();
+  const missingDetailsByItemId = useMemo(() => {
+    const entries = dashboardQuery.data?.missingMetadata ?? [];
+    return new Map(entries.map((finding) => [finding.itemId, finding]));
+  }, [dashboardQuery.data?.missingMetadata]);
+  const searchRows = useMemo(() => items.map((item) => ({
+    item,
+    searchText: itemSearchText(item),
+  })), [items]);
   const visibleItems = useMemo(() => {
-    if (!smartSearch) return items;
+    if (!smartSearch) return searchRows.map((row) => row.item);
     const terms = smartSearch.split(/\s+/).filter(Boolean);
-    return items.filter((item) => {
-      const haystack = itemSearchText(item);
-      return terms.every((term) => haystack.includes(term));
-    });
-  }, [items, smartSearch]);
+    return searchRows
+      .filter((row) => terms.every((term) => row.searchText.includes(term)))
+      .map((row) => row.item);
+  }, [searchRows, smartSearch]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
 
   const openCreateDialog = () => {
-    setFormMode("create");
     setSelectedItemId(null);
     setForm(emptyForm());
     setOperationError(null);
@@ -437,16 +432,25 @@ export function Calendar() {
 
   const openEditDialog = (item: CalendarItem) => {
     setSelectedItemId(item.id);
-    setFormMode("edit");
     setForm(formFromItem(item));
     setOperationError(null);
     setItemDialogOpen(true);
   };
 
+  const openItemById = (itemId: string) => {
+    const item = items.find((candidate) => candidate.id === itemId);
+    setSelectedItemId(itemId);
+    if (item) {
+      setForm(formFromItem(item));
+    }
+    setOperationError(null);
+    setItemDialogOpen(true);
+  };
+
   useEffect(() => {
-    if (formMode !== "edit" || !selectedItem) return;
+    if (!itemDialogOpen || !selectedItem) return;
     setForm(formFromItem(selectedItem));
-  }, [formMode, selectedItem?.id]);
+  }, [itemDialogOpen, selectedItem?.id]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={CalendarDays} message="Create or select a company to manage calendar obligations." />;
@@ -466,10 +470,6 @@ export function Calendar() {
           <p className="text-sm text-muted-foreground">Obligations, renewals, documents, and reminder work.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}>
-            <ClipboardCheck className="mr-2 h-4 w-4" />
-            Metadata Scan
-          </Button>
           <Button size="sm" onClick={openCreateDialog}>
             <CalendarDays className="mr-2 h-4 w-4" />
             New Item
@@ -488,22 +488,23 @@ export function Calendar() {
         <BucketTile label="30 days" value={dashboard?.dueIn30Days.count ?? 0} />
         <BucketTile label="Critical" value={dashboard?.criticalItems.count ?? 0} tone={(dashboard?.criticalItems.count ?? 0) > 0 ? "danger" : "default"} />
         <BucketTile label="Review" value={dashboard?.pendingReview.count ?? 0} />
-        <BucketTile label="Missing" value={dashboard?.missingMetadata.length ?? 0} tone={(dashboard?.missingMetadata.length ?? 0) > 0 ? "warn" : "default"} />
+        <BucketTile label="Details" value={dashboard?.missingMetadata.length ?? 0} tone={(dashboard?.missingMetadata.length ?? 0) > 0 ? "warn" : "default"} />
         <BucketTile label="30d Cost" value={formatCents(dashboard?.costSummary.upcoming30DaysCents ?? 0)} />
       </div>
 
       {dashboard?.missingMetadata.length ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Missing Metadata</CardTitle>
+            <CardTitle className="text-base">Missing Details</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {dashboard.missingMetadata.slice(0, 9).map((finding) => (
               <button
                 key={finding.itemId}
                 type="button"
+                data-testid={`calendar-missing-details-${finding.itemId}`}
                 className="border border-border p-3 text-left text-sm hover:bg-muted/40"
-                onClick={() => { setSelectedItemId(finding.itemId); setFormMode("edit"); }}
+                onClick={() => openItemById(finding.itemId)}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{finding.title}</span>
@@ -561,8 +562,16 @@ export function Calendar() {
                   {visibleItems.map((item) => (
                     <tr
                       key={item.id}
-                      className={cn("cursor-pointer border-b border-border hover:bg-muted/40", selectedItemId === item.id && "bg-muted")}
+                      role="button"
+                      tabIndex={0}
+                      data-testid={`calendar-item-row-${item.id}`}
+                      className={cn("cursor-pointer border-b border-border hover:bg-muted/40 focus:bg-muted/40 focus:outline-none", selectedItemId === item.id && "bg-muted")}
                       onClick={() => openEditDialog(item)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        openEditDialog(item);
+                      }}
                     >
                       <td className="px-4 py-3 align-top">
                         <div className="font-medium">{item.nextDueDate ?? "Unset"}</div>
@@ -571,6 +580,14 @@ export function Calendar() {
                       <td className="px-4 py-3 align-top">
                         <div className="font-medium">{item.title}</div>
                         <div className="line-clamp-1 text-xs text-muted-foreground">{item.notes}</div>
+                        {missingDetailsByItemId.has(item.id) ? (
+                          <div
+                            data-testid={`calendar-item-missing-details-${item.id}`}
+                            className="mt-1 text-xs font-medium text-amber-600"
+                          >
+                            Missing details
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 align-top">{titleCase(item.category)}</td>
                       <td className="px-4 py-3 align-top">{item.providerName ?? "Not set"}</td>
@@ -602,9 +619,12 @@ export function Calendar() {
           <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
             <DialogHeader className="border-b border-border px-6 py-4 pr-12">
               <div className="flex items-center justify-between gap-3">
-                <DialogTitle>{formMode === "edit" ? "Item Detail" : "New Item"}</DialogTitle>
-              {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
+                <DialogTitle>{isEditing ? "Item Detail" : "New Item"}</DialogTitle>
+                {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
               </div>
+              <DialogDescription>
+                Track the due date, owner, payment, account, and proof details for this obligation.
+              </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 overflow-y-auto px-6 py-4">
               <div className="grid gap-3 md:grid-cols-2">
@@ -729,7 +749,7 @@ export function Calendar() {
             <DialogFooter className="border-t border-border px-6 py-4">
               <div className="flex flex-1 flex-wrap gap-2">
                 <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-                  {formMode === "edit" ? "Save" : "Create"}
+                  {isEditing ? "Save" : "Create"}
                 </Button>
                 {selectedItem ? (
                   <>
