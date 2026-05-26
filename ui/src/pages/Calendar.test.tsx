@@ -97,8 +97,8 @@ function makeItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
   };
 }
 
-function makeDetail(item: CalendarItem): CalendarItemDetail {
-  return { ...item, documents: [], activity: [] };
+function makeDetail(item: CalendarItem, overrides: Partial<CalendarItemDetail> = {}): CalendarItemDetail {
+  return { ...item, documents: [], activity: [], ...overrides };
 }
 
 function makeDashboard(items: CalendarItem[]): CalendarDashboard {
@@ -439,6 +439,8 @@ describe("Calendar", () => {
     expect(document.body.textContent).toContain("Contacts");
     expect(document.body.textContent).toContain("Links");
     expect(document.body.textContent).toContain("Notes");
+    expect(document.body.textContent).toContain("Documents");
+    expect(document.body.textContent).toContain("History");
     expect(document.body.textContent).toContain("Recurrence behavior");
     expect(document.body.textContent).toContain("Completing advances to 2027-06-30");
     expect(document.body.textContent).toContain("Reminder policy");
@@ -451,5 +453,65 @@ describe("Calendar", () => {
 
     expect(document.body.textContent).toContain("Payment Method");
     expect(document.body.textContent).toContain("Cost Center");
+  });
+
+  it("preserves document and history access in the item dialog", async () => {
+    const detail = makeDetail(items[0]!, {
+      documents: [{
+        id: "doc-link-1",
+        companyId: "company-1",
+        calendarItemId: "item-1",
+        documentType: "invoice",
+        documentId: null,
+        assetId: null,
+        sourceEmailMessageId: null,
+        sourceEmailAttachmentId: null,
+        title: "Renewal invoice",
+        url: "https://example.com/invoice.pdf",
+        notes: "Proof of renewal",
+        metadata: null,
+        createdByAgentId: null,
+        createdByUserId: "user-1",
+        createdAt: "2026-05-26T10:00:00.000Z",
+        updatedAt: "2026-05-26T10:00:00.000Z",
+      }],
+      activity: [{
+        id: "activity-1",
+        companyId: "company-1",
+        actorType: "user",
+        actorId: "user-1",
+        action: "calendar_item.document_attached",
+        entityType: "calendar_item",
+        entityId: "item-1",
+        agentId: null,
+        runId: null,
+        details: null,
+        createdAt: "2026-05-26T10:05:00.000Z",
+      }],
+    });
+    mockCalendarApi.detail.mockResolvedValueOnce(detail);
+
+    await renderPage();
+
+    await act(async () => {
+      (container.querySelector("[data-testid='calendar-item-row-item-1']") as HTMLTableRowElement).click();
+    });
+    await flushReact();
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-documents']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Renewal invoice");
+    expect(document.body.textContent).toContain("Proof of renewal");
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-history']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Document Attached");
+    expect(document.body.textContent).toContain("User - user-1");
   });
 });

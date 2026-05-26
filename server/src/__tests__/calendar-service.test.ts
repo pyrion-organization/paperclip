@@ -392,6 +392,40 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(overdueIssues[0]!.originFingerprint).toBe("2026-05-30:overdue:issue");
   });
 
+  it("dedupes overdue reminder emails across daily scans", async () => {
+    await svc.create(companyId, item({
+      title: "Overdue email renewal",
+      category: "certificate",
+      riskLevel: "critical",
+      nextDueDate: "2026-05-30",
+      billingEmail: "billing@example.com",
+    }));
+
+    const first = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const second = await svc.runReminderScan(companyId, {
+      now: new Date("2026-06-01T00:00:00.000Z"),
+      createIssues: true,
+      sendEmail: true,
+      recipientEmail: "ops@example.com",
+    });
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+
+    expect(first.queuedEmails).toBe(1);
+    expect(second.queuedEmails).toBe(0);
+    expect(queuedEmails).toHaveLength(1);
+  });
+
   it("dedupes reminder emails by calendar identity even without linked issues", async () => {
     await svc.create(companyId, item({
       title: "Shared SaaS renewal",

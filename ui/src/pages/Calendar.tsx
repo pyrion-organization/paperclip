@@ -7,6 +7,7 @@ import {
   type CalendarDashboard,
   type CalendarItem,
   type CalendarItemCategory,
+  type CalendarItemDetail,
   type CalendarItemStatus,
   type CalendarRecurrenceType,
   type CalendarRiskLevel,
@@ -305,6 +306,14 @@ function dashboardMissingDetails(dashboard: CalendarDashboard | undefined) {
   return dashboard?.missingDetails ?? [];
 }
 
+function itemDocuments(item: CalendarItem | CalendarItemDetail | null) {
+  return item && "documents" in item ? item.documents : [];
+}
+
+function itemActivity(item: CalendarItem | CalendarItemDetail | null) {
+  return item && "activity" in item ? item.activity : [];
+}
+
 function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | undefined }) {
   const status = dashboard?.reminderStatus;
   const hasFailures = (status?.failedEmails ?? 0) > 0;
@@ -509,6 +518,8 @@ export function Calendar() {
     return new Map(missingDetails.map((finding) => [finding.itemId, finding]));
   }, [missingDetails]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
+  const selectedDocuments = itemDocuments(selectedItem);
+  const selectedActivity = itemActivity(selectedItem);
 
   const openCreateDialog = () => {
     setSelectedItemId(null);
@@ -731,6 +742,8 @@ export function Calendar() {
                   <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
                   <TabsTrigger value="links" data-testid="calendar-tab-links" onClick={() => setItemDialogTab("links")}>Links</TabsTrigger>
                   <TabsTrigger value="notes" data-testid="calendar-tab-notes" onClick={() => setItemDialogTab("notes")}>Notes</TabsTrigger>
+                  {selectedItem ? <TabsTrigger value="documents" data-testid="calendar-tab-documents" onClick={() => setItemDialogTab("documents")}>Documents</TabsTrigger> : null}
+                  {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
                 </TabsList>
                 <TabsContent value="overview" className="grid gap-3 md:grid-cols-2">
                   <Field label="Title">
@@ -871,6 +884,39 @@ export function Calendar() {
                   <Field label="Internal Notes">
                     <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
                   </Field>
+                </TabsContent>
+                <TabsContent value="documents" className="grid gap-2">
+                  {selectedDocuments.length === 0 ? (
+                    <div className="border border-border p-3 text-sm text-muted-foreground">No documents linked.</div>
+                  ) : selectedDocuments.map((document) => (
+                    <div key={document.id} className="border border-border p-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-medium">{document.title ?? titleCase(document.documentType)}</div>
+                        <div className="text-xs text-muted-foreground">{titleCase(document.documentType)}</div>
+                      </div>
+                      {document.url ? (
+                        <a className="mt-1 block truncate text-xs text-primary hover:underline" href={document.url} target="_blank" rel="noreferrer">
+                          {document.url}
+                        </a>
+                      ) : null}
+                      {document.notes ? <div className="mt-2 text-xs text-muted-foreground">{document.notes}</div> : null}
+                    </div>
+                  ))}
+                </TabsContent>
+                <TabsContent value="history" className="grid gap-2">
+                  {selectedActivity.length === 0 ? (
+                    <div className="border border-border p-3 text-sm text-muted-foreground">No activity recorded.</div>
+                  ) : selectedActivity.map((entry) => (
+                    <div key={entry.id} className="border border-border p-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-medium">{titleCase(entry.action.replace(/^calendar_item\./, ""))}</div>
+                        <div className="text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {titleCase(entry.actorType)} - {entry.actorId}
+                      </div>
+                    </div>
+                  ))}
                 </TabsContent>
               </Tabs>
             </div>

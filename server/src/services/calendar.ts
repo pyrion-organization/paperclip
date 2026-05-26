@@ -1164,6 +1164,9 @@ export function calendarService(db: Db) {
               ? `[Calendar Paperclip] OVERDUE: ${item.title}`
               : `[Calendar Paperclip] Upcoming deadline: ${item.title} - due ${dueText}`;
             for (const recipientEmail of recipientEmails) {
+              const emailTimingCondition = daysUntilDue < 0
+                ? sql`(${emailNotifications.payload}->>'daysUntilDue') ~ '^-?[0-9]+$' and (${emailNotifications.payload}->>'daysUntilDue')::int < 0`
+                : eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue));
               const existingEmail = await db
                 .select({ id: emailNotifications.id, issueId: emailNotifications.issueId })
                 .from(emailNotifications)
@@ -1173,7 +1176,7 @@ export function calendarService(db: Db) {
                   eq(emailNotifications.recipientEmail, recipientEmail),
                   eq(sql<string>`${emailNotifications.payload}->>'calendarItemId'`, item.id),
                   eq(sql<string>`${emailNotifications.payload}->>'dueDate'`, dueText),
-                  eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue)),
+                  emailTimingCondition,
                 ))
                 .limit(1)
                 .then((emailRows) => emailRows[0] ?? null);
