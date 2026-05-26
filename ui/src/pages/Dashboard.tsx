@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "../api/dashboard";
@@ -25,7 +25,10 @@ import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
 import type { Agent, Issue } from "@paperclipai/shared";
-import { PluginSlotOutlet } from "@/plugins/slots";
+
+const DashboardPluginSlotOutlet = lazy(() =>
+  import("@/plugins/LazyPluginSlotOutlet").then(({ LazyPluginSlotOutlet }) => ({ default: LazyPluginSlotOutlet })),
+);
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
@@ -306,12 +309,14 @@ export function Dashboard() {
             </ChartCard>
           </div>
 
-          <PluginSlotOutlet
-            slotTypes={["dashboardWidget"]}
-            context={{ companyId: selectedCompanyId }}
-            className="grid gap-4 md:grid-cols-2"
-            itemClassName="rounded-lg border bg-card p-4 shadow-sm"
-          />
+          <Suspense fallback={null}>
+            <DashboardPluginSlotOutlet
+              slotTypes={["dashboardWidget"]}
+              context={{ companyId: selectedCompanyId }}
+              className="grid gap-4 md:grid-cols-2"
+              itemClassName="rounded-lg border bg-card p-4 shadow-sm"
+            />
+          </Suspense>
 
           <div className="grid md:grid-cols-2 gap-4">
             {/* Recent Activity */}

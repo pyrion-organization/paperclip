@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { Issue, IssueRecoveryAction } from "@paperclipai/shared";
@@ -13,8 +13,11 @@ import {
 } from "../lib/recovery-display";
 import { ExternalLink } from "lucide-react";
 import { Identity } from "./Identity";
-import { RunChatSurface } from "./RunChatSurface";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
+
+const RunChatSurface = lazy(() =>
+  import("./RunChatSurface").then((module) => ({ default: module.RunChatSurface })),
+);
 
 function RunCardRecoveryChip({ action }: { action: IssueRecoveryAction }) {
   const state = deriveActiveRecoveryDisplayState(action);
@@ -226,12 +229,14 @@ const AgentRunCard = memo(function AgentRunCard({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <RunChatSurface
-          run={run}
-          transcript={transcript}
-          hasOutput={hasOutput}
-          companyId={companyId}
-        />
+        <Suspense fallback={<div className="text-xs text-muted-foreground">Loading transcript...</div>}>
+          <RunChatSurface
+            run={run}
+            transcript={transcript}
+            hasOutput={hasOutput}
+            companyId={companyId}
+          />
+        </Suspense>
       </div>
     </div>
   );

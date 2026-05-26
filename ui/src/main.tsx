@@ -12,7 +12,6 @@ import { SidebarProvider } from "./context/SidebarContext";
 import { DialogProvider } from "./context/DialogContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ThemeProvider } from "./context/ThemeContext";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { PluginLauncherProvider } from "./plugins/launcher-runtime";
 import "./index.css";
 
@@ -44,19 +43,17 @@ createRoot(document.getElementById("root")!).render(
           <CompanyProvider>
             <ToastProvider>
               <LiveUpdatesProvider>
-                <TooltipProvider>
-                  <CompanyAwareBreadcrumbProvider>
-                    <SidebarProvider>
-                      <PanelProvider>
-                        <PluginLauncherProvider>
-                          <DialogProvider>
-                            <App />
-                          </DialogProvider>
-                        </PluginLauncherProvider>
-                      </PanelProvider>
-                    </SidebarProvider>
-                  </CompanyAwareBreadcrumbProvider>
-                </TooltipProvider>
+                <CompanyAwareBreadcrumbProvider>
+                  <SidebarProvider>
+                    <PanelProvider>
+                      <PluginLauncherProvider>
+                        <DialogProvider>
+                          <App />
+                        </DialogProvider>
+                      </PluginLauncherProvider>
+                    </PanelProvider>
+                  </SidebarProvider>
+                </CompanyAwareBreadcrumbProvider>
               </LiveUpdatesProvider>
             </ToastProvider>
           </CompanyProvider>

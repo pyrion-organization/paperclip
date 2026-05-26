@@ -13,7 +13,6 @@ import { cn, projectRouteRef } from "../lib/utils";
 import { useProjectOrder } from "../hooks/useProjectOrder";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
-import { PluginSlotMount, usePluginSlots } from "@/plugins/slots";
 import {
   getProjectSortModeStorageKey,
   PROJECT_SORT_MODE_UPDATED_EVENT,
@@ -24,8 +23,6 @@ import {
 } from "../lib/project-order";
 import type { Project } from "@paperclipai/shared";
 
-type ProjectSidebarSlot = ReturnType<typeof usePluginSlots>["slots"][number];
-
 const PROJECT_SORT_CHOICES: SidebarSectionRadioChoice[] = [
   { value: "top", label: "Top" },
   { value: "alphabetical", label: "Alphabetical" },
@@ -35,6 +32,9 @@ const REORDER_POINTER_MEDIA = "(hover: hover) and (pointer: fine)";
 const SidebarProjectReorderList = lazy(() =>
   import("./SidebarProjectReorderList").then((module) => ({ default: module.SidebarProjectReorderList })),
 );
+const SidebarProjectPluginSlots = lazy(() =>
+  import("./SidebarProjectPluginSlots").then((module) => ({ default: module.SidebarProjectPluginSlots })),
+);
 
 type ProjectItemProps = {
   activeProjectRef: string | null;
@@ -43,7 +43,6 @@ type ProjectItemProps = {
   isMobile: boolean;
   isCollapsed: boolean;
   project: Project;
-  projectSidebarSlots: ProjectSidebarSlot[];
   setSidebarOpen: (open: boolean) => void;
   isDragging?: boolean;
 };
@@ -96,7 +95,6 @@ function ProjectItem({
   isMobile,
   isCollapsed,
   project,
-  projectSidebarSlots,
   setSidebarOpen,
   isDragging = false,
 }: ProjectItemProps) {
@@ -153,25 +151,14 @@ function ProjectItem({
         <span className="flex-1 truncate">{project.name}</span>
         {project.pauseReason === "budget" ? <BudgetSidebarMarker title="Project paused by budget" /> : null}
       </NavLink>
-      {projectSidebarSlots.length > 0 && (
-        <div className="ml-5 flex flex-col gap-0.5">
-          {projectSidebarSlots.map((slot) => (
-            <PluginSlotMount
-              key={`${project.id}:${slot.pluginKey}:${slot.id}`}
-              slot={slot}
-              context={{
-                companyId,
-                companyPrefix,
-                projectId: project.id,
-                projectRef: routeRef,
-                entityId: project.id,
-                entityType: "project",
-              }}
-              missingBehavior="placeholder"
-            />
-          ))}
-        </div>
-      )}
+      <Suspense fallback={null}>
+        <SidebarProjectPluginSlots
+          companyId={companyId}
+          companyPrefix={companyPrefix}
+          projectId={project.id}
+          projectRef={routeRef}
+        />
+      </Suspense>
     </div>
   );
 }
@@ -192,12 +179,6 @@ export function SidebarProjects() {
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
-  });
-  const { slots: projectSidebarSlots } = usePluginSlots({
-    slotTypes: ["projectSidebarItem"],
-    entityType: "project",
-    companyId: selectedCompanyId,
-    enabled: !!selectedCompanyId,
   });
 
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
@@ -279,7 +260,6 @@ export function SidebarProjects() {
       isMobile={isMobile}
       isCollapsed={isCollapsed}
       project={project}
-      projectSidebarSlots={projectSidebarSlots}
       setSidebarOpen={setSidebarOpen}
       isDragging={isDragging}
     />
