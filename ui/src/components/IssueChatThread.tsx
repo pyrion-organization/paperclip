@@ -92,7 +92,7 @@ import { MarkdownEditor, type MentionOption, type MarkdownEditorRef } from "./Ma
 import { Identity } from "./Identity";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 import { IssueThreadInteractionCard } from "./IssueThreadInteractionCard";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { restoreSubmittedCommentDraft } from "../lib/comment-submit-draft";
 import {
   captureComposerViewportSnapshot,

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { MoreHorizontal, Play } from "lucide-react";
 import { Link } from "@/lib/router";
-import { AgentIcon } from "@/components/AgentIconPicker";
+import { AgentIcon } from "@/components/AgentIcon";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,

@@ -9,7 +9,7 @@ import { agentUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { AgentIcon } from "../components/AgentIconPicker";
+import { AgentIcon } from "../components/AgentIcon";
 import { Download, Maximize2, Minus, Network, Plus, Upload } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
 import { AGENT_ROLE_LABELS } from "@paperclipai/shared/constants";

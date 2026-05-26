@@ -39,7 +39,7 @@ import {
   buildUserMentionHref,
 } from "@paperclipai/shared/project-mentions";
 import { Boxes, CalendarClock, User } from "lucide-react";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { applyMentionChipDecoration, clearMentionChipDecoration, parseMentionChipHref } from "../lib/mention-chips";
 import { MentionAwareLinkNode, mentionAwareLinkNodeReplacement } from "../lib/mention-aware-link-node";
 import { mentionDeletionPlugin } from "../lib/mention-deletion";

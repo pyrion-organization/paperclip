@@ -13,7 +13,7 @@ import {
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { User, Eye, ShieldCheck } from "lucide-react";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 
 type StageType = "review" | "approval";
 

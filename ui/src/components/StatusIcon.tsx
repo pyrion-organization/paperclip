@@ -1,11 +1,20 @@
 import { useState } from "react";
 import type { IssueBlockerAttention } from "@paperclipai/shared";
 import { cn } from "../lib/utils";
-import { issueStatusIcon, issueStatusIconDefault } from "../lib/status-colors";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 
 const allStatuses = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "blocked"];
+const issueStatusIcon: Record<string, string> = {
+  backlog: "text-muted-foreground border-muted-foreground",
+  todo: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
+  in_progress: "text-yellow-600 border-yellow-600 dark:text-yellow-400 dark:border-yellow-400",
+  in_review: "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400",
+  done: "text-green-600 border-green-600 dark:text-green-400 dark:border-green-400",
+  cancelled: "text-neutral-500 border-neutral-500",
+  blocked: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400",
+};
+const issueStatusIconDefault = "text-muted-foreground border-muted-foreground";
 
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

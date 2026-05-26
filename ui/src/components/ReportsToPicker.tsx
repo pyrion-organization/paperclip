@@ -8,7 +8,7 @@ import {
 import { User } from "lucide-react";
 import { cn } from "../lib/utils";
 import { roleLabels } from "./agent-config-primitives";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 
 export function ReportsToPicker({
   agents,

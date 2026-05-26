@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
 import { IssueWorkspaceCard } from "./IssueWorkspaceCard";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "../lib/recent-projects";

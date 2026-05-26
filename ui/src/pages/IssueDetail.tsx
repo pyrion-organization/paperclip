@@ -68,7 +68,7 @@ import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff
 import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
 import { IssuesList } from "../components/IssuesList";
-import { AgentIcon } from "../components/AgentIconPicker";
+import { AgentIcon } from "../components/AgentIcon";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
 import { IssueRelatedWorkPanel } from "../components/IssueRelatedWorkPanel";
 import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";

@@ -50,7 +50,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { User, Hexagon, ArrowUpRight, Tag, Plus, GitBranch, FolderOpen, Check, ExternalLink, Calendar, X, Clock, RotateCcw, Loader2, CheckCircle2 } from "lucide-react";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 
 function toDatetimeLocalValue(date: Date): string {

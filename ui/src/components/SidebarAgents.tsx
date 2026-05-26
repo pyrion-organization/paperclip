@@ -28,7 +28,7 @@ import {
   type AgentSidebarSortMode,
   writeAgentSortMode,
 } from "../lib/agent-order";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
 import { Button } from "@/components/ui/button";

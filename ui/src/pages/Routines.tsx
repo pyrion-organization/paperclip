@@ -22,7 +22,7 @@ import { EmptyState } from "../components/EmptyState";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
-import { AgentIcon } from "../components/AgentIconPicker";
+import { AgentIcon } from "../components/AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "../components/MarkdownEditor";
 import { RoutineListRow, nextRoutineStatus } from "../components/RoutineList";

@@ -40,7 +40,7 @@ import { timeAgo, timeUntil } from "../lib/timeAgo";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
-import { AgentIcon } from "../components/AgentIconPicker";
+import { AgentIcon } from "../components/AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "../components/MarkdownEditor";
 import {

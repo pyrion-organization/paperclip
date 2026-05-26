@@ -1,7 +1,4 @@
 import { useState, useMemo } from "react";
-import {
-  type LucideIcon,
-} from "lucide-react";
 import { AGENT_ICON_NAMES, type AgentIconName } from "@paperclipai/shared/constants";
 import {
   Popover,
@@ -10,19 +7,10 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { AGENT_ICONS, getAgentIcon } from "../lib/agent-icons";
+import { AGENT_ICONS } from "../lib/agent-icons";
+export { AgentIcon } from "./AgentIcon";
 
 const DEFAULT_ICON: AgentIconName = "bot";
-
-interface AgentIconProps {
-  icon: string | null | undefined;
-  className?: string;
-}
-
-export function AgentIcon({ icon, className }: AgentIconProps) {
-  const Icon = getAgentIcon(icon);
-  return <Icon className={className} />;
-}
 
 interface AgentIconPickerProps {
   value: string | null | undefined;

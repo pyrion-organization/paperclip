@@ -65,7 +65,7 @@ import { cn } from "../lib/utils";
 import { extractProviderIdWithFallback } from "../lib/model-utils";
 import { issueStatusText, issueStatusTextDefault, priorityColor, priorityColorDefault } from "../lib/status-colors";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";
-import { AgentIcon } from "./AgentIconPicker";
+import { AgentIcon } from "./AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 
 const DRAFT_KEY = "paperclip:issue-draft";

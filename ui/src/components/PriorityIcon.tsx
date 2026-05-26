@@ -1,9 +1,16 @@
 import { useState } from "react";
 import { ArrowUp, ArrowDown, Minus, AlertTriangle } from "lucide-react";
 import { cn } from "../lib/utils";
-import { priorityColor, priorityColorDefault } from "../lib/status-colors";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+
+const priorityColor: Record<string, string> = {
+  critical: "text-red-600 dark:text-red-400",
+  high: "text-orange-600 dark:text-orange-400",
+  medium: "text-yellow-600 dark:text-yellow-400",
+  low: "text-blue-600 dark:text-blue-400",
+};
+const priorityColorDefault = "text-yellow-600 dark:text-yellow-400";
 
 const priorityConfig: Record<string, { icon: typeof ArrowUp; color: string; label: string }> = {
   critical: { icon: AlertTriangle, color: priorityColor.critical ?? priorityColorDefault, label: "Critical" },

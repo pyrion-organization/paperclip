@@ -27,7 +27,7 @@ import {
   FileTree,
   type FileTreeProps as HostFileTreeProps,
 } from "@/components/FileTree";
-import { AgentIcon } from "@/components/AgentIconPicker";
+import { AgentIcon } from "@/components/AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "@/components/InlineEntitySelector";
 import { IssuesList as HostIssuesList } from "@/components/IssuesList";
 import { ManagedRoutinesList as HostManagedRoutinesList } from "@/components/ManagedRoutinesList";
