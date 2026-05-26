@@ -14,7 +14,6 @@ import type {
   PluginLauncherBounds,
   PluginUiSlotEntityType,
 } from "@paperclipai/shared/constants";
-import { PLUGIN_LAUNCHER_BOUNDS } from "@paperclipai/shared/constants";
 import type { PluginLauncherDeclaration } from "@paperclipai/shared/types/plugin";
 import type { PluginUiContribution } from "@/api/plugins";
 import { useLocation, useNavigate } from "@/lib/router";
@@ -74,7 +73,14 @@ export type PluginLauncherRuntimeContextValue = {
   ): Promise<void>;
 };
 
-const supportedLauncherBounds = new Set<PluginLauncherBounds>(PLUGIN_LAUNCHER_BOUNDS);
+const SUPPORTED_LAUNCHER_BOUNDS = [
+  "inline",
+  "compact",
+  "default",
+  "wide",
+  "full",
+] as const satisfies readonly PluginLauncherBounds[];
+const supportedLauncherBounds = new Set<PluginLauncherBounds>(SUPPORTED_LAUNCHER_BOUNDS);
 const PluginLauncherRuntimeContext = createContext<PluginLauncherRuntimeContextValue | null>(null);
 
 export function isPluginLauncherBounds(value: unknown): value is PluginLauncherBounds {
