@@ -173,6 +173,8 @@ vi.mock("../context/DialogContext", () => ({
     newIssueOpen: false,
     newProjectOpen: false,
     newGoalOpen: false,
+    newClientOpen: false,
+    newAgentOpen: false,
   }),
 }));
 
@@ -302,7 +304,7 @@ describe("Layout", () => {
     expect(mockHealthApi.get).toHaveBeenCalled();
     expect(container.textContent).toContain("Breadcrumbs");
     expect(container.textContent).toContain("Outlet content");
-    expect(container.querySelector('[data-testid="create-client-dialog"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="create-client-dialog"]')).toBeNull();
     expect(container.textContent).not.toContain("Company rail");
     expect(container.textContent).not.toContain("Authenticated private");
     expect(container.textContent).not.toContain(

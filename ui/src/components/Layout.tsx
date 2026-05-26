@@ -7,8 +7,6 @@ import { CompanySettingsSidebar } from "./CompanySettingsSidebar";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { PropertiesPanel } from "./PropertiesPanel";
-import { CreateClientDialog } from "./CreateClientDialog";
-import { NewAgentDialog } from "./NewAgentDialog";
 import { KeyboardShortcutsCheatsheet } from "./KeyboardShortcutsCheatsheet";
 import { ToastViewport } from "./ToastViewport";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -45,6 +43,8 @@ const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
 const CommandPalette = lazy(() => import("./CommandPalette").then((module) => ({ default: module.CommandPalette })));
+const CreateClientDialog = lazy(() => import("./CreateClientDialog").then((module) => ({ default: module.CreateClientDialog })));
+const NewAgentDialog = lazy(() => import("./NewAgentDialog").then((module) => ({ default: module.NewAgentDialog })));
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -66,7 +66,7 @@ function readRememberedInstanceSettingsPath(): string {
 export function Layout() {
   const { sidebarOpen, setSidebarOpen, toggleSidebar, isMobile, isCollapsed } = useSidebar();
   const { openNewIssue, openOnboarding } = useDialogActions();
-  const { newIssueOpen, newProjectOpen, newGoalOpen } = useDialogState();
+  const { newIssueOpen, newProjectOpen, newGoalOpen, newClientOpen, newAgentOpen } = useDialogState();
   const { togglePanelVisible } = usePanel();
   const {
     companies,
@@ -481,9 +481,9 @@ export function Layout() {
         {newIssueOpen ? <NewIssueDialog /> : null}
         {newProjectOpen ? <NewProjectDialog /> : null}
         {newGoalOpen ? <NewGoalDialog /> : null}
+        {newClientOpen ? <CreateClientDialog /> : null}
+        {newAgentOpen ? <NewAgentDialog /> : null}
       </Suspense>
-      <CreateClientDialog />
-      <NewAgentDialog />
       <KeyboardShortcutsCheatsheet open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <ToastViewport />
       </div>
