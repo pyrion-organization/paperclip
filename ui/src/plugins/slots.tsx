@@ -236,6 +236,7 @@ function buildPluginUiUrl(contribution: PluginUiContribution): string {
  * ordering issues.
  */
 const shimBlobUrls: Record<string, string> = {};
+let pluginBridgeInitPromise: Promise<void> | null = null;
 
 function applyJsxRuntimeKey(
   props: Record<string, unknown> | null | undefined,
@@ -326,6 +327,19 @@ function getShimBlobUrl(specifier: "react" | "react-dom" | "react-dom/client" | 
   return url;
 }
 
+async function ensurePluginBridgeInitialized(): Promise<void> {
+  if (globalThis.__paperclipPluginBridge__) return;
+
+  pluginBridgeInitPromise ??= Promise.all([
+    import("./bridge-init"),
+    import("react-dom"),
+  ]).then(([{ initPluginBridge }, reactDom]) => {
+    initPluginBridge(ReactModule, reactDom);
+  });
+
+  await pluginBridgeInitPromise;
+}
+
 /**
  * Rewrite bare specifier imports in an ESM source string to use blob URLs.
  *
@@ -374,12 +388,7 @@ function rewriteBareSpecifiers(source: string): string {
  * @returns The module's exports
  */
 async function importPluginModule(url: string): Promise<Record<string, unknown>> {
-  // Check if the bridge registry is available. If not, fall back to direct
-  // import (which will fail on bare specifiers but won't crash the loader).
-  if (!globalThis.__paperclipPluginBridge__) {
-    console.warn("[plugin-loader] Bridge registry not initialized, falling back to direct import");
-    return import(/* @vite-ignore */ url);
-  }
+  await ensurePluginBridgeInitialized();
 
   // Fetch the module source text
   const response = await fetch(url);

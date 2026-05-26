@@ -169,6 +169,11 @@ vi.mock("../context/DialogContext", () => ({
     openNewIssue: vi.fn(),
     openOnboarding: vi.fn(),
   }),
+  useDialogState: () => ({
+    newIssueOpen: false,
+    newProjectOpen: false,
+    newGoalOpen: false,
+  }),
 }));
 
 vi.mock("../context/PanelContext", () => ({

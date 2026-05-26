@@ -5,8 +5,7 @@
  * on a global object so that the plugin module loader can inject them
  * into plugin UI bundles at load time.
  *
- * Call `initPluginBridge()` once during app startup (in `main.tsx`), before
- * any plugin UI modules are loaded.
+ * Call `initPluginBridge()` once before any plugin UI modules are loaded.
  *
  * @see PLUGIN_SPEC.md §19.0.1 — Plugin UI SDK
  * @see PLUGIN_SPEC.md §19.0.2 — Bundle Isolation
