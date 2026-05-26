@@ -86,7 +86,6 @@ import { Input } from "@/components/ui/input";
 import { AgentIcon, AgentIconPicker } from "../components/AgentIconPicker";
 import { RunTranscriptView, type TranscriptMode } from "../components/transcript/RunTranscriptView";
 import {
-  isUuidLike,
   type Agent,
   type AgentInstructionsBundle,
   type AgentInstructionsFileSummary,
@@ -100,6 +99,7 @@ import {
   type LiveEvent,
   type WorkspaceOperation,
 } from "@paperclipai/shared";
+import { isUuidLike } from "@paperclipai/shared/agent-url-key";
 import { redactHomePathUserSegments, redactHomePathUserSegmentsInValue } from "@paperclipai/adapter-utils";
 import { agentRouteRef } from "../lib/utils";
 import {

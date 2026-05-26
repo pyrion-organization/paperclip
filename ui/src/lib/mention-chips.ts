@@ -1,12 +1,12 @@
 import type { CSSProperties } from "react";
 import {
   parseAgentMentionHref,
-  parseIssueReferenceHref,
   parseProjectMentionHref,
   parseRoutineMentionHref,
   parseSkillMentionHref,
   parseUserMentionHref,
-} from "@paperclipai/shared";
+} from "@paperclipai/shared/project-mentions";
+import { parseIssueReferenceHref } from "@paperclipai/shared/issue-references";
 import { getAgentIcon } from "./agent-icons";
 import { hexToRgb, pickTextColorForPillBg } from "./color-contrast";
 

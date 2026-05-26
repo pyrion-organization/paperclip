@@ -16,13 +16,15 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { PLUGIN_LAUNCHER_BOUNDS } from "@paperclipai/shared";
+import {
+  PLUGIN_LAUNCHER_BOUNDS,
+  type PluginLauncherBounds,
+  type PluginLauncherPlacementZone,
+  type PluginUiSlotEntityType,
+} from "@paperclipai/shared/constants";
 import type {
-  PluginLauncherBounds,
   PluginLauncherDeclaration,
-  PluginLauncherPlacementZone,
-  PluginUiSlotEntityType,
-} from "@paperclipai/shared";
+} from "@paperclipai/shared/types/plugin";
 import { pluginsApi, type PluginUiContribution } from "@/api/plugins";
 import { authApi } from "@/api/auth";
 import { Button } from "@/components/ui/button";

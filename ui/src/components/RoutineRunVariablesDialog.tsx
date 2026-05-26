@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  WORKSPACE_BRANCH_ROUTINE_VARIABLE,
   type Agent,
   type ExecutionWorkspace,
   type ExecutionWorkspaceMode,
@@ -8,6 +7,7 @@ import {
   type Project,
   type RoutineVariable,
 } from "@paperclipai/shared";
+import { WORKSPACE_BRANCH_ROUTINE_VARIABLE } from "@paperclipai/shared/constants";
 import { useQuery } from "@tanstack/react-query";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";

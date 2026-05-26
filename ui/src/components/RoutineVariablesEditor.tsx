@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
-import { syncRoutineVariablesWithTemplate, type RoutineVariable } from "@paperclipai/shared";
+import type { RoutineVariable } from "@paperclipai/shared";
+import { syncRoutineVariablesWithTemplate } from "@paperclipai/shared/routine-variables";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {

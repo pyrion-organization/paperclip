@@ -17,7 +17,7 @@ import type {
   AdapterModelProfileDefinition,
   AdapterModelProfileKey,
 } from "@paperclipai/adapter-utils";
-import { isUuidLike, normalizeAgentUrlKey } from "@paperclipai/shared";
+import { isUuidLike, normalizeAgentUrlKey } from "@paperclipai/shared/agent-url-key";
 import { ApiError, api } from "./client";
 
 export interface AgentKey {

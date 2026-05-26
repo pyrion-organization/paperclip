@@ -137,24 +137,26 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import type {
+  AskUserQuestionsAnswer,
+  AskUserQuestionsInteraction,
+  ActivityEvent,
+  Agent,
+  FeedbackVote,
+  Issue,
+  IssueAttachment,
+  IssueComment,
+  IssueWorkMode,
+  IssueThreadInteraction,
+  RequestConfirmationInteraction,
+  SuggestTasksInteraction,
+  IssueTreeControlMode,
+} from "@paperclipai/shared";
+import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared/constants";
 import {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
-  ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
-  type AskUserQuestionsAnswer,
-  type AskUserQuestionsInteraction,
-  type ActivityEvent,
-  type Agent,
-  type FeedbackVote,
-  type Issue,
-  type IssueAttachment,
-  type IssueComment,
-  type IssueWorkMode,
-  type IssueThreadInteraction,
-  type RequestConfirmationInteraction,
-  type SuggestTasksInteraction,
-  type IssueTreeControlMode,
-} from "@paperclipai/shared";
+} from "@paperclipai/shared/execution-workspace-guards";
 
 type CommentReassignment = IssueCommentReassignment;
 type ActionableIssueThreadInteraction = SuggestTasksInteraction | RequestConfirmationInteraction;

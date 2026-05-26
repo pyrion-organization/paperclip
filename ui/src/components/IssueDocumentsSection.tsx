@@ -8,7 +8,7 @@ import type {
   Issue,
   IssueDocument,
 } from "@paperclipai/shared";
-import { isSystemIssueDocumentKey } from "@paperclipai/shared";
+import { isSystemIssueDocumentKey } from "@paperclipai/shared/constants";
 import { useLocation } from "@/lib/router";
 import { ApiError } from "../api/client";
 import { issuesApi } from "../api/issues";

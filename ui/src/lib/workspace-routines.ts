@@ -1,8 +1,6 @@
-import {
-  extractRoutineVariableNames,
-  WORKSPACE_BRANCH_ROUTINE_VARIABLE,
-  type RoutineListItem,
-} from "@paperclipai/shared";
+import type { RoutineListItem } from "@paperclipai/shared";
+import { WORKSPACE_BRANCH_ROUTINE_VARIABLE } from "@paperclipai/shared/constants";
+import { extractRoutineVariableNames } from "@paperclipai/shared/routine-variables";
 
 const WORKSPACE_SPECIFIC_ROUTINE_VARIABLES = new Set([
   WORKSPACE_BRANCH_ROUTINE_VARIABLE,

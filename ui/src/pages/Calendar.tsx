@@ -4,14 +4,16 @@ import {
   CALENDAR_ITEM_CATEGORIES,
   CALENDAR_RECURRENCE_TYPES,
   CALENDAR_RISK_LEVELS,
-  type CalendarDashboard,
-  type CalendarItem,
-  type CalendarItemCategory,
-  type CalendarItemDetail,
-  type CalendarItemStatus,
-  type CalendarRecurrenceType,
-  type CalendarRiskLevel,
-  type CreateCalendarItemInput,
+} from "@paperclipai/shared/constants";
+import type {
+  CalendarDashboard,
+  CalendarItem,
+  CalendarItemCategory,
+  CalendarItemDetail,
+  CalendarItemStatus,
+  CalendarRecurrenceType,
+  CalendarRiskLevel,
+  CreateCalendarItemInput,
 } from "@paperclipai/shared";
 import {
   Archive,

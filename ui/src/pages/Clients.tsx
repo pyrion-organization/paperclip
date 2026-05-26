@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { CLIENT_STATUSES } from "@paperclipai/shared";
+import { CLIENT_STATUSES } from "@paperclipai/shared/constants";
 import { clientsApi } from "../api/clients";
 import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";

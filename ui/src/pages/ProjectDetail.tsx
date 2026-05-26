@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary, type ExecutionWorkspace, type ProjectClientRef } from "@paperclipai/shared";
+import type { BudgetPolicySummary, ExecutionWorkspace, ProjectClientRef } from "@paperclipai/shared";
+import { isUuidLike } from "@paperclipai/shared/agent-url-key";
+import { PROJECT_COLORS } from "@paperclipai/shared/constants";
 import { budgetsApi } from "../api/budgets";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { instanceSettingsApi } from "../api/instanceSettings";

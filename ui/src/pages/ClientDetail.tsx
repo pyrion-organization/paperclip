@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ClientEmployee, ClientProject } from "@paperclipai/shared";
-import { CLIENT_STATUSES } from "@paperclipai/shared";
+import { CLIENT_STATUSES } from "@paperclipai/shared/constants";
 import { clientsApi } from "../api/clients";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";

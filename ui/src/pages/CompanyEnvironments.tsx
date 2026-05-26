@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AGENT_ADAPTER_TYPES,
-  getAdapterEnvironmentSupport,
-  type Environment,
-  type EnvironmentProbeResult,
-  type JsonSchema,
-} from "@paperclipai/shared";
+import type { Environment, EnvironmentProbeResult, JsonSchema } from "@paperclipai/shared";
+import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared/constants";
+import { getAdapterEnvironmentSupport } from "@paperclipai/shared/environment-support";
 import { Check, Settings } from "lucide-react";
 import { environmentsApi } from "@/api/environments";
 import { instanceSettingsApi } from "@/api/instanceSettings";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_INFRA_PROVIDER_DESCRIPTORS } from "@paperclipai/shared";
+import { PROJECT_INFRA_PROVIDER_DESCRIPTORS } from "@paperclipai/shared/constants";
 import type {
   Project,
   ProjectDeployCommandRecord,

@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS,
-  type Agent,
-} from "@paperclipai/shared";
+import type { Agent } from "@paperclipai/shared";
+import { HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS } from "@paperclipai/shared/constants";
 import { Shield, ShieldCheck, Trash2, Users } from "lucide-react";
 import { accessApi, type CompanyMember } from "@/api/access";
 import { agentsApi } from "@/api/agents";

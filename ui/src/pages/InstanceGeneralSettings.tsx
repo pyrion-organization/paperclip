@@ -6,7 +6,7 @@ import {
   WEEKLY_RETENTION_PRESETS,
   MONTHLY_RETENTION_PRESETS,
   DEFAULT_BACKUP_RETENTION,
-} from "@paperclipai/shared";
+} from "@paperclipai/shared/types/instance";
 import { ArrowLeft, LogOut, SlidersHorizontal } from "lucide-react";
 import { Link } from "@/lib/router";
 import { authApi } from "@/api/auth";

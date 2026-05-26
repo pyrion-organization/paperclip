@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search as SearchIcon, AlertTriangle, FileQuestion, Plus, X } from "lucide-react";
 import {
-  COMPANY_SEARCH_DEFAULT_LIMIT,
-  COMPANY_SEARCH_SCOPES,
   type CompanySearchResponse,
   type CompanySearchResult,
   type CompanySearchScope,
 } from "@paperclipai/shared";
+import { COMPANY_SEARCH_SCOPES } from "@paperclipai/shared/types/search";
+import { COMPANY_SEARCH_DEFAULT_LIMIT } from "@paperclipai/shared/validators/search";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
