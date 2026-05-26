@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { buildRoutineMentionHref, buildSkillMentionHref } from "@paperclipai/shared/project-mentions";
 import { companySkillsApi } from "../api/companySkills";
 import { routinesApi } from "../api/routines";
-import { useCompany } from "./CompanyContext";
+import { useOptionalCompany } from "./CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 
 export interface SkillCommandOption {
@@ -39,7 +39,8 @@ const EditorAutocompleteContext = createContext<EditorAutocompleteContextValue>(
 });
 
 export function EditorAutocompleteProvider({ children }: { children: ReactNode }) {
-  const { selectedCompanyId } = useCompany();
+  const companyContext = useOptionalCompany();
+  const selectedCompanyId = companyContext?.selectedCompanyId ?? null;
   const { data: companySkills = [] } = useQuery({
     queryKey: selectedCompanyId
       ? queryKeys.companySkills.list(selectedCompanyId)

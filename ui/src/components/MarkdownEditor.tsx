@@ -47,7 +47,12 @@ import { looksLikeMarkdownPaste } from "../lib/markdownPaste";
 import { normalizeMarkdown } from "../lib/normalize-markdown";
 import { pasteNormalizationPlugin } from "../lib/paste-normalization";
 import { cn } from "../lib/utils";
-import { useEditorAutocomplete, type SlashCommandOption } from "../context/EditorAutocompleteContext";
+import {
+  EditorAutocompleteProvider,
+  useEditorAutocomplete,
+  type SlashCommandOption,
+} from "../context/EditorAutocompleteContext";
+import { useOptionalCompany } from "../context/CompanyContext";
 
 /* ---- Mention types ---- */
 
@@ -562,7 +567,7 @@ function applyMention(markdown: string, state: MentionState, option: Autocomplet
 
 /* ---- Component ---- */
 
-export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditor({
+const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditorContent({
   value,
   onChange,
   placeholder,
@@ -1359,5 +1364,21 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         <p className="px-3 pb-2 text-xs text-destructive">{uploadError}</p>
       )}
     </div>
+  );
+});
+
+export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditor(
+  props,
+  forwardedRef,
+) {
+  const companyContext = useOptionalCompany();
+  if (!companyContext) {
+    return <MarkdownEditorContent {...props} ref={forwardedRef} />;
+  }
+
+  return (
+    <EditorAutocompleteProvider>
+      <MarkdownEditorContent {...props} ref={forwardedRef} />
+    </EditorAutocompleteProvider>
   );
 });
