@@ -13,7 +13,7 @@ import { DialogProvider } from "./context/DialogContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { PluginLauncherProvider } from "./plugins/launchers";
+import { PluginLauncherProvider } from "./plugins/launcher-runtime";
 import "./index.css";
 
 if ("serviceWorker" in navigator) {

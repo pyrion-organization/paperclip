@@ -6,11 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginUiContribution } from "@/api/plugins";
 import {
-  PluginLauncherProvider,
-  usePluginLauncherRuntime,
   type PluginLauncherContext,
   type ResolvedPluginLauncher,
 } from "./launchers";
+import { PluginLauncherProvider, usePluginLauncherRuntime } from "./launcher-runtime";
 
 const mockPluginsApi = vi.hoisted(() => ({
   bridgePerformAction: vi.fn(),
@@ -48,10 +47,12 @@ vi.mock("./slots", () => ({
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 async function flushReact() {
-  await act(async () => {
-    await Promise.resolve();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-  });
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+  }
 }
 
 function iframeLauncher(): ResolvedPluginLauncher {
