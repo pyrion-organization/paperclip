@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { useCompany } from "../context/CompanyContext";
@@ -42,14 +42,26 @@ export function buildFullSearchPath(query: string) {
   return trimmed.length === 0 ? "/search" : `/search?q=${encodeURIComponent(trimmed)}`;
 }
 
-export function CommandPalette() {
-  const [open, setOpen] = useState(false);
+interface CommandPaletteProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPaletteProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const { selectedCompanyId } = useCompany();
   const { openNewIssue, openNewAgent, openNewClient } = useDialogActions();
   const { isMobile, setSidebarOpen } = useSidebar();
   const searchQuery = query.trim();
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = useCallback((nextOpen: boolean) => {
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  }, [controlledOpen, onOpenChange]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -61,7 +73,7 @@ export function CommandPalette() {
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile, setSidebarOpen]);
+  }, [isMobile, setOpen, setSidebarOpen]);
 
   useEffect(() => {
     if (!open) setQuery("");

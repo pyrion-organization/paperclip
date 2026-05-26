@@ -7,7 +7,6 @@ import { CompanySettingsSidebar } from "./CompanySettingsSidebar";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { PropertiesPanel } from "./PropertiesPanel";
-import { CommandPalette } from "./CommandPalette";
 import { CreateClientDialog } from "./CreateClientDialog";
 import { NewAgentDialog } from "./NewAgentDialog";
 import { KeyboardShortcutsCheatsheet } from "./KeyboardShortcutsCheatsheet";
@@ -45,6 +44,7 @@ const INSTANCE_SETTINGS_MEMORY_KEY = "paperclip.lastInstanceSettingsPath";
 const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
+const CommandPalette = lazy(() => import("./CommandPalette").then((module) => ({ default: module.CommandPalette })));
 
 function getCompanyRouteSegment(pathname: string, companyPrefix: string | undefined): string | null {
   if (!companyPrefix) return null;
@@ -92,6 +92,8 @@ export function Layout() {
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
   const [instanceSettingsTarget, setInstanceSettingsTarget] = useState<string>(() => readRememberedInstanceSettingsPath());
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [commandPaletteLoaded, setCommandPaletteLoaded] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const matchedCompany = useMemo(() => {
     if (!companyPrefix) return null;
     const requestedPrefix = companyPrefix.toUpperCase();
@@ -198,13 +200,10 @@ export function Layout() {
 
   const togglePanel = togglePanelVisible;
   const openSearch = useCallback(() => {
-    document.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "k",
-      metaKey: true,
-      bubbles: true,
-      cancelable: true,
-    }));
-  }, []);
+    setCommandPaletteLoaded(true);
+    setCommandPaletteOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, setSidebarOpen]);
 
   useCompanyPageMemory();
 
@@ -216,6 +215,17 @@ export function Layout() {
     onTogglePanel: togglePanel,
     onShowShortcuts: () => setShortcutsOpen(true),
   });
+
+  useEffect(() => {
+    function handleCommandPaletteShortcut(event: KeyboardEvent) {
+      if (event.key !== "k" || (!event.metaKey && !event.ctrlKey)) return;
+      event.preventDefault();
+      openSearch();
+    }
+
+    document.addEventListener("keydown", handleCommandPaletteShortcut);
+    return () => document.removeEventListener("keydown", handleCommandPaletteShortcut);
+  }, [openSearch]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -462,7 +472,11 @@ export function Layout() {
         </div>
       </div>
       {isMobile && <MobileBottomNav visible={mobileNavVisible} />}
-      <CommandPalette />
+      <Suspense fallback={null}>
+        {commandPaletteLoaded ? (
+          <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+        ) : null}
+      </Suspense>
       <Suspense fallback={null}>
         {newIssueOpen ? <NewIssueDialog /> : null}
         {newProjectOpen ? <NewProjectDialog /> : null}
