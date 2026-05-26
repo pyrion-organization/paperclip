@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { t } from ".";
+import { changeLanguage, t } from ".";
 import en from "./locales/en.json";
-import { localeMessages } from "./locales";
+import { DEFAULT_LOCALE, loadAllLocaleMessages, supportedLocales } from "./locales";
 import { validateLocaleMessages } from "./locale-validation";
 
 describe("locale validation", () => {
@@ -11,11 +11,19 @@ describe("locale validation", () => {
     expect(t("app.missing")).toBe("app.missing");
   });
 
-  it("accepts registered locale files", () => {
-    expect(Object.keys(localeMessages)).toContain("en");
+  it("accepts registered locale files", async () => {
+    const localeMessages = await loadAllLocaleMessages();
+    expect(Object.keys(localeMessages)).toContain(DEFAULT_LOCALE);
+    expect(Object.keys(localeMessages).sort()).toEqual([...supportedLocales].sort());
     for (const [locale, messages] of Object.entries(localeMessages)) {
       expect(validateLocaleMessages(messages), locale).toEqual([]);
     }
+  });
+
+  it("loads non-default locale messages on demand", async () => {
+    await changeLanguage("pt-BR");
+    expect(t("app.noCompanies.title")).not.toBe(en.app.noCompanies.title);
+    await changeLanguage(DEFAULT_LOCALE);
   });
 
   it("rejects missing and extra nested keys", () => {
