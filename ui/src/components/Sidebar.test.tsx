@@ -96,6 +96,7 @@ vi.mock("./SidebarAgents", () => ({
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
     await vi.dynamicImportSettled();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
@@ -173,6 +174,9 @@ describe("Sidebar", () => {
       .find((node) => node.getAttribute("data-plugin-slot-types") === "sidebar");
     expect(sidebarSlot?.textContent).toContain("Plugin slot outlet");
     const workSectionContainer = sidebarSlot?.parentElement?.parentElement;
+    await act(async () => {
+      await vi.waitFor(() => expect(workSectionContainer?.textContent ?? "").toContain("Workspaces"));
+    });
     const workText = workSectionContainer?.textContent ?? "";
     expect(workText).toContain("Work");
     expect(workText).toContain("Workspaces");
@@ -202,8 +206,12 @@ describe("Sidebar", () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: true });
     const root = await renderSidebar();
 
-    const link = [...container.querySelectorAll("a")].find((anchor) => anchor.textContent === "Workspaces");
-    expect(link?.getAttribute("href")).toBe("/workspaces");
+    await act(async () => {
+      await vi.waitFor(() => {
+        const link = [...container.querySelectorAll("a")].find((anchor) => anchor.textContent === "Workspaces");
+        expect(link?.getAttribute("href")).toBe("/workspaces");
+      });
+    });
 
     await act(async () => {
       root.unmount();

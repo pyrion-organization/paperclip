@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Inbox,
   CircleDot,
@@ -27,8 +27,6 @@ import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
 import { useDialogActions } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
-import { heartbeatsApi } from "../api/heartbeats";
-import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
 import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
@@ -53,18 +51,53 @@ const SidebarPanelPluginExtensions = lazy(() =>
   import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarPanelPluginExtensions })),
 );
 
+type SidebarIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+function useSidebarChromeReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as SidebarIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 1200 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 250);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
+}
+
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { isCollapsed, isMobile, toggleCollapsed } = useSidebar();
+  const sidebarChromeReady = useSidebarChromeReady();
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
-    queryFn: () => instanceSettingsApi.getExperimental(),
+    queryFn: async () => {
+      const { instanceSettingsApi } = await import("../api/instanceSettings");
+      return instanceSettingsApi.getExperimental();
+    },
+    enabled: sidebarChromeReady,
   });
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
-    queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    queryFn: async () => {
+      const { heartbeatsApi } = await import("../api/heartbeats");
+      return heartbeatsApi.liveRunsForCompany(selectedCompanyId!);
+    },
+    enabled: sidebarChromeReady && !!selectedCompanyId,
     refetchInterval: 10_000,
   });
   const liveRunCount = liveRuns?.length ?? 0;
@@ -78,7 +111,7 @@ export function Sidebar() {
   return (
     <aside className={cn("h-full min-h-0 border-r border-border bg-background flex flex-col", isCollapsed && !isMobile ? "w-16" : "w-60")}>
       <div className={cn("flex items-center gap-1 px-2 h-12 shrink-0", isCollapsed && "justify-center")}>
-        {!isCollapsed && (
+        {!isCollapsed && sidebarChromeReady && (
           <Suspense fallback={<div className="min-w-0 flex-1" />}>
             <SidebarCompanyMenu />
           </Suspense>
@@ -126,9 +159,13 @@ export function Sidebar() {
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem to="/usage" label="Usage" icon={Gauge} />
-          <Suspense fallback={<SidebarNavItem to="/inbox" label="Inbox" icon={Inbox} />}>
-            <SidebarInboxNavItem companyId={selectedCompanyId} />
-          </Suspense>
+          {sidebarChromeReady ? (
+            <Suspense fallback={<SidebarNavItem to="/inbox" label="Inbox" icon={Inbox} />}>
+              <SidebarInboxNavItem companyId={selectedCompanyId} />
+            </Suspense>
+          ) : (
+            <SidebarNavItem to="/inbox" label="Inbox" icon={Inbox} />
+          )}
         </div>
 
         <SidebarSection label="Work">
@@ -139,18 +176,24 @@ export function Sidebar() {
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
           ) : null}
-          <Suspense fallback={null}>
-            <SidebarWorkPluginExtensions context={pluginContext} />
-          </Suspense>
+          {sidebarChromeReady ? (
+            <Suspense fallback={null}>
+              <SidebarWorkPluginExtensions context={pluginContext} />
+            </Suspense>
+          ) : null}
         </SidebarSection>
 
-        <Suspense fallback={null}>
-          <SidebarProjects />
-        </Suspense>
+        {sidebarChromeReady ? (
+          <Suspense fallback={null}>
+            <SidebarProjects />
+          </Suspense>
+        ) : null}
 
-        <Suspense fallback={null}>
-          <SidebarAgents />
-        </Suspense>
+        {sidebarChromeReady ? (
+          <Suspense fallback={null}>
+            <SidebarAgents />
+          </Suspense>
+        ) : null}
 
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Users} />
@@ -163,7 +206,7 @@ export function Sidebar() {
           <SidebarNavItem to="/company/settings" label="Settings" icon={Settings} />
         </SidebarSection>
 
-        {!isCollapsed && (
+        {!isCollapsed && sidebarChromeReady && (
           <Suspense fallback={null}>
             <SidebarPanelPluginExtensions context={pluginContext} />
           </Suspense>
