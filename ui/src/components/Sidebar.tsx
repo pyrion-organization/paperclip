@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   Inbox,
   Activity,
@@ -35,9 +36,14 @@ import { useSidebarBadges } from "../hooks/useSidebarBadges";
 import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
-import { PluginSlotOutlet } from "@/plugins/slots";
-import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
+
+const SidebarWorkPluginExtensions = lazy(() =>
+  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarWorkPluginExtensions })),
+);
+const SidebarPanelPluginExtensions = lazy(() =>
+  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarPanelPluginExtensions })),
+);
 
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
@@ -127,19 +133,9 @@ export function Sidebar() {
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
           ) : null}
-          <PluginSlotOutlet
-            slotTypes={["sidebar"]}
-            context={pluginContext}
-            className="flex flex-col gap-0.5"
-            itemClassName="text-[13px] font-medium"
-            missingBehavior="placeholder"
-          />
-          <PluginLauncherOutlet
-            placementZones={["sidebar"]}
-            context={pluginContext}
-            className="flex flex-col gap-0.5"
-            itemClassName="text-[13px] font-medium"
-          />
+          <Suspense fallback={null}>
+            <SidebarWorkPluginExtensions context={pluginContext} />
+          </Suspense>
         </SidebarSection>
 
         <SidebarProjects />
@@ -158,13 +154,9 @@ export function Sidebar() {
         </SidebarSection>
 
         {!isCollapsed && (
-          <PluginSlotOutlet
-            slotTypes={["sidebarPanel"]}
-            context={pluginContext}
-            className="flex flex-col gap-3"
-            itemClassName="rounded-lg border border-border p-3"
-            missingBehavior="placeholder"
-          />
+          <Suspense fallback={null}>
+            <SidebarPanelPluginExtensions context={pluginContext} />
+          </Suspense>
         )}
       </nav>
     </aside>
