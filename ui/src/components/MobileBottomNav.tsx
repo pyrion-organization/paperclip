@@ -10,7 +10,7 @@ import {
 import { useCompany } from "../context/CompanyContext";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
-import { useInboxBadge } from "../hooks/useInboxBadge";
+import { useSidebarBadges } from "../hooks/useSidebarBadges";
 
 interface MobileBottomNavProps {
   visible: boolean;
@@ -26,7 +26,7 @@ interface MobileNavLinkItem {
 
 export function MobileBottomNav({ visible }: MobileBottomNavProps) {
   const { selectedCompanyId } = useCompany();
-  const inboxBadge = useInboxBadge(selectedCompanyId);
+  const inboxBadge = useSidebarBadges(selectedCompanyId);
 
   const items = useMemo<MobileNavLinkItem[]>(
     () => [

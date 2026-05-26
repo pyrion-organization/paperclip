@@ -62,8 +62,8 @@ vi.mock("../api/instanceSettings", () => ({
   instanceSettingsApi: mockInstanceSettingsApi,
 }));
 
-vi.mock("../hooks/useInboxBadge", () => ({
-  useInboxBadge: () => ({ inbox: 0, failedRuns: 0 }),
+vi.mock("../hooks/useSidebarBadges", () => ({
+  useSidebarBadges: () => ({ inbox: 0, approvals: 0, failedRuns: 0, joinRequests: 0 }),
 }));
 
 vi.mock("@/plugins/slots", () => ({

@@ -31,7 +31,7 @@ import { useCompany } from "../context/CompanyContext";
 import { heartbeatsApi } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { queryKeys } from "../lib/queryKeys";
-import { useInboxBadge } from "../hooks/useInboxBadge";
+import { useSidebarBadges } from "../hooks/useSidebarBadges";
 import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,7 @@ export function Sidebar() {
   const { openNewIssue } = useDialogActions();
   const { selectedCompanyId, selectedCompany } = useCompany();
   const { isCollapsed, isMobile, toggleCollapsed } = useSidebar();
-  const inboxBadge = useInboxBadge(selectedCompanyId);
+  const inboxBadge = useSidebarBadges(selectedCompanyId);
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
     queryFn: () => instanceSettingsApi.getExperimental(),
