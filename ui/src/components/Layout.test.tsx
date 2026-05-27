@@ -359,6 +359,60 @@ describe("Layout", () => {
     });
   });
 
+  it("defers keyboard shortcut settings until layout idle work is ready", async () => {
+    const originalCancelIdleCallback = window.cancelIdleCallback;
+    const originalRequestIdleCallback = window.requestIdleCallback;
+    let idleCallback: (() => void) | null = null;
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      value: (callback: () => void) => {
+        idleCallback = callback;
+        return 1;
+      },
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Layout />
+          </QueryClientProvider>,
+        );
+      });
+
+      expect(mockInstanceSettingsApi.getGeneral).not.toHaveBeenCalled();
+
+      await act(async () => {
+        idleCallback?.();
+        await Promise.resolve();
+      });
+      await flushReact();
+
+      expect(mockInstanceSettingsApi.getGeneral).toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      Object.defineProperty(window, "requestIdleCallback", {
+        configurable: true,
+        value: originalRequestIdleCallback,
+      });
+      Object.defineProperty(window, "cancelIdleCallback", {
+        configurable: true,
+        value: originalCancelIdleCallback,
+      });
+    }
+  });
+
   it("keeps the account footer inside the collapsed sidebar rail on desktop", async () => {
     mockSidebarState.isCollapsed = true;
     const root = createRoot(container);

@@ -267,6 +267,7 @@ export function Layout() {
   const keyboardShortcutsEnabled = useQuery({
     queryKey: queryKeys.instance.generalSettings,
     queryFn: () => instanceSettingsApi.getGeneral(),
+    enabled: companySidebarReady,
   }).data?.keyboardShortcuts === true;
 
   useEffect(() => {
