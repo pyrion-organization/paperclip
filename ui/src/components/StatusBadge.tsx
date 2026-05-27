@@ -1,4 +1,4 @@
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { statusBadge, statusBadgeDefault } from "../lib/status-colors";
 
 export function StatusBadge({ status }: { status: string }) {

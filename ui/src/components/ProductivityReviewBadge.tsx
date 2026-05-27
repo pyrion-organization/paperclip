@@ -1,7 +1,7 @@
 import { Eye } from "lucide-react";
 import type { IssueProductivityReview } from "@paperclipai/shared";
 import { Link } from "../lib/router";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { createIssueDetailPath } from "../lib/issueDetailBreadcrumb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 

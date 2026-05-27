@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 export function OutputFeedbackButtons({
   activeVote,

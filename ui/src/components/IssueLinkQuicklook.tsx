@@ -11,7 +11,7 @@ import {
   prefetchIssueDetail,
 } from "@/lib/issueDetailCache";
 import { queryKeys } from "@/lib/queryKeys";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusIcon } from "@/components/StatusIcon";
 

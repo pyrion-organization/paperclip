@@ -10,7 +10,7 @@ import {
   buildExecutionPolicy,
   stageParticipantValues,
 } from "../lib/issue-execution-policy";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { User, Eye, ShieldCheck } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";

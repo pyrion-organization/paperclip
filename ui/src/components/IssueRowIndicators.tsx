@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Issue, IssueProductivityReview, IssueRecoveryAction } from "@paperclipai/shared";
 import { Eye, Flag, OctagonAlert, RefreshCw, TriangleAlert } from "lucide-react";
 
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 type ActiveRecoveryDisplayState = "needed" | "in_progress" | "observe_only" | "escalated";
 

@@ -17,7 +17,7 @@ import {
   issueChatUxSubmittingComments,
   issueChatUxTranscriptsByRunId,
 } from "../fixtures/issueChatUxFixtures";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { Bot, Brain, FlaskConical, Loader2, MessagesSquare, Route, Sparkles, WandSparkles } from "lucide-react";
 
 const noop = async () => {};

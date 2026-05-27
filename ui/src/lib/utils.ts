@@ -1,12 +1,8 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { deriveAgentUrlKey } from "@paperclipai/shared/agent-url-key";
 import { deriveProjectUrlKey, hasNonAsciiContent, normalizeProjectUrlKey } from "@paperclipai/shared/project-url-key";
 import type { BillingType, FinanceDirection, FinanceEventKind } from "@paperclipai/shared";
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+export { cn } from "./classnames";
 
 export function asObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)

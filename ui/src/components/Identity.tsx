@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type IdentitySize = "xs" | "sm" | "default" | "lg";

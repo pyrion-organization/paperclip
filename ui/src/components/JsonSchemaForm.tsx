@@ -8,7 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { isUuidLike } from "@paperclipai/shared/agent-url-key";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";

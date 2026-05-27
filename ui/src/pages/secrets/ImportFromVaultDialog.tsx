@@ -50,7 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState } from "../../components/EmptyState";
-import { cn } from "../../lib/utils";
+import { cn } from "../../lib/classnames";
 
 type Step = "select" | "review" | "result";
 

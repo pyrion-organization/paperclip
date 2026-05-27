@@ -16,7 +16,7 @@ import { useDialogActions } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 import { useSidebar } from "../context/SidebarContext";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { Button } from "@/components/ui/button";
 
 const SidebarInboxNavItem = lazy(() =>

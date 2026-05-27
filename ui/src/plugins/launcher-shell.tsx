@@ -17,7 +17,7 @@ import type {
 } from "./bridge";
 import { authApi } from "@/api/auth";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { queryKeys } from "@/lib/queryKeys";
 import { PluginBridgeContext } from "./bridge";
 import type {

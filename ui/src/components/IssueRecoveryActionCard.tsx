@@ -15,7 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { agentUrl } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import {
   deriveRecoveryDisplayState,
   type RecoveryDisplayState,

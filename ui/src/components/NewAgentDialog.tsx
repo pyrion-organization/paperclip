@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Bot,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { listUIAdapters } from "../adapters";
 import { isVisualAdapterChoice } from "../adapters/metadata";
 import { getAdapterDisplay } from "../adapters/adapter-display-registry";

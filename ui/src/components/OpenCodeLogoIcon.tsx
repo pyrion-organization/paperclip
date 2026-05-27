@@ -1,4 +1,4 @@
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 interface OpenCodeLogoIconProps {
   className?: string;

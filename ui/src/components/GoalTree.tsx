@@ -2,7 +2,7 @@ import type { Goal } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
 import { StatusBadge } from "./StatusBadge";
 import { ChevronRight } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { useState } from "react";
 
 interface GoalTreeProps {

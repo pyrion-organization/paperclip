@@ -5,7 +5,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { companiesApi } from "../api/companies";
 import { queryKeys } from "../lib/queryKeys";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { PackageFileTree, buildFileTree } from "../components/PackageFileTree";
 import { PageSkeleton } from "../components/PageSkeleton";

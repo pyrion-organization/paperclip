@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 export type MatchSourceChipKind = "title" | "identifier" | "comment" | "document";
 

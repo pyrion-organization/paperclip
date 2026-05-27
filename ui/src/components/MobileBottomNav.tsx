@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { useSidebarBadges } from "../hooks/useSidebarBadges";
 
 interface MobileBottomNavProps {

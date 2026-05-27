@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { MarkdownBody } from "../components/MarkdownBody";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { queryKeys } from "../lib/queryKeys";
 import { createZipArchive } from "../lib/zip";
 import { buildInitialExportCheckedFiles } from "../lib/company-export-selection";

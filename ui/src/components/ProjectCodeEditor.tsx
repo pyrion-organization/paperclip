@@ -19,7 +19,7 @@ import { html } from "@codemirror/lang-html";
 import { yaml } from "@codemirror/lang-yaml";
 import { sql } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { useTheme } from "../context/ThemeContext";
 
 function lightTheme() {

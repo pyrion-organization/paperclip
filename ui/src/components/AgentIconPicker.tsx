@@ -6,7 +6,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { AGENT_ICONS } from "../lib/agent-icons";
 export { AgentIcon } from "./AgentIcon";
 

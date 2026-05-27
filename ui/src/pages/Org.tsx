@@ -9,7 +9,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { ChevronRight, GitBranch } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 function OrgTree({
   nodes,

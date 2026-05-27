@@ -7,7 +7,7 @@ import type {
 import { pluginsApi, type PluginUiContribution } from "@/api/plugins";
 import { Button } from "@/components/ui/button";
 import { queryKeys } from "@/lib/queryKeys";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import {
   usePluginLauncherRuntime,
   type PluginLauncherContext,

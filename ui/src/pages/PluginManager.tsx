@@ -28,7 +28,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToastActions } from "@/context/ToastContext";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;

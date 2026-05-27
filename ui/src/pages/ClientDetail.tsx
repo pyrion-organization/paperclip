@@ -27,7 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { FolderOpen, Mail, Pencil, Plus, Trash2, UserRound, X } from "lucide-react";
 import type { ReactNode } from "react";
 

@@ -11,7 +11,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import type { Project } from "@paperclipai/shared";
 
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 type RenderProjectState = {
   isDragging: boolean;

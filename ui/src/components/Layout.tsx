@@ -27,7 +27,7 @@ import {
 } from "../lib/navigation-scroll";
 import { queryKeys } from "../lib/queryKeys";
 import { scheduleMainContentFocus } from "../lib/main-content-focus";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { NotFoundPage } from "../pages/NotFound";
 
 const INSTANCE_SETTINGS_MEMORY_KEY = "paperclip.lastInstanceSettingsPath";

@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type Rea
 import { Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { orderItemsBySelectedAndRecent } from "../lib/recent-selections";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 export interface InlineEntityOption {
   id: string;

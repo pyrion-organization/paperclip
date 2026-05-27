@@ -61,7 +61,7 @@ import {
   Eye,
   ShieldCheck,
 } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { extractProviderIdWithFallback } from "../lib/model-utils";
 import { issueStatusText, issueStatusTextDefault, priorityColor, priorityColorDefault } from "../lib/status-colors";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";

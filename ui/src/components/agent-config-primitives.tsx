@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { AGENT_ROLE_LABELS } from "@paperclipai/shared/constants";
 
 /* ---- Help text for (?) tooltips ---- */

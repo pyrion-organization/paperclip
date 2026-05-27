@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCompany } from "@/context/CompanyContext";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 const SidebarCompanyMenu = lazy(() =>
   import("./SidebarCompanyMenu").then((module) => ({ default: module.SidebarCompanyMenu })),

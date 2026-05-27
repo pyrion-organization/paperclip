@@ -20,7 +20,7 @@ import { MarkdownBody } from "../components/MarkdownBody";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
 import { AgentConfigForm } from "../components/AgentConfigForm";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import {
   ArrowRight,
   Check,

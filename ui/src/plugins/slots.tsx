@@ -40,7 +40,7 @@ import type {
 import { pluginsApi, type PluginUiContribution } from "@/api/plugins";
 import { authApi } from "@/api/auth";
 import { queryKeys } from "@/lib/queryKeys";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import {
   PluginBridgeContext,
   type PluginHostContext,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDown } from "lucide-react";
 import { usePanel } from "../context/PanelContext";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 function resolveScrollTarget() {
   const mainContent = document.getElementById("main-content");

@@ -9,7 +9,7 @@ import {
 } from "@paperclipai/shared/workspace-commands";
 import { Activity, ExternalLink, Loader2, Play, RotateCcw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 export type WorkspaceRuntimeAction = "start" | "stop" | "restart" | "run";
 

@@ -7,7 +7,7 @@ import {
   rememberIssueDetailLocationState,
   withIssueDetailHeaderSeed,
 } from "../lib/issueDetailBreadcrumb";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { StatusIcon } from "./StatusIcon";
 import { IssueRowIndicators } from "./IssueRowIndicators";
 

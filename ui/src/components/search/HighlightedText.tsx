@@ -1,5 +1,5 @@
 import type { CompanySearchHighlight } from "@paperclipai/shared";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 export interface HighlightedTextProps {
   text: string;

@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Issue } from "@paperclipai/shared";
 import type { IssueSiblingNavigation as IssueSiblingNavigationState } from "@/lib/issue-detail-subissues";
 import { createIssueDetailPath, withIssueDetailHeaderSeed } from "@/lib/issueDetailBreadcrumb";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 import { Link } from "@/lib/router";
 import { StatusIcon } from "./StatusIcon";
 

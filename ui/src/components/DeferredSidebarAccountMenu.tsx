@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useState } from "react";
 import type { DeploymentMode } from "@paperclipai/shared";
 import { useSidebar } from "../context/SidebarContext";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 
 const SidebarAccountMenu = lazy(() =>
   import("./SidebarAccountMenu").then((module) => ({ default: module.SidebarAccountMenu })),

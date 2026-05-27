@@ -46,7 +46,7 @@ import { mentionDeletionPlugin } from "../lib/mention-deletion";
 import { looksLikeMarkdownPaste } from "../lib/markdownPaste";
 import { normalizeMarkdown } from "../lib/normalize-markdown";
 import { pasteNormalizationPlugin } from "../lib/paste-normalization";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import {
   EditorAutocompleteProvider,
   useEditorAutocomplete,

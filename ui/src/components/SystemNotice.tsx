@@ -8,7 +8,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/classnames";
 
 export type SystemNoticeTone = "neutral" | "info" | "success" | "warning" | "danger";
 

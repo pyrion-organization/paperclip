@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { IssueRelationIssueSummary } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { StatusIcon } from "./StatusIcon";
 
 export function IssueReferencePill({

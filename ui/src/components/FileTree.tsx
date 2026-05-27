@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import {
   ChevronDown,
   ChevronRight,

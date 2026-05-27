@@ -6,7 +6,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { User } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../lib/classnames";
 import { roleLabels } from "./agent-config-primitives";
 import { AgentIcon } from "./AgentIcon";
 
