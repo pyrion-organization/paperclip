@@ -6,8 +6,6 @@ const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ 
 const OnboardingRoutePage = lazy(() =>
   import("./pages/OnboardingRoutePage").then(({ OnboardingRoutePage }) => ({ default: OnboardingRoutePage })),
 );
-const Dashboard = lazy(() => import("./pages/Dashboard").then(({ Dashboard }) => ({ default: Dashboard })));
-const DashboardLive = lazy(() => import("./pages/DashboardLive").then(({ DashboardLive }) => ({ default: DashboardLive })));
 const Companies = lazy(() => import("./pages/Companies").then(({ Companies }) => ({ default: Companies })));
 const Agents = lazy(() => import("./pages/Agents").then(({ Agents }) => ({ default: Agents })));
 const AgentDetail = lazy(() => import("./pages/AgentDetail").then(({ AgentDetail }) => ({ default: AgentDetail })));
@@ -88,8 +86,6 @@ export function BoardRoutes() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="dashboard/live" element={<DashboardLive />} />
         <Route path="onboarding" element={<OnboardingRoutePage />} />
         <Route path="companies" element={<Companies />} />
         <Route path="company/settings" element={<CompanySettings />} />

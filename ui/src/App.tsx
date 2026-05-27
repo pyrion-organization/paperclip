@@ -6,6 +6,9 @@ import { useDialog } from "./context/DialogContext";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
+const BoardDashboardRoutes = lazy(() =>
+  import("./BoardDashboardRoutes").then(({ BoardDashboardRoutes }) => ({ default: BoardDashboardRoutes })),
+);
 const BoardRoutes = lazy(() => import("./BoardRoutes").then(({ BoardRoutes }) => ({ default: BoardRoutes })));
 const OnboardingWizard = lazy(() =>
   import("./components/OnboardingWizard").then(({ OnboardingWizard }) => ({ default: OnboardingWizard })),
@@ -179,6 +182,7 @@ export function App() {
             <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
             <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
             <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
+            <Route path=":companyPrefix/dashboard/*" element={<BoardDashboardRoutes />} />
             <Route path=":companyPrefix/*" element={<BoardRoutes />} />
             <Route path="*" element={<NotFoundPage scope="global" />} />
           </Route>

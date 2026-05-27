@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BoardRoutes } from "./BoardRoutes";
+import { BoardDashboardRoutes } from "./BoardDashboardRoutes";
 
 vi.mock("./components/Layout", () => ({
   Layout: () => (
@@ -19,8 +19,8 @@ vi.mock("./pages/Dashboard", () => ({
   Dashboard: () => <div>Dashboard page</div>,
 }));
 
-vi.mock("./pages/Agents", () => ({
-  Agents: () => <div>Agents page</div>,
+vi.mock("./pages/DashboardLive", () => ({
+  DashboardLive: () => <div>Dashboard live page</div>,
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,22 +33,22 @@ async function flushReact() {
   });
 }
 
-describe("BoardRoutes", () => {
+describe("BoardDashboardRoutes", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     vi.clearAllMocks();
   });
 
-  it("renders non-dashboard board routes as a lazy descendant route tree", async () => {
+  it("renders the dashboard through the lightweight dashboard route module", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/PER/agents/all"]}>
+        <MemoryRouter initialEntries={["/PER/dashboard"]}>
           <Routes>
-            <Route path=":companyPrefix/*" element={<BoardRoutes />} />
+            <Route path=":companyPrefix/dashboard/*" element={<BoardDashboardRoutes />} />
           </Routes>
         </MemoryRouter>,
       );
@@ -56,7 +56,31 @@ describe("BoardRoutes", () => {
     await flushReact();
 
     expect(container.textContent).toContain("Layout shell");
-    expect(container.textContent).toContain("Agents page");
+    expect(container.textContent).toContain("Dashboard page");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("renders the live dashboard subroute", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/PER/dashboard/live"]}>
+          <Routes>
+            <Route path=":companyPrefix/dashboard/*" element={<BoardDashboardRoutes />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushReact();
+
+    expect(container.textContent).toContain("Layout shell");
+    expect(container.textContent).toContain("Dashboard live page");
 
     await act(async () => {
       root.unmount();
