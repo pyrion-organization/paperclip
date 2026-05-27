@@ -65,7 +65,6 @@ import { ApprovalCard } from "../components/ApprovalCard";
 import { InlineEditor } from "../components/InlineEditor";
 import type { IssueChatComposerHandle } from "../components/IssueChatThread";
 import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff";
-import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
 import { AgentIcon } from "../components/AgentIcon";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
@@ -177,6 +176,11 @@ const IssueChatThread = lazy(() =>
 );
 const IssuesList = lazy(() =>
   import("../components/IssuesList").then(({ IssuesList }) => ({ default: IssuesList })),
+);
+const IssueDocumentsSection = lazy(() =>
+  import("../components/IssueDocumentsSection").then(({ IssueDocumentsSection }) => ({
+    default: IssueDocumentsSection,
+  })),
 );
 const IssueRelatedWorkPanel = lazy(() =>
   import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
@@ -3726,30 +3730,32 @@ export function IssueDetail() {
         </div>
       )}
 
-      <IssueDocumentsSection
-        issue={issue}
-        canDeleteDocuments={Boolean(session?.user?.id)}
-        canManageDocumentLocks={Boolean(session?.user?.id)}
-        feedbackVotes={feedbackVotes}
-        feedbackDataSharingPreference={feedbackDataSharingPreference}
-        feedbackTermsUrl={FEEDBACK_TERMS_URL}
-        mentions={mentionOptions}
-        imageUploadHandler={async (file) => {
-          const attachment = await uploadAttachment.mutateAsync(file);
-          return attachment.contentPath;
-        }}
-        onVote={async (revisionId, vote, options) => {
-          await feedbackVoteMutation.mutateAsync({
-            targetType: "issue_document_revision",
-            targetId: revisionId,
-            vote,
-            reason: options?.reason,
-            allowSharing: options?.allowSharing,
-            sharingPreferenceAtSubmit: feedbackDataSharingPreference,
-          });
-        }}
-        extraActions={!hasAttachments ? attachmentUploadButton : null}
-      />
+      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={2} />}>
+        <IssueDocumentsSection
+          issue={issue}
+          canDeleteDocuments={Boolean(session?.user?.id)}
+          canManageDocumentLocks={Boolean(session?.user?.id)}
+          feedbackVotes={feedbackVotes}
+          feedbackDataSharingPreference={feedbackDataSharingPreference}
+          feedbackTermsUrl={FEEDBACK_TERMS_URL}
+          mentions={mentionOptions}
+          imageUploadHandler={async (file) => {
+            const attachment = await uploadAttachment.mutateAsync(file);
+            return attachment.contentPath;
+          }}
+          onVote={async (revisionId, vote, options) => {
+            await feedbackVoteMutation.mutateAsync({
+              targetType: "issue_document_revision",
+              targetId: revisionId,
+              vote,
+              reason: options?.reason,
+              allowSharing: options?.allowSharing,
+              sharingPreferenceAtSubmit: feedbackDataSharingPreference,
+            });
+          }}
+          extraActions={!hasAttachments ? attachmentUploadButton : null}
+        />
+      </Suspense>
 
       {attachmentsInitialLoading ? (
         <IssueSectionSkeleton titleWidth="w-24" rows={2} />

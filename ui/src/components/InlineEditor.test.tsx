@@ -4,25 +4,23 @@ import { act, forwardRef, useImperativeHandle, useRef, type ReactNode } from "re
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./MarkdownEditor", () => ({
-  MarkdownEditor: forwardRef<
-    { focus: () => void },
-    { value: string; onChange: (value: string) => void }
-  >(function MarkdownEditorMock(props, ref) {
-    const taRef = useRef<HTMLTextAreaElement>(null);
-    useImperativeHandle(ref, () => ({
-      focus: () => taRef.current?.focus(),
-    }));
-    return (
-      <textarea
-        ref={taRef}
-        data-testid="multiline-md-mock"
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
-    );
-  }),
-}));
+const MarkdownEditorMock = forwardRef<
+  { focus: () => void },
+  { value: string; onChange: (value: string) => void }
+>(function MarkdownEditorMock(props, ref) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(ref, () => ({
+    focus: () => taRef.current?.focus(),
+  }));
+  return (
+    <textarea
+      ref={taRef}
+      data-testid="multiline-md-mock"
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
+  );
+});
 
 vi.mock("./MarkdownBody", () => ({
   MarkdownBody: ({ children }: { children: ReactNode }) => (
@@ -30,7 +28,7 @@ vi.mock("./MarkdownBody", () => ({
   ),
 }));
 
-import { InlineEditor, queueContainedBlurCommit } from "./InlineEditor";
+import { InlineEditor, queueContainedBlurCommit, setInlineMarkdownEditorLoaderForTest } from "./InlineEditor";
 
 /** Enter multiline edit mode by clicking the preview surface. */
 function enterMultilineEdit(container: HTMLDivElement) {
@@ -38,6 +36,18 @@ function enterMultilineEdit(container: HTMLDivElement) {
   if (preview) {
     preview.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }
+}
+
+async function waitForMultilineEditor(container: HTMLDivElement) {
+  let textarea: HTMLTextAreaElement | null = null;
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await vi.waitFor(() => {
+    textarea = container.querySelector<HTMLTextAreaElement>('[data-testid="multiline-md-mock"]');
+    expect(textarea).not.toBeNull();
+  });
+  return textarea!;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,6 +79,7 @@ describe("InlineEditor", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    setInlineMarkdownEditorLoaderForTest(async () => ({ default: MarkdownEditorMock }));
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -158,8 +169,7 @@ describe("InlineEditor", () => {
       enterMultilineEdit(container);
     });
 
-    const textarea = container.querySelector<HTMLTextAreaElement>('[data-testid="multiline-md-mock"]');
-    expect(textarea).not.toBeNull();
+    const textarea = await waitForMultilineEditor(container);
 
     act(() => {
       textarea!.focus();
@@ -184,7 +194,7 @@ describe("InlineEditor", () => {
     outside.remove();
   });
 
-  it("multiline defaults to MarkdownBody preview when value is non-empty, swaps to editor on click", () => {
+  it("multiline defaults to MarkdownBody preview when value is non-empty, swaps to editor on click", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const root = createRoot(container);
 
@@ -199,7 +209,7 @@ describe("InlineEditor", () => {
       enterMultilineEdit(container);
     });
 
-    expect(container.querySelector('[data-testid="multiline-md-mock"]')).not.toBeNull();
+    await waitForMultilineEditor(container);
     expect(container.querySelector('[data-testid="multiline-md-preview"]')).toBeNull();
 
     act(() => {
@@ -225,7 +235,7 @@ describe("InlineEditor", () => {
     });
   });
 
-  it("enters multiline edit mode from the keyboard preview surface", () => {
+  it("enters multiline edit mode from the keyboard preview surface", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const root = createRoot(container);
 
@@ -240,7 +250,7 @@ describe("InlineEditor", () => {
       preview!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     });
 
-    expect(container.querySelector('[data-testid="multiline-md-mock"]')).not.toBeNull();
+    await waitForMultilineEditor(container);
     expect(container.querySelector('[data-testid="multiline-md-preview"]')).toBeNull();
 
     act(() => {
@@ -248,7 +258,7 @@ describe("InlineEditor", () => {
     });
   });
 
-  it("syncs a new multiline value while focused when the user has not edited locally", () => {
+  it("syncs a new multiline value while focused when the user has not edited locally", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const root = createRoot(container);
 
@@ -256,8 +266,7 @@ describe("InlineEditor", () => {
       root.render(<InlineEditor value="" multiline onSave={onSave} />);
     });
 
-    const textarea = container.querySelector<HTMLTextAreaElement>('[data-testid="multiline-md-mock"]');
-    expect(textarea).not.toBeNull();
+    const textarea = await waitForMultilineEditor(container);
     expect(textarea?.value).toBe("");
 
     act(() => {
@@ -275,7 +284,7 @@ describe("InlineEditor", () => {
     });
   });
 
-  it("preserves focused multiline local edits when the prop value changes underneath them", () => {
+  it("preserves focused multiline local edits when the prop value changes underneath them", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const root = createRoot(container);
 
@@ -288,8 +297,7 @@ describe("InlineEditor", () => {
       enterMultilineEdit(container);
     });
 
-    const textarea = container.querySelector<HTMLTextAreaElement>('[data-testid="multiline-md-mock"]');
-    expect(textarea).not.toBeNull();
+    const textarea = await waitForMultilineEditor(container);
 
     act(() => {
       textarea!.focus();

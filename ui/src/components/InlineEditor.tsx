@@ -1,9 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "../lib/utils";
 import { MarkdownBody } from "./MarkdownBody";
-import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";
+import type { MarkdownEditorRef, MentionOption } from "./InlineMarkdownEditor";
 import { useAutosaveIndicator } from "../hooks/useAutosaveIndicator";
 import { FoldCurtain } from "./FoldCurtain";
+
+type InlineMarkdownEditorModule = typeof import("./InlineMarkdownEditor");
+let loadMarkdownEditor = () => import("./InlineMarkdownEditor");
+const MarkdownEditor = lazy(() =>
+  loadMarkdownEditor(),
+);
+
+export function setInlineMarkdownEditorLoaderForTest(loader: () => Promise<InlineMarkdownEditorModule>) {
+  if (import.meta.env.MODE !== "test") return;
+  loadMarkdownEditor = loader;
+}
 
 interface InlineEditorProps {
   value: string;
@@ -125,9 +136,11 @@ export function InlineEditor({
     if (pendingFocusFrameRef.current !== null) {
       cancelAnimationFrame(pendingFocusFrameRef.current);
     }
-    pendingFocusFrameRef.current = requestAnimationFrame(() => {
-      pendingFocusFrameRef.current = null;
-      markdownRef.current?.focus();
+    void loadMarkdownEditor().then(() => {
+      pendingFocusFrameRef.current = requestAnimationFrame(() => {
+        pendingFocusFrameRef.current = null;
+        markdownRef.current?.focus();
+      });
     });
     return () => {
       if (pendingFocusFrameRef.current !== null) {
@@ -326,21 +339,23 @@ export function InlineEditor({
         }}
         onKeyDown={handleKeyDown}
       >
-        <MarkdownEditor
-          ref={markdownRef}
-          value={draft}
-          onChange={setDraft}
-          placeholder={placeholder}
-          bordered={false}
-          className="bg-transparent"
-          contentClassName={cn("paperclip-edit-in-place-content", className)}
-          imageUploadHandler={imageUploadHandler}
-          onDropFile={onDropFile}
-          mentions={mentions}
-          onSubmit={() => {
-            finalizeMultilineBlurOrSubmit();
-          }}
-        />
+        <Suspense fallback={<div className="min-h-24 rounded-md bg-muted/30" />}>
+          <MarkdownEditor
+            ref={markdownRef}
+            value={draft}
+            onChange={setDraft}
+            placeholder={placeholder}
+            bordered={false}
+            className="bg-transparent"
+            contentClassName={cn("paperclip-edit-in-place-content", className)}
+            imageUploadHandler={imageUploadHandler}
+            onDropFile={onDropFile}
+            mentions={mentions}
+            onSubmit={() => {
+              finalizeMultilineBlurOrSubmit();
+            }}
+          />
+        </Suspense>
         <div className="flex min-h-4 items-center justify-end pr-1">
           <span
             className={cn(
