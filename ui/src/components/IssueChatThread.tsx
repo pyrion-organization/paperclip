@@ -25,6 +25,9 @@ import {
   type ErrorInfo,
   type Ref,
   type ReactNode,
+  type CSSProperties,
+  type ComponentType,
+  type ComponentProps,
 } from "react";
 import { Link, useLocation } from "@/lib/router";
 import type {
@@ -84,11 +87,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MarkdownBody } from "./MarkdownBody";
 import type { MentionOption, MarkdownEditorRef } from "./MarkdownEditor";
 import { Identity } from "./Identity";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
-import { IssueThreadInteractionCard } from "./IssueThreadInteractionCard";
 import { AgentIcon } from "./AgentIcon";
 import { restoreSubmittedCommentDraft } from "../lib/comment-submit-draft";
 import {
@@ -131,13 +132,91 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, ArrowRight, Brain, Check, ChevronDown, ClipboardList, Copy, Hammer, Loader2, MoreHorizontal, Paperclip, PauseCircle, Search, Square, ThumbsDown, ThumbsUp } from "lucide-react";
-import { IssueBlockedNotice } from "./IssueBlockedNotice";
-import { IssueAssignedBacklogNotice } from "./IssueAssignedBacklogNotice";
-import { IssueRecoveryActionCard, type RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
+import type { RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
 
 const LazyMarkdownEditor = lazy(() =>
   import("./MarkdownEditor").then(({ MarkdownEditor }) => ({ default: MarkdownEditor })),
 );
+const LazyIssueThreadInteractionCard = lazy(() =>
+  import("./IssueThreadInteractionCard").then(({ IssueThreadInteractionCard }) => ({
+    default: IssueThreadInteractionCard,
+  })),
+);
+const LazyIssueBlockedNotice = lazy(() =>
+  import("./IssueBlockedNotice").then(({ IssueBlockedNotice }) => ({
+    default: IssueBlockedNotice,
+  })),
+);
+const LazyIssueAssignedBacklogNotice = lazy(() =>
+  import("./IssueAssignedBacklogNotice").then(({ IssueAssignedBacklogNotice }) => ({
+    default: IssueAssignedBacklogNotice,
+  })),
+);
+const LazyIssueRecoveryActionCard = lazy(() =>
+  import("./IssueRecoveryActionCard").then(({ IssueRecoveryActionCard }) => ({
+    default: IssueRecoveryActionCard,
+  })),
+);
+
+type IssueThreadInteractionCardProps = ComponentProps<
+  typeof import("./IssueThreadInteractionCard")["IssueThreadInteractionCard"]
+>;
+type IssueBlockedNoticeProps = ComponentProps<
+  typeof import("./IssueBlockedNotice")["IssueBlockedNotice"]
+>;
+type IssueAssignedBacklogNoticeProps = ComponentProps<
+  typeof import("./IssueAssignedBacklogNotice")["IssueAssignedBacklogNotice"]
+>;
+type IssueRecoveryActionCardProps = ComponentProps<
+  typeof import("./IssueRecoveryActionCard")["IssueRecoveryActionCard"]
+>;
+
+function DeferredNoticeFallback({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "animate-pulse rounded-md border border-border/60 bg-muted/20 px-3 py-2.5",
+        className,
+      )}
+      aria-hidden="true"
+    >
+      <div className="h-3 w-28 rounded-sm bg-muted-foreground/15" />
+      <div className="mt-2 h-3 w-2/3 rounded-sm bg-muted-foreground/10" />
+    </div>
+  );
+}
+
+function DeferredIssueThreadInteractionCard(props: IssueThreadInteractionCardProps) {
+  return (
+    <Suspense fallback={<DeferredNoticeFallback />}>
+      <LazyIssueThreadInteractionCard {...props} />
+    </Suspense>
+  );
+}
+
+function DeferredIssueBlockedNotice(props: IssueBlockedNoticeProps) {
+  return (
+    <Suspense fallback={<DeferredNoticeFallback />}>
+      <LazyIssueBlockedNotice {...props} />
+    </Suspense>
+  );
+}
+
+function DeferredIssueAssignedBacklogNotice(props: IssueAssignedBacklogNoticeProps) {
+  return (
+    <Suspense fallback={<DeferredNoticeFallback />}>
+      <LazyIssueAssignedBacklogNotice {...props} />
+    </Suspense>
+  );
+}
+
+function DeferredIssueRecoveryActionCard(props: IssueRecoveryActionCardProps) {
+  return (
+    <Suspense fallback={<DeferredNoticeFallback />}>
+      <LazyIssueRecoveryActionCard {...props} />
+    </Suspense>
+  );
+}
 
 interface IssueChatMessageContext {
   feedbackDataSharingPreference: FeedbackDataSharingPreference;
@@ -530,7 +609,7 @@ function IssueChatFallbackThread({
                 </div>
                 <div className="space-y-2">
                   {lines.length > 0 ? lines.map((line, index) => (
-                    <MarkdownBody key={`${message.id}:fallback:${index}`}>{line}</MarkdownBody>
+                    <DeferredMarkdownBody key={`${message.id}:fallback:${index}`}>{line}</DeferredMarkdownBody>
                   )) : (
                     <p className="text-sm text-muted-foreground">No message content.</p>
                   )}
@@ -635,20 +714,96 @@ function commentDateLabel(date: Date | string | undefined): string {
   return formatShortDate(date);
 }
 
+type DeferredMarkdownBodyProps = {
+  children: string;
+  className?: string;
+  style?: CSSProperties;
+  softBreaks?: boolean;
+  linkIssueReferences?: boolean;
+  enableWikiLinks?: boolean;
+  wikiLinkRoot?: string;
+  resolveWikiLinkHref?: (target: string, label: string) => string | null | undefined;
+  resolveImageSrc?: (src: string) => string | null;
+  onImageClick?: (src: string) => void;
+};
+
+let markdownBodyLoaderPromise: Promise<ComponentType<DeferredMarkdownBodyProps>> | null = null;
+
+function loadMarkdownBodyComponent() {
+  markdownBodyLoaderPromise ??= import("./MarkdownBody").then(({ MarkdownBody }) =>
+    MarkdownBody as ComponentType<DeferredMarkdownBodyProps>
+  );
+  return markdownBodyLoaderPromise;
+}
+
+function MarkdownTextFallback({
+  children,
+  className,
+  style,
+}: Pick<DeferredMarkdownBodyProps, "children" | "className" | "style">) {
+  return (
+    <div
+      className={cn("whitespace-pre-wrap break-words", className)}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DeferredMarkdownBody(props: DeferredMarkdownBodyProps) {
+  const [MarkdownBodyComponent, setMarkdownBodyComponent] =
+    useState<ComponentType<DeferredMarkdownBodyProps> | null>(null);
+
+  useEffect(() => {
+    setMarkdownBodyComponent(null);
+    if (!props.children.trim()) return;
+    let cancelled = false;
+    const load = () => {
+      void loadMarkdownBodyComponent().then((Component) => {
+        if (!cancelled) setMarkdownBodyComponent(() => Component);
+      });
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(load, { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(idleId);
+      };
+    }
+    const timeoutId = globalThis.setTimeout(load, 0);
+    return () => {
+      cancelled = true;
+      globalThis.clearTimeout(timeoutId);
+    };
+  }, [props.children]);
+
+  const fallback = (
+    <MarkdownTextFallback
+      className={props.className}
+      style={props.style}
+    >
+      {props.children}
+    </MarkdownTextFallback>
+  );
+
+  return MarkdownBodyComponent ? <MarkdownBodyComponent {...props} /> : fallback;
+}
+
 const IssueChatTextPart = memo(function IssueChatTextPart({ text, recessed }: { text: string; recessed?: boolean }) {
   const { onImageClick } = useContext(IssueChatCtx);
   if (isSuccessfulRunHandoffComment(text)) {
     return <SuccessfulRunHandoffCommentCallout text={text} recessed={recessed} onImageClick={onImageClick} />;
   }
   return (
-    <MarkdownBody
+    <DeferredMarkdownBody
       className="text-sm leading-6"
       style={recessed ? { opacity: 0.55 } : undefined}
       softBreaks
       onImageClick={onImageClick}
     >
       {text}
-    </MarkdownBody>
+    </DeferredMarkdownBody>
   );
 });
 
@@ -679,9 +834,9 @@ export function SuccessfulRunHandoffCommentCallout({
             escalated ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300",
           )}
         />
-        <MarkdownBody className="min-w-0 text-sm leading-6" softBreaks onImageClick={onImageClick}>
+        <DeferredMarkdownBody className="min-w-0 text-sm leading-6" softBreaks onImageClick={onImageClick}>
           {text}
-        </MarkdownBody>
+        </DeferredMarkdownBody>
       </div>
     </div>
   );
@@ -1978,7 +2133,7 @@ function ExpiredRequestConfirmationActivity({
       )}
       {expanded ? (
         <div id={detailsId} className="mt-2">
-          <IssueThreadInteractionCard
+          <DeferredIssueThreadInteractionCard
             interaction={interaction}
             agentMap={agentMap}
             currentUserId={currentUserId}
@@ -2273,9 +2428,9 @@ function SystemNoticeCommentRow({
     presentation,
     metadata: commentMetadata,
     body: (
-      <MarkdownBody className="text-sm leading-6" softBreaks onImageClick={onImageClick}>
+      <DeferredMarkdownBody className="text-sm leading-6" softBreaks onImageClick={onImageClick}>
         {bodyText}
-      </MarkdownBody>
+      </DeferredMarkdownBody>
     ),
     timestamp: message.createdAt ? new Date(message.createdAt).toISOString() : undefined,
     source,
@@ -2409,7 +2564,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
     return (
       <div id={anchorId}>
         <div className="py-1.5">
-          <IssueThreadInteractionCard
+          <DeferredIssueThreadInteractionCard
             interaction={interaction}
             agentMap={agentMap}
             currentUserId={currentUserId}
@@ -4272,6 +4427,17 @@ export function IssueChatThread({
     errorBoundaryResetVersionRef.current += 1;
   }
   const errorBoundaryResetKey = String(errorBoundaryResetVersionRef.current);
+  const blockedNoticeHandoff = recoveryAction ? null : successfulRunHandoff;
+  const shouldRenderAssignedBacklogNotice =
+    issueStatus === "backlog" && Boolean(assignedAgent || assigneeUserId);
+  const shouldRenderBlockedNotice =
+    issueStatus !== "done"
+    && issueStatus !== "cancelled"
+    && (
+      blockedNoticeHandoff?.required === true
+      || unresolvedBlockers.length > 0
+      || issueStatus === "blocked"
+    );
 
   return (
     <IssueChatCtx.Provider value={chatCtx}>
@@ -4332,15 +4498,17 @@ export function IssueChatThread({
             )}
               {showComposer ? (
                 <div data-testid="issue-chat-thread-notices" className="space-y-2">
-                  <IssueAssignedBacklogNotice
-                    issueStatus={issueStatus ?? ""}
-                    assigneeAgent={assignedAgent}
-                    assigneeUserId={assigneeUserId}
-                    onResume={onResumeFromBacklog}
-                    resuming={resumeFromBacklogPending}
-                  />
+                  {shouldRenderAssignedBacklogNotice ? (
+                    <DeferredIssueAssignedBacklogNotice
+                      issueStatus={issueStatus ?? ""}
+                      assigneeAgent={assignedAgent}
+                      assigneeUserId={assigneeUserId}
+                      onResume={onResumeFromBacklog}
+                      resuming={resumeFromBacklogPending}
+                    />
+                  ) : null}
                   {recoveryAction ? (
-                    <IssueRecoveryActionCard
+                    <DeferredIssueRecoveryActionCard
                       action={recoveryAction}
                       agentMap={agentMap}
                       onResolve={onResolveRecoveryAction}
@@ -4377,19 +4545,21 @@ export function IssueChatThread({
                       }
                     />
                   ) : null}
-                  <IssueBlockedNotice
-                    issueId={issueId}
-                    issueStatus={issueStatus}
-                    blockers={unresolvedBlockers}
-                    blockerAttention={blockerAttention}
-                    successfulRunHandoff={recoveryAction ? null : successfulRunHandoff}
-                    scheduledRetry={scheduledRetry}
-                    agentName={
-                      successfulRunHandoff?.assigneeAgentId
-                        ? agentMap?.get(successfulRunHandoff.assigneeAgentId)?.name ?? null
-                        : null
-                    }
-                  />
+                  {shouldRenderBlockedNotice ? (
+                    <DeferredIssueBlockedNotice
+                      issueId={issueId}
+                      issueStatus={issueStatus}
+                      blockers={unresolvedBlockers}
+                      blockerAttention={blockerAttention}
+                      successfulRunHandoff={blockedNoticeHandoff}
+                      scheduledRetry={scheduledRetry}
+                      agentName={
+                        successfulRunHandoff?.assigneeAgentId
+                          ? agentMap?.get(successfulRunHandoff.assigneeAgentId)?.name ?? null
+                          : null
+                      }
+                    />
+                  ) : null}
                   <IssueAssigneePausedNotice agent={assignedAgent} />
                 </div>
               ) : null}

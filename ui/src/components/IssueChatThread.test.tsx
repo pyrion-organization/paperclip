@@ -267,6 +267,10 @@ function createExpiredRequestConfirmationInteraction(
   };
 }
 
+type TestIdleCallback = (deadline: IdleDeadline) => void;
+
+let idleCallbacks: TestIdleCallback[] = [];
+
 function createFileDragEvent(type: string, files: File[]) {
   const event = new Event(type, { bubbles: true, cancelable: true }) as Event & {
     dataTransfer: {
@@ -282,10 +286,48 @@ function createFileDragEvent(type: string, files: File[]) {
   return event;
 }
 
+async function flushDeferredMarkdownRender() {
+  await act(async () => {
+    const callbacks = idleCallbacks.splice(0);
+    callbacks.forEach((callback) => callback({
+      didTimeout: false,
+      timeRemaining: () => 50,
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function flushDeferredComponents() {
+  for (let i = 0; i < 5; i += 1) {
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await Promise.resolve();
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    });
+  }
+}
+
 describe("IssueChatThread", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    idleCallbacks = [];
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((callback: TestIdleCallback) => {
+        idleCallbacks.push(callback);
+        return idleCallbacks.length;
+      }),
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((id: number) => {
+        idleCallbacks[id - 1] = () => {};
+      }),
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     window.scrollTo = vi.fn();
@@ -301,6 +343,9 @@ describe("IssueChatThread", () => {
     shouldPreserveComposerViewportMock.mockClear();
     markdownBodyRenderMock.mockClear();
     markdownEditorRenderMock.mockClear();
+    idleCallbacks = [];
+    Reflect.deleteProperty(window, "requestIdleCallback");
+    Reflect.deleteProperty(window, "cancelIdleCallback");
   });
 
   it("drops the count heading and does not use an internal scrollbox", () => {
@@ -1111,7 +1156,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("does not re-render long-thread markdown rows for unrelated layout updates", () => {
+  it("does not re-render long-thread markdown rows for unrelated layout updates", async () => {
     const root = createRoot(container);
     const onAdd = async () => {};
     const hasOutputForRun = (runId: string) => issueChatLongThreadTranscriptsByRunId.has(runId);
@@ -1137,6 +1182,8 @@ describe("IssueChatThread", () => {
       );
     });
 
+    expect(markdownBodyRenderMock).not.toHaveBeenCalled();
+    await flushDeferredMarkdownRender();
     expect(markdownBodyRenderMock).toHaveBeenCalled();
     markdownBodyRenderMock.mockClear();
 
@@ -1168,7 +1215,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("does not re-render unchanged markdown when feedback votes change", () => {
+  it("does not re-render unchanged markdown when feedback votes change", async () => {
     const root = createRoot(container);
     const onAdd = async () => {};
     const onVote = async () => {};
@@ -1204,6 +1251,8 @@ describe("IssueChatThread", () => {
       );
     });
 
+    expect(markdownBodyRenderMock).not.toHaveBeenCalled();
+    await flushDeferredMarkdownRender();
     expect(markdownBodyRenderMock).toHaveBeenCalled();
     markdownBodyRenderMock.mockClear();
 
@@ -1294,7 +1343,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("shows unresolved blocker context above the composer", () => {
+  it("shows unresolved blocker context above the composer", async () => {
     const root = createRoot(container);
 
     act(() => {
@@ -1324,6 +1373,8 @@ describe("IssueChatThread", () => {
       );
     });
 
+    await flushDeferredComponents();
+
     expect(container.textContent).toContain("Work on this issue is blocked by the linked issue");
     expect(container.textContent).toContain("Comments still wake the assignee for questions or triage");
     expect(container.textContent).toContain("PAP-1723");
@@ -1335,7 +1386,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("shows terminal blocker context when an immediate blocker is transitively blocked", () => {
+  it("shows terminal blocker context when an immediate blocker is transitively blocked", async () => {
     const root = createRoot(container);
 
     act(() => {
@@ -1375,6 +1426,8 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
+
+    await flushDeferredComponents();
 
     expect(container.textContent).toContain("PAP-2167");
     expect(container.textContent).toContain("Phase 7 review");
@@ -1479,6 +1532,8 @@ describe("IssueChatThread", () => {
       );
     });
 
+    await flushDeferredComponents();
+
     const acceptButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Accept drafts"),
     );
@@ -1538,6 +1593,8 @@ describe("IssueChatThread", () => {
       );
     });
 
+    await flushDeferredComponents();
+
     const childCheckbox = container.querySelector('[aria-label="Include Child task"]');
     expect(childCheckbox).toBeTruthy();
 
@@ -1586,6 +1643,8 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
+
+    await flushDeferredComponents();
 
     const optionButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Phase 1"),
@@ -1637,6 +1696,8 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
+
+    await flushDeferredComponents();
 
     const cancelButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Cancel question"),
@@ -1694,6 +1755,8 @@ describe("IssueChatThread", () => {
     await act(async () => {
       toggleButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+
+    await flushDeferredComponents();
 
     expect(container.textContent).toContain("Approve the plan");
     expect(container.textContent).toContain("Confirmation expired after comment");
