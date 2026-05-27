@@ -4,10 +4,34 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { createUiDevWatchOptions } from "./src/lib/vite-watch";
 
+const issueRuntimeModuleSuffixes = [
+  "/src/lib/issue-blockers.ts",
+  "/src/lib/issue-detail-subissues.ts",
+  "/src/lib/issue-tree.ts",
+  "/src/lib/liveIssueIds.ts",
+  "/src/lib/status-colors.ts",
+  "/src/lib/subIssueDefaults.ts",
+  "/src/lib/successful-run-handoff.ts",
+  "/src/lib/workflow-sort.ts",
+];
+
+function manualIssueRuntimeChunk(id: string) {
+  const normalizedId = id.replace(/\\/g, "/");
+  if (issueRuntimeModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
+    return "issue-runtime";
+  }
+  return undefined;
+}
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   build: {
     minify: "esbuild",
+    rollupOptions: {
+      output: {
+        manualChunks: manualIssueRuntimeChunk,
+      },
+    },
   },
   esbuild:
     mode === "production"
