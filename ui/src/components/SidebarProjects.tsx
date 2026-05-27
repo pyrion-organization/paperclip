@@ -5,8 +5,6 @@ import { FolderOpen, Plus } from "lucide-react";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useSidebar } from "../context/SidebarContext";
-import { authApi } from "../api/auth";
-import { projectsApi } from "../api/projects";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, projectRouteRef } from "../lib/utils";
@@ -205,12 +203,18 @@ export function SidebarProjects() {
 
   const { data: projects } = useQuery({
     queryKey: queryKeys.projects.list(selectedCompanyId!),
-    queryFn: () => projectsApi.list(selectedCompanyId!),
+    queryFn: async () => {
+      const { projectsApi } = await import("../api/projects");
+      return projectsApi.list(selectedCompanyId!);
+    },
     enabled: !!selectedCompanyId,
   });
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
-    queryFn: () => authApi.getSession(),
+    queryFn: async () => {
+      const { authApi } = await import("../api/auth");
+      return authApi.getSession();
+    },
   });
 
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;

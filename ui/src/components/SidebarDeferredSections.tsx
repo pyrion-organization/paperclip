@@ -17,6 +17,7 @@ import {
 import { SidebarNavItem } from "./SidebarNavItem";
 import { SidebarSection } from "./SidebarSection";
 import { useSidebar } from "../context/SidebarContext";
+import type { LiveRunForIssue } from "../api/heartbeats";
 
 const SidebarProjects = lazy(() =>
   import("./SidebarProjects").then((module) => ({ default: module.SidebarProjects })),
@@ -42,6 +43,7 @@ type SidebarPluginContext = {
 };
 
 interface SidebarDeferredSectionsProps {
+  liveRuns: LiveRunForIssue[];
   pluginContext: SidebarPluginContext;
   showWorkspacesLink: boolean;
 }
@@ -69,6 +71,7 @@ function useSidebarPluginsReady() {
 }
 
 export function SidebarDeferredSections({
+  liveRuns,
   pluginContext,
   showWorkspacesLink,
 }: SidebarDeferredSectionsProps) {
@@ -97,7 +100,7 @@ export function SidebarDeferredSections({
       </Suspense>
 
       <Suspense fallback={null}>
-        <SidebarAgents />
+        <SidebarAgents liveRuns={liveRuns} />
       </Suspense>
 
       <SidebarSection label="Company">

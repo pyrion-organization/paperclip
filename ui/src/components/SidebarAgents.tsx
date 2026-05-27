@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bot,
   MoreHorizontal,
   PauseCircle,
   Pencil,
@@ -13,9 +14,6 @@ import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useToastActions } from "../context/ToastContext";
-import { agentsApi } from "../api/agents";
-import { authApi } from "../api/auth";
-import { heartbeatsApi } from "../api/heartbeats";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, agentRouteRef, agentUrl } from "../lib/utils";
@@ -28,7 +26,6 @@ import {
   type AgentSidebarSortMode,
   writeAgentSortMode,
 } from "../lib/agent-order";
-import { AgentIcon } from "./AgentIcon";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
 import { Button } from "@/components/ui/button";
@@ -40,12 +37,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Agent } from "@paperclipai/shared";
+import type { LiveRunForIssue } from "../api/heartbeats";
 
 const AGENT_SORT_CHOICES: SidebarSectionRadioChoice[] = [
   { value: "top", label: "Top" },
   { value: "alphabetical", label: "Alphabetical" },
   { value: "recent", label: "Recent" },
 ];
+
+const DeferredAgentIcon = lazy(() =>
+  import("./AgentIcon").then((module) => ({ default: module.AgentIcon })),
+);
+
+type SidebarIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
 
 function agentTimestamp(agent: Agent, field: "lastHeartbeatAt" | "updatedAt" | "createdAt"): number {
   const raw = agent[field];
@@ -76,10 +83,51 @@ function sortAgents(agents: Agent[], sortMode: AgentSidebarSortMode): Agent[] {
   return sorted;
 }
 
+function useSidebarAgentIconsReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as SidebarIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 2_500 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 1_000);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
+}
+
+function SidebarAgentIcon({
+  className,
+  icon,
+  ready,
+}: {
+  className?: string;
+  icon: string | null | undefined;
+  ready: boolean;
+}) {
+  const fallback = <Bot className={className} />;
+  if (!ready) return fallback;
+  return (
+    <Suspense fallback={fallback}>
+      <DeferredAgentIcon icon={icon} className={className} />
+    </Suspense>
+  );
+}
+
 function SidebarAgentItem({
   activeAgentId,
   activeTab,
   agent,
+  agentIconsReady,
   disabled,
   isCollapsed,
   isMobile,
@@ -90,6 +138,7 @@ function SidebarAgentItem({
   activeAgentId: string | null;
   activeTab: string | null;
   agent: Agent;
+  agentIconsReady: boolean;
   disabled: boolean;
   isCollapsed: boolean;
   isMobile: boolean;
@@ -124,7 +173,11 @@ function SidebarAgentItem({
             : "text-foreground/80 hover:bg-accent/50 hover:text-foreground"
         )}
       >
-        <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 text-muted-foreground" />
+        <SidebarAgentIcon
+          icon={agent.icon}
+          ready={agentIconsReady}
+          className="h-3.5 w-3.5 text-muted-foreground"
+        />
       </NavLink>
     );
   }
@@ -144,7 +197,11 @@ function SidebarAgentItem({
             : "text-foreground/80 hover:bg-accent/50 hover:text-foreground"
         )}
       >
-        <AgentIcon icon={agent.icon} className="shrink-0 h-3.5 w-3.5 text-muted-foreground" />
+        <SidebarAgentIcon
+          icon={agent.icon}
+          ready={agentIconsReady}
+          className="shrink-0 h-3.5 w-3.5 text-muted-foreground"
+        />
         <span className="flex-1 truncate">{agent.name}</span>
         {(agent.pauseReason === "budget" || runCount > 0) && (
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -212,7 +269,11 @@ function SidebarAgentItem({
   );
 }
 
-export function SidebarAgents() {
+interface SidebarAgentsProps {
+  liveRuns?: LiveRunForIssue[];
+}
+
+export function SidebarAgents({ liveRuns = [] }: SidebarAgentsProps) {
   const [open, setOpen] = useState(true);
   const [pendingAgentIds, setPendingAgentIds] = useState<Set<string>>(() => new Set());
   const queryClient = useQueryClient();
@@ -221,27 +282,27 @@ export function SidebarAgents() {
   const { isMobile, isCollapsed, setSidebarOpen } = useSidebar();
   const { pushToast } = useToastActions();
   const location = useLocation();
+  const agentIconsReady = useSidebarAgentIconsReady();
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
-    queryFn: () => agentsApi.list(selectedCompanyId!),
+    queryFn: async () => {
+      const { agentsApi } = await import("../api/agents");
+      return agentsApi.list(selectedCompanyId!);
+    },
     enabled: !!selectedCompanyId,
   });
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
-    queryFn: () => authApi.getSession(),
-  });
-
-  const { data: liveRuns } = useQuery({
-    queryKey: queryKeys.liveRuns(selectedCompanyId!),
-    queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
-    refetchInterval: 10_000,
+    queryFn: async () => {
+      const { authApi } = await import("../api/auth");
+      return authApi.getSession();
+    },
   });
 
   const liveCountByAgent = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const run of liveRuns ?? []) {
+    for (const run of liveRuns) {
       counts.set(run.agentId, (counts.get(run.agentId) ?? 0) + 1);
     }
     return counts;
@@ -318,10 +379,12 @@ export function SidebarAgents() {
   );
 
   const pauseResumeAgent = useMutation({
-    mutationFn: ({ agent, action }: { agent: Agent; action: "pause" | "resume" }) =>
-      action === "pause"
+    mutationFn: async ({ agent, action }: { agent: Agent; action: "pause" | "resume" }) => {
+      const { agentsApi } = await import("../api/agents");
+      return action === "pause"
         ? agentsApi.pause(agent.id, selectedCompanyId ?? undefined)
-        : agentsApi.resume(agent.id, selectedCompanyId ?? undefined),
+        : agentsApi.resume(agent.id, selectedCompanyId ?? undefined);
+    },
     onMutate: ({ agent }) => {
       setPendingAgentIds((current) => {
         const next = new Set(current);
@@ -392,6 +455,7 @@ export function SidebarAgents() {
             activeAgentId={activeAgentId}
             activeTab={activeTab}
             agent={agent}
+            agentIconsReady={agentIconsReady}
             disabled={pendingAgentIds.has(agent.id)}
             isCollapsed={isCollapsed}
             isMobile={isMobile}

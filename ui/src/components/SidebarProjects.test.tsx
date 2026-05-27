@@ -213,6 +213,17 @@ describe("SidebarProjects", () => {
         dispatchEvent: vi.fn(),
       })),
     });
+    Object.defineProperty(window, "requestIdleCallback", {
+      writable: true,
+      value: vi.fn((callback: () => void) => {
+        window.setTimeout(callback, 0);
+        return 1;
+      }),
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      writable: true,
+      value: vi.fn(),
+    });
     mockProjectsApi.list.mockResolvedValue([
       makeProject({
         id: "project-a",

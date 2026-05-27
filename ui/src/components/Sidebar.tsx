@@ -172,6 +172,7 @@ export function Sidebar() {
         {sidebarChromeReady ? (
           <Suspense fallback={<SidebarDeferredSectionsPlaceholder />}>
             <SidebarDeferredSections
+              liveRuns={liveRuns ?? []}
               pluginContext={pluginContext}
               showWorkspacesLink={showWorkspacesLink}
             />

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
-import { sidebarPreferencesApi } from "../api/sidebarPreferences";
 import { sortProjectsByStoredOrder } from "../lib/project-order";
 import { queryKeys } from "../lib/queryKeys";
 
@@ -32,7 +31,10 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
 
   const { data } = useQuery({
     queryKey,
-    queryFn: () => sidebarPreferencesApi.getProjectOrder(companyId!),
+    queryFn: async () => {
+      const { sidebarPreferencesApi } = await import("../api/sidebarPreferences");
+      return sidebarPreferencesApi.getProjectOrder(companyId!);
+    },
     enabled: Boolean(companyId && userId),
   });
 
@@ -46,7 +48,10 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
   }, [data?.orderedIds, projects]);
 
   const mutation = useMutation({
-    mutationFn: (nextIds: string[]) => sidebarPreferencesApi.updateProjectOrder(companyId!, { orderedIds: nextIds }),
+    mutationFn: async (nextIds: string[]) => {
+      const { sidebarPreferencesApi } = await import("../api/sidebarPreferences");
+      return sidebarPreferencesApi.updateProjectOrder(companyId!, { orderedIds: nextIds });
+    },
     onSuccess: (preference) => {
       queryClient.setQueryData(queryKey, preference);
     },
