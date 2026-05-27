@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCompany } from "@/context/CompanyContext";
@@ -11,11 +11,35 @@ const SidebarCompanyMenu = lazy(() =>
 function WorkspaceIconFallback({
   brandColor,
   companyName,
+  logoUrl,
 }: {
   brandColor?: string | null;
   companyName: string;
+  logoUrl?: string | null;
 }) {
   const initial = companyName.trim().charAt(0).toUpperCase() || "?";
+  const [logoFailed, setLogoFailed] = useState(false);
+  const logo = !logoFailed && typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+
+  if (logo) {
+    return (
+      <span
+        aria-hidden="true"
+        className="relative flex size-5 shrink-0 overflow-hidden rounded-md bg-muted"
+      >
+        <img
+          src={logo}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+          onError={() => setLogoFailed(true)}
+        />
+      </span>
+    );
+  }
 
   return (
     <span
@@ -94,6 +118,7 @@ function CompanyMenuFallbackButton({
           <WorkspaceIconFallback
             companyName={selectedCompany.name}
             brandColor={selectedCompany.brandColor}
+            logoUrl={selectedCompany.logoUrl}
           />
         ) : null}
         <span className="truncate text-sm font-bold text-foreground">

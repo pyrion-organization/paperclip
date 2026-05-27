@@ -43,7 +43,13 @@ vi.mock("../context/DialogContext", () => ({
 vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({
     selectedCompanyId: "company-1",
-    selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
+    selectedCompany: {
+      id: "company-1",
+      issuePrefix: "PAP",
+      name: "Paperclip",
+      brandColor: "#3366ff",
+      logoUrl: "/api/assets/logo-1/content",
+    },
   }),
 }));
 
@@ -187,6 +193,7 @@ describe("Sidebar", () => {
 
     expect(container.textContent).toContain("Paperclip");
     expect(container.textContent).not.toContain("Company menu");
+    expect(container.querySelector('img[src="/api/assets/logo-1/content"]')).toBeTruthy();
 
     const trigger = container.querySelector('button[aria-label="Open Paperclip workspace switcher"]');
     expect(trigger).not.toBeNull();
