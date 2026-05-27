@@ -16,10 +16,17 @@ const issueRuntimeModuleSuffixes = [
   "/src/lib/workflow-sort.ts",
 ];
 
-function manualIssueRuntimeChunk(id: string) {
+const sidebarPrimitiveModuleSuffixes = [
+  "/src/lib/navigation-scroll.ts",
+];
+
+function manualRuntimeChunk(id: string) {
   const normalizedId = id.replace(/\\/g, "/");
   if (issueRuntimeModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
     return "issue-runtime";
+  }
+  if (sidebarPrimitiveModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
+    return "sidebar-primitives";
   }
   return undefined;
 }
@@ -38,7 +45,7 @@ export default defineConfig(({ mode }) => ({
     },
     rollupOptions: {
       output: {
-        manualChunks: manualIssueRuntimeChunk,
+        manualChunks: manualRuntimeChunk,
       },
     },
   },
