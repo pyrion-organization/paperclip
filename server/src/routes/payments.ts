@@ -17,6 +17,8 @@ export function paymentRoutes(db: Db) {
   const payments = paymentService(db);
   const calendar = calendarService(db);
 
+  const changedKeys = (input: Record<string, unknown>) => Object.keys(input).sort();
+
   router.get("/companies/:companyId/payments/dashboard", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -53,6 +55,17 @@ export function paymentRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     assertBoard(req);
     const profile = await payments.updateProfile(companyId, req.params.profileId as string, req.body);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "payment_profile.updated",
+      entityType: "payment_profile",
+      entityId: profile.id,
+      details: { changedKeys: changedKeys(req.body), method: profile.method, accountLabel: profile.accountLabel },
+    });
     res.json(profile);
   });
 
@@ -92,14 +105,43 @@ export function paymentRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await payments.updateEntry(companyId, req.params.entryId as string, req.body));
+    const entry = await payments.updateEntry(companyId, req.params.entryId as string, req.body);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "payment_entry.updated",
+      entityType: "payment_entry",
+      entityId: entry.id,
+      details: {
+        changedKeys: changedKeys(req.body),
+        status: entry.status,
+        expectedAmountCents: entry.expectedAmountCents,
+        calendarItemId: entry.calendarItemId,
+      },
+    });
+    res.json(entry);
   });
 
   router.post("/companies/:companyId/payments/entries/:entryId/cancel", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
-    res.json(await payments.updateEntry(companyId, req.params.entryId as string, { status: "cancelled" }));
+    const entry = await payments.updateEntry(companyId, req.params.entryId as string, { status: "cancelled" });
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "payment_entry.cancelled",
+      entityType: "payment_entry",
+      entityId: entry.id,
+      details: { status: entry.status, calendarItemId: entry.calendarItemId },
+    });
+    res.json(entry);
   });
 
   router.post("/companies/:companyId/payments/entries/:entryId/records", validate(recordPaymentSchema), async (req, res) => {

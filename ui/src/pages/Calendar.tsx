@@ -231,6 +231,10 @@ function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function money(cents: number, currency = "BRL") {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+}
+
 function dueLabel(item: CalendarItem) {
   if (!item.nextDueDate) return "No date";
   const due = new Date(`${item.nextDueDate}T00:00:00Z`);
@@ -725,7 +729,7 @@ export function Calendar() {
                           {titleCase(item.riskLevel)}
                         </span>
                       </td>
-                      <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : formatCents(item.amountCents)}</td>
+                      <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : money(item.amountCents, item.currency)}</td>
                       <td className="px-3 py-2 align-top">{item.autoRenew ? "Yes" : "No"}</td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground">
                         <div>{item.paymentProfileId ? "Registered profile" : item.paymentMethodLabel ?? "-"}</div>

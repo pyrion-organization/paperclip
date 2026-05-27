@@ -55,12 +55,20 @@ function rowToRecord(row: typeof paymentRecords.$inferSelect, profile?: typeof p
   };
 }
 
-function statusFor(entry: typeof paymentEntries.$inferSelect, paidAmountCents: number): PaymentEntryStatus {
+function statusFor(entry: Pick<typeof paymentEntries.$inferSelect, "status" | "expectedAmountCents">, paidAmountCents: number): PaymentEntryStatus {
   if (entry.status === "cancelled") return "cancelled";
   if (entry.expectedAmountCents == null) return paidAmountCents > 0 ? "paid" : "open";
   if (paidAmountCents <= 0) return "open";
   if (paidAmountCents < entry.expectedAmountCents) return "partially_paid";
   return "paid";
+}
+
+async function paidAmountForEntry(db: Db, companyId: string, entryId: string): Promise<number> {
+  const [{ total }] = await db
+    .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+    .from(paymentRecords)
+    .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
+  return Number(total ?? 0);
 }
 
 async function assertProfile(db: Db, companyId: string, profileId: string) {
@@ -192,6 +200,9 @@ export function paymentService(db: Db) {
       if (existing.status === "paid" && input.status != null && input.status !== "paid") {
         throw unprocessable("Paid entries cannot be reopened");
       }
+      if (existing.status !== "paid" && input.status === "paid") {
+        throw unprocessable("Use payment records to mark entries paid");
+      }
       if (input.paymentProfileId) await assertProfile(db, companyId, input.paymentProfileId);
       if (input.calendarItemId) await assertCalendarItem(db, companyId, input.calendarItemId);
       const [row] = await db
@@ -199,6 +210,16 @@ export function paymentService(db: Db) {
         .set({ ...input, updatedAt: new Date() })
         .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
         .returning();
+      const recordPaidAmountCents = await paidAmountForEntry(db, companyId, entryId);
+      if (row.status !== "cancelled" && (recordPaidAmountCents > 0 || row.paidAmountCents > 0)) {
+        const nextStatus = statusFor(row, recordPaidAmountCents);
+        const [reconciled] = await db
+          .update(paymentEntries)
+          .set({ paidAmountCents: recordPaidAmountCents, status: nextStatus, updatedAt: new Date() })
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .returning();
+        return (await hydrateEntries([reconciled]))[0]!;
+      }
       return (await hydrateEntries([row]))[0]!;
     },
 
@@ -223,11 +244,7 @@ export function paymentService(db: Db) {
         paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
       });
 
-      const [{ total }] = await db
-        .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
-        .from(paymentRecords)
-        .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
-      const paidAmountCents = Number(total ?? 0);
+      const paidAmountCents = await paidAmountForEntry(db, companyId, entryId);
       const nextStatus = statusFor(entry, paidAmountCents);
       const [updated] = await db
         .update(paymentEntries)
@@ -241,12 +258,8 @@ export function paymentService(db: Db) {
     },
 
     ensureEntryForCalendarItem: async (item: CalendarPaymentItem, options?: { advanceCycle?: boolean }) => {
-      if (item.category !== "payment_payable" || item.status === "cancelled" || item.status === "archived") return null;
       const dueDate = dateOnly(item.nextDueDate);
-      if (!dueDate) return null;
-      if (!item.paymentProfileId) return null;
-      await assertProfile(db, item.companyId, item.paymentProfileId);
-      const existing = await db
+      const linkedEntries = await db
         .select()
         .from(paymentEntries)
         .where(and(
@@ -254,13 +267,28 @@ export function paymentService(db: Db) {
           eq(paymentEntries.calendarItemId, item.id),
           ne(paymentEntries.status, "cancelled"),
         ))
-        .orderBy(asc(paymentEntries.createdAt))
-        .then((rows) => {
+        .orderBy(asc(paymentEntries.createdAt));
+      const qualifies = item.category === "payment_payable" && (item.status === "active" || item.status === "overdue");
+      if (!qualifies || !dueDate || !item.paymentProfileId) {
+        const staleEntries = linkedEntries.filter((entry) => entry.status !== "paid");
+        if (staleEntries.length > 0) {
+          await db
+            .update(paymentEntries)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(and(
+              eq(paymentEntries.companyId, item.companyId),
+              inArray(paymentEntries.id, staleEntries.map((entry) => entry.id)),
+            ));
+        }
+        return null;
+      }
+      await assertProfile(db, item.companyId, item.paymentProfileId);
+      const existing = (() => {
           if (options?.advanceCycle) {
-            return rows.find((row) => dateOnly(row.dueDate) === dueDate) ?? null;
+            return linkedEntries.find((row) => dateOnly(row.dueDate) === dueDate) ?? null;
           }
-          return rows.find((row) => row.status !== "paid") ?? null;
-        });
+          return linkedEntries.find((row) => row.status !== "paid") ?? null;
+      })();
       const values = {
         title: item.title,
         providerName: item.providerName,
@@ -288,6 +316,34 @@ export function paymentService(db: Db) {
         })
         .returning();
       return (await hydrateEntries([created]))[0]!;
+    },
+
+    completeCurrentEntryForCalendarItem: async (item: CalendarPaymentItem) => {
+      if (item.category !== "payment_payable") return null;
+      const dueDate = dateOnly(item.nextDueDate);
+      if (!dueDate) return null;
+      const existing = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(
+          eq(paymentEntries.companyId, item.companyId),
+          eq(paymentEntries.calendarItemId, item.id),
+          eq(paymentEntries.dueDate, dueDate),
+          ne(paymentEntries.status, "cancelled"),
+        ))
+        .orderBy(asc(paymentEntries.createdAt))
+        .then((rows) => rows[0] ?? null);
+      if (!existing) return null;
+      if (existing.status === "paid") return rowToEntry(existing);
+      const paidAmountCents = existing.expectedAmountCents == null
+        ? existing.paidAmountCents
+        : Math.max(existing.paidAmountCents, existing.expectedAmountCents);
+      const [updated] = await db
+        .update(paymentEntries)
+        .set({ paidAmountCents, status: "paid", updatedAt: new Date() })
+        .where(and(eq(paymentEntries.companyId, item.companyId), eq(paymentEntries.id, existing.id)))
+        .returning();
+      return (await hydrateEntries([updated]))[0]!;
     },
 
     dashboard: async (companyId: string, now = new Date()) => {

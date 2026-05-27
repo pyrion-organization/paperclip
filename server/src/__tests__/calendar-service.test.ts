@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -326,6 +326,10 @@ describeEmbeddedPostgres("calendarService", () => {
 
     expect(completed.nextDueDate).toBe("2026-07-10");
     expect(advancedEntries.map((entry) => entry.dueDate)).toEqual(["2026-06-10", "2026-07-10"]);
+    expect(advancedEntries[0]).toMatchObject({
+      paidAmountCents: 12500,
+      status: "paid",
+    });
     expect(advancedEntries[1]).toMatchObject({
       expectedAmountCents: 12500,
       paymentProfileId: profile!.id,
@@ -373,6 +377,62 @@ describeEmbeddedPostgres("calendarService", () => {
     });
   });
 
+  it("only keeps linked payment entries for active payable calendar items", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const pending = await svc.create(companyId, item({
+      title: "Pending payable proposal",
+      category: "payment_payable",
+      status: "pending_review",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const active = await svc.create(companyId, item({
+      title: "Active payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-11",
+      amountCents: 15000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const paused = await svc.create(companyId, item({
+      title: "Paused payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-12",
+      amountCents: 16000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    await svc.update(
+      companyId,
+      active.id,
+      { category: "domain" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+    await svc.setStatus(companyId, paused.id, "paused");
+
+    const entries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), inArray(paymentEntries.calendarItemId, [pending.id, active.id, paused.id])))
+      .orderBy(paymentEntries.dueDate);
+
+    expect(entries.find((entry) => entry.calendarItemId === pending.id)).toBeUndefined();
+    expect(entries.find((entry) => entry.calendarItemId === active.id)).toMatchObject({ status: "cancelled" });
+    expect(entries.find((entry) => entry.calendarItemId === paused.id)).toMatchObject({ status: "cancelled" });
+  });
+
   it("records partial and full payments against a payment entry", async () => {
     const payments = paymentService(db);
     const profile = await payments.createProfile(companyId, {
@@ -417,6 +477,56 @@ describeEmbeddedPostgres("calendarService", () => {
 
     const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
     expect(dashboard.paidThisMonthCents).toBe(10000);
+  });
+
+  it("recomputes payment status when expected amount changes", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Adjustable invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, entry.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Partial payment",
+    });
+
+    const fullyCovered = await payments.updateEntry(companyId, entry.id, {
+      expectedAmountCents: 4000,
+    });
+    const partiallyCovered = await payments.updateEntry(companyId, entry.id, {
+      expectedAmountCents: 8000,
+    });
+
+    expect(fullyCovered).toMatchObject({ paidAmountCents: 4000, status: "paid" });
+    expect(partiallyCovered).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
+  });
+
+  it("rejects direct paid status updates without payment records", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Manual invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await expect(payments.updateEntry(companyId, entry.id, { status: "paid" }))
+      .rejects.toThrow(/payment records/i);
   });
 
   it("allows metadata-only paid entry edits but rejects explicit reopen attempts", async () => {

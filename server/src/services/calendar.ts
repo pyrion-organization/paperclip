@@ -927,6 +927,7 @@ export function calendarService(db: Db) {
         nextDueDate,
         status,
       });
+      await payments.completeCurrentEntryForCalendarItem(existing);
       await payments.ensureEntryForCalendarItem(updated, { advanceCycle: true });
       return rowToItem(updated);
     },
@@ -947,6 +948,7 @@ export function calendarService(db: Db) {
         .where(and(eq(calendarItems.id, existing.id), eq(calendarItems.companyId, companyId)))
         .returning();
       await logCalendarActivity(companyId, actor, `calendar_item.${status}`, itemId, { previousStatus: existing.status });
+      await payments.ensureEntryForCalendarItem(updated);
       return rowToItem(updated);
     },
 

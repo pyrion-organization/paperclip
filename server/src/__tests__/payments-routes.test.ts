@@ -63,7 +63,12 @@ describe("payment routes", () => {
     mockPayments.listEntries.mockResolvedValue({ entries: [], total: 0 });
     mockPayments.getEntry.mockResolvedValue({ id: "entry-1", records: [] });
     mockPayments.createEntry.mockResolvedValue({ id: "entry-1", calendarItemId: null, expectedAmountCents: 10000 });
-    mockPayments.updateEntry.mockResolvedValue({ id: "entry-1", status: "cancelled" });
+    mockPayments.updateEntry.mockResolvedValue({
+      id: "entry-1",
+      calendarItemId: null,
+      expectedAmountCents: 10000,
+      status: "cancelled",
+    });
     mockPayments.recordPayment.mockResolvedValue({
       completed: true,
       entry: {
@@ -111,5 +116,77 @@ describe("payment routes", () => {
 
     expect(res.status).toBe(403);
     expect(mockPayments.createEntry).not.toHaveBeenCalled();
+  });
+
+  it("logs payment profile updates", async () => {
+    const res = await request(appForActor(boardActor))
+      .patch("/api/companies/company-1/payments/profiles/profile-1")
+      .send({ notes: "Updated profile" });
+
+    expect(res.status).toBe(200);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        actorType: "user",
+        actorId: "user-1",
+        action: "payment_profile.updated",
+        entityType: "payment_profile",
+        entityId: "profile-1",
+        details: expect.objectContaining({ changedKeys: ["notes"] }),
+      }),
+    );
+  });
+
+  it("logs payment entry updates and cancellations", async () => {
+    mockPayments.updateEntry
+      .mockResolvedValueOnce({
+        id: "entry-1",
+        calendarItemId: "calendar-1",
+        expectedAmountCents: 4000,
+        status: "paid",
+      })
+      .mockResolvedValueOnce({
+        id: "entry-1",
+        calendarItemId: "calendar-1",
+        expectedAmountCents: 4000,
+        status: "cancelled",
+      });
+
+    const updateRes = await request(appForActor(boardActor))
+      .patch("/api/companies/company-1/payments/entries/entry-1")
+      .send({ expectedAmountCents: 4000 });
+    const cancelRes = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/payments/entries/entry-1/cancel")
+      .send({});
+
+    expect(updateRes.status).toBe(200);
+    expect(cancelRes.status).toBe(200);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "payment_entry.updated",
+        entityType: "payment_entry",
+        entityId: "entry-1",
+        details: expect.objectContaining({
+          changedKeys: ["expectedAmountCents"],
+          status: "paid",
+          expectedAmountCents: 4000,
+          calendarItemId: "calendar-1",
+        }),
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "payment_entry.cancelled",
+        entityType: "payment_entry",
+        entityId: "entry-1",
+        details: expect.objectContaining({
+          status: "cancelled",
+          calendarItemId: "calendar-1",
+        }),
+      }),
+    );
   });
 });
