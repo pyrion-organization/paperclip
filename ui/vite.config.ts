@@ -1,5 +1,6 @@
 import path from "path";
 import { defineConfig } from "vite";
+import type { ResolveModulePreloadDependenciesFn } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { createUiDevWatchOptions } from "./src/lib/vite-watch";
@@ -23,10 +24,18 @@ function manualIssueRuntimeChunk(id: string) {
   return undefined;
 }
 
+const resolveModulePreloadDependencies: ResolveModulePreloadDependenciesFn = (_filename, deps, context) => {
+  if (context.hostType !== "js") return deps;
+  return deps.filter((dep) => dep.endsWith(".css"));
+};
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   build: {
     minify: "esbuild",
+    modulePreload: {
+      resolveDependencies: resolveModulePreloadDependencies,
+    },
     rollupOptions: {
       output: {
         manualChunks: manualIssueRuntimeChunk,
