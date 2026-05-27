@@ -153,8 +153,15 @@ describe("Sidebar", () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
     const root = await renderSidebar();
 
-    const workSection = [...container.querySelectorAll("nav [data-plugin-launcher-zone]")]
-      .find((node) => node.getAttribute("data-plugin-launcher-zone") === "sidebar");
+    let workSection: Element | undefined;
+    await act(async () => {
+      await vi.waitFor(() => {
+        workSection = [...container.querySelectorAll("nav [data-plugin-launcher-zone]")]
+          .find((node) => node.getAttribute("data-plugin-launcher-zone") === "sidebar");
+        if (!workSection) throw new Error("sidebar plugin launcher not rendered yet");
+        expect(workSection.textContent).toContain("Plugin launcher outlet");
+      });
+    });
     expect(workSection?.textContent).toContain("Plugin launcher outlet");
     const workSectionContainer = workSection?.parentElement?.parentElement;
     expect(workSectionContainer?.textContent).toContain("Work");

@@ -1,29 +1,15 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Inbox,
-  CircleDot,
-  Target,
   LayoutDashboard,
-  DollarSign,
   Gauge,
-  Activity,
-  History,
   Search,
   SquarePen,
-  Network,
-  Boxes,
-  CalendarDays,
-  Repeat,
-  GitBranch,
-  Settings,
-  Users,
-  FileText,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
-import { SidebarSection } from "./SidebarSection";
 import { SidebarNavItem } from "./SidebarNavItem";
 import { useDialogActions } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -35,20 +21,11 @@ import { Button } from "@/components/ui/button";
 const SidebarCompanyMenu = lazy(() =>
   import("./SidebarCompanyMenu").then((module) => ({ default: module.SidebarCompanyMenu })),
 );
-const SidebarProjects = lazy(() =>
-  import("./SidebarProjects").then((module) => ({ default: module.SidebarProjects })),
-);
-const SidebarAgents = lazy(() =>
-  import("./SidebarAgents").then((module) => ({ default: module.SidebarAgents })),
-);
 const SidebarInboxNavItem = lazy(() =>
   import("./SidebarInboxNavItem").then((module) => ({ default: module.SidebarInboxNavItem })),
 );
-const SidebarWorkPluginExtensions = lazy(() =>
-  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarWorkPluginExtensions })),
-);
-const SidebarPanelPluginExtensions = lazy(() =>
-  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarPanelPluginExtensions })),
+const SidebarDeferredSections = lazy(() =>
+  import("./SidebarDeferredSections").then((module) => ({ default: module.SidebarDeferredSections })),
 );
 
 type SidebarIdleWindow = Window & {
@@ -78,6 +55,36 @@ function useSidebarChromeReady() {
   return ready;
 }
 
+function SidebarDeferredSectionsPlaceholder() {
+  const { isCollapsed, isMobile } = useSidebar();
+  const collapsed = isCollapsed && !isMobile;
+  const rows = collapsed ? 10 : 12;
+
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("flex flex-col gap-4", collapsed ? "px-2" : "px-3")}
+    >
+      {[0, 1].map((section) => (
+        <div key={section} className="space-y-1.5">
+          {!collapsed ? <div className="mx-1 h-3 w-14 rounded bg-muted/70" /> : null}
+          <div className="space-y-1">
+            {Array.from({ length: section === 0 ? Math.ceil(rows / 2) : Math.floor(rows / 2) }).map((_, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "h-8 rounded-md bg-muted/45",
+                  collapsed ? "mx-auto w-8" : "w-full",
+                )}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { openNewIssue } = useDialogActions();
   const { selectedCompanyId, selectedCompany } = useCompany();
@@ -104,7 +111,7 @@ export function Sidebar() {
   const showWorkspacesLink = experimentalSettings?.enableIsolatedWorkspaces === true;
 
   const pluginContext = {
-    companyId: selectedCompanyId,
+    companyId: selectedCompanyId ?? null,
     companyPrefix: selectedCompany?.issuePrefix ?? null,
   };
 
@@ -168,48 +175,15 @@ export function Sidebar() {
           )}
         </div>
 
-        <SidebarSection label="Work">
-          <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
-          <SidebarNavItem to="/calendar" label="Calendar" icon={CalendarDays} />
-          <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
-          <SidebarNavItem to="/goals" label="Goals" icon={Target} />
-          {showWorkspacesLink ? (
-            <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
-          ) : null}
-          {sidebarChromeReady ? (
-            <Suspense fallback={null}>
-              <SidebarWorkPluginExtensions context={pluginContext} />
-            </Suspense>
-          ) : null}
-        </SidebarSection>
-
         {sidebarChromeReady ? (
-          <Suspense fallback={null}>
-            <SidebarProjects />
+          <Suspense fallback={<SidebarDeferredSectionsPlaceholder />}>
+            <SidebarDeferredSections
+              pluginContext={pluginContext}
+              showWorkspacesLink={showWorkspacesLink}
+            />
           </Suspense>
-        ) : null}
-
-        {sidebarChromeReady ? (
-          <Suspense fallback={null}>
-            <SidebarAgents />
-          </Suspense>
-        ) : null}
-
-        <SidebarSection label="Company">
-          <SidebarNavItem to="/clients" label="Clients" icon={Users} />
-          <SidebarNavItem to="/org" label="Org" icon={Network} />
-          <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
-          <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
-          <SidebarNavItem to="/activity" label="Activity" icon={History} />
-          <SidebarNavItem to="/email/ops" label="Email Ops" icon={Activity} />
-          <SidebarNavItem to="/company/instructions" label="Instructions" icon={FileText} />
-          <SidebarNavItem to="/company/settings" label="Settings" icon={Settings} />
-        </SidebarSection>
-
-        {!isCollapsed && sidebarChromeReady && (
-          <Suspense fallback={null}>
-            <SidebarPanelPluginExtensions context={pluginContext} />
-          </Suspense>
+        ) : (
+          <SidebarDeferredSectionsPlaceholder />
         )}
       </nav>
     </aside>
