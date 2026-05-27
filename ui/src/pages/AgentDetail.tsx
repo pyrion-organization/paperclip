@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate, Link, Navigate, useBeforeUnload } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -84,7 +84,6 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { AgentIcon } from "../components/AgentIcon";
-import { AgentIconPicker } from "../components/AgentIconPicker";
 import { RunTranscriptView, type TranscriptMode } from "../components/transcript/RunTranscriptView";
 import {
   type Agent,
@@ -108,6 +107,10 @@ import {
   arraysEqual,
   isReadOnlyUnmanagedSkillEntry,
 } from "../lib/agent-skills-state";
+
+const AgentIconPicker = lazy(() =>
+  import("../components/AgentIconPicker").then(({ AgentIconPicker }) => ({ default: AgentIconPicker })),
+);
 
 async function loadDuplicateInstructionsBundle(
   agentId: string,
@@ -661,6 +664,40 @@ function WorkspaceOperationsSection({
   );
 }
 
+function DeferredAgentIconPicker({
+  icon,
+  onChange,
+}: {
+  icon: string | null | undefined;
+  onChange: (icon: string) => void;
+}) {
+  const [requested, setRequested] = useState(false);
+  const trigger = (
+    <button
+      type="button"
+      className="shrink-0 flex items-center justify-center h-12 w-12 rounded-lg bg-accent hover:bg-accent/80 transition-colors"
+      aria-label="Change agent icon"
+      onClick={() => setRequested(true)}
+    >
+      <AgentIcon icon={icon} className="h-6 w-6" />
+    </button>
+  );
+
+  if (!requested) return trigger;
+
+  return (
+    <Suspense fallback={trigger}>
+      <AgentIconPicker
+        value={icon}
+        onChange={onChange}
+        initialOpen
+      >
+        {trigger}
+      </AgentIconPicker>
+    </Suspense>
+  );
+}
+
 export function AgentDetail() {
   const { companyPrefix, agentId, tab: urlTab, runId: urlRunId } = useParams<{
     companyPrefix?: string;
@@ -1007,14 +1044,10 @@ export function AgentDetail() {
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
-          <AgentIconPicker
-            value={agent.icon}
+          <DeferredAgentIconPicker
+            icon={agent.icon}
             onChange={(icon) => updateIcon.mutate(icon)}
-          >
-            <button className="shrink-0 flex items-center justify-center h-12 w-12 rounded-lg bg-accent hover:bg-accent/80 transition-colors">
-              <AgentIcon icon={agent.icon} className="h-6 w-6" />
-            </button>
-          </AgentIconPicker>
+          />
           <div className="min-w-0">
             <h2 className="text-2xl font-bold truncate">{agent.name}</h2>
             <p className="text-sm text-muted-foreground truncate">

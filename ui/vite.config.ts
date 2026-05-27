@@ -16,8 +16,12 @@ const issueRuntimeModuleSuffixes = [
   "/src/lib/workflow-sort.ts",
 ];
 
-const sidebarPrimitiveModuleSuffixes = [
+const sidebarRuntimeModuleSuffixes = [
+  "/src/api/sidebarBadges.ts",
+  "/src/api/sidebarPreferences.ts",
+  "/src/lib/agent-order.ts",
   "/src/lib/navigation-scroll.ts",
+  "/src/lib/project-order.ts",
 ];
 
 function manualRuntimeChunk(id: string) {
@@ -25,8 +29,8 @@ function manualRuntimeChunk(id: string) {
   if (issueRuntimeModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
     return "issue-runtime";
   }
-  if (sidebarPrimitiveModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
-    return "sidebar-primitives";
+  if (sidebarRuntimeModuleSuffixes.some((suffix) => normalizedId.endsWith(suffix))) {
+    return "sidebar-runtime";
   }
   return undefined;
 }

@@ -16,10 +16,11 @@ interface AgentIconPickerProps {
   value: string | null | undefined;
   onChange: (icon: string) => void;
   children: React.ReactNode;
+  initialOpen?: boolean;
 }
 
-export function AgentIconPicker({ value, onChange, children }: AgentIconPickerProps) {
-  const [open, setOpen] = useState(false);
+export function AgentIconPicker({ value, onChange, children, initialOpen = false }: AgentIconPickerProps) {
+  const [open, setOpen] = useState(initialOpen);
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
