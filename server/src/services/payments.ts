@@ -217,6 +217,13 @@ export function paymentService(db: Db) {
       if (existing.status !== "paid" && input.status === "paid") {
         throw unprocessable("Use payment records to mark entries paid");
       }
+      if (
+        existing.status === "paid"
+        && input.expectedAmountCents !== undefined
+        && statusFor({ ...existing, expectedAmountCents: input.expectedAmountCents }, existing.paidAmountCents) !== "paid"
+      ) {
+        throw unprocessable("Paid entries cannot be reopened by amount changes");
+      }
       if (input.paymentProfileId) await assertProfile(db, companyId, input.paymentProfileId);
       if (input.calendarItemId) await assertCalendarItem(db, companyId, input.calendarItemId);
       const [row] = await db

@@ -698,12 +698,10 @@ describeEmbeddedPostgres("calendarService", () => {
     const fullyCovered = await payments.updateEntry(companyId, entry.id, {
       expectedAmountCents: 4000,
     });
-    const partiallyCovered = await payments.updateEntry(companyId, entry.id, {
-      expectedAmountCents: 8000,
-    });
 
     expect(fullyCovered).toMatchObject({ paidAmountCents: 4000, status: "paid" });
-    expect(partiallyCovered).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
+    await expect(payments.updateEntry(companyId, entry.id, { expectedAmountCents: 8000 }))
+      .rejects.toThrow(/cannot be reopened/);
   });
 
   it("rejects direct paid status updates without payment records", async () => {
@@ -753,6 +751,8 @@ describeEmbeddedPostgres("calendarService", () => {
       status: "paid",
       notes: "Receipt reconciled",
     });
+    await expect(payments.updateEntry(companyId, entry.id, { expectedAmountCents: 20000 }))
+      .rejects.toThrow(/cannot be reopened/);
     await expect(payments.updateEntry(companyId, entry.id, { status: "open" }))
       .rejects.toThrow(/cannot be reopened/);
   });

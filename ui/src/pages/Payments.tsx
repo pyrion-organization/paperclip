@@ -48,6 +48,10 @@ function profileLabel(profile: { method: string; accountLabel: string; ownerName
   return `${titleCase(profile.method)} · ${profile.accountLabel}${profile.ownerName ? ` · ${profile.ownerName}` : ""}`;
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function Payments() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -62,6 +66,7 @@ export function Payments() {
   const [profileForm, setProfileForm] = useState({ method: "credit_card" as PaymentMethod, accountLabel: "", ownerName: "", notes: "" });
   const [entryForm, setEntryForm] = useState({ title: "", providerName: "", dueDate: "", amount: "", currency: "BRL", paymentProfileId: "", notes: "" });
   const [paymentForm, setPaymentForm] = useState({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Payments" }]);
@@ -95,6 +100,7 @@ export function Payments() {
   };
 
   const profileMutation = useMutation({
+    onMutate: () => setOperationError(null),
     mutationFn: () => paymentsApi.createProfile(companyId, {
       method: profileForm.method,
       accountLabel: profileForm.accountLabel,
@@ -106,8 +112,10 @@ export function Payments() {
       setProfileForm({ method: "credit_card", accountLabel: "", ownerName: "", notes: "" });
       invalidatePayments();
     },
+    onError: (error) => setOperationError(errorMessage(error, "Payment profile save failed")),
   });
   const entryMutation = useMutation({
+    onMutate: () => setOperationError(null),
     mutationFn: () => paymentsApi.createEntry(companyId, {
       title: entryForm.title,
       providerName: entryForm.providerName || null,
@@ -122,8 +130,10 @@ export function Payments() {
       setEntryForm({ title: "", providerName: "", dueDate: "", amount: "", currency: "BRL", paymentProfileId: "", notes: "" });
       invalidatePayments();
     },
+    onError: (error) => setOperationError(errorMessage(error, "Payment entry save failed")),
   });
   const recordMutation = useMutation({
+    onMutate: () => setOperationError(null),
     mutationFn: () => paymentsApi.recordPayment(companyId, payingEntry!.id, {
       amountCents: cents(paymentForm.amount) ?? 0,
       currency: paymentForm.currency || payingEntry!.currency,
@@ -138,6 +148,7 @@ export function Payments() {
       setPaymentForm({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
       invalidatePayments();
     },
+    onError: (error) => setOperationError(errorMessage(error, "Payment record failed")),
   });
 
   const entries = entriesQuery.data?.entries ?? [];
@@ -155,10 +166,14 @@ export function Payments() {
           <p className="text-sm text-muted-foreground">Calendar-linked payables, standalone payments, and reusable payment profiles.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setProfileDialogOpen(true)}><WalletCards className="mr-2 h-4 w-4" />Profile</Button>
-          <Button onClick={() => setEntryDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Payment</Button>
+          <Button variant="outline" onClick={() => { setOperationError(null); setProfileDialogOpen(true); }}><WalletCards className="mr-2 h-4 w-4" />Profile</Button>
+          <Button onClick={() => { setOperationError(null); setEntryDialogOpen(true); }}><Plus className="mr-2 h-4 w-4" />Payment</Button>
         </div>
       </div>
+
+      {operationError ? (
+        <div className="border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{operationError}</div>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-5">
         {[
@@ -187,6 +202,7 @@ export function Payments() {
 
         <TabsContent value="open" className="mt-3 min-h-0">
           <PaymentTable entries={entries} onPay={(entry) => {
+            setOperationError(null);
             setPayingEntry(entry);
             setPaymentForm({
               amount: entry.expectedAmountCents == null ? "" : String(Math.max(entry.expectedAmountCents - entry.paidAmountCents, 0) / 100),
