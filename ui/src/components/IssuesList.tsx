@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { lazy, startTransition, Suspense, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { accessApi } from "../api/access";
 import { useDialogActions } from "../context/DialogContext";
@@ -62,13 +62,12 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { CircleDot, Plus, ArrowUpDown, Layers, Check, ChevronRight, List, ListTree, Columns3, User, Search, EyeOff, LoaderCircle, CircleSlash2, ChevronsDownUp, PanelTopClose, RotateCcw, ListCollapse } from "lucide-react";
 import {
-  KanbanBoard,
   KANBAN_BOARD_HIGH_VOLUME_THRESHOLD,
   KANBAN_COLD_STATUSES,
   KANBAN_COLUMN_DEFAULT_PAGE_SIZE,
   KANBAN_COLUMN_PAGE_SIZE_OPTIONS,
   type KanbanColumnPageSize,
-} from "./KanbanBoard";
+} from "./kanban-board-constants";
 import {
   buildIssueTree,
   buildSubIssueDefaultsForViewer,
@@ -85,6 +84,9 @@ const ISSUE_BOARD_COLUMN_RESULT_LIMIT = 200;
 const INITIAL_ISSUE_ROW_RENDER_LIMIT = 100;
 const ISSUE_ROW_RENDER_BATCH_SIZE = 150;
 const ISSUE_SCROLL_LOAD_THRESHOLD_PX = 320;
+const KanbanBoard = lazy(() =>
+  import("./KanbanBoard").then((module) => ({ default: module.KanbanBoard })),
+);
 
 function findIssuesScrollContainer(element: HTMLElement | null): HTMLElement | null {
   if (!element || typeof window === "undefined") return null;
@@ -1614,16 +1616,18 @@ export function IssuesList({
       )}
 
       {viewState.viewMode === "board" ? (
-        <KanbanBoard
-          issues={filtered}
-          agents={agents}
-          liveIssueIds={liveIssueIds}
-          compactCards={boardCompactCards}
-          collapsedStatuses={boardCollapsedStatuses}
-          initialVisibleCount={viewState.boardColumnPageSize}
-          revealIncrement={viewState.boardColumnPageSize}
-          onUpdateIssue={onUpdateIssue}
-        />
+        <Suspense fallback={<PageSkeleton variant="issues-list" />}>
+          <KanbanBoard
+            issues={filtered}
+            agents={agents}
+            liveIssueIds={liveIssueIds}
+            compactCards={boardCompactCards}
+            collapsedStatuses={boardCollapsedStatuses}
+            initialVisibleCount={viewState.boardColumnPageSize}
+            revealIncrement={viewState.boardColumnPageSize}
+            onUpdateIssue={onUpdateIssue}
+          />
+        </Suspense>
       ) : (
         <>
           {groupedContent.map((group) => {
