@@ -117,6 +117,13 @@ export const queryKeys = {
     dashboard: (companyId: string) => ["calendar", companyId, "dashboard"] as const,
     missingDetails: (companyId: string) => ["calendar", companyId, "missing-details"] as const,
   },
+  payments: {
+    dashboard: (companyId: string) => ["payments", companyId, "dashboard"] as const,
+    profiles: (companyId: string) => ["payments", companyId, "profiles"] as const,
+    entries: (companyId: string, filters?: Record<string, unknown>) =>
+      ["payments", companyId, "entries", filters ?? {}] as const,
+    detail: (companyId: string, entryId: string) => ["payments", companyId, "entries", entryId] as const,
+  },
   environments: {
     list: (companyId: string) => ["environments", companyId] as const,
   },

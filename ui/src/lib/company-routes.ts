@@ -14,6 +14,7 @@ const BOARD_ROUTE_ROOTS = new Set([
   "goals",
   "approvals",
   "costs",
+  "payments",
   "usage",
   "activity",
   "inbox",

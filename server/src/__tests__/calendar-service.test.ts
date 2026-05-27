@@ -14,6 +14,9 @@ import {
   inboundEmailMailboxes,
   inboundEmailMessages,
   issues,
+  paymentEntries,
+  paymentProfiles,
+  paymentRecords,
   projects,
 } from "@paperclipai/db";
 import {
@@ -28,6 +31,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { calendarService, calculateNextDueDate } from "../services/calendar.ts";
+import { paymentService } from "../services/payments.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -119,6 +123,9 @@ describeEmbeddedPostgres("calendarService", () => {
   afterEach(async () => {
     await db.delete(calendarItemDocuments);
     await db.delete(emailNotifications);
+    await db.delete(paymentRecords);
+    await db.delete(paymentEntries);
+    await db.delete(paymentProfiles);
     await db.delete(activityLog);
     await db.delete(issues);
     await db.delete(calendarItems);
@@ -264,6 +271,109 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(completed.status).toBe("active");
     expect(completed.nextDueDate).toBe("2026-02-28");
     expect(completed.notes).toContain("Paid");
+  });
+
+  it("creates and advances linked payment entries for payable calendar items", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+        ownerName: "Finance",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Monthly hosting payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      recurrenceType: "monthly",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    const firstEntries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+
+    expect(firstEntries).toHaveLength(1);
+    expect(firstEntries[0]).toMatchObject({
+      title: "Monthly hosting payment",
+      providerName: "Hosting Co",
+      dueDate: "2026-06-10",
+      expectedAmountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+      status: "open",
+    });
+
+    const completed = await svc.complete(
+      companyId,
+      created.id,
+      { completedAt: new Date("2026-06-10T12:00:00.000Z"), notes: "Paid" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+    const advancedEntries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)))
+      .orderBy(paymentEntries.dueDate);
+
+    expect(completed.nextDueDate).toBe("2026-07-10");
+    expect(advancedEntries.map((entry) => entry.dueDate)).toEqual(["2026-06-10", "2026-07-10"]);
+    expect(advancedEntries[1]).toMatchObject({
+      expectedAmountCents: 12500,
+      paymentProfileId: profile!.id,
+      status: "open",
+    });
+  });
+
+  it("records partial and full payments against a payment entry", async () => {
+    const payments = paymentService(db);
+    const profile = await payments.createProfile(companyId, {
+      method: "credit_card",
+      accountLabel: "Corporate card",
+      ownerName: "Finance",
+      notes: null,
+      active: true,
+    });
+    const entry = await payments.createEntry(companyId, {
+      title: "Cloud invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile.id,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const partial = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "First payment",
+    });
+    const full = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 6000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-16T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Remainder",
+    });
+
+    expect(partial.completed).toBe(false);
+    expect(partial.entry).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
+    expect(full.completed).toBe(true);
+    expect(full.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
   });
 
   it("rejects governed mutations unless approval is explicitly confirmed", async () => {

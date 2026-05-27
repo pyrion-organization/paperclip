@@ -14,6 +14,7 @@ import {
   inboundEmailAttachments,
   inboundEmailMessages,
   issues,
+  paymentProfiles,
   projects,
 } from "@paperclipai/db";
 import {
@@ -35,6 +36,7 @@ import {
 import { badRequest, notFound, unprocessable } from "../errors.js";
 import { logActivity, type LogActivityInput } from "./activity-log.js";
 import { issueService } from "./issues.js";
+import { paymentService } from "./payments.js";
 
 type Actor = {
   actorType: LogActivityInput["actorType"];
@@ -539,6 +541,7 @@ function missingDetailsReportDescription(findings: Array<NonNullable<ReturnType<
 
 export function calendarService(db: Db) {
   const issuesSvc = issueService(db);
+  const payments = paymentService(db);
 
   async function assertCompanyRow(table: any, id: string, companyId: string, label: string) {
     const row = await db.select().from(table).where(eq(table.id, id)).then((rows) => rows[0] ?? null);
@@ -561,6 +564,7 @@ export function calendarService(db: Db) {
     if (data.timezone) assertTimeZone(data.timezone);
     if (data.relatedClientId) await assertCompanyRow(clients, data.relatedClientId, companyId, "Client");
     if (data.relatedProjectId) await assertCompanyRow(projects, data.relatedProjectId, companyId, "Project");
+    if (data.paymentProfileId) await assertCompanyRow(paymentProfiles, data.paymentProfileId, companyId, "Payment profile");
     if (data.sourceEmailMessageId) await assertCompanyRow(inboundEmailMessages, data.sourceEmailMessageId, companyId, "Inbound email message");
   }
 
@@ -805,6 +809,7 @@ export function calendarService(db: Db) {
         category: item.category,
         riskLevel: item.riskLevel,
       });
+      await payments.ensureEntryForCalendarItem(item);
       return rowToItem(item);
     },
 
@@ -892,6 +897,7 @@ export function calendarService(db: Db) {
         changedKeys: changedKeys(input),
         approvalConfirmed: Boolean(approvalReason),
       });
+      await payments.ensureEntryForCalendarItem(updated);
       return rowToItem(updated);
     },
 
@@ -921,6 +927,7 @@ export function calendarService(db: Db) {
         nextDueDate,
         status,
       });
+      await payments.ensureEntryForCalendarItem(updated);
       return rowToItem(updated);
     },
 

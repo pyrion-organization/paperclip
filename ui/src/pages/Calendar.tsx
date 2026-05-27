@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { calendarApi } from "../api/calendar";
 import { clientsApi } from "../api/clients";
+import { paymentsApi } from "../api/payments";
 import { projectsApi } from "../api/projects";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -81,6 +82,7 @@ type ItemFormState = {
   recurrenceRule: string;
   amount: string;
   currency: string;
+  paymentProfileId: string;
   autoRenew: boolean;
   manualActionRequired: boolean;
   paymentMethodLabel: string;
@@ -116,6 +118,7 @@ function emptyForm(): ItemFormState {
     recurrenceRule: "",
     amount: "",
     currency: "BRL",
+    paymentProfileId: "",
     autoRenew: false,
     manualActionRequired: true,
     paymentMethodLabel: "",
@@ -152,6 +155,7 @@ function formFromItem(item: CalendarItem): ItemFormState {
     recurrenceRule: item.recurrenceRule ?? "",
     amount: item.amountCents == null ? "" : String(item.amountCents / 100),
     currency: item.currency,
+    paymentProfileId: item.paymentProfileId ?? "",
     autoRenew: item.autoRenew,
     manualActionRequired: item.manualActionRequired,
     paymentMethodLabel: item.paymentMethodLabel ?? "",
@@ -201,6 +205,7 @@ function payloadFromForm(form: ItemFormState): CreateCalendarItemInput {
     recurrenceRule: nullable(form.recurrenceRule),
     amountCents: amountToCents(form.amount),
     currency: form.currency.trim().toUpperCase() || "BRL",
+    paymentProfileId: nullable(form.paymentProfileId),
     autoRenew: form.autoRenew,
     manualActionRequired: form.manualActionRequired,
     paymentMethodLabel: nullable(form.paymentMethodLabel),
@@ -451,6 +456,11 @@ export function Calendar() {
     queryFn: () => projectsApi.list(companyId),
     enabled: !!selectedCompanyId && itemDialogOpen,
   });
+  const paymentProfilesQuery = useQuery({
+    queryKey: queryKeys.payments.profiles(companyId),
+    queryFn: () => paymentsApi.profiles(companyId),
+    enabled: !!selectedCompanyId && itemDialogOpen,
+  });
 
   const invalidateCalendar = () => {
     if (!selectedCompanyId) return;
@@ -463,6 +473,9 @@ export function Calendar() {
       if (!selectedCompanyId) throw new Error("No company selected");
       const payload = payloadFromForm(form);
       if (!payload.title) throw new Error("Title is required");
+      if (payload.category === "payment_payable" && (!payload.paymentProfileId || payload.amountCents == null || !payload.nextDueDate)) {
+        throw new Error("Payment payables require due date, amount, and payment profile");
+      }
       if (isEditing && selectedItemId) {
         const requiresApproval = requiresGovernedSaveApproval(selectedItem, payload);
         const approvalConfirmed = requiresApproval
@@ -715,7 +728,7 @@ export function Calendar() {
                       <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : formatCents(item.amountCents)}</td>
                       <td className="px-3 py-2 align-top">{item.autoRenew ? "Yes" : "No"}</td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground">
-                        <div>{item.paymentMethodLabel ?? "-"}</div>
+                        <div>{item.paymentProfileId ? "Registered profile" : item.paymentMethodLabel ?? "-"}</div>
                         <div>{item.costCenter ?? ""}</div>
                       </td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground">{item.purchaseEmail ?? "-"}</td>
@@ -861,8 +874,19 @@ export function Calendar() {
                       <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
                     </Field>
                   </div>
-                  <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
-                  <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
+                  <Field label="Payment Profile">
+                    <Select value={form.paymentProfileId || NONE} onValueChange={(paymentProfileId) => setForm((current) => ({ ...current, paymentProfileId: paymentProfileId === NONE ? "" : paymentProfileId }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>None</SelectItem>
+                        {(paymentProfilesQuery.data ?? []).map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                   <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
                   <label className="flex items-center gap-2 text-sm">
                     <input

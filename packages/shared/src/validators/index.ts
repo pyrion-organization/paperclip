@@ -25,6 +25,28 @@ export {
 } from "./calendar.js";
 
 export {
+  createPaymentEntrySchema,
+  paymentEntryFilterSchema,
+  paymentEntryStatusSchema,
+  paymentMethodSchema,
+  paymentProfileInputSchema,
+  recordPaymentSchema,
+  updatePaymentEntrySchema,
+  updatePaymentProfileSchema,
+  type CreatePaymentEntry,
+  type CreatePaymentEntryInput,
+  type PaymentEntryFilter,
+  type PaymentProfileInput,
+  type PaymentProfileInputRaw,
+  type RecordPayment,
+  type RecordPaymentInput,
+  type UpdatePaymentEntry,
+  type UpdatePaymentEntryInput,
+  type UpdatePaymentProfile,
+  type UpdatePaymentProfileInput,
+} from "./payments.js";
+
+export {
   instanceGeneralSettingsSchema,
   patchInstanceGeneralSettingsSchema,
   type InstanceGeneralSettings,

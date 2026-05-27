@@ -33,6 +33,7 @@ export const calendarItems = pgTable(
 
     amountCents: integer("amount_cents"),
     currency: text("currency").notNull().default("BRL"),
+    paymentProfileId: uuid("payment_profile_id"),
     autoRenew: boolean("auto_renew").notNull().default(false),
     manualActionRequired: boolean("manual_action_required").notNull().default(true),
     paymentMethodLabel: text("payment_method_label"),

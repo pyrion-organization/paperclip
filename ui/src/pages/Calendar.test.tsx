@@ -55,6 +55,7 @@ function makeItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
     nextDueDate: "2026-06-30",
     amountCents: 12000,
     currency: "BRL",
+    paymentProfileId: null,
     autoRenew: true,
     manualActionRequired: true,
     paymentMethodLabel: "Company card",
@@ -465,7 +466,7 @@ describe("Calendar", () => {
     await flushReact();
 
     expect(dialog.className).toContain("h-[calc(100dvh-2rem)]");
-    expect(document.body.textContent).toContain("Payment Method");
+    expect(document.body.textContent).toContain("Payment Profile");
     expect(document.body.textContent).toContain("Cost Center");
   });
 

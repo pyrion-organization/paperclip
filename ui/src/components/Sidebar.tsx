@@ -5,6 +5,7 @@ import {
   Target,
   LayoutDashboard,
   DollarSign,
+  CreditCard,
   Gauge,
   History,
   Search,
@@ -151,6 +152,7 @@ export function Sidebar() {
           <SidebarNavItem to="/org" label="Org" icon={Network} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
+          <SidebarNavItem to="/payments" label="Payments" icon={CreditCard} />
           <SidebarNavItem to="/activity" label="Activity" icon={History} />
           <SidebarNavItem to="/email/ops" label="Email Ops" icon={Activity} />
           <SidebarNavItem to="/company/instructions" label="Instructions" icon={FileText} />

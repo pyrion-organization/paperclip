@@ -794,6 +794,25 @@ export const FINANCE_UNITS = [
 ] as const;
 export type FinanceUnit = (typeof FINANCE_UNITS)[number];
 
+export const PAYMENT_METHODS = [
+  "credit_card",
+  "debit_card",
+  "pix",
+  "bank_transfer",
+  "boleto",
+  "cash",
+  "other",
+] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export const PAYMENT_ENTRY_STATUSES = [
+  "open",
+  "partially_paid",
+  "paid",
+  "cancelled",
+] as const;
+export type PaymentEntryStatus = (typeof PAYMENT_ENTRY_STATUSES)[number];
+
 export const BUDGET_SCOPE_TYPES = ["company", "agent", "project"] as const;
 export type BudgetScopeType = (typeof BUDGET_SCOPE_TYPES)[number];
 
@@ -1156,6 +1175,7 @@ export const PLUGIN_RESERVED_COMPANY_ROUTE_SEGMENTS = [
   "goals",
   "approvals",
   "costs",
+  "payments",
   "activity",
   "inbox",
   "design-guide",

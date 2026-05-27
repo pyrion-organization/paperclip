@@ -1,0 +1,316 @@
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import type { Db } from "@paperclipai/db";
+import { calendarItems, paymentEntries, paymentProfiles, paymentRecords } from "@paperclipai/db";
+import type {
+  CreatePaymentEntry,
+  PaymentEntryFilter,
+  PaymentEntryStatus,
+  PaymentProfileInput,
+  RecordPayment,
+  UpdatePaymentEntry,
+  UpdatePaymentProfile,
+} from "@paperclipai/shared";
+import { badRequest, notFound, unprocessable } from "../errors.js";
+
+type CalendarPaymentItem = Pick<
+  typeof calendarItems.$inferSelect,
+  "id" | "companyId" | "category" | "title" | "providerName" | "nextDueDate" | "amountCents" | "currency" | "paymentProfileId" | "status"
+>;
+
+function dateOnly(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
+function iso(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : value.toISOString();
+}
+
+function rowToProfile(row: typeof paymentProfiles.$inferSelect) {
+  return {
+    ...row,
+    createdAt: iso(row.createdAt)!,
+    updatedAt: iso(row.updatedAt)!,
+  };
+}
+
+function rowToEntry(row: typeof paymentEntries.$inferSelect, profile?: typeof paymentProfiles.$inferSelect | null) {
+  return {
+    ...row,
+    dueDate: dateOnly(row.dueDate),
+    createdAt: iso(row.createdAt)!,
+    updatedAt: iso(row.updatedAt)!,
+    profile: profile ? rowToProfile(profile) : null,
+  };
+}
+
+function rowToRecord(row: typeof paymentRecords.$inferSelect, profile?: typeof paymentProfiles.$inferSelect | null) {
+  return {
+    ...row,
+    paidAt: iso(row.paidAt)!,
+    createdAt: iso(row.createdAt)!,
+    profile: profile ? rowToProfile(profile) : null,
+  };
+}
+
+function statusFor(entry: typeof paymentEntries.$inferSelect, paidAmountCents: number): PaymentEntryStatus {
+  if (entry.status === "cancelled") return "cancelled";
+  if (entry.expectedAmountCents == null) return paidAmountCents > 0 ? "paid" : "open";
+  if (paidAmountCents <= 0) return "open";
+  if (paidAmountCents < entry.expectedAmountCents) return "partially_paid";
+  return "paid";
+}
+
+async function assertProfile(db: Db, companyId: string, profileId: string) {
+  const profile = await db
+    .select()
+    .from(paymentProfiles)
+    .where(and(eq(paymentProfiles.companyId, companyId), eq(paymentProfiles.id, profileId)))
+    .then((rows) => rows[0] ?? null);
+  if (!profile) throw notFound("Payment profile not found");
+  return profile;
+}
+
+async function assertCalendarItem(db: Db, companyId: string, itemId: string) {
+  const item = await db
+    .select()
+    .from(calendarItems)
+    .where(and(eq(calendarItems.companyId, companyId), eq(calendarItems.id, itemId)))
+    .then((rows) => rows[0] ?? null);
+  if (!item) throw notFound("Calendar item not found");
+  return item;
+}
+
+export function paymentService(db: Db) {
+  async function hydrateEntries(rows: Array<typeof paymentEntries.$inferSelect>) {
+    const profileIds = [...new Set(rows.map((row) => row.paymentProfileId).filter((id): id is string => Boolean(id)))];
+    const profiles = profileIds.length > 0
+      ? await db.select().from(paymentProfiles).where(inArray(paymentProfiles.id, profileIds))
+      : [];
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    return rows.map((row) => rowToEntry(row, row.paymentProfileId ? profileById.get(row.paymentProfileId) ?? null : null));
+  }
+
+  return {
+    listProfiles: async (companyId: string) => {
+      const rows = await db
+        .select()
+        .from(paymentProfiles)
+        .where(eq(paymentProfiles.companyId, companyId))
+        .orderBy(desc(paymentProfiles.active), asc(paymentProfiles.accountLabel));
+      return rows.map(rowToProfile);
+    },
+
+    createProfile: async (companyId: string, input: PaymentProfileInput) => {
+      const [row] = await db
+        .insert(paymentProfiles)
+        .values({ ...input, companyId })
+        .returning();
+      return rowToProfile(row);
+    },
+
+    updateProfile: async (companyId: string, profileId: string, input: UpdatePaymentProfile) => {
+      await assertProfile(db, companyId, profileId);
+      const [row] = await db
+        .update(paymentProfiles)
+        .set({ ...input, updatedAt: new Date() })
+        .where(and(eq(paymentProfiles.companyId, companyId), eq(paymentProfiles.id, profileId)))
+        .returning();
+      return rowToProfile(row);
+    },
+
+    listEntries: async (companyId: string, filters: PaymentEntryFilter) => {
+      const conditions = [eq(paymentEntries.companyId, companyId)];
+      if (filters.status) conditions.push(eq(paymentEntries.status, filters.status));
+      if (filters.calendarItemId) conditions.push(eq(paymentEntries.calendarItemId, filters.calendarItemId));
+      if (filters.q) {
+        const q = `%${filters.q}%`;
+        conditions.push(or(
+          ilike(paymentEntries.title, q),
+          ilike(paymentEntries.providerName, q),
+          ilike(paymentEntries.notes, q),
+        )!);
+      }
+      const where = and(...conditions);
+      const [countRow] = await db.select({ count: sql<number>`count(*)::int` }).from(paymentEntries).where(where);
+      const rows = await db
+        .select()
+        .from(paymentEntries)
+        .where(where)
+        .orderBy(asc(paymentEntries.dueDate), asc(paymentEntries.title))
+        .limit(filters.limit)
+        .offset(filters.offset);
+      return { entries: await hydrateEntries(rows), total: countRow?.count ?? 0 };
+    },
+
+    getEntry: async (companyId: string, entryId: string) => {
+      const entry = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+        .then((rows) => rows[0] ?? null);
+      if (!entry) throw notFound("Payment entry not found");
+      const records = await db
+        .select()
+        .from(paymentRecords)
+        .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)))
+        .orderBy(desc(paymentRecords.paidAt), desc(paymentRecords.createdAt));
+      const profileIds = [...new Set([
+        entry.paymentProfileId,
+        ...records.map((record) => record.paymentProfileId),
+      ].filter((id): id is string => Boolean(id)))];
+      const profiles = profileIds.length > 0
+        ? await db.select().from(paymentProfiles).where(inArray(paymentProfiles.id, profileIds))
+        : [];
+      const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+      return {
+        ...rowToEntry(entry, entry.paymentProfileId ? profileById.get(entry.paymentProfileId) ?? null : null),
+        records: records.map((record) => rowToRecord(record, record.paymentProfileId ? profileById.get(record.paymentProfileId) ?? null : null)),
+      };
+    },
+
+    createEntry: async (companyId: string, input: CreatePaymentEntry) => {
+      if (input.paymentProfileId) await assertProfile(db, companyId, input.paymentProfileId);
+      if (input.calendarItemId) await assertCalendarItem(db, companyId, input.calendarItemId);
+      const [row] = await db
+        .insert(paymentEntries)
+        .values({ ...input, companyId })
+        .returning();
+      return (await hydrateEntries([row]))[0]!;
+    },
+
+    updateEntry: async (companyId: string, entryId: string, input: UpdatePaymentEntry) => {
+      const existing = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+        .then((rows) => rows[0] ?? null);
+      if (!existing) throw notFound("Payment entry not found");
+      if (existing.status === "paid" && input.status !== "paid") {
+        throw unprocessable("Paid entries cannot be reopened");
+      }
+      if (input.paymentProfileId) await assertProfile(db, companyId, input.paymentProfileId);
+      if (input.calendarItemId) await assertCalendarItem(db, companyId, input.calendarItemId);
+      const [row] = await db
+        .update(paymentEntries)
+        .set({ ...input, updatedAt: new Date() })
+        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+        .returning();
+      return (await hydrateEntries([row]))[0]!;
+    },
+
+    recordPayment: async (companyId: string, entryId: string, input: RecordPayment) => {
+      const entry = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+        .then((rows) => rows[0] ?? null);
+      if (!entry) throw notFound("Payment entry not found");
+      if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot receive payments");
+      if (entry.status === "paid") throw unprocessable("Payment entry is already paid");
+
+      const profileId = input.paymentProfileId ?? entry.paymentProfileId;
+      if (profileId) await assertProfile(db, companyId, profileId);
+
+      await db.insert(paymentRecords).values({
+        ...input,
+        companyId,
+        paymentEntryId: entryId,
+        paymentProfileId: profileId,
+        paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
+      });
+
+      const [{ total }] = await db
+        .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+        .from(paymentRecords)
+        .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
+      const paidAmountCents = Number(total ?? 0);
+      const nextStatus = statusFor(entry, paidAmountCents);
+      const [updated] = await db
+        .update(paymentEntries)
+        .set({ paidAmountCents, status: nextStatus, updatedAt: new Date() })
+        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+        .returning();
+      return {
+        entry: (await hydrateEntries([updated]))[0]!,
+        completed: nextStatus === "paid" && entry.status !== "paid",
+      };
+    },
+
+    ensureEntryForCalendarItem: async (item: CalendarPaymentItem) => {
+      if (item.category !== "payment_payable" || item.status === "cancelled" || item.status === "archived") return null;
+      const dueDate = dateOnly(item.nextDueDate);
+      if (!dueDate) return null;
+      if (!item.paymentProfileId) return null;
+      await assertProfile(db, item.companyId, item.paymentProfileId);
+      const existing = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(
+          eq(paymentEntries.companyId, item.companyId),
+          eq(paymentEntries.calendarItemId, item.id),
+          eq(paymentEntries.dueDate, dueDate),
+          ne(paymentEntries.status, "cancelled"),
+        ))
+        .then((rows) => rows[0] ?? null);
+      const values = {
+        title: item.title,
+        providerName: item.providerName,
+        dueDate,
+        expectedAmountCents: item.amountCents,
+        currency: item.currency,
+        paymentProfileId: item.paymentProfileId,
+        updatedAt: new Date(),
+      };
+      if (existing) {
+        if (existing.status === "paid") return rowToEntry(existing);
+        const [updated] = await db
+          .update(paymentEntries)
+          .set(values)
+          .where(and(eq(paymentEntries.companyId, item.companyId), eq(paymentEntries.id, existing.id)))
+          .returning();
+        return (await hydrateEntries([updated]))[0]!;
+      }
+      const [created] = await db
+        .insert(paymentEntries)
+        .values({
+          ...values,
+          companyId: item.companyId,
+          calendarItemId: item.id,
+        })
+        .returning();
+      return (await hydrateEntries([created]))[0]!;
+    },
+
+    dashboard: async (companyId: string, now = new Date()) => {
+      const rows = await db
+        .select()
+        .from(paymentEntries)
+        .where(and(eq(paymentEntries.companyId, companyId), inArray(paymentEntries.status, ["open", "partially_paid", "paid"])));
+      const today = dateOnly(now)!;
+      const dueSoon = new Date(now);
+      dueSoon.setUTCDate(dueSoon.getUTCDate() + 7);
+      const dueSoonText = dateOnly(dueSoon)!;
+      const openRows = rows.filter((row) => row.status === "open" || row.status === "partially_paid");
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const monthPaid = await db
+        .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+        .from(paymentRecords)
+        .where(and(eq(paymentRecords.companyId, companyId), sql`${paymentRecords.paidAt} >= ${monthStart}`))
+        .then((result) => Number(result[0]?.total ?? 0));
+      return {
+        companyId,
+        generatedAt: now.toISOString(),
+        openCount: openRows.length,
+        overdueCount: openRows.filter((row) => row.dueDate && dateOnly(row.dueDate)! < today).length,
+        dueSoonCount: openRows.filter((row) => row.dueDate && dateOnly(row.dueDate)! >= today && dateOnly(row.dueDate)! <= dueSoonText).length,
+        partiallyPaidCount: rows.filter((row) => row.status === "partially_paid").length,
+        openBalanceCents: openRows.reduce((sum, row) => sum + Math.max((row.expectedAmountCents ?? 0) - row.paidAmountCents, 0), 0),
+        paidThisMonthCents: monthPaid,
+        currency: rows.find((row) => row.currency)?.currency ?? "BRL",
+      };
+    },
+  };
+}

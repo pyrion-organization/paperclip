@@ -41,6 +41,7 @@ export interface CalendarItem {
   nextDueDate: string | null;
   amountCents: number | null;
   currency: string;
+  paymentProfileId: string | null;
   autoRenew: boolean;
   manualActionRequired: boolean;
   paymentMethodLabel: string | null;

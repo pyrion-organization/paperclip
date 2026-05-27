@@ -1,0 +1,115 @@
+import express from "express";
+import request from "supertest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { errorHandler } from "../middleware/index.js";
+import { paymentRoutes } from "../routes/payments.js";
+
+const mockPayments = vi.hoisted(() => ({
+  dashboard: vi.fn(),
+  listProfiles: vi.fn(),
+  createProfile: vi.fn(),
+  updateProfile: vi.fn(),
+  listEntries: vi.fn(),
+  getEntry: vi.fn(),
+  createEntry: vi.fn(),
+  updateEntry: vi.fn(),
+  recordPayment: vi.fn(),
+}));
+const mockCalendar = vi.hoisted(() => ({
+  complete: vi.fn(),
+}));
+const mockLogActivity = vi.hoisted(() => vi.fn());
+
+vi.mock("../services/index.js", () => ({
+  paymentService: () => mockPayments,
+  calendarService: () => mockCalendar,
+  logActivity: mockLogActivity,
+}));
+
+function appForActor(actor: Express.Request["actor"]) {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.actor = actor;
+    next();
+  });
+  app.use("/api", paymentRoutes({} as any));
+  app.use(errorHandler);
+  return app;
+}
+
+const boardActor: Express.Request["actor"] = {
+  type: "board",
+  userId: "user-1",
+  source: "user_session",
+  companyIds: ["company-1"],
+  memberships: [{ companyId: "company-1", status: "active", membershipRole: "member" }],
+};
+
+const agentActor: Express.Request["actor"] = {
+  type: "agent",
+  agentId: "agent-1",
+  companyId: "company-1",
+  runId: "11111111-1111-4111-8111-111111111111",
+};
+
+describe("payment routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPayments.dashboard.mockResolvedValue({ companyId: "company-1" });
+    mockPayments.listProfiles.mockResolvedValue([]);
+    mockPayments.createProfile.mockResolvedValue({ id: "profile-1", method: "pix", accountLabel: "PIX" });
+    mockPayments.updateProfile.mockResolvedValue({ id: "profile-1", method: "pix", accountLabel: "PIX" });
+    mockPayments.listEntries.mockResolvedValue({ entries: [], total: 0 });
+    mockPayments.getEntry.mockResolvedValue({ id: "entry-1", records: [] });
+    mockPayments.createEntry.mockResolvedValue({ id: "entry-1", calendarItemId: null, expectedAmountCents: 10000 });
+    mockPayments.updateEntry.mockResolvedValue({ id: "entry-1", status: "cancelled" });
+    mockPayments.recordPayment.mockResolvedValue({
+      completed: true,
+      entry: {
+        id: "entry-1",
+        calendarItemId: "calendar-1",
+        status: "paid",
+        currency: "BRL",
+      },
+    });
+    mockLogActivity.mockResolvedValue(undefined);
+    mockCalendar.complete.mockResolvedValue({ id: "calendar-1", status: "done" });
+  });
+
+  it("records linked payments and completes the calendar item", async () => {
+    const res = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/payments/entries/entry-1/records")
+      .send({
+        amountCents: 10000,
+        currency: "BRL",
+        paidAt: "2026-06-15T10:00:00.000Z",
+      });
+
+    expect(res.status).toBe(201);
+    expect(mockPayments.recordPayment).toHaveBeenCalledWith(
+      "company-1",
+      "entry-1",
+      expect.objectContaining({ amountCents: 10000, currency: "BRL" }),
+    );
+    expect(mockCalendar.complete).toHaveBeenCalledWith(
+      "company-1",
+      "calendar-1",
+      expect.objectContaining({
+        completedAt: new Date("2026-06-15T10:00:00.000Z"),
+        notes: "Payment recorded: 100.00 BRL",
+      }),
+      expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
+      { approvalConfirmed: true },
+    );
+  });
+
+  it("rejects agent payment mutations", async () => {
+    const res = await request(appForActor(agentActor))
+      .post("/api/companies/company-1/payments/entries")
+      .send({ title: "Cloud invoice", expectedAmountCents: 10000 });
+
+    expect(res.status).toBe(403);
+    expect(mockPayments.createEntry).not.toHaveBeenCalled();
+  });
+});

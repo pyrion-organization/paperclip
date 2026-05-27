@@ -100,6 +100,7 @@ const calendarItemFields = {
   nextDueDate: optionalDateOnly,
   amountCents: z.number().int().nonnegative().optional().nullable(),
   currency: z.string().trim().length(3).optional().default("BRL").transform((value) => value.toUpperCase()),
+  paymentProfileId: z.string().uuid().optional().nullable(),
   autoRenew: z.boolean().optional().default(false),
   manualActionRequired: z.boolean().optional().default(true),
   paymentMethodLabel: nullableTrimmed(160),
