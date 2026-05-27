@@ -46,10 +46,6 @@ const { markdownBodyRenderMock, markdownEditorFocusMock, markdownEditorRenderMoc
   markdownEditorRenderMock: vi.fn(),
 }));
 
-const { appendMock } = vi.hoisted(() => ({
-  appendMock: vi.fn(async () => undefined),
-}));
-
 const {
   captureComposerViewportSnapshotMock,
   restoreComposerViewportSnapshotMock,
@@ -58,11 +54,6 @@ const {
   captureComposerViewportSnapshotMock: vi.fn(),
   restoreComposerViewportSnapshotMock: vi.fn(),
   shouldPreserveComposerViewportMock: vi.fn(),
-}));
-
-vi.mock("@assistant-ui/react", () => ({
-  AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  useAui: () => ({ thread: () => ({ append: appendMock }) }),
 }));
 
 vi.mock("./transcript/useLiveRunTranscripts", () => ({
@@ -166,10 +157,6 @@ vi.mock("./IssueLinkQuicklook", () => ({
       {children}
     </a>
   ),
-}));
-
-vi.mock("../hooks/usePaperclipIssueRuntime", () => ({
-  usePaperclipIssueRuntime: () => ({}),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -308,7 +295,6 @@ describe("IssueChatThread", () => {
   afterEach(() => {
     container.remove();
     vi.useRealTimers();
-    appendMock.mockReset();
     markdownEditorFocusMock.mockReset();
     captureComposerViewportSnapshotMock.mockClear();
     restoreComposerViewportSnapshotMock.mockClear();
@@ -2237,6 +2223,7 @@ describe("IssueChatThread", () => {
 
   it("hides the reopen control and infers reopen for closed agent-assigned issue replies", async () => {
     const root = createRoot(container);
+    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2248,7 +2235,7 @@ describe("IssueChatThread", () => {
             liveRuns={[]}
             issueStatus="done"
             currentAssigneeValue="agent:agent-1"
-            onAdd={async () => {}}
+            onAdd={onAdd}
             enableLiveTranscriptPolling={false}
           />
         </MemoryRouter>,
@@ -2277,16 +2264,7 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(appendMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: [{ type: "text", text: "Please pick this back up" }],
-        runConfig: {
-          custom: {
-            reopen: true,
-          },
-        },
-      }),
-    );
+    expect(onAdd).toHaveBeenCalledWith("Please pick this back up", true, undefined);
 
     act(() => {
       root.unmount();
@@ -2295,6 +2273,8 @@ describe("IssueChatThread", () => {
 
   it("warns once before sending a reply with no assignee selected", async () => {
     const root = createRoot(container);
+
+    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2306,7 +2286,7 @@ describe("IssueChatThread", () => {
               linkedRuns={[]}
               timelineEvents={[]}
               liveRuns={[]}
-              onAdd={async () => {}}
+              onAdd={onAdd}
               enableReassign
               reassignOptions={[
                 { id: "", label: "No assignee" },
@@ -2341,19 +2321,15 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(appendMock).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("No assignee selected");
 
     await act(async () => {
       submitButton?.click();
     });
 
-    expect(appendMock).toHaveBeenCalledTimes(1);
-    expect(appendMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: [{ type: "text", text: "Reply without assignee" }],
-      }),
-    );
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith("Reply without assignee", undefined, undefined);
 
     act(() => {
       root.unmount();
@@ -2362,6 +2338,8 @@ describe("IssueChatThread", () => {
 
   it("does not warn when sending a reply with an assignee selected", async () => {
     const root = createRoot(container);
+
+    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2373,7 +2351,7 @@ describe("IssueChatThread", () => {
               linkedRuns={[]}
               timelineEvents={[]}
               liveRuns={[]}
-              onAdd={async () => {}}
+              onAdd={onAdd}
               enableReassign
               reassignOptions={[
                 { id: "", label: "No assignee" },
@@ -2406,7 +2384,7 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(appendMock).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain("No assignee selected");
 
     act(() => {

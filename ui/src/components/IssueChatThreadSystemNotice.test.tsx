@@ -9,11 +9,6 @@ import { IssueChatThread } from "./IssueChatThread";
 import type { IssueChatComment } from "../lib/issue-chat-messages";
 import type { Agent, SuccessfulRunHandoffState } from "@paperclipai/shared";
 
-vi.mock("@assistant-ui/react", () => ({
-  AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  useAui: () => ({ thread: () => ({ append: async () => undefined }) }),
-}));
-
 vi.mock("./transcript/useLiveRunTranscripts", () => ({
   useLiveRunTranscripts: () => ({
     transcriptByRun: new Map(),
@@ -48,10 +43,6 @@ vi.mock("./IssueLinkQuicklook", () => ({
     to: string;
   }) => <a href={to}>{children}</a>,
 }));
-vi.mock("../hooks/usePaperclipIssueRuntime", () => ({
-  usePaperclipIssueRuntime: () => ({}),
-}));
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 

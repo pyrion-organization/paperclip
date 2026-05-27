@@ -1,7 +1,3 @@
-import {
-  AssistantRuntimeProvider,
-  useAui,
-} from "@assistant-ui/react";
 import type {
   ReasoningMessagePart,
   TextMessagePart,
@@ -46,7 +42,6 @@ import type {
 } from "@paperclipai/shared";
 import type { ActiveRunForIssue, LiveRunForIssue } from "../api/heartbeats";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
-import { usePaperclipIssueRuntime, type PaperclipIssueRuntimeReassignment } from "../hooks/usePaperclipIssueRuntime";
 import {
   buildIssueChatMessages,
   formatDurationWords,
@@ -277,6 +272,7 @@ export interface IssueChatComposerHandle {
 }
 
 interface IssueChatComposerProps {
+  onAdd: (body: string, reopen?: boolean, reassignment?: CommentReassignment) => Promise<void>;
   onImageUpload?: (file: File) => Promise<string>;
   onAttachImage?: (file: File) => Promise<IssueAttachment | void>;
   draftKey?: string;
@@ -606,7 +602,7 @@ function clearDraft(draftKey: string) {
   }
 }
 
-function parseReassignment(target: string): PaperclipIssueRuntimeReassignment | null {
+function parseReassignment(target: string): CommentReassignment | null {
   if (!target || target === "__none__") {
     return { assigneeAgentId: null, assigneeUserId: null };
   }
@@ -3197,6 +3193,7 @@ const DeferredIssueChatEditor = forwardRef<MarkdownEditorRef, DeferredIssueChatE
 );
 
 const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerProps>(function IssueChatComposer({
+  onAdd,
   onImageUpload,
   onAttachImage,
   draftKey,
@@ -3212,7 +3209,6 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
   issueWorkMode,
   onWorkModeChange,
 }, forwardedRef) {
-  const api = useAui();
   const toastActions = useOptionalToastActions();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -3315,7 +3311,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
     }
 
     const hasReassignment = enableReassign && reassignTarget !== currentAssigneeValue;
-    const reassignment = hasReassignment ? parseReassignment(reassignTarget) : undefined;
+    const reassignment = hasReassignment ? parseReassignment(reassignTarget) ?? undefined : undefined;
     const reopen = shouldImplicitlyReopenComment(
       issueStatus,
       hasReassignment ? reassignTarget : currentAssigneeValue,
@@ -3331,20 +3327,9 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
       if (workModeChanged && onWorkModeChange) {
         await onWorkModeChange(pendingWorkMode);
       }
-      const appendPromise = api.thread().append({
-        role: "user",
-        content: [{ type: "text", text: submittedBody }],
-        metadata: { custom: {} },
-        attachments: [],
-        runConfig: {
-          custom: {
-            ...(reopen ? { reopen: true } : {}),
-            ...(reassignment ? { reassignment } : {}),
-          },
-        },
-      });
+      const addPromise = onAdd(submittedBody, reopen, reassignment);
       queueViewportRestore(viewportSnapshot);
-      await appendPromise;
+      await addPromise;
       if (draftKey) clearDraft(draftKey);
       setComposerAttachments([]);
       setReassignTarget(effectiveSuggestedAssigneeValue);
@@ -3734,7 +3719,6 @@ export function IssueChatThread({
   userProfileMap,
   onVote,
   onAdd,
-  onCancelRun,
   onStopRun,
   stopRunLabel,
   stoppingRunLabel,
@@ -3895,7 +3879,6 @@ export function IssueChatThread({
   const latestMessagesRef = useRef<readonly ThreadMessage[]>(messages);
   latestMessagesRef.current = messages;
 
-  const isRunning = displayLiveRuns.some((run) => run.status === "queued" || run.status === "running");
   const unresolvedBlockers = useMemo(
     () => blockedBy.filter((blocker) => blocker.status !== "done" && blocker.status !== "cancelled"),
     [blockedBy],
@@ -3955,15 +3938,14 @@ export function IssueChatThread({
     return true;
   }
 
-  const runtime = usePaperclipIssueRuntime({
-    messages,
-    isRunning,
-    onSend: ({ body, reopen, reassignment }) => {
-      pendingSubmitScrollRef.current = true;
-      return onAdd(body, reopen, reassignment);
-    },
-    onCancel: onCancelRun,
-  });
+  const handleAdd = useCallback((
+    body: string,
+    reopen?: boolean,
+    reassignment?: CommentReassignment,
+  ) => {
+    pendingSubmitScrollRef.current = true;
+    return onAdd(body, reopen, reassignment);
+  }, [onAdd]);
 
   useEffect(() => {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -4292,8 +4274,7 @@ export function IssueChatThread({
   const errorBoundaryResetKey = String(errorBoundaryResetVersionRef.current);
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <IssueChatCtx.Provider value={chatCtx}>
+    <IssueChatCtx.Provider value={chatCtx}>
       <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
         {resolvedShowJumpToLatest ? (
           <div className="flex justify-end">
@@ -4338,9 +4319,6 @@ export function IssueChatThread({
                   variant={variant}
                 />
               ) : (
-                // Keep transcript rendering independent from assistant-ui's
-                // index-scoped message providers; live transcripts can shrink
-                // or regroup while the runtime still holds stale indices.
                 messages.map((message) => (
                   <IssueChatMessageRow
                     key={message.id}
@@ -4436,6 +4414,7 @@ export function IssueChatThread({
           >
             <IssueChatComposer
               ref={composerRef}
+              onAdd={handleAdd}
               onImageUpload={imageUploadHandler}
               onAttachImage={onAttachImage}
               draftKey={draftKey}
@@ -4454,7 +4433,6 @@ export function IssueChatThread({
           </div>
         ) : null}
       </div>
-      </IssueChatCtx.Provider>
-    </AssistantRuntimeProvider>
+    </IssueChatCtx.Provider>
   );
 }
