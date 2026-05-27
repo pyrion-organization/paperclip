@@ -174,10 +174,10 @@ export function CompanyPatternIcon({
   useEffect(() => {
     setImageError(false);
   }, [logoUrl]);
-  const patternDataUrl = useMemo(
-    () => makeCompanyPatternDataUrl(companyName.trim().toLowerCase(), brandColor),
-    [companyName, brandColor],
-  );
+  const patternDataUrl = useMemo(() => {
+    if (logo) return "";
+    return makeCompanyPatternDataUrl(companyName.trim().toLowerCase(), brandColor);
+  }, [brandColor, companyName, logo]);
 
   return (
     <div
