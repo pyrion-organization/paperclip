@@ -21,7 +21,7 @@ function entityLink(entityType: string, entityId: string, name?: string | null):
   }
 }
 
-interface ActivityRowProps {
+export interface ActivityRowProps {
   event: ActivityEvent;
   agentMap: Map<string, Agent>;
   userProfileMap?: Map<string, CompanyUserProfile>;

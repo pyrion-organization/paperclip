@@ -2,10 +2,6 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "../api/dashboard";
-import { activityApi } from "../api/activity";
-import { accessApi } from "../api/access";
-import { agentsApi } from "../api/agents";
-import { buildCompanyUserProfileMap } from "../lib/company-members";
 import { useCompany } from "../context/CompanyContext";
 import { useDialogActions } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -14,7 +10,6 @@ import { MetricCard } from "../components/MetricCard";
 import { EmptyState } from "../components/EmptyState";
 import { StatusIcon } from "../components/StatusIcon";
 
-import { ActivityRow } from "../components/ActivityRow";
 import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
 import { cn, formatCents } from "../lib/utils";
@@ -26,6 +21,9 @@ import type { Agent, DashboardRecentIssue } from "@paperclipai/shared";
 const ActiveAgentsPanel = lazy(() =>
   import("../components/ActiveAgentsPanel").then(({ ActiveAgentsPanel }) => ({ default: ActiveAgentsPanel })),
 );
+const ActivityRow = lazy(() =>
+  import("../components/ActivityRow").then(({ ActivityRow }) => ({ default: ActivityRow })),
+);
 const DashboardPluginSlotOutlet = lazy(() =>
   import("@/plugins/LazyPluginSlotOutlet").then(({ LazyPluginSlotOutlet }) => ({ default: LazyPluginSlotOutlet })),
 );
@@ -36,6 +34,35 @@ type DashboardIdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
 };
+
+type DashboardCompanyUserRecord = {
+  principalId: string;
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  } | null;
+};
+
+function dashboardUserLabel(member: DashboardCompanyUserRecord): string {
+  const name = member.user?.name?.trim();
+  if (name) return name;
+  const email = member.user?.email?.trim();
+  if (email) return email;
+  if (member.principalId === "local-board") return "Board";
+  return member.principalId.slice(0, 5);
+}
+
+function buildDashboardUserProfileMap(members: DashboardCompanyUserRecord[] | null | undefined) {
+  const profiles = new Map<string, { label: string; image: string | null }>();
+  for (const member of members ?? []) {
+    profiles.set(member.principalId, {
+      label: dashboardUserLabel(member),
+      image: member.user?.image ?? null,
+    });
+  }
+  return profiles;
+}
 
 function useDeferredDashboardDetailsReady() {
   const [ready, setReady] = useState(false);
@@ -71,7 +98,10 @@ export function Dashboard() {
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
-    queryFn: () => agentsApi.list(selectedCompanyId!),
+    queryFn: async () => {
+      const { agentsApi } = await import("../api/agents");
+      return agentsApi.list(selectedCompanyId!);
+    },
     enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
@@ -87,18 +117,24 @@ export function Dashboard() {
 
   const { data: activity } = useQuery({
     queryKey: [...queryKeys.activity(selectedCompanyId!), { limit: DASHBOARD_ACTIVITY_LIMIT }],
-    queryFn: () => activityApi.list(selectedCompanyId!, { limit: DASHBOARD_ACTIVITY_LIMIT }),
+    queryFn: async () => {
+      const { activityApi } = await import("../api/activity");
+      return activityApi.list(selectedCompanyId!, { limit: DASHBOARD_ACTIVITY_LIMIT });
+    },
     enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
   const { data: companyMembers } = useQuery({
     queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId!),
-    queryFn: () => accessApi.listUserDirectory(selectedCompanyId!),
+    queryFn: async () => {
+      const { accessApi } = await import("../api/access");
+      return accessApi.listUserDirectory(selectedCompanyId!);
+    },
     enabled: dashboardDetailsReady && !!selectedCompanyId,
   });
 
   const userProfileMap = useMemo(
-    () => buildCompanyUserProfileMap(companyMembers?.users),
+    () => buildDashboardUserProfileMap(companyMembers?.users),
     [companyMembers?.users],
   );
 
@@ -346,17 +382,19 @@ export function Dashboard() {
                   Recent Activity
                 </h3>
                 <div className="border border-border divide-y divide-border overflow-hidden">
-                  {recentActivity.map((event) => (
-                    <ActivityRow
-                      key={event.id}
-                      event={event}
-                      agentMap={agentMap}
-                      userProfileMap={userProfileMap}
-                      entityNameMap={entityNameMap}
-                      entityTitleMap={entityTitleMap}
-                      className={animatedActivityIds.has(event.id) ? "activity-row-enter" : undefined}
-                    />
-                  ))}
+                  <Suspense fallback={null}>
+                    {recentActivity.map((event) => (
+                      <ActivityRow
+                        key={event.id}
+                        event={event}
+                        agentMap={agentMap}
+                        userProfileMap={userProfileMap}
+                        entityNameMap={entityNameMap}
+                        entityTitleMap={entityTitleMap}
+                        className={animatedActivityIds.has(event.id) ? "activity-row-enter" : undefined}
+                      />
+                    ))}
+                  </Suspense>
                 </div>
               </div>
             )}
