@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 const BAYER_4X4 = [
@@ -7,6 +7,11 @@ const BAYER_4X4 = [
   [3, 11, 1, 9],
   [15, 7, 13, 5],
 ] as const;
+
+type IdleScheduler = typeof globalThis & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
 
 interface CompanyPatternIconProps {
   companyName: string;
@@ -170,13 +175,40 @@ export function CompanyPatternIcon({
 }: CompanyPatternIconProps) {
   const initial = companyName.trim().charAt(0).toUpperCase() || "?";
   const [imageError, setImageError] = useState(false);
+  const [patternDataUrl, setPatternDataUrl] = useState("");
   const logo = !imageError && typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
   useEffect(() => {
     setImageError(false);
   }, [logoUrl]);
-  const patternDataUrl = useMemo(() => {
-    if (logo) return "";
-    return makeCompanyPatternDataUrl(companyName.trim().toLowerCase(), brandColor);
+
+  useEffect(() => {
+    if (logo) {
+      setPatternDataUrl("");
+      return;
+    }
+
+    let cancelled = false;
+    setPatternDataUrl("");
+    const seed = companyName.trim().toLowerCase();
+    const generatePattern = () => {
+      if (cancelled) return;
+      setPatternDataUrl(makeCompanyPatternDataUrl(seed, brandColor));
+    };
+
+    const scheduler = globalThis as IdleScheduler;
+    if (typeof scheduler.requestIdleCallback === "function") {
+      const idleId = scheduler.requestIdleCallback(generatePattern, { timeout: 500 });
+      return () => {
+        cancelled = true;
+        scheduler.cancelIdleCallback?.(idleId);
+      };
+    }
+
+    const timeoutId = globalThis.setTimeout(generatePattern, 0);
+    return () => {
+      cancelled = true;
+      globalThis.clearTimeout(timeoutId);
+    };
   }, [brandColor, companyName, logo]);
 
   return (
