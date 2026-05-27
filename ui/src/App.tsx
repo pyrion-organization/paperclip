@@ -1,13 +1,11 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "@/lib/router";
+import { CloudAccessGate } from "./components/CloudAccessGate";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox-tabs";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
-const CloudAccessGate = lazy(() =>
-  import("./components/CloudAccessGate").then(({ CloudAccessGate }) => ({ default: CloudAccessGate })),
-);
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
 const OnboardingWizard = lazy(() =>
   import("./components/OnboardingWizard").then(({ OnboardingWizard }) => ({ default: OnboardingWizard })),
