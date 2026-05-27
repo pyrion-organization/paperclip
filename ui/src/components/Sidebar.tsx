@@ -11,6 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
 import { SidebarNavItem } from "./SidebarNavItem";
+import { DeferredSidebarCompanyMenu } from "./DeferredSidebarCompanyMenu";
 import { useDialogActions } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
@@ -18,9 +19,6 @@ import { useSidebar } from "../context/SidebarContext";
 import { cn } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 
-const SidebarCompanyMenu = lazy(() =>
-  import("./SidebarCompanyMenu").then((module) => ({ default: module.SidebarCompanyMenu })),
-);
 const SidebarInboxNavItem = lazy(() =>
   import("./SidebarInboxNavItem").then((module) => ({ default: module.SidebarInboxNavItem })),
 );
@@ -118,11 +116,7 @@ export function Sidebar() {
   return (
     <aside className={cn("h-full min-h-0 border-r border-border bg-background flex flex-col", isCollapsed && !isMobile ? "w-16" : "w-60")}>
       <div className={cn("flex items-center gap-1 px-2 h-12 shrink-0", isCollapsed && "justify-center")}>
-        {!isCollapsed && sidebarChromeReady && (
-          <Suspense fallback={<div className="min-w-0 flex-1" />}>
-            <SidebarCompanyMenu />
-          </Suspense>
-        )}
+        {!isCollapsed && <DeferredSidebarCompanyMenu />}
         <Button
           asChild
           variant="ghost"

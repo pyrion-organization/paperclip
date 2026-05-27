@@ -181,6 +181,29 @@ describe("Sidebar", () => {
     });
   });
 
+  it("loads the full company switcher only when the workspace button is used", async () => {
+    mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
+    const root = await renderSidebar();
+
+    expect(container.textContent).toContain("Paperclip");
+    expect(container.textContent).not.toContain("Company menu");
+
+    const trigger = container.querySelector('button[aria-label="Open Paperclip workspace switcher"]');
+    expect(trigger).not.toBeNull();
+
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await vi.dynamicImportSettled();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("Company menu");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("renders plugin sidebar launchers inside the Work section", async () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
     const root = await renderSidebar();
