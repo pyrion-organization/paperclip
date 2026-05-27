@@ -535,9 +535,6 @@ export const CALENDAR_ITEM_CATEGORIES = [
   "payment_receivable",
   "payment_payable",
   "legal",
-  "project",
-  "account",
-  "insurance",
   "other",
 ] as const;
 export type CalendarItemCategory = (typeof CALENDAR_ITEM_CATEGORIES)[number];

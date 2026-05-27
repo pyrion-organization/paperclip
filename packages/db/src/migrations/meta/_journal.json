@@ -911,6 +911,13 @@
       "when": 1779803852635,
       "tag": "0129_calendar_missing_details_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1779892502613,
+      "tag": "0130_calendar_brazil_defaults",
+      "breakpoints": true
     }
   ]
 }

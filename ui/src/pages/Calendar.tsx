@@ -59,6 +59,13 @@ import { Textarea } from "@/components/ui/textarea";
 
 const NO_COMPANY = "__none__";
 const NONE = "__none_value__";
+const CALENDAR_TIMEZONE_OPTIONS = [
+  { value: "America/Sao_Paulo", label: "Sao Paulo" },
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "New York" },
+  { value: "Europe/London", label: "London" },
+  { value: "Asia/Tokyo", label: "Japan" },
+] as const;
 
 type ItemFormState = {
   title: string;
@@ -104,11 +111,11 @@ function emptyForm(): ItemFormState {
     providerName: "",
     nextDueDate: "",
     dueTime: "",
-    timezone: "UTC",
+    timezone: "America/Sao_Paulo",
     recurrenceType: "none",
     recurrenceRule: "",
     amount: "",
-    currency: "USD",
+    currency: "BRL",
     autoRenew: false,
     manualActionRequired: true,
     paymentMethodLabel: "",
@@ -189,11 +196,11 @@ function payloadFromForm(form: ItemFormState): CreateCalendarItemInput {
     providerName: nullable(form.providerName),
     nextDueDate: nullable(form.nextDueDate),
     dueTime: nullable(form.dueTime),
-    timezone: form.timezone.trim() || "UTC",
+    timezone: form.timezone.trim() || "America/Sao_Paulo",
     recurrenceType: form.recurrenceType,
     recurrenceRule: nullable(form.recurrenceRule),
     amountCents: amountToCents(form.amount),
-    currency: form.currency.trim().toUpperCase() || "USD",
+    currency: form.currency.trim().toUpperCase() || "BRL",
     autoRenew: form.autoRenew,
     manualActionRequired: form.manualActionRequired,
     paymentMethodLabel: nullable(form.paymentMethodLabel),
@@ -770,17 +777,23 @@ export function Calendar() {
                       </Select>
                     </Field>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 border border-border bg-muted/20 p-3 md:col-span-2 md:max-w-md">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">Schedule</div>
                     <Field label="Due Date">
                       <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
                     </Field>
                     <Field label="Due Time">
                       <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
                     </Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <Field label="Timezone">
-                      <Input value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
+                      <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {CALENDAR_TIMEZONE_OPTIONS.map((timezone) => (
+                            <SelectItem key={timezone.value} value={timezone.value}>{timezone.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field label="Recurrence">
                       <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
@@ -788,13 +801,11 @@ export function Calendar() {
                         <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
                       </Select>
                     </Field>
-                  </div>
-                  {form.recurrenceType === "custom_rrule" ? (
-                    <Field label="Recurrence Rule">
-                      <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
-                    </Field>
-                  ) : null}
-                  <div className="border border-border bg-muted/20 p-3 text-sm md:col-span-2">
+                    {form.recurrenceType === "custom_rrule" ? (
+                      <Field label="Recurrence Rule">
+                        <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
+                      </Field>
+                    ) : null}
                     <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
                     <div className="mt-1">{nextDuePreview(form)}</div>
                   </div>

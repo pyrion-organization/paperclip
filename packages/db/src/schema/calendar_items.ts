@@ -26,13 +26,13 @@ export const calendarItems = pgTable(
 
     dueDate: date("due_date"),
     dueTime: text("due_time"),
-    timezone: text("timezone").notNull().default("UTC"),
+    timezone: text("timezone").notNull().default("America/Sao_Paulo"),
     recurrenceType: text("recurrence_type").notNull().default("none"),
     recurrenceRule: text("recurrence_rule"),
     nextDueDate: date("next_due_date"),
 
     amountCents: integer("amount_cents"),
-    currency: text("currency").notNull().default("USD"),
+    currency: text("currency").notNull().default("BRL"),
     autoRenew: boolean("auto_renew").notNull().default(false),
     manualActionRequired: boolean("manual_action_required").notNull().default(true),
     paymentMethodLabel: text("payment_method_label"),

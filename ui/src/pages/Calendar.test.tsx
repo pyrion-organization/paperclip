@@ -49,12 +49,12 @@ function makeItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
     relatedProjectId: null,
     dueDate: null,
     dueTime: null,
-    timezone: "UTC",
+    timezone: "America/Sao_Paulo",
     recurrenceType: "yearly",
     recurrenceRule: null,
     nextDueDate: "2026-06-30",
     amountCents: 12000,
-    currency: "USD",
+    currency: "BRL",
     autoRenew: true,
     manualActionRequired: true,
     paymentMethodLabel: "Company card",
@@ -143,7 +143,7 @@ function makeDashboard(items: CalendarItem[]): CalendarDashboard {
       monthlyRecurringCents: 0,
       annualRenewalCents: 12000,
       upcoming30DaysCents: 12000,
-      currency: "USD",
+      currency: "BRL",
     },
   };
 }
@@ -280,6 +280,14 @@ describe("Calendar", () => {
 
     expect(document.body.textContent).toContain("New Item");
     expect(document.body.textContent).toContain("Create");
+    expect(document.body.textContent).toContain("Sao Paulo");
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-payment']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect((document.body.querySelector("input[value='BRL']") as HTMLInputElement | null)).not.toBeNull();
   });
 
   it("opens the edit dialog from row click and keyboard activation", async () => {
