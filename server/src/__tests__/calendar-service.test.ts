@@ -377,6 +377,61 @@ describeEmbeddedPostgres("calendarService", () => {
     });
   });
 
+  it("reconciles linked payment status when a payable amount changes", async () => {
+    const payments = paymentService(db);
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Correctable amount payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      nextDueDate: "2026-06-10",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const [entry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+    expect(entry).toBeDefined();
+
+    await payments.recordPayment(companyId, entry!.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-10T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Partial before correction",
+    });
+
+    await svc.update(
+      companyId,
+      created.id,
+      { amountCents: 4000 },
+      undefined,
+      { approvalConfirmed: true },
+    );
+
+    const [updatedEntry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entry!.id)));
+
+    expect(updatedEntry).toMatchObject({
+      expectedAmountCents: 4000,
+      paidAmountCents: 4000,
+      status: "paid",
+    });
+  });
+
   it("only keeps linked payment entries for active payable calendar items", async () => {
     const [profile] = await db
       .insert(paymentProfiles)
@@ -554,6 +609,35 @@ describeEmbeddedPostgres("calendarService", () => {
       proofUrl: null,
       notes: "Wrong currency",
     })).rejects.toThrow(/currency/i);
+  });
+
+  it("defaults omitted payment record currency from the entry", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "USD invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "USD",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const result = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Paid without explicit currency",
+    });
+    const [record] = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)));
+
+    expect(result.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+    expect(record).toMatchObject({ amountCents: 10000, currency: "USD" });
   });
 
   it("treats payment profiles as auto-renew payment details", async () => {

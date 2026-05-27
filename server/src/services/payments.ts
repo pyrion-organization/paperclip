@@ -101,6 +101,20 @@ export function paymentService(db: Db) {
     return rows.map((row) => rowToEntry(row, row.paymentProfileId ? profileById.get(row.paymentProfileId) ?? null : null));
   }
 
+  async function reconcileEntry(row: typeof paymentEntries.$inferSelect) {
+    const paidAmountCents = await paidAmountForEntry(db, row.companyId, row.id);
+    if (row.status === "cancelled" || (paidAmountCents <= 0 && row.paidAmountCents <= 0)) {
+      return (await hydrateEntries([row]))[0]!;
+    }
+    const nextStatus = statusFor(row, paidAmountCents);
+    const [reconciled] = await db
+      .update(paymentEntries)
+      .set({ paidAmountCents, status: nextStatus, updatedAt: new Date() })
+      .where(and(eq(paymentEntries.companyId, row.companyId), eq(paymentEntries.id, row.id)))
+      .returning();
+    return (await hydrateEntries([reconciled]))[0]!;
+  }
+
   return {
     listProfiles: async (companyId: string) => {
       const rows = await db
@@ -210,17 +224,7 @@ export function paymentService(db: Db) {
         .set({ ...input, updatedAt: new Date() })
         .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
         .returning();
-      const recordPaidAmountCents = await paidAmountForEntry(db, companyId, entryId);
-      if (row.status !== "cancelled" && (recordPaidAmountCents > 0 || row.paidAmountCents > 0)) {
-        const nextStatus = statusFor(row, recordPaidAmountCents);
-        const [reconciled] = await db
-          .update(paymentEntries)
-          .set({ paidAmountCents: recordPaidAmountCents, status: nextStatus, updatedAt: new Date() })
-          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
-          .returning();
-        return (await hydrateEntries([reconciled]))[0]!;
-      }
-      return (await hydrateEntries([row]))[0]!;
+      return reconcileEntry(row);
     },
 
     recordPayment: async (companyId: string, entryId: string, input: RecordPayment) => {
@@ -232,7 +236,8 @@ export function paymentService(db: Db) {
       if (!entry) throw notFound("Payment entry not found");
       if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot receive payments");
       if (entry.status === "paid") throw unprocessable("Payment entry is already paid");
-      if (input.currency !== entry.currency) {
+      const recordCurrency = input.currency ?? entry.currency;
+      if (recordCurrency !== entry.currency) {
         throw unprocessable("Payment record currency must match the payment entry currency");
       }
 
@@ -244,6 +249,7 @@ export function paymentService(db: Db) {
         ...recordInput,
         companyId,
         paymentEntryId: entryId,
+        currency: recordCurrency,
         paymentProfileId: profileId,
         paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
       });
@@ -309,7 +315,7 @@ export function paymentService(db: Db) {
           .set(values)
           .where(and(eq(paymentEntries.companyId, item.companyId), eq(paymentEntries.id, existing.id)))
           .returning();
-        return (await hydrateEntries([updated]))[0]!;
+        return reconcileEntry(updated);
       }
       const [created] = await db
         .insert(paymentEntries)

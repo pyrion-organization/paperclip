@@ -65,7 +65,7 @@ export type UpdatePaymentEntryInput = z.input<typeof updatePaymentEntrySchema>;
 
 export const recordPaymentSchema = z.object({
   amountCents: z.number().int().positive(),
-  currency: z.string().trim().length(3).optional().default("BRL").transform((value) => value.toUpperCase()),
+  currency: z.string().trim().length(3).optional().transform((value) => value?.toUpperCase()),
   paidAt: z.string().datetime().optional(),
   paymentProfileId: z.string().uuid().optional().nullable(),
   proofUrl: optionalUrl,
