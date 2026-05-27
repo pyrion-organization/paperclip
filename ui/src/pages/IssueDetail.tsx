@@ -60,24 +60,16 @@ import {
 } from "../lib/optimistic-issue-comments";
 import { clearIssueExecutionRun, removeLiveRunById, upsertInterruptedRun } from "../lib/optimistic-issue-runs";
 import { useProjectOrder } from "../hooks/useProjectOrder";
-import { relativeTime, cn, formatDurationMs, formatTokens, visibleRunCostUsd } from "../lib/utils";
-import { ApprovalCard } from "../components/ApprovalCard";
+import { relativeTime, cn } from "../lib/utils";
 import { InlineEditor } from "../components/InlineEditor";
 import type { IssueChatComposerHandle } from "../components/IssueChatThread";
-import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff";
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
 import { AgentIcon } from "../components/AgentIcon";
-import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
-import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";
-import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
-import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
-import { ImageGalleryModal } from "../components/ImageGalleryModal";
 import { ScrollToBottom } from "../components/ScrollToBottom";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { ProductivityReviewBadge } from "../components/ProductivityReviewBadge";
-import { Identity } from "../components/Identity";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { Separator } from "@/components/ui/separator";
@@ -96,20 +88,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { formatIssueActivityAction } from "@/lib/activity-format";
 import { buildIssuePropertiesPanelKey } from "../lib/issue-properties-panel-key";
 import { buildIssueSiblingNavigation, shouldRenderRichSubIssuesSection } from "../lib/issue-detail-subissues";
 import { filterIssueDescendants } from "../lib/issue-tree";
 import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
-import {
-  SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION,
-  SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION,
-  successfulRunHandoffActivityTone,
-} from "../lib/successful-run-handoff";
 import { hasAssignedBacklogBlocker } from "../lib/issue-blockers";
 import {
   Activity as ActivityIcon,
-  AlertTriangle,
   Archive,
   ArrowLeft,
   Check,
@@ -183,8 +168,14 @@ const IssueDocumentsSection = lazy(() =>
 const IssueProperties = lazy(() =>
   import("../components/IssueProperties").then(({ IssueProperties }) => ({ default: IssueProperties })),
 );
-const IssueRunLedger = lazy(() =>
-  import("../components/IssueRunLedger").then(({ IssueRunLedger }) => ({ default: IssueRunLedger })),
+const IssueDetailActivityTab = lazy(() =>
+  import("../components/IssueDetailActivityTab").then(({ IssueDetailActivityTab }) => ({ default: IssueDetailActivityTab })),
+);
+const IssueWorkspaceCard = lazy(() =>
+  import("../components/IssueWorkspaceCard").then(({ IssueWorkspaceCard }) => ({ default: IssueWorkspaceCard })),
+);
+const ImageGalleryModal = lazy(() =>
+  import("../components/ImageGalleryModal").then(({ ImageGalleryModal }) => ({ default: ImageGalleryModal })),
 );
 const IssueRelatedWorkPanel = lazy(() =>
   import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
@@ -279,20 +270,6 @@ function readIssueRunStateFromCache(queryClient: QueryClient, issueId: string) {
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function usageNumber(usage: Record<string, unknown> | null, ...keys: string[]) {
-  if (!usage) return 0;
-  for (const key of keys) {
-    const value = usage[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return 0;
-}
-
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + "\u2026";
@@ -383,20 +360,6 @@ function mergeOptimisticFeedbackVote(
       updatedAt: now,
     },
   ];
-}
-
-function ActorIdentity({ evt, agentMap, userProfileMap }: { evt: ActivityEvent; agentMap: Map<string, Agent>; userProfileMap?: Map<string, import("../lib/company-members").CompanyUserProfile> }) {
-  const id = evt.actorId;
-  if (evt.actorType === "agent") {
-    const agent = agentMap.get(id);
-    return <Identity name={agent?.name ?? id.slice(0, 8)} size="sm" />;
-  }
-  if (evt.actorType === "system") return <Identity name="System" size="sm" />;
-  if (evt.actorType === "user") {
-    const profile = userProfileMap?.get(id);
-    return <Identity name={profile?.label ?? "Board"} avatarUrl={profile?.image} size="sm" />;
-  }
-  return <Identity name={id || "Unknown"} size="sm" />;
 }
 
 function IssueSectionSkeleton({
@@ -977,272 +940,6 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     </div>
   );
 });
-
-type IssueDetailActivityTabProps = {
-  issue: Issue;
-  issueId: string;
-  companyId: string;
-  issueStatus: Issue["status"];
-  childIssues: Issue[];
-  agentMap: Map<string, Agent>;
-  hasLiveRuns: boolean;
-  currentUserId: string | null;
-  userProfileMap: Map<string, import("../lib/company-members").CompanyUserProfile>;
-  pendingApprovalAction: { approvalId: string; action: "approve" | "reject" } | null;
-  onApprovalAction: (approvalId: string, action: "approve" | "reject") => void;
-  onCheckMonitorNow: () => void;
-  checkingMonitorNow: boolean;
-  handoffFocusSignal?: number;
-};
-
-function IssueDetailActivityTab({
-  issue,
-  issueId,
-  companyId,
-  issueStatus,
-  childIssues,
-  agentMap,
-  hasLiveRuns,
-  currentUserId,
-  userProfileMap,
-  pendingApprovalAction,
-  onApprovalAction,
-  onCheckMonitorNow,
-  checkingMonitorNow,
-  handoffFocusSignal = 0,
-}: IssueDetailActivityTabProps) {
-  const { data: activity, isLoading: activityLoading } = useQuery({
-    queryKey: queryKeys.issues.activity(issueId),
-    queryFn: () => activityApi.forIssue(issueId),
-    placeholderData: keepPreviousDataForSameQueryTail<ActivityEvent[]>(issueId),
-  });
-  const { data: linkedRuns, isLoading: linkedRunsLoading } = useQuery({
-    queryKey: queryKeys.issues.runs(issueId),
-    queryFn: () => activityApi.runsForIssue(issueId),
-    placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
-  });
-  const { data: linkedApprovals } = useQuery({
-    queryKey: queryKeys.issues.approvals(issueId),
-    queryFn: () => issuesApi.listApprovals(issueId),
-    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.listApprovals>>>(issueId),
-  });
-  const { data: continuationHandoff } = useQuery({
-    queryKey: queryKeys.issues.document(issueId, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY),
-    queryFn: async () => {
-      try {
-        return await issuesApi.getDocument(issueId, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY);
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 404) return null;
-        throw error;
-      }
-    },
-    retry: false,
-    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.getDocument>> | null>(
-      issueId,
-    ),
-  });
-  const { data: issueTreeCostSummary } = useQuery({
-    queryKey: queryKeys.issues.costSummary(issueId),
-    queryFn: () => issuesApi.getCostSummary(issueId),
-    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.getCostSummary>>>(issueId),
-  });
-  const initialLoading =
-    (activityLoading && activity === undefined)
-    || (linkedRunsLoading && linkedRuns === undefined);
-  const issueCostSummary = useMemo(() => {
-    let input = 0;
-    let output = 0;
-    let cached = 0;
-    let cost = 0;
-    let runtimeMs = 0;
-    let runCount = 0;
-    let hasCost = false;
-    let hasTokens = false;
-    const nowMs = Date.now();
-
-    for (const run of linkedRuns ?? []) {
-      const usage = asRecord(run.usageJson);
-      const result = asRecord(run.resultJson);
-      const runInput = usageNumber(usage, "inputTokens", "input_tokens");
-      const runOutput = usageNumber(usage, "outputTokens", "output_tokens");
-      const runCached = usageNumber(
-        usage,
-        "cachedInputTokens",
-        "cached_input_tokens",
-        "cache_read_input_tokens",
-      );
-      const runCost = visibleRunCostUsd(usage, result);
-      if (runCost > 0) hasCost = true;
-      if (runInput + runOutput + runCached > 0) hasTokens = true;
-      input += runInput;
-      output += runOutput;
-      cached += runCached;
-      cost += runCost;
-
-      if (run.startedAt) {
-        const startMs = new Date(run.startedAt).getTime();
-        const endMs = run.finishedAt ? new Date(run.finishedAt).getTime() : nowMs;
-        if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
-          runtimeMs += endMs - startMs;
-          runCount += 1;
-        }
-      }
-    }
-
-    return {
-      input,
-      output,
-      cached,
-      cost,
-      totalTokens: input + output,
-      hasCost,
-      hasTokens,
-      runtimeMs,
-      runCount,
-      hasRuntime: runtimeMs > 0,
-    };
-  }, [linkedRuns]);
-  const issueTreeCostTokens =
-    (issueTreeCostSummary?.inputTokens ?? 0) + (issueTreeCostSummary?.outputTokens ?? 0);
-  const hasIssueTreeCost =
-    !!issueTreeCostSummary
-    && (issueTreeCostSummary.costCents > 0
-      || issueTreeCostTokens > 0
-      || issueTreeCostSummary.cachedInputTokens > 0
-      || issueTreeCostSummary.runtimeMs > 0
-      || issueTreeCostSummary.issueCount > 1);
-  const shouldShowCostSummary =
-    (linkedRuns && linkedRuns.length > 0) || hasIssueTreeCost;
-
-  if (initialLoading) {
-    return <IssueSectionSkeleton titleWidth="w-20" rows={4} />;
-  }
-
-  return (
-    <>
-      {shouldShowCostSummary && (
-        <div className="mb-3 px-3 py-2 rounded-lg border border-border">
-          <div className="text-sm font-medium text-muted-foreground mb-1">Cost Summary</div>
-          {!issueCostSummary.hasCost && !issueCostSummary.hasTokens && !hasIssueTreeCost ? (
-            <div className="text-xs text-muted-foreground">No cost data yet.</div>
-          ) : (
-            <div className="space-y-1 text-xs text-muted-foreground tabular-nums">
-              <div className="flex flex-wrap gap-3">
-                <span className="font-medium text-foreground">This issue</span>
-                {issueCostSummary.hasCost ? (
-                  <span className="font-medium text-foreground">
-                    ${issueCostSummary.cost.toFixed(4)}
-                  </span>
-                ) : null}
-                {issueCostSummary.hasTokens ? (
-                  <span>
-                    Tokens {formatTokens(issueCostSummary.totalTokens)}
-                    {issueCostSummary.cached > 0
-                      ? ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)}, cached ${formatTokens(issueCostSummary.cached)})`
-                      : ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)})`}
-                  </span>
-                ) : null}
-                {issueCostSummary.hasRuntime ? (
-                  <span>
-                    Runtime {formatDurationMs(issueCostSummary.runtimeMs)}
-                    {` (${issueCostSummary.runCount} run${issueCostSummary.runCount === 1 ? "" : "s"})`}
-                  </span>
-                ) : null}
-                {!issueCostSummary.hasCost && !issueCostSummary.hasTokens && !issueCostSummary.hasRuntime ? (
-                  <span>No direct cost data.</span>
-                ) : null}
-              </div>
-              {hasIssueTreeCost && issueTreeCostSummary ? (
-                <div className="flex flex-wrap gap-3">
-                  <span className="font-medium text-foreground">
-                    Including sub-issues {(issueTreeCostSummary.costCents / 100).toLocaleString(undefined, {
-                      style: "currency",
-                      currency: "USD",
-                      minimumFractionDigits: 4,
-                      maximumFractionDigits: 4,
-                    })}
-                  </span>
-                  <span>
-                    Tokens {formatTokens(issueTreeCostTokens)}
-                    {issueTreeCostSummary.cachedInputTokens > 0
-                      ? ` (in ${formatTokens(issueTreeCostSummary.inputTokens)}, out ${formatTokens(issueTreeCostSummary.outputTokens)}, cached ${formatTokens(issueTreeCostSummary.cachedInputTokens)})`
-                      : ` (in ${formatTokens(issueTreeCostSummary.inputTokens)}, out ${formatTokens(issueTreeCostSummary.outputTokens)})`}
-                  </span>
-                  {issueTreeCostSummary.runCount > 0 ? (
-                    <span>
-                      Runtime {formatDurationMs(issueTreeCostSummary.runtimeMs)}
-                      {` (${issueTreeCostSummary.runCount} run${issueTreeCostSummary.runCount === 1 ? "" : "s"})`}
-                    </span>
-                  ) : null}
-                  <span>{issueTreeCostSummary.issueCount} issue{issueTreeCostSummary.issueCount === 1 ? "" : "s"}</span>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="mb-3">
-        <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={3} />}>
-          <IssueRunLedger
-            issueId={issueId}
-            companyId={companyId}
-            issueStatus={issueStatus}
-            childIssues={childIssues}
-            agentMap={agentMap}
-            hasLiveRuns={hasLiveRuns}
-            activityEvents={activity ?? []}
-            renderActivityEvent={(evt) => {
-              const tone = successfulRunHandoffActivityTone(evt.action);
-              const isHandoffWarning =
-                evt.action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION
-                || evt.action === SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION;
-              return (
-                <div className={cn("space-y-1.5 rounded-lg border px-3 py-2 text-xs", tone.className)}>
-                  <div className="flex items-center gap-1.5">
-                    {isHandoffWarning ? (
-                      <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} />
-                    ) : null}
-                    <ActorIdentity evt={evt} agentMap={agentMap} userProfileMap={userProfileMap} />
-                    <span>{formatIssueActivityAction(evt.action, evt.details, { agentMap, userProfileMap, currentUserId })}</span>
-                    <span className="ml-auto shrink-0">{relativeTime(evt.createdAt)}</span>
-                  </div>
-                  <IssueReferenceActivitySummary event={evt} />
-                </div>
-              );
-            }}
-          />
-        </Suspense>
-      </div>
-      {linkedApprovals && linkedApprovals.length > 0 && (
-        <div className="mb-3 space-y-3">
-          {linkedApprovals.map((approval) => (
-            <ApprovalCard
-              key={approval.id}
-              approval={approval}
-              requesterAgent={approval.requestedByAgentId ? agentMap.get(approval.requestedByAgentId) ?? null : null}
-              onApprove={() => onApprovalAction(approval.id, "approve")}
-              onReject={() => onApprovalAction(approval.id, "reject")}
-              detailLink={`/approvals/${approval.id}`}
-              isPending={pendingApprovalAction?.approvalId === approval.id}
-              pendingAction={
-                pendingApprovalAction?.approvalId === approval.id
-                  ? pendingApprovalAction.action
-                  : null
-              }
-            />
-          ))}
-        </div>
-      )}
-      <IssueContinuationHandoff document={continuationHandoff} focusSignal={handoffFocusSignal} />
-      <IssueScheduledRetryCard issueId={issue.id} scheduledRetry={issue.scheduledRetry ?? null} />
-      <IssueMonitorActivityCard
-        issue={issue}
-        onCheckNow={onCheckMonitorNow}
-        checkingNow={checkingMonitorNow}
-      />
-    </>
-  );
-}
 
 export function IssueDetail() {
   const { issueId } = useParams<{ issueId: string }>();
@@ -3897,18 +3594,24 @@ export function IssueDetail() {
         </div>
       ) : null}
 
-      <ImageGalleryModal
-        images={imageAttachments}
-        initialIndex={galleryIndex}
-        open={galleryOpen}
-        onOpenChange={setGalleryOpen}
-      />
+      {galleryOpen ? (
+        <Suspense fallback={null}>
+          <ImageGalleryModal
+            images={imageAttachments}
+            initialIndex={galleryIndex}
+            open={galleryOpen}
+            onOpenChange={setGalleryOpen}
+          />
+        </Suspense>
+      ) : null}
 
-      <IssueWorkspaceCard
-        issue={issue}
-        project={resolvedProject}
-        onUpdate={(data) => updateIssue.mutate(data)}
-      />
+      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={2} />}>
+        <IssueWorkspaceCard
+          issue={issue}
+          project={resolvedProject}
+          onUpdate={(data) => updateIssue.mutate(data)}
+        />
+      </Suspense>
 
       <Separator />
 
@@ -4013,24 +3716,26 @@ export function IssueDetail() {
 
         <TabsContent value="activity">
           {detailTab === "activity" ? (
-            <IssueDetailActivityTab
-              issue={issue}
-              issueId={issue.id}
-              companyId={issue.companyId}
-              issueStatus={issue.status}
-              childIssues={childIssues}
-              agentMap={agentMap}
-              hasLiveRuns={hasLiveRuns}
-              currentUserId={currentUserId}
-              userProfileMap={userProfileMap}
-              pendingApprovalAction={pendingApprovalAction}
-              handoffFocusSignal={handoffFocusSignal}
-              onApprovalAction={(approvalId, action) => {
-                approvalDecision.mutate({ approvalId, action });
-              }}
-              onCheckMonitorNow={() => checkIssueMonitorNow.mutate()}
-              checkingMonitorNow={checkIssueMonitorNow.isPending}
-            />
+            <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={4} />}>
+              <IssueDetailActivityTab
+                issue={issue}
+                issueId={issue.id}
+                companyId={issue.companyId}
+                issueStatus={issue.status}
+                childIssues={childIssues}
+                agentMap={agentMap}
+                hasLiveRuns={hasLiveRuns}
+                currentUserId={currentUserId}
+                userProfileMap={userProfileMap}
+                pendingApprovalAction={pendingApprovalAction}
+                handoffFocusSignal={handoffFocusSignal}
+                onApprovalAction={(approvalId, action) => {
+                  approvalDecision.mutate({ approvalId, action });
+                }}
+                onCheckMonitorNow={() => checkIssueMonitorNow.mutate()}
+                checkingMonitorNow={checkIssueMonitorNow.isPending}
+              />
+            </Suspense>
           ) : null}
         </TabsContent>
 
