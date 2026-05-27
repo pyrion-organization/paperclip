@@ -123,8 +123,8 @@ export function Sidebar() {
         <SidebarSection label="Work">
           <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
           <SidebarNavItem to="/calendar" label="Calendar" icon={CalendarDays} />
+          <SidebarNavItem to="/payments" label="Payments" icon={CreditCard} />
           <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
-          <SidebarNavItem to="/goals" label="Goals" icon={Target} />
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
           ) : null}
@@ -150,9 +150,9 @@ export function Sidebar() {
         <SidebarSection label="Company">
           <SidebarNavItem to="/clients" label="Clients" icon={Users} />
           <SidebarNavItem to="/org" label="Org" icon={Network} />
+          <SidebarNavItem to="/goals" label="Goals" icon={Target} />
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
-          <SidebarNavItem to="/payments" label="Payments" icon={CreditCard} />
           <SidebarNavItem to="/activity" label="Activity" icon={History} />
           <SidebarNavItem to="/email/ops" label="Email Ops" icon={Activity} />
           <SidebarNavItem to="/company/instructions" label="Instructions" icon={FileText} />
