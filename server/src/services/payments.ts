@@ -241,7 +241,9 @@ export function paymentService(db: Db) {
         throw unprocessable("Payment record currency must match the payment entry currency");
       }
 
-      const profileId = input.paymentProfileId ?? entry.paymentProfileId;
+      const profileId = Object.prototype.hasOwnProperty.call(input, "paymentProfileId")
+        ? input.paymentProfileId ?? null
+        : entry.paymentProfileId;
       if (profileId) await assertProfile(db, companyId, profileId);
 
       const { approvalConfirmed: _approvalConfirmed, ...recordInput } = input;

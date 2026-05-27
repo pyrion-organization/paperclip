@@ -481,6 +481,7 @@ export function Calendar() {
         throw new Error("Payment payables require due date, amount, and payment profile");
       }
       if (isEditing && selectedItemId) {
+        if (!selectedItem) throw new Error("Calendar item is still loading");
         const requiresApproval = requiresGovernedSaveApproval(selectedItem, payload);
         const approvalConfirmed = requiresApproval
           ? confirmGovernedChange("This governed calendar change requires operator approval. Continue?")
@@ -564,9 +565,7 @@ export function Calendar() {
   const openItemById = (itemId: string) => {
     const item = items.find((candidate) => candidate.id === itemId);
     setSelectedItemId(itemId);
-    if (item) {
-      setForm(formFromItem(item));
-    }
+    setForm(item ? formFromItem(item) : emptyForm());
     setItemDialogTab("overview");
     setOperationError(null);
     setItemDialogOpen(true);
@@ -980,7 +979,7 @@ export function Calendar() {
             </div>
             <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
               <div className="flex flex-1 flex-wrap gap-2">
-                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || (isEditing && !selectedItem)}>
                   {isEditing ? "Save" : "Create"}
                 </Button>
                 {selectedItem ? (

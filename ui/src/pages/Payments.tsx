@@ -128,7 +128,7 @@ export function Payments() {
       amountCents: cents(paymentForm.amount) ?? 0,
       currency: paymentForm.currency || payingEntry!.currency,
       paidAt: paymentForm.paidAt ? new Date(`${paymentForm.paidAt}T12:00:00.000Z`).toISOString() : undefined,
-      paymentProfileId: paymentForm.paymentProfileId || payingEntry!.paymentProfileId,
+      paymentProfileId: paymentForm.paymentProfileId === "" ? null : paymentForm.paymentProfileId,
       proofUrl: paymentForm.proofUrl || null,
       notes: paymentForm.notes || null,
       approvalConfirmed: paymentForm.approvalConfirmed,

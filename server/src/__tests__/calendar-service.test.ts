@@ -583,6 +583,12 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(partial.entry).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
     expect(full.completed).toBe(true);
     expect(full.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)))
+      .orderBy(paymentRecords.paidAt);
+    expect(records.map((record) => record.paymentProfileId)).toEqual([null, null]);
 
     const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
     expect(dashboard.paidThisMonthCents).toBe(10000);
