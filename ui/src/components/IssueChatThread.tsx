@@ -12,7 +12,9 @@ import {
   createContext,
   Component,
   forwardRef,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -88,7 +90,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MarkdownBody } from "./MarkdownBody";
-import { MarkdownEditor, type MentionOption, type MarkdownEditorRef } from "./MarkdownEditor";
+import type { MentionOption, MarkdownEditorRef } from "./MarkdownEditor";
 import { Identity } from "./Identity";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 import { IssueThreadInteractionCard } from "./IssueThreadInteractionCard";
@@ -137,6 +139,10 @@ import { AlertTriangle, ArrowRight, Brain, Check, ChevronDown, ClipboardList, Co
 import { IssueBlockedNotice } from "./IssueBlockedNotice";
 import { IssueAssignedBacklogNotice } from "./IssueAssignedBacklogNotice";
 import { IssueRecoveryActionCard, type RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
+
+const LazyMarkdownEditor = lazy(() =>
+  import("./MarkdownEditor").then(({ MarkdownEditor }) => ({ default: MarkdownEditor })),
+);
 
 interface IssueChatMessageContext {
   feedbackDataSharingPreference: FeedbackDataSharingPreference;
@@ -3098,6 +3104,98 @@ function areIssueChatMessageRowPropsEqual(
   return true;
 }
 
+type DeferredIssueChatEditorProps = {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  mentions: MentionOption[];
+  onSubmit: () => void;
+  imageUploadHandler?: (file: File) => Promise<string>;
+  contentClassName?: string;
+};
+
+const DeferredIssueChatEditor = forwardRef<MarkdownEditorRef, DeferredIssueChatEditorProps>(
+  function DeferredIssueChatEditor({
+    value,
+    onChange,
+    placeholder,
+    mentions,
+    onSubmit,
+    imageUploadHandler,
+    contentClassName,
+  }, forwardedRef) {
+    const [loadRichEditor, setLoadRichEditor] = useState(false);
+    const richEditorRef = useRef<MarkdownEditorRef | null>(null);
+    const fallbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const focusRichEditorWhenReadyRef = useRef(false);
+
+    const activateRichEditor = useCallback((focusWhenReady = false) => {
+      focusRichEditorWhenReadyRef.current = focusWhenReady;
+      setLoadRichEditor(true);
+    }, []);
+
+    const setRichEditorRef = useCallback((instance: MarkdownEditorRef | null) => {
+      richEditorRef.current = instance;
+      if (!instance || !focusRichEditorWhenReadyRef.current) return;
+      focusRichEditorWhenReadyRef.current = false;
+      requestAnimationFrame(() => instance.focus());
+    }, []);
+
+    useImperativeHandle(forwardedRef, () => ({
+      focus: () => {
+        if (richEditorRef.current) {
+          richEditorRef.current.focus();
+          return;
+        }
+        activateRichEditor(true);
+        fallbackTextareaRef.current?.focus();
+      },
+    }), [activateRichEditor]);
+
+    const fallbackEditor = (
+      <Textarea
+        ref={fallbackTextareaRef}
+        aria-label="Issue chat editor"
+        data-content-class-name={contentClassName}
+        data-file-drop-target="parent"
+        value={value}
+        onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onChange(event.target.value)}
+        onFocus={() => activateRichEditor(true)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+        placeholder={placeholder}
+        className={cn(
+          "min-h-[5.5rem] w-full resize-none border-0 bg-transparent p-0 text-sm shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0",
+          contentClassName,
+        )}
+      />
+    );
+
+    if (!loadRichEditor) return fallbackEditor;
+
+    return (
+      <Suspense fallback={fallbackEditor}>
+        <LazyMarkdownEditor
+          ref={setRichEditorRef}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          mentions={mentions}
+          onSubmit={onSubmit}
+          imageUploadHandler={imageUploadHandler}
+          fileDropTarget="parent"
+          bordered={false}
+          contentClassName={contentClassName}
+        />
+      </Suspense>
+    );
+  },
+);
+
 const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerProps>(function IssueChatComposer({
   onImageUpload,
   onAttachImage,
@@ -3426,7 +3524,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
         </div>
       ) : null}
 
-      <MarkdownEditor
+      <DeferredIssueChatEditor
         ref={editorRef}
         value={body}
         onChange={setBody}
@@ -3434,8 +3532,6 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
         mentions={mentions}
         onSubmit={handleSubmit}
         imageUploadHandler={onImageUpload}
-        fileDropTarget="parent"
-        bordered={false}
         contentClassName="max-h-[28dvh] overflow-y-auto pr-1 pb-2 text-sm scrollbar-auto-hide"
       />
 

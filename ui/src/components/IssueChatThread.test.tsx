@@ -40,9 +40,10 @@ function hasSmoothScrollBehavior(arg: unknown) {
     && (arg as ScrollToOptions).behavior === "smooth";
 }
 
-const { markdownBodyRenderMock, markdownEditorFocusMock } = vi.hoisted(() => ({
+const { markdownBodyRenderMock, markdownEditorFocusMock, markdownEditorRenderMock } = vi.hoisted(() => ({
   markdownBodyRenderMock: vi.fn(),
   markdownEditorFocusMock: vi.fn(),
+  markdownEditorRenderMock: vi.fn(),
 }));
 
 const { appendMock } = vi.hoisted(() => ({
@@ -104,6 +105,7 @@ vi.mock("./MarkdownEditor", () => ({
     contentClassName?: string;
     fileDropTarget?: "editor" | "parent";
   }, ref) => {
+    markdownEditorRenderMock();
     useImperativeHandle(ref, () => ({
       focus: markdownEditorFocusMock,
     }));
@@ -312,6 +314,7 @@ describe("IssueChatThread", () => {
     restoreComposerViewportSnapshotMock.mockClear();
     shouldPreserveComposerViewportMock.mockClear();
     markdownBodyRenderMock.mockClear();
+    markdownEditorRenderMock.mockClear();
   });
 
   it("drops the count heading and does not use an internal scrollbox", () => {
@@ -1935,6 +1938,40 @@ describe("IssueChatThread", () => {
     });
   });
 
+  it("defers the rich composer editor until the reply field is focused", async () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
+    expect(editor).not.toBeNull();
+    expect(markdownEditorRenderMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      editor?.focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(markdownEditorRenderMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("shows full-composer drop instructions while dragging files over the issue composer", () => {
     const root = createRoot(container);
 
@@ -2377,7 +2414,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("exposes a composer focus handle that forwards to the editor", () => {
+  it("exposes a composer focus handle that forwards to the editor", async () => {
     const root = createRoot(container);
     const composerRef = createRef<{ focus: () => void; restoreDraft: (submittedBody: string) => void }>();
     const scrollByMock = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
@@ -2411,8 +2448,9 @@ describe("IssueChatThread", () => {
     const scrollIntoViewMock = vi.fn();
     composer!.scrollIntoView = scrollIntoViewMock;
 
-    act(() => {
+    await act(async () => {
       composerRef.current?.focus();
+      await Promise.resolve();
     });
 
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
@@ -2426,7 +2464,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("restores a cancelled queued draft into the composer handle", () => {
+  it("restores a cancelled queued draft into the composer handle", async () => {
     const root = createRoot(container);
     const composerRef = createRef<{ focus: () => void; restoreDraft: (submittedBody: string) => void }>();
     const scrollByMock = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
@@ -2456,11 +2494,13 @@ describe("IssueChatThread", () => {
     const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
     expect(editor).not.toBeNull();
 
-    act(() => {
+    await act(async () => {
       composerRef.current?.restoreDraft("Queued message");
+      await Promise.resolve();
     });
 
-    expect(editor?.value).toBe("Queued message");
+    const restoredEditor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
+    expect(restoredEditor?.value).toBe("Queued message");
     expect(markdownEditorFocusMock).toHaveBeenCalledTimes(1);
     expect(scrollByMock).toHaveBeenCalledWith({ top: 96, behavior: "smooth" });
 
