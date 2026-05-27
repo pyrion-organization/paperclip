@@ -102,8 +102,20 @@ async function flushReact() {
   });
 }
 
+async function flushSidebarPluginExtensions() {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await new Promise((resolve) => window.setTimeout(resolve, 550));
+    await vi.dynamicImportSettled();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
 describe("Sidebar", () => {
   let container: HTMLDivElement;
+  let originalCancelIdleCallback: Window["cancelIdleCallback"];
+  let originalRequestIdleCallback: Window["requestIdleCallback"];
 
   async function renderSidebar() {
     const root = createRoot(container);
@@ -127,11 +139,31 @@ describe("Sidebar", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     mockHeartbeatsApi.liveRunsForCompany.mockResolvedValue([]);
+    originalCancelIdleCallback = window.cancelIdleCallback;
+    originalRequestIdleCallback = window.requestIdleCallback;
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      value: (callback: IdleRequestCallback) => window.setTimeout(() => {
+        callback({ didTimeout: false, timeRemaining: () => 50 });
+      }, 0),
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      value: (handle: number) => window.clearTimeout(handle),
+    });
   });
 
   afterEach(() => {
     container.remove();
     document.body.innerHTML = "";
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      value: originalRequestIdleCallback,
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      value: originalCancelIdleCallback,
+    });
     vi.clearAllMocks();
   });
 
@@ -152,6 +184,7 @@ describe("Sidebar", () => {
   it("renders plugin sidebar launchers inside the Work section", async () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: false });
     const root = await renderSidebar();
+    await flushSidebarPluginExtensions();
 
     let workSection: Element | undefined;
     await act(async () => {
@@ -176,6 +209,7 @@ describe("Sidebar", () => {
   it("renders plugin sidebar slots in Work below Workspaces", async () => {
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableIsolatedWorkspaces: true });
     const root = await renderSidebar();
+    await flushSidebarPluginExtensions();
 
     const sidebarSlot = [...container.querySelectorAll("nav [data-plugin-slot-types]")]
       .find((node) => node.getAttribute("data-plugin-slot-types") === "sidebar");

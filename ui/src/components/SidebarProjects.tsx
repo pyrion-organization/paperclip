@@ -36,12 +36,18 @@ const SidebarProjectPluginSlots = lazy(() =>
   import("./SidebarProjectPluginSlots").then((module) => ({ default: module.SidebarProjectPluginSlots })),
 );
 
+type SidebarIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 type ProjectItemProps = {
   activeProjectRef: string | null;
   companyId: string | null;
   companyPrefix: string | null;
   isMobile: boolean;
   isCollapsed: boolean;
+  projectPluginSlotsReady: boolean;
   project: Project;
   setSidebarOpen: (open: boolean) => void;
   isDragging?: boolean;
@@ -88,12 +94,35 @@ function useFineReorderPointer() {
   return matches;
 }
 
+function useProjectPluginSlotsReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as SidebarIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 2_000 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 750);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
+}
+
 function ProjectItem({
   activeProjectRef,
   companyId,
   companyPrefix,
   isMobile,
   isCollapsed,
+  projectPluginSlotsReady,
   project,
   setSidebarOpen,
   isDragging = false,
@@ -151,14 +180,16 @@ function ProjectItem({
         <span className="flex-1 truncate">{project.name}</span>
         {project.pauseReason === "budget" ? <BudgetSidebarMarker title="Project paused by budget" /> : null}
       </NavLink>
-      <Suspense fallback={null}>
-        <SidebarProjectPluginSlots
-          companyId={companyId}
-          companyPrefix={companyPrefix}
-          projectId={project.id}
-          projectRef={routeRef}
-        />
-      </Suspense>
+      {projectPluginSlotsReady ? (
+        <Suspense fallback={null}>
+          <SidebarProjectPluginSlots
+            companyId={companyId}
+            companyPrefix={companyPrefix}
+            projectId={project.id}
+            projectRef={routeRef}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
@@ -169,6 +200,7 @@ export function SidebarProjects() {
   const { openNewProject } = useDialogActions();
   const { isMobile, isCollapsed, setSidebarOpen } = useSidebar();
   const fineReorderPointer = useFineReorderPointer();
+  const projectPluginSlotsReady = useProjectPluginSlotsReady();
   const location = useLocation();
 
   const { data: projects } = useQuery({
@@ -259,6 +291,7 @@ export function SidebarProjects() {
       companyPrefix={selectedCompany?.issuePrefix ?? null}
       isMobile={isMobile}
       isCollapsed={isCollapsed}
+      projectPluginSlotsReady={projectPluginSlotsReady}
       project={project}
       setSidebarOpen={setSidebarOpen}
       isDragging={isDragging}

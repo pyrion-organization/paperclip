@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Activity,
   Boxes,
@@ -15,10 +15,6 @@ import {
   Users,
 } from "lucide-react";
 import { SidebarNavItem } from "./SidebarNavItem";
-import {
-  SidebarPanelPluginExtensions,
-  SidebarWorkPluginExtensions,
-} from "./SidebarPluginExtensions";
 import { SidebarSection } from "./SidebarSection";
 import { useSidebar } from "../context/SidebarContext";
 
@@ -28,6 +24,18 @@ const SidebarProjects = lazy(() =>
 const SidebarAgents = lazy(() =>
   import("./SidebarAgents").then((module) => ({ default: module.SidebarAgents })),
 );
+const SidebarWorkPluginExtensions = lazy(() =>
+  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarWorkPluginExtensions })),
+);
+const SidebarPanelPluginExtensions = lazy(() =>
+  import("./SidebarPluginExtensions").then((module) => ({ default: module.SidebarPanelPluginExtensions })),
+);
+
+type SidebarIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 type SidebarPluginContext = {
   companyId: string | null;
   companyPrefix: string | null;
@@ -38,11 +46,34 @@ interface SidebarDeferredSectionsProps {
   showWorkspacesLink: boolean;
 }
 
+function useSidebarPluginsReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as SidebarIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 2000 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 500);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
+}
+
 export function SidebarDeferredSections({
   pluginContext,
   showWorkspacesLink,
 }: SidebarDeferredSectionsProps) {
   const { isCollapsed } = useSidebar();
+  const sidebarPluginsReady = useSidebarPluginsReady();
 
   return (
     <>
@@ -54,7 +85,11 @@ export function SidebarDeferredSections({
         {showWorkspacesLink ? (
           <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
         ) : null}
-        <SidebarWorkPluginExtensions context={pluginContext} />
+        {sidebarPluginsReady ? (
+          <Suspense fallback={null}>
+            <SidebarWorkPluginExtensions context={pluginContext} />
+          </Suspense>
+        ) : null}
       </SidebarSection>
 
       <Suspense fallback={null}>
@@ -76,9 +111,11 @@ export function SidebarDeferredSections({
         <SidebarNavItem to="/company/settings" label="Settings" icon={Settings} />
       </SidebarSection>
 
-      {!isCollapsed && (
-        <SidebarPanelPluginExtensions context={pluginContext} />
-      )}
+      {!isCollapsed && sidebarPluginsReady ? (
+        <Suspense fallback={null}>
+          <SidebarPanelPluginExtensions context={pluginContext} />
+        </Suspense>
+      ) : null}
     </>
   );
 }

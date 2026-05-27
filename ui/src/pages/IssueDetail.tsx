@@ -70,8 +70,6 @@ import { ScrollToBottom } from "../components/ScrollToBottom";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { ProductivityReviewBadge } from "../components/ProductivityReviewBadge";
-import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
-import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -180,6 +178,25 @@ const ImageGalleryModal = lazy(() =>
 const IssueRelatedWorkPanel = lazy(() =>
   import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
 );
+const IssueDetailPluginToolbarExtensions = lazy(() =>
+  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginToolbarExtensions }) => ({
+    default: IssueDetailPluginToolbarExtensions,
+  })),
+);
+const IssueDetailPluginTabTriggers = lazy(() =>
+  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginTabTriggers }) => ({
+    default: IssueDetailPluginTabTriggers,
+  })),
+);
+const IssueDetailPluginTabContents = lazy(() =>
+  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginTabContents }) => ({
+    default: IssueDetailPluginTabContents,
+  })),
+);
+type IssueDetailIdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
 const TREE_CONTROL_MODE_LABEL: Record<IssueTreeControlMode, string> = {
   pause: "Pause subtree",
   resume: "Resume subtree",
@@ -219,6 +236,28 @@ function treeControlPreviewErrorCopy(error: unknown): string {
     if (error.status === 422) return "This subtree action is currently invalid for the selected issues.";
   }
   return error instanceof Error ? error.message : "Unable to load preview.";
+}
+
+function useIssueDetailPluginsReady() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setReady(true);
+      return;
+    }
+
+    const idleWindow = window as IssueDetailIdleWindow;
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 2_000 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timeout = window.setTimeout(() => setReady(true), 750);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  return ready;
 }
 
 export function canBoardResolveRecoveryAction(
@@ -1160,26 +1199,12 @@ export function IssueDetail() {
   });
   const keyboardShortcutsEnabled = instanceGeneralSettings?.keyboardShortcuts === true;
   const feedbackDataSharingPreference = instanceGeneralSettings?.feedbackDataSharingPreference ?? "prompt";
+  const issueDetailPluginsReady = useIssueDetailPluginsReady();
   const { orderedProjects } = useProjectOrder({
     projects: projects ?? [],
     companyId: selectedCompanyId,
     userId: currentUserId,
   });
-  const { slots: issuePluginDetailSlots } = usePluginSlots({
-    slotTypes: ["detailTab"],
-    entityType: "issue",
-    companyId: resolvedCompanyId,
-    enabled: !!resolvedCompanyId,
-  });
-  const issuePluginTabItems = useMemo(
-    () => issuePluginDetailSlots.map((slot) => ({
-      value: `plugin:${slot.pluginKey}:${slot.id}`,
-      label: slot.displayName,
-      slot,
-    })),
-    [issuePluginDetailSlots],
-  );
-  const activePluginTab = issuePluginTabItems.find((item) => item.value === detailTab) ?? null;
   const {
     data: treeControlPreview,
     isFetching: treeControlPreviewLoading,
@@ -3357,46 +3382,11 @@ export function IssueDetail() {
         />
       </div>
 
-      <PluginSlotOutlet
-        slotTypes={["toolbarButton", "contextMenuItem"]}
-        entityType="issue"
-        context={{
-          companyId: issue.companyId,
-          projectId: issue.projectId ?? null,
-          entityId: issue.id,
-          entityType: "issue",
-        }}
-        className="flex flex-wrap gap-2"
-        itemClassName="inline-flex"
-        missingBehavior="placeholder"
-      />
-
-      <PluginLauncherOutlet
-        placementZones={["toolbarButton"]}
-        entityType="issue"
-        context={{
-          companyId: issue.companyId,
-          projectId: issue.projectId ?? null,
-          entityId: issue.id,
-          entityType: "issue",
-        }}
-        className="flex flex-wrap gap-2"
-        itemClassName="inline-flex"
-      />
-
-      <PluginSlotOutlet
-        slotTypes={["taskDetailView"]}
-        entityType="issue"
-        context={{
-          companyId: issue.companyId,
-          projectId: issue.projectId ?? null,
-          entityId: issue.id,
-          entityType: "issue",
-        }}
-        className="space-y-3"
-        itemClassName="rounded-lg border border-border p-3"
-        missingBehavior="placeholder"
-      />
+      {issueDetailPluginsReady ? (
+        <Suspense fallback={null}>
+          <IssueDetailPluginToolbarExtensions issue={issue} />
+        </Suspense>
+      ) : null}
 
       {showRichSubIssuesSection ? (
         <div className="space-y-3">
@@ -3629,11 +3619,11 @@ export function IssueDetail() {
             <ListTree className="h-3.5 w-3.5" />
             Related work
           </TabsTrigger>
-          {issuePluginTabItems.map((item) => (
-            <TabsTrigger key={item.value} value={item.value}>
-              {item.label}
-            </TabsTrigger>
-          ))}
+          {issueDetailPluginsReady ? (
+            <Suspense fallback={null}>
+              <IssueDetailPluginTabTriggers companyId={resolvedCompanyId} />
+            </Suspense>
+          ) : null}
         </TabsList>
 
         <TabsContent value="chat">
@@ -3747,20 +3737,11 @@ export function IssueDetail() {
           ) : null}
         </TabsContent>
 
-        {activePluginTab && (
-          <TabsContent value={activePluginTab.value}>
-            <PluginSlotMount
-              slot={activePluginTab.slot}
-              context={{
-                companyId: issue.companyId,
-                projectId: issue.projectId ?? null,
-                entityId: issue.id,
-                entityType: "issue",
-              }}
-              missingBehavior="placeholder"
-            />
-          </TabsContent>
-        )}
+        {issueDetailPluginsReady ? (
+          <Suspense fallback={null}>
+            <IssueDetailPluginTabContents issue={issue} />
+          </Suspense>
+        ) : null}
       </Tabs>
 
       <Dialog open={treeControlOpen} onOpenChange={setTreeControlOpen}>
