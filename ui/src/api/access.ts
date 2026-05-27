@@ -1,5 +1,6 @@
 import type { AgentAdapterType, JoinRequest, PermissionKey } from "@paperclipai/shared";
 import { api } from "./client";
+import { currentBoardAccessApi, type CurrentBoardAccess } from "./access-current";
 
 export type HumanCompanyRole = "owner" | "admin" | "operator" | "viewer";
 
@@ -233,19 +234,7 @@ export type UserCompanyAccessResponse = {
   companyAccess: UserCompanyAccessEntry[];
 };
 
-export type CurrentBoardAccess = {
-  user: { id: string; email: string | null; name: string | null; image: string | null } | null;
-  userId: string;
-  isInstanceAdmin: boolean;
-  companyIds: string[];
-  memberships?: Array<{
-    companyId: string;
-    membershipRole: HumanCompanyRole | "member" | null;
-    status: "pending" | "active" | "suspended" | "archived";
-  }>;
-  source: string;
-  keyId: string | null;
-};
+export type { CurrentBoardAccess };
 
 function buildInviteListQuery(options: {
   state?: "active" | "revoked" | "accepted" | "expired";
@@ -261,6 +250,7 @@ function buildInviteListQuery(options: {
 }
 
 export const accessApi = {
+  ...currentBoardAccessApi,
   createCompanyInvite: (
     companyId: string,
     input: {
@@ -411,6 +401,4 @@ export const accessApi = {
   setUserCompanyAccess: (userId: string, companyIds: string[]) =>
     api.put<UserCompanyAccessResponse>(`/admin/users/${userId}/company-access`, { companyIds }),
 
-  getCurrentBoardAccess: () =>
-    api.get<CurrentBoardAccess>("/cli-auth/me"),
 };

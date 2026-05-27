@@ -24,6 +24,7 @@ import type {
   UpdateInboundEmailRule,
 } from "@paperclipai/shared";
 import { api } from "./client";
+import { companiesCoreApi } from "./companies-core";
 
 export type CompanyStats = Record<string, { agentCount: number; issueCount: number }>;
 
@@ -104,15 +105,9 @@ function inboundEmailExternalIntakeQuery(params?: InboundEmailExternalIntakeList
 }
 
 export const companiesApi = {
-  list: () => api.get<Company[]>("/companies"),
+  ...companiesCoreApi,
   get: (companyId: string) => api.get<Company>(`/companies/${companyId}`),
   stats: () => api.get<CompanyStats>("/companies/stats"),
-  create: (data: {
-    name: string;
-    description?: string | null;
-    budgetMonthlyCents?: number;
-  }) =>
-    api.post<Company>("/companies", data),
   update: (
     companyId: string,
     data: Partial<

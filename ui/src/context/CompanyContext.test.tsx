@@ -18,8 +18,8 @@ const mockCompaniesApi = vi.hoisted(() => ({
   create: vi.fn(),
 }));
 
-vi.mock("../api/companies", () => ({
-  companiesApi: mockCompaniesApi,
+vi.mock("../api/companies-core", () => ({
+  companiesCoreApi: mockCompaniesApi,
 }));
 
 const activeCompany = { id: "company-1" };

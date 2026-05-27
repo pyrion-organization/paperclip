@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Company } from "@paperclipai/shared";
-import { companiesApi } from "../api/companies";
+import { companiesCoreApi } from "../api/companies-core";
 import { companiesListQueryOptions, type CompanyListResult } from "../api/companies-query";
 import { queryKeys } from "../lib/queryKeys";
 import type { CompanySelectionSource } from "../lib/company-selection";
@@ -118,7 +118,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       description?: string | null;
       budgetMonthlyCents?: number;
     }) =>
-      companiesApi.create(data),
+      companiesCoreApi.create(data),
     onSuccess: (company) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       setSelectedCompanyId(company.id);

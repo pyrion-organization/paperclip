@@ -1,10 +1,9 @@
 import {
-  authSessionSchema,
   currentUserProfileSchema,
-  type AuthSession,
   type CurrentUserProfile,
   type UpdateCurrentUserProfile,
 } from "@paperclipai/shared/validators/access";
+import { authSessionApi } from "./auth-session";
 
 type AuthErrorBody =
   | {
@@ -26,15 +25,6 @@ export class AuthApiError extends Error {
     this.code = code;
     this.body = body;
   }
-}
-
-function toSession(value: unknown): AuthSession | null {
-  const direct = authSessionSchema.safeParse(value);
-  if (direct.success) return direct.data;
-
-  if (!value || typeof value !== "object") return null;
-  const nested = authSessionSchema.safeParse((value as Record<string, unknown>).data);
-  return nested.success ? nested.data : null;
 }
 
 function extractAuthError(payload: AuthErrorBody, status: number) {
@@ -89,21 +79,7 @@ async function authPatch<T>(path: string, body: Record<string, unknown>, parse: 
 }
 
 export const authApi = {
-  getSession: async (): Promise<AuthSession | null> => {
-    const res = await fetch("/api/auth/get-session", {
-      credentials: "include",
-      headers: { Accept: "application/json" },
-    });
-    if (res.status === 401) return null;
-    const payload = await res.json().catch(() => null);
-    if (!res.ok) {
-      throw new Error(`Failed to load session (${res.status})`);
-    }
-    const direct = toSession(payload);
-    if (direct) return direct;
-    const nested = payload && typeof payload === "object" ? toSession((payload as Record<string, unknown>).data) : null;
-    return nested;
-  },
+  ...authSessionApi,
 
   signInEmail: async (input: { email: string; password: string }) => {
     await authPost("/sign-in/email", input);

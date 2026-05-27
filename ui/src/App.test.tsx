@@ -22,12 +22,12 @@ vi.mock("./api/health", () => ({
   healthApi: mockHealthApi,
 }));
 
-vi.mock("./api/auth", () => ({
-  authApi: mockAuthApi,
+vi.mock("./api/auth-session", () => ({
+  authSessionApi: mockAuthApi,
 }));
 
-vi.mock("./api/access", () => ({
-  accessApi: mockAccessApi,
+vi.mock("./api/access-current", () => ({
+  currentBoardAccessApi: mockAccessApi,
 }));
 
 vi.mock("@/lib/router", () => ({

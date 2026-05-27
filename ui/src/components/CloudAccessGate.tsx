@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
-import { accessApi } from "@/api/access";
-import { authApi } from "@/api/auth";
+import { currentBoardAccessApi } from "@/api/access-current";
+import { authSessionApi } from "@/api/auth-session";
 import { healthApi } from "@/api/health";
 import { queryKeys } from "@/lib/queryKeys";
 
@@ -60,14 +60,14 @@ export function CloudAccessGate() {
   const isAuthenticatedMode = healthQuery.data?.deploymentMode === "authenticated";
   const sessionQuery = useQuery({
     queryKey: queryKeys.auth.session,
-    queryFn: () => authApi.getSession(),
+    queryFn: () => authSessionApi.getSession(),
     enabled: isAuthenticatedMode,
     retry: false,
   });
 
   const boardAccessQuery = useQuery({
     queryKey: queryKeys.access.currentBoardAccess,
-    queryFn: () => accessApi.getCurrentBoardAccess(),
+    queryFn: () => currentBoardAccessApi.getCurrentBoardAccess(),
     enabled: isAuthenticatedMode && !!sessionQuery.data,
     retry: false,
   });

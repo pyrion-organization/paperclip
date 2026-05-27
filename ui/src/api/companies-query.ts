@@ -1,5 +1,5 @@
 import type { Company } from "@paperclipai/shared";
-import { companiesApi } from "./companies";
+import { companiesCoreApi } from "./companies-core";
 import { ApiError } from "./client";
 import { queryKeys } from "../lib/queryKeys";
 
@@ -13,7 +13,7 @@ export const companiesListQueryOptions = {
   queryKey: queryKeys.companies.all,
   queryFn: async (): Promise<CompanyListResult> => {
     try {
-      return { companies: await companiesApi.list(), unauthorized: false };
+      return { companies: await companiesCoreApi.list(), unauthorized: false };
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         return { companies: [], unauthorized: true };
