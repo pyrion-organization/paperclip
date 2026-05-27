@@ -123,7 +123,8 @@ export function paymentService(db: Db) {
 
     listEntries: async (companyId: string, filters: PaymentEntryFilter) => {
       const conditions = [eq(paymentEntries.companyId, companyId)];
-      if (filters.status) conditions.push(eq(paymentEntries.status, filters.status));
+      if (filters.status?.length === 1) conditions.push(eq(paymentEntries.status, filters.status[0]!));
+      else if (filters.status && filters.status.length > 1) conditions.push(inArray(paymentEntries.status, filters.status));
       if (filters.calendarItemId) conditions.push(eq(paymentEntries.calendarItemId, filters.calendarItemId));
       if (filters.q) {
         const q = `%${filters.q}%`;
@@ -188,7 +189,7 @@ export function paymentService(db: Db) {
         .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
         .then((rows) => rows[0] ?? null);
       if (!existing) throw notFound("Payment entry not found");
-      if (existing.status === "paid" && input.status !== "paid") {
+      if (existing.status === "paid" && input.status != null && input.status !== "paid") {
         throw unprocessable("Paid entries cannot be reopened");
       }
       if (input.paymentProfileId) await assertProfile(db, companyId, input.paymentProfileId);
@@ -239,7 +240,7 @@ export function paymentService(db: Db) {
       };
     },
 
-    ensureEntryForCalendarItem: async (item: CalendarPaymentItem) => {
+    ensureEntryForCalendarItem: async (item: CalendarPaymentItem, options?: { advanceCycle?: boolean }) => {
       if (item.category !== "payment_payable" || item.status === "cancelled" || item.status === "archived") return null;
       const dueDate = dateOnly(item.nextDueDate);
       if (!dueDate) return null;
@@ -251,10 +252,15 @@ export function paymentService(db: Db) {
         .where(and(
           eq(paymentEntries.companyId, item.companyId),
           eq(paymentEntries.calendarItemId, item.id),
-          eq(paymentEntries.dueDate, dueDate),
           ne(paymentEntries.status, "cancelled"),
         ))
-        .then((rows) => rows[0] ?? null);
+        .orderBy(asc(paymentEntries.createdAt))
+        .then((rows) => {
+          if (options?.advanceCycle) {
+            return rows.find((row) => dateOnly(row.dueDate) === dueDate) ?? null;
+          }
+          return rows.find((row) => row.status !== "paid") ?? null;
+        });
       const values = {
         title: item.title,
         providerName: item.providerName,

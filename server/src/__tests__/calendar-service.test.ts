@@ -333,6 +333,46 @@ describeEmbeddedPostgres("calendarService", () => {
     });
   });
 
+  it("updates an existing unpaid linked payment when a payable due date changes", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Correctable hosting payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    await svc.update(
+      companyId,
+      created.id,
+      { nextDueDate: "2026-06-12" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+
+    const entries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      dueDate: "2026-06-12",
+      status: "open",
+    });
+  });
+
   it("records partial and full payments against a payment entry", async () => {
     const payments = paymentService(db);
     const profile = await payments.createProfile(companyId, {
@@ -374,6 +414,40 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(partial.entry).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
     expect(full.completed).toBe(true);
     expect(full.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+  });
+
+  it("allows metadata-only paid entry edits but rejects explicit reopen attempts", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Paid invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Paid in full",
+    });
+
+    const updated = await payments.updateEntry(companyId, entry.id, {
+      notes: "Receipt reconciled",
+    });
+
+    expect(updated).toMatchObject({
+      status: "paid",
+      notes: "Receipt reconciled",
+    });
+    await expect(payments.updateEntry(companyId, entry.id, { status: "open" }))
+      .rejects.toThrow(/cannot be reopened/);
   });
 
   it("rejects governed mutations unless approval is explicitly confirmed", async () => {

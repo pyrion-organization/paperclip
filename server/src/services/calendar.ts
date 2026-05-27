@@ -927,7 +927,7 @@ export function calendarService(db: Db) {
         nextDueDate,
         status,
       });
-      await payments.ensureEntryForCalendarItem(updated);
+      await payments.ensureEntryForCalendarItem(updated, { advanceCycle: true });
       return rowToItem(updated);
     },
 

@@ -525,6 +525,9 @@ export const CLIENT_EMPLOYEE_PROJECT_SCOPES = ["all_linked_projects", "selected_
 export type ClientEmployeeProjectScope = (typeof CLIENT_EMPLOYEE_PROJECT_SCOPES)[number];
 
 export const CALENDAR_ITEM_CATEGORIES = [
+  "project",
+  "account",
+  "insurance",
   "fiscal",
   "domain",
   "hosting",

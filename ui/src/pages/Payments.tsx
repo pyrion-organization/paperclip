@@ -69,7 +69,7 @@ export function Payments() {
 
   const entryFilters = useMemo(() => ({
     q: q.trim() || undefined,
-    status: tab === "paid" ? "paid" : undefined,
+    status: tab === "paid" ? "paid" : "open,partially_paid",
     limit: 500,
   }), [q, tab]);
 
@@ -140,9 +140,6 @@ export function Payments() {
   });
 
   const entries = entriesQuery.data?.entries ?? [];
-  const visibleEntries = tab === "open"
-    ? entries.filter((entry) => entry.status !== "paid" && entry.status !== "cancelled")
-    : entries;
   const profiles = profilesQuery.data ?? [];
 
   if (!selectedCompanyId) {
@@ -188,7 +185,7 @@ export function Payments() {
         </div>
 
         <TabsContent value="open" className="mt-3 min-h-0">
-          <PaymentTable entries={visibleEntries} onPay={(entry) => {
+          <PaymentTable entries={entries} onPay={(entry) => {
             setPayingEntry(entry);
             setPaymentForm({
               amount: entry.expectedAmountCents == null ? "" : String(Math.max(entry.expectedAmountCents - entry.paidAmountCents, 0) / 100),
@@ -201,7 +198,7 @@ export function Payments() {
           }} />
         </TabsContent>
         <TabsContent value="paid" className="mt-3 min-h-0">
-          <PaymentTable entries={visibleEntries} onPay={() => {}} paid />
+          <PaymentTable entries={entries} onPay={() => {}} paid />
         </TabsContent>
         <TabsContent value="profiles" className="mt-3">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
