@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
 import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
@@ -63,14 +63,12 @@ import { useProjectOrder } from "../hooks/useProjectOrder";
 import { relativeTime, cn, formatDurationMs, formatTokens, visibleRunCostUsd } from "../lib/utils";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { InlineEditor } from "../components/InlineEditor";
-import { IssueChatThread, type IssueChatComposerHandle } from "../components/IssueChatThread";
+import type { IssueChatComposerHandle } from "../components/IssueChatThread";
 import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff";
 import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
-import { IssuesList } from "../components/IssuesList";
 import { AgentIcon } from "../components/AgentIcon";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
-import { IssueRelatedWorkPanel } from "../components/IssueRelatedWorkPanel";
 import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";
 import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
 import { IssueProperties } from "../components/IssueProperties";
@@ -174,6 +172,15 @@ const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "h
 const ISSUE_COMMENT_PAGE_SIZE = 50;
 const ISSUE_COMMENT_AUTOLOAD_LIMIT = ISSUE_COMMENT_PAGE_SIZE * 3;
 const JUMP_TO_LATEST_MAX_COMMENT_PAGES = 10;
+const IssueChatThread = lazy(() =>
+  import("../components/IssueChatThread").then(({ IssueChatThread }) => ({ default: IssueChatThread })),
+);
+const IssuesList = lazy(() =>
+  import("../components/IssuesList").then(({ IssuesList }) => ({ default: IssuesList })),
+);
+const IssueRelatedWorkPanel = lazy(() =>
+  import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
+);
 const TREE_CONTROL_MODE_LABEL: Record<IssueTreeControlMode, string> = {
   pause: "Pause subtree",
   resume: "Resume subtree",
@@ -890,73 +897,75 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           </Button>
         </div>
       ) : null}
-      <IssueChatThread
-        composerRef={composerRef}
-        comments={commentsWithRunMeta}
-        interactions={interactions}
-        feedbackVotes={feedbackVotes}
-        feedbackDataSharingPreference={feedbackDataSharingPreference}
-        feedbackTermsUrl={feedbackTermsUrl}
-        linkedRuns={timelineRuns}
-        timelineEvents={timelineEvents}
-        liveRuns={resolvedLiveRuns}
-        activeRun={resolvedActiveRun}
-        issueId={issueId}
-        blockedBy={blockedBy ?? []}
-        blockerAttention={blockerAttention}
-        successfulRunHandoff={successfulRunHandoff}
-        scheduledRetry={scheduledRetry}
-        recoveryAction={recoveryAction ?? null}
-        onResolveRecoveryAction={onResolveRecoveryAction}
-        canFalsePositiveRecoveryAction={canFalsePositiveRecoveryAction}
-        legacyRecoverySourceIssue={legacyRecoverySourceIssue ?? null}
-        companyId={companyId}
-        projectId={projectId}
-        issueStatus={issueStatus}
-        agentMap={agentMap}
-        currentUserId={currentUserId}
-        userLabelMap={userLabelMap}
-        userProfileMap={userProfileMap}
-        draftKey={draftKey}
-        enableReassign
-        reassignOptions={reassignOptions}
-        currentAssigneeValue={currentAssigneeValue}
-        suggestedAssigneeValue={suggestedAssigneeValue}
-        mentions={mentions}
-        composerDisabledReason={composerDisabledReason}
-        composerHint={composerHint}
-        onVote={onVote}
-        onAdd={onAdd}
-        imageUploadHandler={onImageUpload}
-        onAttachImage={onAttachImage}
-        onInterruptQueued={onInterruptQueued}
-        onCancelQueued={onCancelQueued}
-        interruptingQueuedRunId={interruptingQueuedRunId}
-        stoppingRunId={pausingWorkRunId}
-        onStopRun={onPauseWorkRun}
-        stopRunLabel="Pause work"
-        stoppingRunLabel="Pausing..."
-        stopRunVariant="pause"
-        onAcceptInteraction={onAcceptInteraction}
-        onRejectInteraction={onRejectInteraction}
-        onSubmitInteractionAnswers={(interaction, answers) =>
-          onSubmitInteractionAnswers(interaction, answers)
-        }
-        onCancelInteraction={onCancelInteraction}
-        issueWorkMode={issueWorkMode}
-        onWorkModeChange={onWorkModeChange}
-        onCancelRun={runningIssueRun && onPauseWorkRun
-          ? async () => {
-              await onPauseWorkRun(runningIssueRun.id);
-            }
-          : undefined}
-        onImageClick={onImageClick}
-        onRefreshLatestComments={onRefreshLatestComments}
-        assigneeUserId={assigneeUserId}
-        onResumeFromBacklog={onResumeFromBacklog}
-        resumeFromBacklogPending={resumeFromBacklogPending}
-        footer={footer}
-      />
+      <Suspense fallback={<Skeleton className="h-56 w-full" />}>
+        <IssueChatThread
+          composerRef={composerRef}
+          comments={commentsWithRunMeta}
+          interactions={interactions}
+          feedbackVotes={feedbackVotes}
+          feedbackDataSharingPreference={feedbackDataSharingPreference}
+          feedbackTermsUrl={feedbackTermsUrl}
+          linkedRuns={timelineRuns}
+          timelineEvents={timelineEvents}
+          liveRuns={resolvedLiveRuns}
+          activeRun={resolvedActiveRun}
+          issueId={issueId}
+          blockedBy={blockedBy ?? []}
+          blockerAttention={blockerAttention}
+          successfulRunHandoff={successfulRunHandoff}
+          scheduledRetry={scheduledRetry}
+          recoveryAction={recoveryAction ?? null}
+          onResolveRecoveryAction={onResolveRecoveryAction}
+          canFalsePositiveRecoveryAction={canFalsePositiveRecoveryAction}
+          legacyRecoverySourceIssue={legacyRecoverySourceIssue ?? null}
+          companyId={companyId}
+          projectId={projectId}
+          issueStatus={issueStatus}
+          agentMap={agentMap}
+          currentUserId={currentUserId}
+          userLabelMap={userLabelMap}
+          userProfileMap={userProfileMap}
+          draftKey={draftKey}
+          enableReassign
+          reassignOptions={reassignOptions}
+          currentAssigneeValue={currentAssigneeValue}
+          suggestedAssigneeValue={suggestedAssigneeValue}
+          mentions={mentions}
+          composerDisabledReason={composerDisabledReason}
+          composerHint={composerHint}
+          onVote={onVote}
+          onAdd={onAdd}
+          imageUploadHandler={onImageUpload}
+          onAttachImage={onAttachImage}
+          onInterruptQueued={onInterruptQueued}
+          onCancelQueued={onCancelQueued}
+          interruptingQueuedRunId={interruptingQueuedRunId}
+          stoppingRunId={pausingWorkRunId}
+          onStopRun={onPauseWorkRun}
+          stopRunLabel="Pause work"
+          stoppingRunLabel="Pausing..."
+          stopRunVariant="pause"
+          onAcceptInteraction={onAcceptInteraction}
+          onRejectInteraction={onRejectInteraction}
+          onSubmitInteractionAnswers={(interaction, answers) =>
+            onSubmitInteractionAnswers(interaction, answers)
+          }
+          onCancelInteraction={onCancelInteraction}
+          issueWorkMode={issueWorkMode}
+          onWorkModeChange={onWorkModeChange}
+          onCancelRun={runningIssueRun && onPauseWorkRun
+            ? async () => {
+                await onPauseWorkRun(runningIssueRun.id);
+              }
+            : undefined}
+          onImageClick={onImageClick}
+          onRefreshLatestComments={onRefreshLatestComments}
+          assigneeUserId={assigneeUserId}
+          onResumeFromBacklog={onResumeFromBacklog}
+          resumeFromBacklogPending={resumeFromBacklogPending}
+          footer={footer}
+        />
+      </Suspense>
     </div>
   );
 });
@@ -3685,26 +3694,28 @@ export function IssueDetail() {
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-medium text-muted-foreground">Sub-issues</h3>
           </div>
-          <IssuesList
-            issues={childIssues}
-            isLoading={childIssuesLoading}
-            agents={agents}
-            projects={projects}
-            liveIssueIds={liveIssueIds}
-            mutedIssueIds={mutedChildIssueIds}
-            issueBadgeById={childPauseBadgeById}
-            projectId={issue.projectId ?? undefined}
-            viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
-            issueLinkState={resolvedIssueDetailState ?? location.state}
-            searchFilters={{ descendantOf: issue.id, includeBlockedBy: true }}
-            searchWithinLoadedIssues
-            baseCreateIssueDefaults={buildSubIssueDefaultsForViewer(issue, currentUserId)}
-            createIssueLabel="Sub-issue"
-            defaultSortField="workflow"
-            showProgressSummary
-            parentIssueIdForCostSummary={issue.id}
-            onUpdateIssue={handleChildIssueUpdate}
-          />
+          <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={4} />}>
+            <IssuesList
+              issues={childIssues}
+              isLoading={childIssuesLoading}
+              agents={agents}
+              projects={projects}
+              liveIssueIds={liveIssueIds}
+              mutedIssueIds={mutedChildIssueIds}
+              issueBadgeById={childPauseBadgeById}
+              projectId={issue.projectId ?? undefined}
+              viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
+              issueLinkState={resolvedIssueDetailState ?? location.state}
+              searchFilters={{ descendantOf: issue.id, includeBlockedBy: true }}
+              searchWithinLoadedIssues
+              baseCreateIssueDefaults={buildSubIssueDefaultsForViewer(issue, currentUserId)}
+              createIssueLabel="Sub-issue"
+              defaultSortField="workflow"
+              showProgressSummary
+              parentIssueIdForCostSummary={issue.id}
+              onUpdateIssue={handleChildIssueUpdate}
+            />
+          </Suspense>
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
@@ -4010,7 +4021,11 @@ export function IssueDetail() {
         </TabsContent>
 
         <TabsContent value="related-work">
-          <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
+          {detailTab === "related-work" ? (
+            <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={2} />}>
+              <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
+            </Suspense>
+          ) : null}
         </TabsContent>
 
         {activePluginTab && (
