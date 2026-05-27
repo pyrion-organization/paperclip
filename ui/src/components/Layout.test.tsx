@@ -24,8 +24,20 @@ const mockSidebarState = vi.hoisted(() => ({
   isMobile: false,
 }));
 const mockCompanyState = vi.hoisted(() => ({
-  companies: [{ id: "company-1", issuePrefix: "PAP", name: "Paperclip" }],
-  selectedCompany: { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
+  companies: [{
+    id: "company-1",
+    issuePrefix: "PAP",
+    name: "Paperclip",
+    brandColor: "#3366ff",
+    logoUrl: "/api/assets/logo-1/content",
+  }],
+  selectedCompany: {
+    id: "company-1",
+    issuePrefix: "PAP",
+    name: "Paperclip",
+    brandColor: "#3366ff",
+    logoUrl: "/api/assets/logo-1/content",
+  },
   selectedCompanyId: "company-1",
 }));
 const mockPluginSlots = vi.hoisted(() => ({
@@ -303,8 +315,20 @@ describe("Layout", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     currentPathname = "/PAP/dashboard";
-    mockCompanyState.companies = [{ id: "company-1", issuePrefix: "PAP", name: "Paperclip" }];
-    mockCompanyState.selectedCompany = { id: "company-1", issuePrefix: "PAP", name: "Paperclip" };
+    mockCompanyState.companies = [{
+      id: "company-1",
+      issuePrefix: "PAP",
+      name: "Paperclip",
+      brandColor: "#3366ff",
+      logoUrl: "/api/assets/logo-1/content",
+    }];
+    mockCompanyState.selectedCompany = {
+      id: "company-1",
+      issuePrefix: "PAP",
+      name: "Paperclip",
+      brandColor: "#3366ff",
+      logoUrl: "/api/assets/logo-1/content",
+    };
     mockCompanyState.selectedCompanyId = "company-1";
     mockHealthApi.get.mockResolvedValue({
       status: "ok",
@@ -413,6 +437,49 @@ describe("Layout", () => {
     }
   });
 
+  it("starts the company logo image while the deferred sidebar is still loading", async () => {
+    const originalCancelIdleCallback = window.cancelIdleCallback;
+    const originalRequestIdleCallback = window.requestIdleCallback;
+    Object.defineProperty(window, "requestIdleCallback", {
+      configurable: true,
+      value: () => 1,
+    });
+    Object.defineProperty(window, "cancelIdleCallback", {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Layout />
+          </QueryClientProvider>,
+        );
+      });
+
+      expect(container.textContent).not.toContain("Main company nav");
+      expect(container.querySelector('img[src="/api/assets/logo-1/content"]')).not.toBeNull();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      Object.defineProperty(window, "requestIdleCallback", {
+        configurable: true,
+        value: originalRequestIdleCallback,
+      });
+      Object.defineProperty(window, "cancelIdleCallback", {
+        configurable: true,
+        value: originalCancelIdleCallback,
+      });
+    }
+  });
+
   it("keeps the account footer inside the collapsed sidebar rail on desktop", async () => {
     mockSidebarState.isCollapsed = true;
     const root = createRoot(container);
@@ -434,6 +501,18 @@ describe("Layout", () => {
     expect(sidebarPane).not.toBeNull();
     expect(sidebarPane?.getAttribute("data-fixed-width")).toBe("64");
     expect(sidebarPane?.textContent).toContain("Main company nav");
+    expect(sidebarPane?.textContent).not.toContain("Account menu");
+
+    const accountTrigger = sidebarPane?.querySelector('button[aria-label="Open account menu"]');
+    expect(accountTrigger).not.toBeNull();
+
+    await act(async () => {
+      accountTrigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await vi.dynamicImportSettled();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+    await flushReact();
+
     expect(sidebarPane?.textContent).toContain("Account menu");
 
     await act(async () => {
@@ -665,10 +744,16 @@ describe("Layout", () => {
   it("uses the route company context for plugin route sidebars on the first render", async () => {
     currentPathname = "/ALT/wiki";
     mockCompanyState.companies = [
-      { id: "company-1", issuePrefix: "PAP", name: "Paperclip" },
-      { id: "company-2", issuePrefix: "ALT", name: "Alternate" },
+      { id: "company-1", issuePrefix: "PAP", name: "Paperclip", brandColor: "#3366ff", logoUrl: "/api/assets/logo-1/content" },
+      { id: "company-2", issuePrefix: "ALT", name: "Alternate", brandColor: "", logoUrl: "" },
     ];
-    mockCompanyState.selectedCompany = { id: "company-1", issuePrefix: "PAP", name: "Paperclip" };
+    mockCompanyState.selectedCompany = {
+      id: "company-1",
+      issuePrefix: "PAP",
+      name: "Paperclip",
+      brandColor: "#3366ff",
+      logoUrl: "/api/assets/logo-1/content",
+    };
     mockCompanyState.selectedCompanyId = "company-1";
     mockPluginSlots.slots = [
       {

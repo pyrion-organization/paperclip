@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
 import { BreadcrumbBar } from "./BreadcrumbBar";
+import { DeferredSidebarAccountMenu } from "./DeferredSidebarAccountMenu";
 import { WorktreeBanner } from "./WorktreeBanner";
 import { ResizableSidebarPane } from "./ResizableSidebarPane";
 import { useDialogActions, useDialogState } from "../context/DialogContext";
@@ -58,9 +59,6 @@ const BUILT_IN_COMPANY_ROUTE_SEGMENTS = new Set([
   "workspaces",
 ]);
 const Sidebar = lazy(() => import("./Sidebar").then((module) => ({ default: module.Sidebar })));
-const SidebarAccountMenu = lazy(() =>
-  import("./SidebarAccountMenu").then((module) => ({ default: module.SidebarAccountMenu })),
-);
 const NewIssueDialog = lazy(() => import("./NewIssueDialog").then((module) => ({ default: module.NewIssueDialog })));
 const NewProjectDialog = lazy(() => import("./NewProjectDialog").then((module) => ({ default: module.NewProjectDialog })));
 const NewGoalDialog = lazy(() => import("./NewGoalDialog").then((module) => ({ default: module.NewGoalDialog })));
@@ -112,18 +110,85 @@ function useDeferredCompanySidebarReady() {
 function CompanySidebarPlaceholder({
   isCollapsed,
   isMobile,
+  selectedCompany,
 }: {
   isCollapsed: boolean;
   isMobile: boolean;
+  selectedCompany?: {
+    name: string;
+    logoUrl?: string | null;
+    brandColor?: string | null;
+  } | null;
 }) {
+  const collapsed = isCollapsed && !isMobile;
+  const logo = typeof selectedCompany?.logoUrl === "string" && selectedCompany.logoUrl.trim().length > 0
+    ? selectedCompany.logoUrl
+    : null;
+  const initial = selectedCompany?.name.trim().charAt(0).toUpperCase() || "?";
+
   return (
     <div
-      aria-hidden="true"
+      aria-label={selectedCompany ? `${selectedCompany.name} sidebar loading` : "Company sidebar loading"}
       className={cn(
         "h-full min-h-0 border-r border-border bg-background",
-        isCollapsed && !isMobile ? "w-16" : "w-60",
+        collapsed ? "w-16" : "w-60",
       )}
-    />
+    >
+      <div className={cn("flex h-12 shrink-0 items-center gap-1 px-2", collapsed && "justify-center")}>
+        {selectedCompany ? (
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-2 px-2",
+              collapsed && "hidden",
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className="relative flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-[11px] font-semibold text-white"
+              style={!logo ? { backgroundColor: selectedCompany.brandColor?.trim() || "#64748b" } : undefined}
+            >
+              {logo ? (
+                <img
+                  src={logo}
+                  alt=""
+                  className="absolute inset-0 size-full object-cover"
+                />
+              ) : (
+                initial
+              )}
+            </span>
+            <span className="min-w-0 truncate text-sm font-bold text-foreground">
+              {selectedCompany.name}
+            </span>
+          </div>
+        ) : (
+          <div className={cn("h-5 rounded bg-muted", collapsed ? "hidden" : "w-28")} />
+        )}
+        <div className="size-8 shrink-0 rounded-md bg-muted/45" />
+        <div className="size-8 shrink-0 rounded-md bg-muted/45" />
+      </div>
+      <div className={cn("space-y-4 py-2", collapsed ? "px-2" : "px-3")}>
+        <div className="space-y-1">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className={cn("h-8 rounded-md bg-muted/45", collapsed ? "mx-auto w-8" : "w-full")}
+            />
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          {!collapsed ? <div className="mx-1 h-3 w-14 rounded bg-muted/70" /> : null}
+          <div className="space-y-1">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                className={cn("h-8 rounded-md bg-muted/45", collapsed ? "mx-auto w-8" : "w-full")}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -218,8 +283,13 @@ export function Layout() {
       && pluginRoutePath
       && !BUILT_IN_COMPANY_ROUTE_SEGMENTS.has(pluginRoutePath),
   );
+  const placeholderCompany = matchedCompany ?? selectedCompany;
   const companySidebarPlaceholder = (
-    <CompanySidebarPlaceholder isCollapsed={isCollapsed} isMobile={isMobile} />
+    <CompanySidebarPlaceholder
+      isCollapsed={isCollapsed}
+      isMobile={isMobile}
+      selectedCompany={placeholderCompany}
+    />
   );
   const defaultCompanySidebar = companySidebarReady ? (
     <Suspense fallback={companySidebarPlaceholder}>
@@ -254,13 +324,11 @@ export function Layout() {
     <SidebarAccountMenuPlaceholder isCollapsed={isCollapsed} isMobile={isMobile} />
   );
   const accountMenu = companySidebarReady ? (
-    <Suspense fallback={accountMenuPlaceholder}>
-      <SidebarAccountMenu
-        deploymentMode={health?.deploymentMode}
-        instanceSettingsTarget={instanceSettingsTarget}
-        version={health?.version}
-      />
-    </Suspense>
+    <DeferredSidebarAccountMenu
+      deploymentMode={health?.deploymentMode}
+      instanceSettingsTarget={instanceSettingsTarget}
+      version={health?.version}
+    />
   ) : (
     accountMenuPlaceholder
   );
