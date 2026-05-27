@@ -70,7 +70,6 @@ import { AgentIcon } from "../components/AgentIcon";
 import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
 import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";
 import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
-import { IssueProperties } from "../components/IssueProperties";
 import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
 import { ImageGalleryModal } from "../components/ImageGalleryModal";
@@ -180,6 +179,9 @@ const IssueDocumentsSection = lazy(() =>
   import("../components/IssueDocumentsSection").then(({ IssueDocumentsSection }) => ({
     default: IssueDocumentsSection,
   })),
+);
+const IssueProperties = lazy(() =>
+  import("../components/IssueProperties").then(({ IssueProperties }) => ({ default: IssueProperties })),
 );
 const IssueRunLedger = lazy(() =>
   import("../components/IssueRunLedger").then(({ IssueRunLedger }) => ({ default: IssueRunLedger })),
@@ -2676,12 +2678,14 @@ export function IssueDetail() {
       return;
     }
     openPanel(
-      <IssueProperties
-        issue={panelIssue}
-        childIssues={panelChildIssues}
-        onAddSubIssue={openNewSubIssue}
-        onUpdate={handleIssuePropertiesUpdate}
-      />
+      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={5} />}>
+        <IssueProperties
+          issue={panelIssue}
+          childIssues={panelChildIssues}
+          onAddSubIssue={openNewSubIssue}
+          onUpdate={handleIssuePropertiesUpdate}
+        />
+      </Suspense>
     );
     return () => closePanel();
   }, [
@@ -4213,13 +4217,15 @@ export function IssueDetail() {
           </SheetHeader>
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="px-4 pb-4">
-              <IssueProperties
-                issue={issue}
-                childIssues={childIssues}
-                onAddSubIssue={openNewSubIssue}
-                onUpdate={(data) => updateIssue.mutate(data)}
-                inline
-              />
+              <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={5} />}>
+                <IssueProperties
+                  issue={issue}
+                  childIssues={childIssues}
+                  onAddSubIssue={openNewSubIssue}
+                  onUpdate={(data) => updateIssue.mutate(data)}
+                  inline
+                />
+              </Suspense>
             </div>
           </ScrollArea>
         </SheetContent>
