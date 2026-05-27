@@ -433,6 +433,43 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(entries.find((entry) => entry.calendarItemId === paused.id)).toMatchObject({ status: "cancelled" });
   });
 
+  it("requires payment details before active payable calendar items can sync payments", async () => {
+    await expect(svc.create(companyId, item({
+      title: "Missing profile payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }))).rejects.toThrow(/payment profile/i);
+
+    const pending = await svc.create(companyId, item({
+      title: "Pending missing profile payable",
+      category: "payment_payable",
+      status: "pending_review",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }));
+
+    await expect(svc.update(companyId, pending.id, { status: "active" }))
+      .rejects.toThrow(/payment profile/i);
+
+    const paused = await svc.create(companyId, item({
+      title: "Paused missing profile payable",
+      category: "payment_payable",
+      status: "paused",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }));
+
+    await expect(svc.setStatus(companyId, paused.id, "active"))
+      .rejects.toThrow(/payment profile/i);
+  });
+
   it("records partial and full payments against a payment entry", async () => {
     const payments = paymentService(db);
     const profile = await payments.createProfile(companyId, {
@@ -477,6 +514,29 @@ describeEmbeddedPostgres("calendarService", () => {
 
     const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
     expect(dashboard.paidThisMonthCents).toBe(10000);
+  });
+
+  it("rejects payment records that do not match the entry currency", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await expect(payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      currency: "USD",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Wrong currency",
+    })).rejects.toThrow(/currency/i);
   });
 
   it("recomputes payment status when expected amount changes", async () => {

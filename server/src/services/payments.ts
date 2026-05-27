@@ -232,6 +232,9 @@ export function paymentService(db: Db) {
       if (!entry) throw notFound("Payment entry not found");
       if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot receive payments");
       if (entry.status === "paid") throw unprocessable("Payment entry is already paid");
+      if (input.currency !== entry.currency) {
+        throw unprocessable("Payment record currency must match the payment entry currency");
+      }
 
       const profileId = input.paymentProfileId ?? entry.paymentProfileId;
       if (profileId) await assertProfile(db, companyId, profileId);
