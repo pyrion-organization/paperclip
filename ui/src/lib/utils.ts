@@ -3,6 +3,7 @@ import { deriveProjectUrlKey, hasNonAsciiContent, normalizeProjectUrlKey } from 
 import type { BillingType, FinanceDirection, FinanceEventKind } from "@paperclipai/shared";
 
 export { cn } from "./classnames";
+export { formatCents } from "./currency";
 
 export function asObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -16,10 +17,6 @@ export function asBoolean(value: unknown, fallback: boolean) {
 
 export function asFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-export function formatCents(cents: number): string {
-  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function formatNumber(n: number): string {

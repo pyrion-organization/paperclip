@@ -12,9 +12,9 @@ import { StatusIcon } from "../components/StatusIcon";
 
 import { Identity } from "../components/Identity";
 import { timeAgo } from "../lib/timeAgo";
-import { cn, formatCents } from "../lib/utils";
+import { cn } from "../lib/classnames";
+import { formatCents } from "../lib/currency";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
-import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
 import type { Agent, DashboardRecentIssue } from "@paperclipai/shared";
 
@@ -23,6 +23,9 @@ const ActiveAgentsPanel = lazy(() =>
 );
 const ActivityRow = lazy(() =>
   import("../components/ActivityRow").then(({ ActivityRow }) => ({ default: ActivityRow })),
+);
+const DashboardCharts = lazy(() =>
+  import("../components/DashboardCharts").then(({ DashboardCharts }) => ({ default: DashboardCharts })),
 );
 const DashboardPluginSlotOutlet = lazy(() =>
   import("@/plugins/LazyPluginSlotOutlet").then(({ LazyPluginSlotOutlet }) => ({ default: LazyPluginSlotOutlet })),
@@ -348,20 +351,11 @@ export function Dashboard() {
             />
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <ChartCard title="Run Activity" subtitle="Last 14 days">
-              <RunActivityChart activity={data.runActivity} />
-            </ChartCard>
-            <ChartCard title="Issues by Priority" subtitle="Last 14 days">
-              <PriorityChart activity={data.issueActivity} />
-            </ChartCard>
-            <ChartCard title="Issues by Status" subtitle="Last 14 days">
-              <IssueStatusChart activity={data.issueActivity} />
-            </ChartCard>
-            <ChartCard title="Success Rate" subtitle="Last 14 days">
-              <SuccessRateChart activity={data.runActivity} />
-            </ChartCard>
-          </div>
+          {dashboardDetailsReady ? (
+            <Suspense fallback={<div className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-hidden="true" />}>
+              <DashboardCharts issueActivity={data.issueActivity} runActivity={data.runActivity} />
+            </Suspense>
+          ) : null}
 
           {dashboardDetailsReady ? (
             <Suspense fallback={null}>
