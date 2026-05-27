@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "../lib/utils";
-import { MarkdownBody } from "./MarkdownBody";
+import { DeferredMarkdownBody } from "./DeferredMarkdownBody";
 import type { MarkdownEditorRef, MentionOption } from "./InlineMarkdownEditor";
 import { useAutosaveIndicator } from "../hooks/useAutosaveIndicator";
 import { FoldCurtain } from "./FoldCurtain";
@@ -151,7 +151,7 @@ export function InlineEditor({
   }, [multilineEditing, multiline]);
 
   // Once the editor has been focused at least once, it's blurred, and any
-  // autosave has settled, swap back to the MarkdownBody preview so inline
+  // autosave has settled, swap back to the markdown preview so inline
   // issue refs render with status + quicklook.
   useEffect(() => {
     if (multilineFocused) {
@@ -301,14 +301,14 @@ export function InlineEditor({
         >
           {foldable ? (
             <FoldCurtain>
-              <MarkdownBody className={cn("paperclip-edit-in-place-content", className)}>
+              <DeferredMarkdownBody className={cn("paperclip-edit-in-place-content", className)}>
                 {previewValue}
-              </MarkdownBody>
+              </DeferredMarkdownBody>
             </FoldCurtain>
           ) : (
-            <MarkdownBody className={cn("paperclip-edit-in-place-content", className)}>
+            <DeferredMarkdownBody className={cn("paperclip-edit-in-place-content", className)}>
               {previewValue}
-            </MarkdownBody>
+            </DeferredMarkdownBody>
           )}
         </div>
       );

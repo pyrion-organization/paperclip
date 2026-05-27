@@ -6,13 +6,8 @@ import { createRoot } from "react-dom/client";
 import type { IssueDocument } from "@paperclipai/shared";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setDeferredMarkdownBodyLoaderForTest } from "./DeferredMarkdownBody";
 import { IssueContinuationHandoff } from "./IssueContinuationHandoff";
-
-vi.mock("./MarkdownBody", () => ({
-  MarkdownBody: ({ children, className }: { children: string; className?: string }) => (
-    <div className={className}>{children}</div>
-  ),
-}));
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, onClick, type = "button", ...props }: ComponentProps<"button">) => (
@@ -50,6 +45,11 @@ describe("IssueContinuationHandoff", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    setDeferredMarkdownBodyLoaderForTest(async () => ({
+      MarkdownBody: ({ children, className }: { children: string; className?: string }) => (
+        <div className={className}>{children}</div>
+      ),
+    }));
     container = document.createElement("div");
     document.body.appendChild(container);
     Object.defineProperty(navigator, "clipboard", {

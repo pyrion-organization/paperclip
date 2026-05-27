@@ -22,17 +22,12 @@ const MarkdownEditorMock = forwardRef<
   );
 });
 
-vi.mock("./MarkdownBody", () => ({
-  MarkdownBody: ({ children }: { children: ReactNode }) => (
-    <div data-testid="multiline-md-preview">{children}</div>
-  ),
-}));
-
+import { setDeferredMarkdownBodyLoaderForTest } from "./DeferredMarkdownBody";
 import { InlineEditor, queueContainedBlurCommit, setInlineMarkdownEditorLoaderForTest } from "./InlineEditor";
 
 /** Enter multiline edit mode by clicking the preview surface. */
 function enterMultilineEdit(container: HTMLDivElement) {
-  const preview = container.querySelector<HTMLDivElement>('[data-testid="multiline-md-preview"]');
+  const preview = container.querySelector<HTMLElement>('[data-testid="multiline-md-preview"], [role="textbox"]');
   if (preview) {
     preview.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }
@@ -79,6 +74,11 @@ describe("InlineEditor", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
+    setDeferredMarkdownBodyLoaderForTest(async () => ({
+      MarkdownBody: ({ children }: { children: ReactNode }) => (
+        <div data-testid="multiline-md-preview">{children}</div>
+      ),
+    }));
     setInlineMarkdownEditorLoaderForTest(async () => ({ default: MarkdownEditorMock }));
     container = document.createElement("div");
     document.body.appendChild(container);

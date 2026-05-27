@@ -71,7 +71,6 @@ import { IssueReferenceActivitySummary } from "../components/IssueReferenceActiv
 import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";
 import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
 import { IssueProperties } from "../components/IssueProperties";
-import { IssueRunLedger } from "../components/IssueRunLedger";
 import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
 import { ImageGalleryModal } from "../components/ImageGalleryModal";
@@ -181,6 +180,9 @@ const IssueDocumentsSection = lazy(() =>
   import("../components/IssueDocumentsSection").then(({ IssueDocumentsSection }) => ({
     default: IssueDocumentsSection,
   })),
+);
+const IssueRunLedger = lazy(() =>
+  import("../components/IssueRunLedger").then(({ IssueRunLedger }) => ({ default: IssueRunLedger })),
 );
 const IssueRelatedWorkPanel = lazy(() =>
   import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
@@ -1178,34 +1180,36 @@ function IssueDetailActivityTab({
         </div>
       )}
       <div className="mb-3">
-        <IssueRunLedger
-          issueId={issueId}
-          companyId={companyId}
-          issueStatus={issueStatus}
-          childIssues={childIssues}
-          agentMap={agentMap}
-          hasLiveRuns={hasLiveRuns}
-          activityEvents={activity ?? []}
-          renderActivityEvent={(evt) => {
-            const tone = successfulRunHandoffActivityTone(evt.action);
-            const isHandoffWarning =
-              evt.action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION
-              || evt.action === SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION;
-            return (
-              <div className={cn("space-y-1.5 rounded-lg border px-3 py-2 text-xs", tone.className)}>
-                <div className="flex items-center gap-1.5">
-                  {isHandoffWarning ? (
-                    <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} />
-                  ) : null}
-                  <ActorIdentity evt={evt} agentMap={agentMap} userProfileMap={userProfileMap} />
-                  <span>{formatIssueActivityAction(evt.action, evt.details, { agentMap, userProfileMap, currentUserId })}</span>
-                  <span className="ml-auto shrink-0">{relativeTime(evt.createdAt)}</span>
+        <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={3} />}>
+          <IssueRunLedger
+            issueId={issueId}
+            companyId={companyId}
+            issueStatus={issueStatus}
+            childIssues={childIssues}
+            agentMap={agentMap}
+            hasLiveRuns={hasLiveRuns}
+            activityEvents={activity ?? []}
+            renderActivityEvent={(evt) => {
+              const tone = successfulRunHandoffActivityTone(evt.action);
+              const isHandoffWarning =
+                evt.action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION
+                || evt.action === SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION;
+              return (
+                <div className={cn("space-y-1.5 rounded-lg border px-3 py-2 text-xs", tone.className)}>
+                  <div className="flex items-center gap-1.5">
+                    {isHandoffWarning ? (
+                      <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} />
+                    ) : null}
+                    <ActorIdentity evt={evt} agentMap={agentMap} userProfileMap={userProfileMap} />
+                    <span>{formatIssueActivityAction(evt.action, evt.details, { agentMap, userProfileMap, currentUserId })}</span>
+                    <span className="ml-auto shrink-0">{relativeTime(evt.createdAt)}</span>
+                  </div>
+                  <IssueReferenceActivitySummary event={evt} />
                 </div>
-                <IssueReferenceActivitySummary event={evt} />
-              </div>
-            );
-          }}
-        />
+              );
+            }}
+          />
+        </Suspense>
       </div>
       {linkedApprovals && linkedApprovals.length > 0 && (
         <div className="mb-3 space-y-3">

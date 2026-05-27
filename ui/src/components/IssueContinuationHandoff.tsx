@@ -3,7 +3,7 @@ import type { IssueDocument } from "@paperclipai/shared";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared/constants";
 import { Button } from "@/components/ui/button";
 import { cn, relativeTime } from "../lib/utils";
-import { MarkdownBody } from "./MarkdownBody";
+import { DeferredMarkdownBody } from "./DeferredMarkdownBody";
 import { Check, ChevronDown, ChevronRight, Copy, History } from "lucide-react";
 
 type IssueContinuationHandoffProps = {
@@ -91,9 +91,9 @@ export function IssueContinuationHandoff({
       </div>
       {expanded ? (
         <div className="mt-3 rounded-md border border-border bg-background/80 p-3">
-          <MarkdownBody className="paperclip-edit-in-place-content text-sm leading-6" softBreaks={false}>
+          <DeferredMarkdownBody className="paperclip-edit-in-place-content text-sm leading-6" softBreaks={false}>
             {document.body}
-          </MarkdownBody>
+          </DeferredMarkdownBody>
         </div>
       ) : null}
     </div>
