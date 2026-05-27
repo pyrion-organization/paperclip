@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { calendarItems, paymentEntries, paymentProfiles, paymentRecords } from "@paperclipai/db";
 import type {
@@ -304,7 +304,7 @@ export function paymentService(db: Db) {
       const monthPaid = await db
         .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
         .from(paymentRecords)
-        .where(and(eq(paymentRecords.companyId, companyId), sql`${paymentRecords.paidAt} >= ${monthStart}`))
+        .where(and(eq(paymentRecords.companyId, companyId), gte(paymentRecords.paidAt, monthStart)))
         .then((result) => Number(result[0]?.total ?? 0));
       return {
         companyId,

@@ -414,6 +414,9 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(partial.entry).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
     expect(full.completed).toBe(true);
     expect(full.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+
+    const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
+    expect(dashboard.paidThisMonthCents).toBe(10000);
   });
 
   it("allows metadata-only paid entry edits but rejects explicit reopen attempts", async () => {
