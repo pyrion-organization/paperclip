@@ -1,5 +1,4 @@
-import { useState, type ComponentType, type ReactNode } from "react";
-import { Link } from "@/lib/router";
+import { lazy, Suspense, useState, type ComponentType, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "../context/SidebarContext";
@@ -8,15 +7,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 type SidebarSectionIcon = ComponentType<{ className?: string }>;
@@ -36,7 +26,7 @@ export type SidebarSectionRadioChoice = {
   value: string;
 };
 
-type SidebarSectionMenu = {
+export type SidebarSectionMenu = {
   actions?: SidebarSectionMenuAction[];
   ariaLabel?: string;
   radioChoices?: SidebarSectionRadioChoice[];
@@ -62,6 +52,10 @@ interface SidebarSectionProps {
   headerAction?: SidebarSectionHeaderAction;
 }
 
+const LazySidebarSectionMenu = lazy(() =>
+  import("./SidebarSectionMenu").then((module) => ({ default: module.SidebarSectionMenu })),
+);
+
 function SidebarSectionHeader({
   collapsible,
   headerAction,
@@ -70,6 +64,7 @@ function SidebarSectionHeader({
 }: Pick<SidebarSectionProps, "collapsible" | "headerAction" | "label" | "menu">) {
   const { isMobile } = useSidebar();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuRuntimeRequested, setMenuRuntimeRequested] = useState(false);
   const hasMenu = Boolean(
     menu && ((menu.actions?.length ?? 0) > 0 || (menu.radioChoices?.length ?? 0) > 0),
   );
@@ -90,62 +85,41 @@ function SidebarSectionHeader({
   const headerContent = <span className={labelClassName}>{label}</span>;
   const HeaderActionIcon = headerAction?.icon;
 
-  const headingControl = hasMenu ? (
-    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          data-slot="icon-button"
-          className={cn(
-            "inline-flex min-w-0 max-w-full items-center rounded-md px-1 py-0.5 text-left outline-none transition-colors",
-            "hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-            menuOpen && "bg-accent/50",
-          )}
-          aria-label={menu?.ariaLabel ?? `${label} actions`}
-        >
-          {headerContent}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        {menu?.actions?.map((action, index) => {
-          if (action.type === "separator") {
-            return <DropdownMenuSeparator key={`separator-${index}`} />;
-          }
-          const Icon = action.icon;
-          const content = (
-            <>
-              {Icon ? <Icon className="size-4" /> : null}
-              <span>{action.label}</span>
-            </>
-          );
-          if (action.href) {
-            return (
-              <DropdownMenuItem key={`${action.label}-${index}`} asChild>
-                <Link to={action.href}>{content}</Link>
-              </DropdownMenuItem>
-            );
-          }
-          return (
-            <DropdownMenuItem key={`${action.label}-${index}`} onSelect={action.onSelect}>
-              {content}
-            </DropdownMenuItem>
-          );
-        })}
-        {menu?.radioChoices && menu.radioChoices.length > 0 ? (
-          <DropdownMenuRadioGroup
-            value={menu.radioValue}
-            onValueChange={menu.onRadioValueChange}
-            aria-label={menu.radioLabel}
-          >
-            {menu.radioChoices.map((choice) => (
-              <DropdownMenuRadioItem key={choice.value} value={choice.value}>
-                {choice.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+  const menuTriggerClassName = cn(
+    "inline-flex min-w-0 max-w-full items-center rounded-md px-1 py-0.5 text-left outline-none transition-colors",
+    "hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+    menuOpen && "bg-accent/50",
+  );
+  const menuAriaLabel = menu?.ariaLabel ?? `${label} actions`;
+  const menuTrigger = (
+    <button
+      type="button"
+      data-slot="icon-button"
+      className={menuTriggerClassName}
+      aria-label={menuAriaLabel}
+      onClick={() => {
+        setMenuRuntimeRequested(true);
+        setMenuOpen(true);
+      }}
+    >
+      {headerContent}
+    </button>
+  );
+  const headingControl = hasMenu && menu ? (
+    menuRuntimeRequested ? (
+      <Suspense fallback={menuTrigger}>
+        <LazySidebarSectionMenu
+          ariaLabel={menuAriaLabel}
+          headerContent={headerContent}
+          menu={menu}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          triggerClassName={menuTriggerClassName}
+        />
+      </Suspense>
+    ) : (
+      menuTrigger
+    )
   ) : (
     <div className="inline-flex min-w-0 max-w-full items-center px-1 py-0.5">{headerContent}</div>
   );

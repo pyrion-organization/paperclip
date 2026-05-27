@@ -130,6 +130,7 @@ function makeAgent(overrides: Partial<Agent>): Agent {
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
+    await vi.dynamicImportSettled();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 }

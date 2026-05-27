@@ -1,12 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useLocation } from "@/lib/router";
+import { NavLink, useLocation } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   MoreHorizontal,
-  PauseCircle,
-  Pencil,
-  PlayCircle,
   Plus,
   Users,
 } from "lucide-react";
@@ -28,14 +25,6 @@ import {
 } from "../lib/agent-order";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import type { Agent } from "@paperclipai/shared";
 import type { LiveRunForIssue } from "../api/heartbeats";
 
@@ -47,6 +36,9 @@ const AGENT_SORT_CHOICES: SidebarSectionRadioChoice[] = [
 
 const DeferredAgentIcon = lazy(() =>
   import("./AgentIcon").then((module) => ({ default: module.AgentIcon })),
+);
+const DeferredSidebarAgentActionsMenu = lazy(() =>
+  import("./SidebarAgentActionsMenu").then((module) => ({ default: module.SidebarAgentActionsMenu })),
 );
 
 type SidebarIdleWindow = Window & {
@@ -159,6 +151,27 @@ function SidebarAgentItem({
     : isBudgetPaused
       ? "Budget paused"
       : pauseResumeLabel;
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [actionsMenuRequested, setActionsMenuRequested] = useState(false);
+  const actionsTriggerClassName = cn(
+    "absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 inline-flex items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
+    isMobile
+      ? "opacity-100"
+      : "pointer-events-none opacity-0 group-hover/agent:pointer-events-auto group-hover/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:opacity-100",
+  );
+  const actionsTrigger = (
+    <button
+      type="button"
+      className={actionsTriggerClassName}
+      aria-label={`Open actions for ${agent.name}`}
+      onClick={() => {
+        setActionsMenuRequested(true);
+        setActionsMenuOpen(true);
+      }}
+    >
+      <MoreHorizontal className="h-3.5 w-3.5" />
+    </button>
+  );
 
   if (isCollapsed) {
     return (
@@ -223,48 +236,26 @@ function SidebarAgentItem({
         )}
       </NavLink>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className={cn(
-              "absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 transition-opacity data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
-              isMobile
-                ? "opacity-100"
-                : "pointer-events-none opacity-0 group-hover/agent:pointer-events-auto group-hover/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:opacity-100",
-            )}
-            aria-label={`Open actions for ${agent.name}`}
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem asChild>
-            <Link
-              to={editHref}
-              onClick={() => {
-                if (isMobile) setSidebarOpen(false);
-              }}
-            >
-              <Pencil className="size-4" />
-              <span>Edit agent</span>
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              if (pauseResumeDisabled) return;
-              onPauseResume(agent, isPaused ? "resume" : "pause");
-            }}
-            disabled={pauseResumeDisabled}
-            title={isBudgetPaused ? "Agent was paused by budget limits" : undefined}
-          >
-            {isPaused ? <PlayCircle className="size-4" /> : <PauseCircle className="size-4" />}
-            <span>{pauseResumeDisabledLabel}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {actionsMenuRequested ? (
+        <Suspense fallback={actionsTrigger}>
+          <DeferredSidebarAgentActionsMenu
+            editHref={editHref}
+            isBudgetPaused={isBudgetPaused}
+            isMobile={isMobile}
+            isPaused={isPaused}
+            onOpenChange={setActionsMenuOpen}
+            onPauseResume={(action) => onPauseResume(agent, action)}
+            open={actionsMenuOpen}
+            pauseResumeDisabled={pauseResumeDisabled}
+            pauseResumeDisabledLabel={pauseResumeDisabledLabel}
+            setSidebarOpen={setSidebarOpen}
+            triggerClassName={actionsTriggerClassName}
+            triggerLabel={`Open actions for ${agent.name}`}
+          />
+        </Suspense>
+      ) : (
+        actionsTrigger
+      )}
     </div>
   );
 }
