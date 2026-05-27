@@ -61,7 +61,7 @@ export function Payments() {
   const [payingEntry, setPayingEntry] = useState<PaymentEntry | null>(null);
   const [profileForm, setProfileForm] = useState({ method: "credit_card" as PaymentMethod, accountLabel: "", ownerName: "", notes: "" });
   const [entryForm, setEntryForm] = useState({ title: "", providerName: "", dueDate: "", amount: "", currency: "BRL", paymentProfileId: "", notes: "" });
-  const [paymentForm, setPaymentForm] = useState({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "" });
+  const [paymentForm, setPaymentForm] = useState({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Payments" }]);
@@ -131,10 +131,11 @@ export function Payments() {
       paymentProfileId: paymentForm.paymentProfileId || payingEntry!.paymentProfileId,
       proofUrl: paymentForm.proofUrl || null,
       notes: paymentForm.notes || null,
+      approvalConfirmed: paymentForm.approvalConfirmed,
     }),
     onSuccess: () => {
       setPayingEntry(null);
-      setPaymentForm({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "" });
+      setPaymentForm({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
       invalidatePayments();
     },
   });
@@ -194,6 +195,7 @@ export function Payments() {
               paymentProfileId: entry.paymentProfileId ?? "",
               proofUrl: "",
               notes: "",
+              approvalConfirmed: false,
             });
           }} />
         </TabsContent>
@@ -254,6 +256,16 @@ export function Payments() {
             <ProfileSelect value={paymentForm.paymentProfileId} onChange={(paymentProfileId) => setPaymentForm((current) => ({ ...current, paymentProfileId }))} profiles={profiles} />
             <Field label="Proof URL"><Input value={paymentForm.proofUrl} onChange={(event) => setPaymentForm((current) => ({ ...current, proofUrl: event.target.value }))} /></Field>
             <Field label="Notes"><Textarea value={paymentForm.notes} onChange={(event) => setPaymentForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
+            {payingEntry?.calendarItemId ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={paymentForm.approvalConfirmed}
+                  onChange={(event) => setPaymentForm((current) => ({ ...current, approvalConfirmed: event.target.checked }))}
+                />
+                Approval confirmed
+              </label>
+            ) : null}
           </div>
           <DialogFooter>
             <Button onClick={() => recordMutation.mutate()} disabled={(cents(paymentForm.amount) ?? 0) <= 0 || recordMutation.isPending}>Record</Button>

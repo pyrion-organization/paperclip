@@ -16,6 +16,7 @@ const mockPayments = vi.hoisted(() => ({
   recordPayment: vi.fn(),
 }));
 const mockCalendar = vi.hoisted(() => ({
+  getById: vi.fn(),
   complete: vi.fn(),
 }));
 const mockLogActivity = vi.hoisted(() => vi.fn());
@@ -61,7 +62,14 @@ describe("payment routes", () => {
     mockPayments.createProfile.mockResolvedValue({ id: "profile-1", method: "pix", accountLabel: "PIX" });
     mockPayments.updateProfile.mockResolvedValue({ id: "profile-1", method: "pix", accountLabel: "PIX" });
     mockPayments.listEntries.mockResolvedValue({ entries: [], total: 0 });
-    mockPayments.getEntry.mockResolvedValue({ id: "entry-1", records: [] });
+    mockPayments.getEntry.mockResolvedValue({
+      id: "entry-1",
+      calendarItemId: "calendar-1",
+      expectedAmountCents: 10000,
+      paidAmountCents: 0,
+      status: "open",
+      records: [],
+    });
     mockPayments.createEntry.mockResolvedValue({ id: "entry-1", calendarItemId: null, expectedAmountCents: 10000 });
     mockPayments.updateEntry.mockResolvedValue({
       id: "entry-1",
@@ -79,6 +87,7 @@ describe("payment routes", () => {
       },
     });
     mockLogActivity.mockResolvedValue(undefined);
+    mockCalendar.getById.mockResolvedValue({ id: "calendar-1", riskLevel: "medium" });
     mockCalendar.complete.mockResolvedValue({ id: "calendar-1", status: "done" });
   });
 
@@ -104,6 +113,40 @@ describe("payment routes", () => {
         completedAt: new Date("2026-06-15T10:00:00.000Z"),
         notes: "Payment recorded: 100.00 BRL",
       }),
+      expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
+      { approvalConfirmed: false },
+    );
+  });
+
+  it("requires explicit approval before completing high-risk linked payments", async () => {
+    mockCalendar.getById.mockResolvedValue({ id: "calendar-1", riskLevel: "critical" });
+
+    const rejected = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/payments/entries/entry-1/records")
+      .send({
+        amountCents: 10000,
+        currency: "BRL",
+        paidAt: "2026-06-15T10:00:00.000Z",
+      });
+
+    expect(rejected.status).toBe(422);
+    expect(mockPayments.recordPayment).not.toHaveBeenCalled();
+    expect(mockCalendar.complete).not.toHaveBeenCalled();
+
+    const approved = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/payments/entries/entry-1/records")
+      .send({
+        amountCents: 10000,
+        currency: "BRL",
+        paidAt: "2026-06-15T10:00:00.000Z",
+        approvalConfirmed: true,
+      });
+
+    expect(approved.status).toBe(201);
+    expect(mockCalendar.complete).toHaveBeenCalledWith(
+      "company-1",
+      "calendar-1",
+      expect.anything(),
       expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
       { approvalConfirmed: true },
     );

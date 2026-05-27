@@ -374,10 +374,13 @@ function normalizePatchInput(input: UpdateCalendarItem, actor?: Actor): Partial<
   return patch;
 }
 
-function assertPayablePaymentDetails(item: Pick<CalendarItemRow, "category" | "status" | "nextDueDate" | "paymentProfileId">) {
+function assertPayablePaymentDetails(item: Pick<CalendarItemRow, "category" | "status" | "nextDueDate" | "amountCents" | "paymentProfileId">) {
   if (item.category !== "payment_payable" || (item.status !== "active" && item.status !== "overdue")) return;
   if (!dateOnly(item.nextDueDate)) {
     throw unprocessable("Active payment payable items require a next due date");
+  }
+  if (item.amountCents == null) {
+    throw unprocessable("Active payment payable items require an amount");
   }
   if (!item.paymentProfileId) {
     throw unprocessable("Active payment payable items require a payment profile");
@@ -512,7 +515,7 @@ function missingDetailsForItem(item: CalendarItemRow) {
   }
   if (item.category === "certificate" && !item.nextDueDate) missing.push("certificate expiration date");
   if (item.category === "api_token" && !item.relatedProjectId && !item.technicalContactEmail) missing.push("token owner/project/contact");
-  if (item.autoRenew && !item.paymentMethodLabel) missing.push("payment method");
+  if (item.autoRenew && !item.paymentMethodLabel && !item.paymentProfileId) missing.push("payment method");
   if (item.amountCents != null && !item.costCenter) missing.push("cost center");
   if (item.sourceKind !== "manual" && (item.confidenceScore ?? 100) < LOW_CONFIDENCE_THRESHOLD) missing.push("human review for low-confidence extraction");
   if (missing.length === 0) return null;
@@ -815,6 +818,7 @@ export function calendarService(db: Db) {
         category: values.category,
         status: values.status ?? "active",
         nextDueDate: values.nextDueDate ?? null,
+        amountCents: values.amountCents ?? null,
         paymentProfileId: values.paymentProfileId ?? null,
       });
       const [item] = await db
@@ -910,6 +914,7 @@ export function calendarService(db: Db) {
         category: patch.category ?? existing.category,
         status: patch.status ?? existing.status,
         nextDueDate: patch.nextDueDate === undefined ? existing.nextDueDate : patch.nextDueDate,
+        amountCents: patch.amountCents === undefined ? existing.amountCents : patch.amountCents,
         paymentProfileId: patch.paymentProfileId === undefined ? existing.paymentProfileId : patch.paymentProfileId,
       });
       const [updated] = await db
@@ -965,6 +970,7 @@ export function calendarService(db: Db) {
         category: existing.category,
         status,
         nextDueDate: existing.nextDueDate,
+        amountCents: existing.amountCents,
         paymentProfileId: existing.paymentProfileId,
       });
       const [updated] = await db

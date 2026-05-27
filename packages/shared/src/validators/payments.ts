@@ -70,6 +70,7 @@ export const recordPaymentSchema = z.object({
   paymentProfileId: z.string().uuid().optional().nullable(),
   proofUrl: optionalUrl,
   notes: nullableTrimmed(2000),
+  approvalConfirmed: z.boolean().optional().default(false),
 }).strict();
 export type RecordPayment = z.infer<typeof recordPaymentSchema>;
 export type RecordPaymentInput = z.input<typeof recordPaymentSchema>;

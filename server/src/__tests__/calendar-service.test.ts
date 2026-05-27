@@ -434,6 +434,23 @@ describeEmbeddedPostgres("calendarService", () => {
   });
 
   it("requires payment details before active payable calendar items can sync payments", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    await expect(svc.create(companyId, item({
+      title: "Missing amount payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-10",
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }))).rejects.toThrow(/amount/i);
+
     await expect(svc.create(companyId, item({
       title: "Missing profile payable",
       category: "payment_payable",
@@ -537,6 +554,33 @@ describeEmbeddedPostgres("calendarService", () => {
       proofUrl: null,
       notes: "Wrong currency",
     })).rejects.toThrow(/currency/i);
+  });
+
+  it("treats payment profiles as auto-renew payment details", async () => {
+    const payments = paymentService(db);
+    const profile = await payments.createProfile(companyId, {
+      method: "credit_card",
+      accountLabel: "Corporate card",
+      ownerName: "Finance",
+      notes: null,
+      active: true,
+    });
+
+    const created = await svc.create(companyId, item({
+      title: "Profile-backed auto renew",
+      category: "software_subscription",
+      nextDueDate: "2026-06-15",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile.id,
+      autoRenew: true,
+      billingEmail: "billing@example.com",
+      costCenter: "ops",
+    }));
+
+    const dashboard = await svc.dashboard(companyId, new Date("2026-06-01T00:00:00.000Z"));
+
+    expect(dashboard.missingDetails.find((finding) => finding.itemId === created.id)).toBeUndefined();
   });
 
   it("recomputes payment status when expected amount changes", async () => {

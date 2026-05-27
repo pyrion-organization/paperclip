@@ -239,8 +239,9 @@ export function paymentService(db: Db) {
       const profileId = input.paymentProfileId ?? entry.paymentProfileId;
       if (profileId) await assertProfile(db, companyId, profileId);
 
+      const { approvalConfirmed: _approvalConfirmed, ...recordInput } = input;
       await db.insert(paymentRecords).values({
-        ...input,
+        ...recordInput,
         companyId,
         paymentEntryId: entryId,
         paymentProfileId: profileId,

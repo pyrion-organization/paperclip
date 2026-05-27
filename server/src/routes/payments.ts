@@ -11,6 +11,7 @@ import {
 import { validate } from "../middleware/validate.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { calendarService, logActivity, paymentService } from "../services/index.js";
+import { unprocessable } from "../errors.js";
 
 export function paymentRoutes(db: Db) {
   const router = Router();
@@ -148,6 +149,18 @@ export function paymentRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     assertBoard(req);
+    const existingEntry = await payments.getEntry(companyId, req.params.entryId as string);
+    if (existingEntry.calendarItemId) {
+      const willComplete = existingEntry.expectedAmountCents == null
+        ? req.body.amountCents > 0
+        : existingEntry.paidAmountCents + req.body.amountCents >= existingEntry.expectedAmountCents;
+      if (willComplete) {
+        const calendarItem = await calendar.getById(companyId, existingEntry.calendarItemId);
+        if ((calendarItem.riskLevel === "high" || calendarItem.riskLevel === "critical") && !req.body.approvalConfirmed) {
+          throw unprocessable("Completing high-risk or critical items requires approval confirmation");
+        }
+      }
+    }
     const result = await payments.recordPayment(companyId, req.params.entryId as string, req.body);
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -173,7 +186,7 @@ export function paymentRoutes(db: Db) {
           notes: `Payment recorded: ${(req.body.amountCents / 100).toFixed(2)} ${req.body.currency ?? result.entry.currency}`,
         },
         actor,
-        { approvalConfirmed: true },
+        { approvalConfirmed: Boolean(req.body.approvalConfirmed) },
       );
     }
     res.status(201).json(result.entry);

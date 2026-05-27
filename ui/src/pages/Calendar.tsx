@@ -891,6 +891,8 @@ export function Calendar() {
                       </SelectContent>
                     </Select>
                   </Field>
+                  <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
+                  <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
                   <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
                   <label className="flex items-center gap-2 text-sm">
                     <input
