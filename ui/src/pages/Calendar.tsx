@@ -227,6 +227,12 @@ function payloadFromForm(form: ItemFormState): CreateCalendarItemInput {
   };
 }
 
+export function requiresActivePayablePaymentDetails(payload: Pick<CreateCalendarItemInput, "category" | "status" | "paymentProfileId" | "amountCents" | "nextDueDate">) {
+  return payload.category === "payment_payable"
+    && (payload.status === "active" || payload.status === "overdue")
+    && (!payload.paymentProfileId || payload.amountCents == null || !payload.nextDueDate);
+}
+
 function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -478,7 +484,7 @@ export function Calendar() {
       if (!selectedCompanyId) throw new Error("No company selected");
       const payload = payloadFromForm(form);
       if (!payload.title) throw new Error("Title is required");
-      if (payload.category === "payment_payable" && (!payload.paymentProfileId || payload.amountCents == null || !payload.nextDueDate)) {
+      if (requiresActivePayablePaymentDetails(payload)) {
         throw new Error("Payment payables require due date, amount, and payment profile");
       }
       if (isEditing && selectedItemId) {

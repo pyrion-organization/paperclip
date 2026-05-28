@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { calendarItems, paymentEntries, paymentProfiles, paymentRecords } from "@paperclipai/db";
 import type {
@@ -425,13 +425,14 @@ export function paymentService(db: Db) {
       const dueSoonText = dateOnly(dueSoon)!;
       const openRows = rows.filter((row) => row.status === "open" || row.status === "partially_paid");
       const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       const monthPaid = await db
         .select({
           currency: paymentRecords.currency,
           total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int`,
         })
         .from(paymentRecords)
-        .where(and(eq(paymentRecords.companyId, companyId), gte(paymentRecords.paidAt, monthStart)))
+        .where(and(eq(paymentRecords.companyId, companyId), gte(paymentRecords.paidAt, monthStart), lt(paymentRecords.paidAt, nextMonthStart)))
         .groupBy(paymentRecords.currency);
       const openBalanceByCurrency = new Map<string, number>();
       for (const row of openRows) {

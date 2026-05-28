@@ -632,6 +632,16 @@ describeEmbeddedPostgres("calendarService", () => {
       calendarItemId: null,
       notes: null,
     });
+    const futureEntry = await payments.createEntry(companyId, {
+      title: "Future BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-07-05",
+      expectedAmountCents: 7000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
 
     await payments.recordPayment(companyId, brlEntry.id, {
       amountCents: 2000,
@@ -648,6 +658,14 @@ describeEmbeddedPostgres("calendarService", () => {
       paidAt: "2026-06-16T10:00:00.000Z",
       proofUrl: null,
       notes: "USD partial",
+    });
+    await payments.recordPayment(companyId, futureEntry.id, {
+      amountCents: 7000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-07-05T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Future month payment",
     });
 
     const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));

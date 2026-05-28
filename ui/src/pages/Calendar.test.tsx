@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CalendarDashboard, CalendarItem, CalendarItemDetail } from "@paperclipai/shared";
-import { Calendar, requiresGovernedSaveApproval } from "./Calendar";
+import { Calendar, requiresActivePayablePaymentDetails, requiresGovernedSaveApproval } from "./Calendar";
 
 const mockCalendarApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -276,6 +276,23 @@ describe("Calendar", () => {
       title: "Domain renewal",
       category: "domain",
       paymentProfileId: "11111111-1111-4111-8111-111111111111",
+    })).toBe(true);
+  });
+
+  it("only requires payment details for active payable items", () => {
+    expect(requiresActivePayablePaymentDetails({
+      category: "payment_payable",
+      status: "pending_review",
+      paymentProfileId: null,
+      amountCents: null,
+      nextDueDate: null,
+    })).toBe(false);
+    expect(requiresActivePayablePaymentDetails({
+      category: "payment_payable",
+      status: "active",
+      paymentProfileId: null,
+      amountCents: null,
+      nextDueDate: null,
     })).toBe(true);
   });
 
