@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { unprocessable } from "../errors.js";
 import { errorHandler } from "../middleware/index.js";
 import { paymentRoutes } from "../routes/payments.js";
 
@@ -119,7 +120,9 @@ describe("payment routes", () => {
   });
 
   it("requires explicit approval before completing high-risk linked payments", async () => {
-    mockCalendar.getById.mockResolvedValue({ id: "calendar-1", riskLevel: "critical" });
+    mockPayments.recordPayment.mockRejectedValueOnce(
+      unprocessable("Completing high-risk or critical items requires approval confirmation"),
+    );
 
     const rejected = await request(appForActor(boardActor))
       .post("/api/companies/company-1/payments/entries/entry-1/records")
@@ -130,7 +133,11 @@ describe("payment routes", () => {
       });
 
     expect(rejected.status).toBe(422);
-    expect(mockPayments.recordPayment).not.toHaveBeenCalled();
+    expect(mockPayments.recordPayment).toHaveBeenCalledWith(
+      "company-1",
+      "entry-1",
+      expect.objectContaining({ approvalConfirmed: false }),
+    );
     expect(mockCalendar.complete).not.toHaveBeenCalled();
 
     const approved = await request(appForActor(boardActor))

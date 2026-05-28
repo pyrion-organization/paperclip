@@ -956,7 +956,7 @@ export function calendarService(db: Db) {
         nextDueDate,
         status,
       });
-      await payments.completeCurrentEntryForCalendarItem(existing);
+      await payments.completeCurrentEntryForCalendarItem(existing, input.completedAt ?? new Date());
       await payments.ensureEntryForCalendarItem(updated, { advanceCycle: true });
       return rowToItem(updated);
     },

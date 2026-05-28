@@ -269,6 +269,23 @@ export function paymentService(db: Db) {
           if (!profile) throw notFound("Payment profile not found");
         }
 
+        const [{ total: currentPaidTotal }] = await tx
+          .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+          .from(paymentRecords)
+          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
+        const projectedPaidAmountCents = Number(currentPaidTotal ?? 0) + input.amountCents;
+        const nextStatus = statusFor(entry, projectedPaidAmountCents);
+        if (nextStatus === "paid" && entry.status !== "paid" && entry.calendarItemId && !input.approvalConfirmed) {
+          const calendarItem = await tx
+            .select({ riskLevel: calendarItems.riskLevel })
+            .from(calendarItems)
+            .where(and(eq(calendarItems.companyId, companyId), eq(calendarItems.id, entry.calendarItemId)))
+            .then((rows) => rows[0] ?? null);
+          if (calendarItem && (calendarItem.riskLevel === "high" || calendarItem.riskLevel === "critical")) {
+            throw unprocessable("Completing high-risk or critical items requires approval confirmation");
+          }
+        }
+
         const { approvalConfirmed: _approvalConfirmed, ...recordInput } = input;
         await tx.insert(paymentRecords).values({
           ...recordInput,
@@ -279,15 +296,9 @@ export function paymentService(db: Db) {
           paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
         });
 
-        const [{ total }] = await tx
-          .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
-          .from(paymentRecords)
-          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
-        const paidAmountCents = Number(total ?? 0);
-        const nextStatus = statusFor(entry, paidAmountCents);
         const [updated] = await tx
           .update(paymentEntries)
-          .set({ paidAmountCents, status: nextStatus, updatedAt: new Date() })
+          .set({ paidAmountCents: projectedPaidAmountCents, status: nextStatus, updatedAt: new Date() })
           .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
           .returning();
         return {
@@ -362,7 +373,7 @@ export function paymentService(db: Db) {
       return (await hydrateEntries([created]))[0]!;
     },
 
-    completeCurrentEntryForCalendarItem: async (item: CalendarPaymentItem) => {
+    completeCurrentEntryForCalendarItem: async (item: CalendarPaymentItem, paidAt = new Date()) => {
       if (item.category !== "payment_payable") return null;
       const dueDate = dateOnly(item.nextDueDate);
       if (!dueDate) return null;
@@ -382,6 +393,19 @@ export function paymentService(db: Db) {
       const paidAmountCents = existing.expectedAmountCents == null
         ? existing.paidAmountCents
         : Math.max(existing.paidAmountCents, existing.expectedAmountCents);
+      const recordedAmountCents = await paidAmountForEntry(db, item.companyId, existing.id);
+      const recordAmountCents = Math.max(paidAmountCents - recordedAmountCents, 0);
+      if (recordAmountCents > 0) {
+        await db.insert(paymentRecords).values({
+          companyId: item.companyId,
+          paymentEntryId: existing.id,
+          paymentProfileId: existing.paymentProfileId,
+          amountCents: recordAmountCents,
+          currency: existing.currency,
+          paidAt,
+          notes: "Marked paid from calendar completion",
+        });
+      }
       const [updated] = await db
         .update(paymentEntries)
         .set({ paidAmountCents, status: "paid", updatedAt: new Date() })

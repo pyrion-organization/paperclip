@@ -274,6 +274,7 @@ describeEmbeddedPostgres("calendarService", () => {
   });
 
   it("creates and advances linked payment entries for payable calendar items", async () => {
+    const payments = paymentService(db);
     const [profile] = await db
       .insert(paymentProfiles)
       .values({
@@ -330,6 +331,20 @@ describeEmbeddedPostgres("calendarService", () => {
       paidAmountCents: 12500,
       status: "paid",
     });
+    const completionRecords = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, advancedEntries[0]!.id)));
+    expect(completionRecords).toHaveLength(1);
+    expect(completionRecords[0]).toMatchObject({
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+      notes: "Marked paid from calendar completion",
+    });
+    expect(completionRecords[0]!.paidAt.toISOString()).toBe("2026-06-10T12:00:00.000Z");
+    await expect(payments.updateEntry(companyId, advancedEntries[0]!.id, { notes: "Receipt reconciled" }))
+      .resolves.toMatchObject({ paidAmountCents: 12500, status: "paid" });
     expect(advancedEntries[1]).toMatchObject({
       expectedAmountCents: 12500,
       paymentProfileId: profile!.id,
@@ -686,6 +701,70 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
     expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
     expect(records).toHaveLength(1);
+  });
+
+  it("requires approval from locked state for concurrent high-risk linked payments", async () => {
+    const payments = paymentService(db);
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+    const itemRow = await svc.create(companyId, item({
+      title: "Critical payable",
+      category: "payment_payable",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-15",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const [entry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, itemRow.id)));
+    expect(entry).toBeDefined();
+
+    const attempts = await Promise.allSettled([
+      payments.recordPayment(companyId, entry!.id, {
+        amountCents: 6000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:00:00.000Z",
+        proofUrl: null,
+        notes: "First partial",
+      }),
+      payments.recordPayment(companyId, entry!.id, {
+        amountCents: 4000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:01:00.000Z",
+        proofUrl: null,
+        notes: "Second partial",
+      }),
+    ]);
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry!.id)));
+    const [updatedEntry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entry!.id)));
+    const [updatedItem] = await db
+      .select()
+      .from(calendarItems)
+      .where(and(eq(calendarItems.companyId, companyId), eq(calendarItems.id, itemRow.id)));
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(records).toHaveLength(1);
+    expect([4000, 6000]).toContain(updatedEntry!.paidAmountCents);
+    expect(updatedEntry).toMatchObject({ status: "partially_paid" });
+    expect(updatedItem).toMatchObject({ status: "active", nextDueDate: "2026-06-15" });
   });
 
   it("rejects payment records that do not match the entry currency", async () => {
