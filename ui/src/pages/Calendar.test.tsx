@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CalendarDashboard, CalendarItem, CalendarItemDetail } from "@paperclipai/shared";
-import { Calendar } from "./Calendar";
+import { Calendar, requiresGovernedSaveApproval } from "./Calendar";
 
 const mockCalendarApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -270,6 +270,14 @@ describe("Calendar", () => {
     });
     await flushReact();
   }
+
+  it("requires governed save approval for payment profile changes", () => {
+    expect(requiresGovernedSaveApproval(makeItem({ paymentProfileId: null }), {
+      title: "Domain renewal",
+      category: "domain",
+      paymentProfileId: "11111111-1111-4111-8111-111111111111",
+    })).toBe(true);
+  });
 
   it("opens the create dialog from New Item", async () => {
     await renderPage();

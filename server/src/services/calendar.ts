@@ -344,6 +344,7 @@ function requiresApprovalForPatch(existing: CalendarItemRow, patch: UpdateCalend
   if (patch.recoveryEmail !== undefined && patch.recoveryEmail !== existing.recoveryEmail) return "Changing recovery email requires approval";
   if (patch.billingEmail !== undefined && patch.billingEmail !== existing.billingEmail) return "Changing billing email requires approval";
   if (patch.paymentMethodLabel !== undefined && patch.paymentMethodLabel !== existing.paymentMethodLabel) return "Changing payment method requires approval";
+  if (patch.paymentProfileId !== undefined && patch.paymentProfileId !== existing.paymentProfileId) return "Changing payment profile requires approval";
   return null;
 }
 

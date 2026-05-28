@@ -931,6 +931,14 @@ describeEmbeddedPostgres("calendarService", () => {
   });
 
   it("rejects governed mutations unless approval is explicitly confirmed", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
     const created = await svc.create(companyId, item({
       title: "Critical certificate",
       category: "certificate",
@@ -955,6 +963,9 @@ describeEmbeddedPostgres("calendarService", () => {
     ).rejects.toThrow(/requires approval/);
     await expect(
       svc.update(companyId, created.id, { paymentMethodLabel: null }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { paymentProfileId: profile!.id }),
     ).rejects.toThrow(/requires approval/);
     await expect(
       svc.complete(companyId, created.id, { completedAt: new Date("2026-06-30T12:00:00.000Z") }),

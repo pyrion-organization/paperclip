@@ -21,7 +21,11 @@ const NONE = "__none__";
 
 function money(cents: number | null | undefined, currency = "BRL") {
   if (cents == null) return "-";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+  try {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+  } catch {
+    return `${currency} ${(cents / 100).toFixed(2)}`;
+  }
 }
 
 function moneyTotals(totals: Array<{ currency: string; amountCents: number }> | null | undefined) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarItemCategorySchema, paymentEntryFilterSchema, recordPaymentSchema } from "../index.js";
+import { calendarItemCategorySchema, createPaymentEntrySchema, paymentEntryFilterSchema, recordPaymentSchema } from "../index.js";
 
 describe("payment validators", () => {
   it("accepts comma-separated payment entry status filters", () => {
@@ -16,5 +16,10 @@ describe("payment validators", () => {
   it("does not default omitted payment record currency before entry lookup", () => {
     expect(recordPaymentSchema.parse({ amountCents: 1000 }).currency).toBeUndefined();
     expect(recordPaymentSchema.parse({ amountCents: 1000, currency: "usd" }).currency).toBe("USD");
+  });
+
+  it("rejects malformed payment currency codes", () => {
+    expect(() => createPaymentEntrySchema.parse({ title: "Invoice", currency: "123" })).toThrow();
+    expect(() => recordPaymentSchema.parse({ amountCents: 1000, currency: "12$" })).toThrow();
   });
 });

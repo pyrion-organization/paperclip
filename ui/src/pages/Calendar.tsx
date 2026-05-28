@@ -245,7 +245,7 @@ function dueLabel(item: CalendarItem) {
   return `${diff}d`;
 }
 
-function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
+export function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
   if (!item) return false;
   const highRisk = item.riskLevel === "high" || item.riskLevel === "critical";
   const governedCategory = ["fiscal", "legal", "domain", "certificate", "hosting"].includes(item.category);
@@ -256,6 +256,7 @@ function requiresGovernedSaveApproval(item: CalendarItem | null, payload: Create
   if (payload.recoveryEmail !== undefined && payload.recoveryEmail !== item.recoveryEmail) return true;
   if (payload.billingEmail !== undefined && payload.billingEmail !== item.billingEmail) return true;
   if (payload.paymentMethodLabel !== undefined && payload.paymentMethodLabel !== item.paymentMethodLabel) return true;
+  if (payload.paymentProfileId !== undefined && payload.paymentProfileId !== item.paymentProfileId) return true;
   return false;
 }
 

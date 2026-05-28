@@ -6,6 +6,10 @@ const nullableTrimmed = (max: number) =>
 
 const optionalDateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable();
 const optionalUrl = z.string().trim().url().max(1000).optional().nullable().or(z.literal("").transform(() => null));
+const currencyCodeSchema = z.string()
+  .trim()
+  .regex(/^[A-Za-z]{3}$/, "Currency must be a 3-letter ISO code")
+  .transform((value) => value.toUpperCase());
 const paymentEntryStatusFilterSchema = z.preprocess(
   (value) => {
     if (typeof value !== "string") return value;
@@ -51,7 +55,7 @@ export const createPaymentEntrySchema = z.object({
   providerName: nullableTrimmed(240),
   dueDate: optionalDateOnly,
   expectedAmountCents: z.number().int().nonnegative().optional().nullable(),
-  currency: z.string().trim().length(3).optional().default("BRL").transform((value) => value.toUpperCase()),
+  currency: currencyCodeSchema.optional().default("BRL"),
   notes: nullableTrimmed(2000),
 }).strict();
 export type CreatePaymentEntry = z.infer<typeof createPaymentEntrySchema>;
@@ -65,7 +69,7 @@ export type UpdatePaymentEntryInput = z.input<typeof updatePaymentEntrySchema>;
 
 export const recordPaymentSchema = z.object({
   amountCents: z.number().int().positive(),
-  currency: z.string().trim().length(3).optional().transform((value) => value?.toUpperCase()),
+  currency: currencyCodeSchema.optional(),
   paidAt: z.string().datetime().optional(),
   paymentProfileId: z.string().uuid().optional().nullable(),
   proofUrl: optionalUrl,
