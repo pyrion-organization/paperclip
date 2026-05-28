@@ -48,6 +48,11 @@ export interface PaymentEntryDetail extends PaymentEntry {
   records: PaymentRecord[];
 }
 
+export interface PaymentMoneyTotal {
+  currency: string;
+  amountCents: number;
+}
+
 export interface PaymentDashboard {
   companyId: string;
   generatedAt: string;
@@ -55,9 +60,8 @@ export interface PaymentDashboard {
   overdueCount: number;
   dueSoonCount: number;
   partiallyPaidCount: number;
-  openBalanceCents: number;
-  paidThisMonthCents: number;
-  currency: string;
+  openBalances: PaymentMoneyTotal[];
+  paidThisMonth: PaymentMoneyTotal[];
 }
 
 export interface PaymentEntryListResponse {

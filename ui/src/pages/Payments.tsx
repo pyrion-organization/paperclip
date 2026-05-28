@@ -24,6 +24,11 @@ function money(cents: number | null | undefined, currency = "BRL") {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
 }
 
+function moneyTotals(totals: Array<{ currency: string; amountCents: number }> | null | undefined) {
+  if (!totals || totals.length === 0) return "-";
+  return totals.map((total) => money(total.amountCents, total.currency)).join(" / ");
+}
+
 function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -175,13 +180,14 @@ export function Payments() {
         <div className="border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{operationError}</div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-6">
         {[
           ["Open", dashboardQuery.data?.openCount ?? 0],
           ["Overdue", dashboardQuery.data?.overdueCount ?? 0],
           ["Due 7d", dashboardQuery.data?.dueSoonCount ?? 0],
           ["Partial", dashboardQuery.data?.partiallyPaidCount ?? 0],
-          ["Open balance", money(dashboardQuery.data?.openBalanceCents ?? 0, dashboardQuery.data?.currency ?? "BRL")],
+          ["Open balance", moneyTotals(dashboardQuery.data?.openBalances)],
+          ["Paid month", moneyTotals(dashboardQuery.data?.paidThisMonth)],
         ].map(([label, value]) => (
           <div key={label} className="border border-border p-3">
             <div className="text-xs uppercase text-muted-foreground">{label}</div>

@@ -591,7 +591,101 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(records.map((record) => record.paymentProfileId)).toEqual([null, null]);
 
     const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
-    expect(dashboard.paidThisMonthCents).toBe(10000);
+    expect(dashboard.paidThisMonth).toEqual([{ currency: "BRL", amountCents: 10000 }]);
+    expect(dashboard.openBalances).toEqual([]);
+  });
+
+  it("keeps payment dashboard money totals grouped by currency", async () => {
+    const payments = paymentService(db);
+    const brlEntry = await payments.createEntry(companyId, {
+      title: "BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+    const usdEntry = await payments.createEntry(companyId, {
+      title: "USD invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-16",
+      expectedAmountCents: 5000,
+      currency: "USD",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, brlEntry.id, {
+      amountCents: 2000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "BRL partial",
+    });
+    await payments.recordPayment(companyId, usdEntry.id, {
+      amountCents: 2000,
+      currency: "USD",
+      paymentProfileId: null,
+      paidAt: "2026-06-16T10:00:00.000Z",
+      proofUrl: null,
+      notes: "USD partial",
+    });
+
+    const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
+
+    expect(dashboard.openBalances).toEqual([
+      { currency: "BRL", amountCents: 8000 },
+      { currency: "USD", amountCents: 3000 },
+    ]);
+    expect(dashboard.paidThisMonth).toEqual([
+      { currency: "BRL", amountCents: 2000 },
+      { currency: "USD", amountCents: 2000 },
+    ]);
+  });
+
+  it("serializes concurrent payment records for the same entry", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Concurrent invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const attempts = await Promise.allSettled([
+      payments.recordPayment(companyId, entry.id, {
+        amountCents: 10000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:00:00.000Z",
+        proofUrl: null,
+        notes: "First concurrent payment",
+      }),
+      payments.recordPayment(companyId, entry.id, {
+        amountCents: 10000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:01:00.000Z",
+        proofUrl: null,
+        notes: "Second concurrent payment",
+      }),
+    ]);
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)));
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(records).toHaveLength(1);
   });
 
   it("rejects payment records that do not match the entry currency", async () => {

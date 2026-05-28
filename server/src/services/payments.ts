@@ -63,6 +63,13 @@ function statusFor(entry: Pick<typeof paymentEntries.$inferSelect, "status" | "e
   return "paid";
 }
 
+function sortedMoneyTotals(totals: Map<string, number>) {
+  return [...totals.entries()]
+    .filter(([, amountCents]) => amountCents > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, amountCents]) => ({ currency, amountCents }));
+}
+
 async function paidAmountForEntry(db: Db, companyId: string, entryId: string): Promise<number> {
   const [{ total }] = await db
     .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
@@ -235,44 +242,62 @@ export function paymentService(db: Db) {
     },
 
     recordPayment: async (companyId: string, entryId: string, input: RecordPayment) => {
-      const entry = await db
-        .select()
-        .from(paymentEntries)
-        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
-        .then((rows) => rows[0] ?? null);
-      if (!entry) throw notFound("Payment entry not found");
-      if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot receive payments");
-      if (entry.status === "paid") throw unprocessable("Payment entry is already paid");
-      const recordCurrency = input.currency ?? entry.currency;
-      if (recordCurrency !== entry.currency) {
-        throw unprocessable("Payment record currency must match the payment entry currency");
-      }
+      const result = await db.transaction(async (tx) => {
+        const entry = await tx
+          .select()
+          .from(paymentEntries)
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .for("update")
+          .then((rows) => rows[0] ?? null);
+        if (!entry) throw notFound("Payment entry not found");
+        if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot receive payments");
+        if (entry.status === "paid") throw unprocessable("Payment entry is already paid");
+        const recordCurrency = input.currency ?? entry.currency;
+        if (recordCurrency !== entry.currency) {
+          throw unprocessable("Payment record currency must match the payment entry currency");
+        }
 
-      const profileId = Object.prototype.hasOwnProperty.call(input, "paymentProfileId")
-        ? input.paymentProfileId ?? null
-        : entry.paymentProfileId;
-      if (profileId) await assertProfile(db, companyId, profileId);
+        const profileId = Object.prototype.hasOwnProperty.call(input, "paymentProfileId")
+          ? input.paymentProfileId ?? null
+          : entry.paymentProfileId;
+        if (profileId) {
+          const profile = await tx
+            .select()
+            .from(paymentProfiles)
+            .where(and(eq(paymentProfiles.companyId, companyId), eq(paymentProfiles.id, profileId)))
+            .then((rows) => rows[0] ?? null);
+          if (!profile) throw notFound("Payment profile not found");
+        }
 
-      const { approvalConfirmed: _approvalConfirmed, ...recordInput } = input;
-      await db.insert(paymentRecords).values({
-        ...recordInput,
-        companyId,
-        paymentEntryId: entryId,
-        currency: recordCurrency,
-        paymentProfileId: profileId,
-        paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
+        const { approvalConfirmed: _approvalConfirmed, ...recordInput } = input;
+        await tx.insert(paymentRecords).values({
+          ...recordInput,
+          companyId,
+          paymentEntryId: entryId,
+          currency: recordCurrency,
+          paymentProfileId: profileId,
+          paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
+        });
+
+        const [{ total }] = await tx
+          .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+          .from(paymentRecords)
+          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
+        const paidAmountCents = Number(total ?? 0);
+        const nextStatus = statusFor(entry, paidAmountCents);
+        const [updated] = await tx
+          .update(paymentEntries)
+          .set({ paidAmountCents, status: nextStatus, updatedAt: new Date() })
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .returning();
+        return {
+          updated,
+          completed: nextStatus === "paid" && entry.status !== "paid",
+        };
       });
-
-      const paidAmountCents = await paidAmountForEntry(db, companyId, entryId);
-      const nextStatus = statusFor(entry, paidAmountCents);
-      const [updated] = await db
-        .update(paymentEntries)
-        .set({ paidAmountCents, status: nextStatus, updatedAt: new Date() })
-        .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
-        .returning();
       return {
-        entry: (await hydrateEntries([updated]))[0]!,
-        completed: nextStatus === "paid" && entry.status !== "paid",
+        entry: (await hydrateEntries([result.updated]))[0]!,
+        completed: result.completed,
       };
     },
 
@@ -377,10 +402,22 @@ export function paymentService(db: Db) {
       const openRows = rows.filter((row) => row.status === "open" || row.status === "partially_paid");
       const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
       const monthPaid = await db
-        .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+        .select({
+          currency: paymentRecords.currency,
+          total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int`,
+        })
         .from(paymentRecords)
         .where(and(eq(paymentRecords.companyId, companyId), gte(paymentRecords.paidAt, monthStart)))
-        .then((result) => Number(result[0]?.total ?? 0));
+        .groupBy(paymentRecords.currency);
+      const openBalanceByCurrency = new Map<string, number>();
+      for (const row of openRows) {
+        const balance = Math.max((row.expectedAmountCents ?? 0) - row.paidAmountCents, 0);
+        openBalanceByCurrency.set(row.currency, (openBalanceByCurrency.get(row.currency) ?? 0) + balance);
+      }
+      const paidThisMonthByCurrency = new Map<string, number>();
+      for (const row of monthPaid) {
+        paidThisMonthByCurrency.set(row.currency, Number(row.total ?? 0));
+      }
       return {
         companyId,
         generatedAt: now.toISOString(),
@@ -388,9 +425,8 @@ export function paymentService(db: Db) {
         overdueCount: openRows.filter((row) => row.dueDate && dateOnly(row.dueDate)! < today).length,
         dueSoonCount: openRows.filter((row) => row.dueDate && dateOnly(row.dueDate)! >= today && dateOnly(row.dueDate)! <= dueSoonText).length,
         partiallyPaidCount: rows.filter((row) => row.status === "partially_paid").length,
-        openBalanceCents: openRows.reduce((sum, row) => sum + Math.max((row.expectedAmountCents ?? 0) - row.paidAmountCents, 0), 0),
-        paidThisMonthCents: monthPaid,
-        currency: rows.find((row) => row.currency)?.currency ?? "BRL",
+        openBalances: sortedMoneyTotals(openBalanceByCurrency),
+        paidThisMonth: sortedMoneyTotals(paidThisMonthByCurrency),
       };
     },
   };
