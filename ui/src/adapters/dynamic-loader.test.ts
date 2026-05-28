@@ -33,6 +33,40 @@ module.exports = {
 };
 `;
 
+type FakeParserModule = {
+  parseStdoutLine?: (line: string, ts: string) => unknown[];
+  createStdoutParser?: () => { parseLine: (line: string, ts: string) => unknown[]; reset: () => void };
+};
+
+function createFakeParserModule(source: string): FakeParserModule {
+  if (source !== statefulParserSource) {
+    throw new Error("Unexpected dynamic parser source in FakeWorker");
+  }
+
+  return {
+    createStdoutParser() {
+      let pending: string | null = null;
+      return {
+        parseLine(line: string, ts: string) {
+          if (line.startsWith("begin:")) {
+            pending = line.slice("begin:".length);
+            return [];
+          }
+          if (line === "finish" && pending) {
+            const text = `completed:${pending}`;
+            pending = null;
+            return [{ kind: "stdout", ts, text }];
+          }
+          return [{ kind: "stdout", ts, text: `literal:${line}` }];
+        },
+        reset() {
+          pending = null;
+        },
+      };
+    },
+  };
+}
+
 function flushWorkerResults() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -103,12 +137,7 @@ class FakeWorker {
 
   postMessage(msg: SandboxRequest) {
     if (msg.type === "init") {
-      const exports: Record<string, unknown> = {};
-      const module = { exports };
-      const factory = new Function("exports", "module", msg.source);
-      factory(exports, module);
-
-      const resolved = module.exports && Object.keys(module.exports).length > 0 ? module.exports : exports;
+      const resolved = createFakeParserModule(msg.source);
       this.parseStdoutLine =
         typeof resolved.parseStdoutLine === "function"
           ? (resolved.parseStdoutLine as (line: string, ts: string) => unknown[])

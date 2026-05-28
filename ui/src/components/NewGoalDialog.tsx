@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GOAL_LEVELS, GOAL_STATUSES } from "@paperclipai/shared/constants";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
@@ -25,6 +25,7 @@ import {
 import { cn } from "../lib/classnames";
 import { MarkdownEditor, type MarkdownEditorRef } from "./MarkdownEditor";
 import { StatusBadge } from "./StatusBadge";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const levelLabels: Record<string, string> = {
   company: "Company",
@@ -58,7 +59,7 @@ export function NewGoalDialog() {
     enabled: !!selectedCompanyId && newGoalOpen,
   });
 
-  const createGoal = useMutation({
+  const createGoal = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       goalsApi.create(selectedCompanyId!, data),
     onSuccess: () => {
@@ -68,7 +69,7 @@ export function NewGoalDialog() {
     },
   });
 
-  const uploadDescriptionImage = useMutation({
+  const uploadDescriptionImage = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) throw new Error("No company selected");
       return assetsApi.uploadImage(selectedCompanyId, file, "goals/drafts");
@@ -137,7 +138,7 @@ export function NewGoalDialog() {
               className="text-muted-foreground"
               onClick={() => setExpanded(!expanded)}
             >
-              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
             </Button>
             <Button
               variant="ghost"
@@ -163,8 +164,7 @@ export function NewGoalDialog() {
                 descriptionEditorRef.current?.focus();
               }
             }}
-            autoFocus
-          />
+           aria-label="Title"/>
         </div>
 
         {/* Description */}
@@ -188,13 +188,13 @@ export function NewGoalDialog() {
           {/* Status */}
           <Popover open={statusOpen} onOpenChange={setStatusOpen}>
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
                 <StatusBadge status={status} />
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-40 p-1" align="start">
               {GOAL_STATUSES.map((s) => (
-                <button
+                <button type="button"
                   key={s}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 capitalize",
@@ -211,14 +211,14 @@ export function NewGoalDialog() {
           {/* Level */}
           <Popover open={levelOpen} onOpenChange={setLevelOpen}>
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
-                <Layers className="h-3 w-3 text-muted-foreground" />
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+                <Layers className="size-3 text-muted-foreground" />
                 {levelLabels[level] ?? level}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-40 p-1" align="start">
               {GOAL_LEVELS.map((l) => (
-                <button
+                <button type="button"
                   key={l}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -235,13 +235,13 @@ export function NewGoalDialog() {
           {/* Parent goal */}
           <Popover open={parentOpen} onOpenChange={setParentOpen}>
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
-                <Target className="h-3 w-3 text-muted-foreground" />
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+                <Target className="size-3 text-muted-foreground" />
                 {currentParent ? currentParent.title : "Parent goal"}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-48 p-1" align="start">
-              <button
+              <button type="button"
                 className={cn(
                   "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                   !appliedParentId && "bg-accent"
@@ -251,7 +251,7 @@ export function NewGoalDialog() {
                 No parent
               </button>
               {(goals ?? []).map((g) => (
-                <button
+                <button type="button"
                   key={g.id}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 truncate",

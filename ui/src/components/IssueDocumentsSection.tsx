@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   DocumentRevision,
   FeedbackDataSharingPreference,
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Check, ChevronDown, ChevronRight, Copy, Diff, Download, FilePenLine, FileText, Lock, MoreHorizontal, Plus, Trash2, Unlock, X } from "lucide-react";
 import { DocumentDiffModal } from "./DocumentDiffModal";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 type DraftState = {
   key: string;
@@ -71,7 +72,13 @@ function saveFoldedDocumentKeys(issueId: string, keys: string[]) {
   window.localStorage.setItem(getFoldedDocumentsStorageKey(issueId), JSON.stringify(keys));
 }
 
-function renderFoldableBody(body: string, className?: string) {
+function FoldableDocumentBody({
+  body,
+  className,
+}: {
+  body: string;
+  className?: string;
+}) {
   return (
     <FoldCurtain>
       <MarkdownBody className={className} softBreaks={false}>{body}</MarkdownBody>
@@ -140,11 +147,13 @@ function toDocumentSummary(document: IssueDocument) {
   };
 }
 
+const EMPTY_FEEDBACK_VOTES: FeedbackVote[] = [];
+
 export function IssueDocumentsSection({
   issue,
   canDeleteDocuments,
   canManageDocumentLocks = false,
-  feedbackVotes = [],
+  feedbackVotes = EMPTY_FEEDBACK_VOTES,
   feedbackDataSharingPreference = "prompt",
   feedbackTermsUrl = null,
   mentions,
@@ -168,7 +177,7 @@ export function IssueDocumentsSection({
   extraActions?: ReactNode;
 }) {
   const queryClient = useQueryClient();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -249,7 +258,7 @@ export function IssueDocumentsSection({
     );
   }, [issue.id, queryClient]);
 
-  const upsertDocument = useMutation({
+  const upsertDocument = useInvalidatingMutation({
     mutationFn: async (nextDraft: DraftState) =>
       issuesApi.upsertDocument(issue.id, nextDraft.key, {
         title: isPlanKey(nextDraft.key) ? null : nextDraft.title.trim() || null,
@@ -259,7 +268,7 @@ export function IssueDocumentsSection({
       }),
   });
 
-  const deleteDocument = useMutation({
+  const deleteDocument = useInvalidatingMutation({
     mutationFn: (key: string) => issuesApi.deleteDocument(issue.id, key),
     onSuccess: () => {
       setError(null);
@@ -271,7 +280,7 @@ export function IssueDocumentsSection({
     },
   });
 
-  const restoreDocumentRevision = useMutation({
+  const restoreDocumentRevision = useInvalidatingMutation({
     mutationFn: ({ key, revisionId }: { key: string; revisionId: string }) =>
       issuesApi.restoreDocumentRevision(issue.id, key, revisionId),
     onSuccess: (document, variables) => {
@@ -288,7 +297,7 @@ export function IssueDocumentsSection({
     },
   });
 
-  const setDocumentLock = useMutation({
+  const setDocumentLock = useInvalidatingMutation({
     mutationFn: ({ key, locked }: { key: string; locked: boolean }) =>
       locked ? issuesApi.lockDocument(issue.id, key) : issuesApi.unlockDocument(issue.id, key),
     onSuccess: (document) => {
@@ -603,7 +612,7 @@ export function IssueDocumentsSection({
     setDocumentLock.mutate({ key: doc.key, locked });
   }, [canManageDocumentLocks, documentConflict, draft, setDocumentLock]);
 
-  const handleDraftBlur = async (event: React.FocusEvent<HTMLDivElement>) => {
+  const handleDraftBlur = async (event: React.FocusEvent<HTMLElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     if (autosaveDebounceRef.current) {
       clearTimeout(autosaveDebounceRef.current);
@@ -626,13 +635,17 @@ export function IssueDocumentsSection({
     }
   };
 
+  const autosaveDraft = useEffectEvent((nextDraft: DraftState) => {
+    void commitDraft(nextDraft, { clearAfterSave: false, trackAutosave: true });
+  });
+
   useEffect(() => {
     setFoldedDocumentKeys(loadFoldedDocumentKeys(issue.id));
   }, [issue.id]);
 
   useEffect(() => {
     hasScrolledToHashRef.current = false;
-  }, [issue.id, location.hash]);
+  }, [issue.id, routerLocation.hash]);
 
   useEffect(() => {
     const validKeys = new Set(sortedDocuments.map((doc) => doc.key));
@@ -661,7 +674,7 @@ export function IssueDocumentsSection({
   }, [documentConflict, sortedDocuments]);
 
   useEffect(() => {
-    const hash = location.hash;
+    const hash = routerLocation.hash;
     if (!hash.startsWith("#document-")) return;
     const documentKey = decodeURIComponent(hash.slice("#document-".length));
     const targetExists = sortedDocuments.some((doc) => doc.key === documentKey)
@@ -675,7 +688,7 @@ export function IssueDocumentsSection({
     element.scrollIntoView({ behavior: "smooth", block: "center" });
     const timer = setTimeout(() => setHighlightDocumentKey((current) => current === documentKey ? null : current), 3000);
     return () => clearTimeout(timer);
-  }, [issue.legacyPlanDocument, location.hash, sortedDocuments]);
+  }, [issue.legacyPlanDocument, routerLocation.hash, sortedDocuments]);
 
   useEffect(() => {
     return () => {
@@ -707,7 +720,7 @@ export function IssueDocumentsSection({
       clearTimeout(autosaveDebounceRef.current);
     }
     autosaveDebounceRef.current = setTimeout(() => {
-      void commitDraft(draft, { clearAfterSave: false, trackAutosave: true });
+      autosaveDraft(draft);
     }, DOCUMENT_AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
@@ -715,7 +728,7 @@ export function IssueDocumentsSection({
         clearTimeout(autosaveDebounceRef.current);
       }
     };
-  }, [autosaveState, commitDraft, documentConflict, draft, markDocumentDirty, resetAutosaveState, sortedDocuments]);
+  }, [autosaveState, documentConflict, draft, markDocumentDirty, resetAutosaveState, sortedDocuments]);
 
   const documentBodyShellClassName = "mt-3";
   const documentBodyContentClassName = "paperclip-edit-in-place-content min-h-[220px] text-[15px] leading-7";
@@ -733,7 +746,7 @@ export function IssueDocumentsSection({
         <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
           {extraActions}
           <Button variant="outline" size="sm" onClick={beginNewDocument} className="shrink-0">
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            <Plus className="mr-1.5 size-3.5" />
             <span className="hidden sm:inline">New document</span>
             <span className="sm:hidden">New</span>
           </Button>
@@ -744,7 +757,7 @@ export function IssueDocumentsSection({
           <div className="flex flex-wrap items-center gap-2 min-w-0 sm:ml-auto">
             {extraActions}
             <Button variant="outline" size="sm" onClick={beginNewDocument} className="shrink-0">
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              <Plus className="mr-1.5 size-3.5" />
               <span className="hidden sm:inline">New document</span>
               <span className="sm:hidden">New</span>
             </Button>
@@ -757,6 +770,8 @@ export function IssueDocumentsSection({
       {draft?.isNew && (
         <div
           className="space-y-3 rounded-lg border border-border bg-accent/10 p-3"
+          role="group"
+          aria-label="New document draft"
           onBlurCapture={handleDraftBlur}
           onKeyDown={handleDraftKeyDown}
         >
@@ -795,7 +810,7 @@ export function IssueDocumentsSection({
           />
           <div className="flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" onClick={cancelDraft}>
-              <X className="mr-1.5 h-3.5 w-3.5" />
+              <X className="mr-1.5 size-3.5" />
               Cancel
             </Button>
             <Button
@@ -818,12 +833,12 @@ export function IssueDocumentsSection({
           )}
         >
           <div className="mb-2 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-amber-600" />
+            <FileText className="size-4 text-amber-600" />
             <span className="rounded-full border border-amber-500/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
               PLAN
             </span>
           </div>
-          {renderFoldableBody(issue.legacyPlanDocument.body, documentBodyContentClassName)}
+          <FoldableDocumentBody body={issue.legacyPlanDocument.body} className={documentBodyContentClassName} />
         </div>
       ) : null}
 
@@ -866,12 +881,12 @@ export function IssueDocumentsSection({
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       type="button"
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                      className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
                       onClick={() => toggleFoldedDocument(doc.key)}
                       aria-label={isFolded ? `Expand ${doc.key} document` : `Collapse ${doc.key} document`}
                       aria-expanded={!isFolded}
                     >
-                      {isFolded ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {isFolded ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
                     </button>
                     <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                       {doc.key}
@@ -890,13 +905,13 @@ export function IssueDocumentsSection({
                           )}
                         >
                           rev {displayedRevisionNumber}
-                          <ChevronDown className="h-3 w-3" />
+                          <ChevronDown className="size-3" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" className="w-72">
                         <DropdownMenuLabel>Revision history</DropdownMenuLabel>
                         {revisionMenuOpenKey === doc.key && isFetchingDocumentRevisions && rawRevisionHistory.length === 0 ? (
-                          <DropdownMenuItem disabled>Loading revisions...</DropdownMenuItem>
+                          <DropdownMenuItem disabled>Loading revisions&hellip;</DropdownMenuItem>
                         ) : revisionHistory.length > 0 ? (
                           <DropdownMenuRadioGroup value={selectedRevisionId ?? currentRevision.id ?? ""}>
                             {revisionHistory.map((revision) => {
@@ -953,11 +968,11 @@ export function IssueDocumentsSection({
                       onClick={() => toggleDocumentLock(doc, !isLocked)}
                       disabled={lockActionPending}
                     >
-                      {isLocked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                      {isLocked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
                     </Button>
                   ) : isLocked ? (
-                    <span title="Locked document" aria-label="Locked document" className="inline-flex h-6 w-6 items-center justify-center text-amber-300">
-                      <Lock className="h-3.5 w-3.5" />
+                    <span title="Locked document" aria-label="Locked document" className="inline-flex size-6 items-center justify-center text-amber-300">
+                      <Lock className="size-3.5" />
                     </span>
                   ) : null}
                   <Button
@@ -971,9 +986,9 @@ export function IssueDocumentsSection({
                     onClick={() => void copyDocumentBody(doc.key, displayedBody)}
                   >
                     {copiedDocumentKey === doc.key ? (
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="size-3.5" />
                     ) : (
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     )}
                   </Button>
                   <DropdownMenu>
@@ -984,13 +999,13 @@ export function IssueDocumentsSection({
                         className="text-muted-foreground"
                         title="Document actions"
                       >
-                        <MoreHorizontal className="h-3.5 w-3.5" />
+                        <MoreHorizontal className="size-3.5" />
                       </Button>
                     </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                       {!isHistoricalPreview && !isLocked ? (
                         <DropdownMenuItem onClick={() => beginEdit(doc.key)}>
-                          <FilePenLine className="h-3.5 w-3.5" />
+                          <FilePenLine className="size-3.5" />
                           Edit document
                         </DropdownMenuItem>
                       ) : null}
@@ -998,12 +1013,12 @@ export function IssueDocumentsSection({
                       <DropdownMenuItem
                         onClick={() => downloadDocumentFile(doc.key, displayedBody)}
                       >
-                        <Download className="h-3.5 w-3.5" />
+                        <Download className="size-3.5" />
                         Download document
                       </DropdownMenuItem>
                       {doc.latestRevisionNumber > 1 ? (
                         <DropdownMenuItem onClick={() => setDiffViewKey(doc.key)}>
-                          <Diff className="h-3.5 w-3.5" />
+                          <Diff className="size-3.5" />
                           View diff
                         </DropdownMenuItem>
                       ) : null}
@@ -1013,7 +1028,7 @@ export function IssueDocumentsSection({
                           variant="destructive"
                           onClick={() => setConfirmDeleteKey(doc.key)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="size-3.5" />
                           Delete document
                         </DropdownMenuItem>
                       ) : null}
@@ -1025,6 +1040,8 @@ export function IssueDocumentsSection({
               {!isFolded ? (
                 <div
                   className="mt-3 space-y-3"
+                  role="group"
+                  aria-label={`${doc.key} document editor`}
                   onBlurCapture={!isHistoricalPreview
                     ? async (event) => {
                         if (activeDraft) {
@@ -1041,7 +1058,7 @@ export function IssueDocumentsSection({
                     : undefined}
                 >
                   {isHistoricalPreview && selectedHistoricalRevision && (
-                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-amber-200">
@@ -1078,7 +1095,7 @@ export function IssueDocumentsSection({
                     </div>
                   )}
                   {activeConflict && !isHistoricalPreview && (
-                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-amber-200">Out of date</p>
@@ -1133,7 +1150,7 @@ export function IssueDocumentsSection({
                           {!isPlanKey(doc.key) && activeConflict.serverDocument.title ? (
                             <p className="mb-2 text-sm font-medium">{activeConflict.serverDocument.title}</p>
                           ) : null}
-                          {renderFoldableBody(activeConflict.serverDocument.body, "text-[14px] leading-7")}
+                          <FoldableDocumentBody body={activeConflict.serverDocument.body} className="text-[14px] leading-7" />
                         </div>
                       )}
                     </div>
@@ -1154,7 +1171,7 @@ export function IssueDocumentsSection({
                     }`}
                   >
                     {isHistoricalPreview ? (
-                      renderFoldableBody(displayedBody, documentBodyContentClassName)
+                      <FoldableDocumentBody body={displayedBody} className={documentBodyContentClassName} />
                     ) : activeDraft ? (
                       <MarkdownEditor
                         value={displayedBody}
@@ -1176,7 +1193,7 @@ export function IssueDocumentsSection({
                         onSubmit={() => void commitDraft(activeDraft ?? draft, { clearAfterSave: false, trackAutosave: true })}
                       />
                     ) : (
-                      renderFoldableBody(displayedBody, documentBodyContentClassName)
+                      <FoldableDocumentBody body={displayedBody} className={documentBodyContentClassName} />
                     )}
                   </div>
                   <div className="flex min-h-4 items-center justify-end px-1">

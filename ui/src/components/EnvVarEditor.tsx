@@ -7,6 +7,7 @@ const inputClass =
   "w-full rounded-md border border-border px-2.5 py-1.5 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/40";
 
 type Row = {
+  id: string;
   key: string;
   source: "plain" | "secret";
   plainValue: string;
@@ -14,8 +15,15 @@ type Row = {
   version: SecretVersionSelector;
 };
 
+let nextEnvRowId = 0;
+
+function rowId() {
+  nextEnvRowId += 1;
+  return `env-row-${nextEnvRowId}`;
+}
+
 function emptyRow(): Row {
-  return { key: "", source: "plain", plainValue: "", secretId: "", version: "latest" };
+  return { id: rowId(), key: "", source: "plain", plainValue: "", secretId: "", version: "latest" };
 }
 
 function toRows(rec: Record<string, EnvBinding> | null | undefined): Row[] {
@@ -24,7 +32,7 @@ function toRows(rec: Record<string, EnvBinding> | null | undefined): Row[] {
   }
   const entries = Object.entries(rec).map(([key, binding]) => {
     if (typeof binding === "string") {
-      return { key, source: "plain" as const, plainValue: binding, secretId: "", version: "latest" as const };
+      return { id: rowId(), key, source: "plain" as const, plainValue: binding, secretId: "", version: "latest" as const };
     }
     if (
       typeof binding === "object" &&
@@ -37,6 +45,7 @@ function toRows(rec: Record<string, EnvBinding> | null | undefined): Row[] {
         ? record.version
         : "latest";
       return {
+        id: rowId(),
         key,
         source: "secret" as const,
         plainValue: "",
@@ -52,6 +61,7 @@ function toRows(rec: Record<string, EnvBinding> | null | undefined): Row[] {
     ) {
       const record = binding as { value?: unknown };
       return {
+        id: rowId(),
         key,
         source: "plain" as const,
         plainValue: typeof record.value === "string" ? record.value : "",
@@ -59,7 +69,7 @@ function toRows(rec: Record<string, EnvBinding> | null | undefined): Row[] {
         version: "latest" as const,
       };
     }
-    return { key, source: "plain" as const, plainValue: "", secretId: "", version: "latest" as const };
+    return { id: rowId(), key, source: "plain" as const, plainValue: "", secretId: "", version: "latest" as const };
   });
   return [...entries, emptyRow()];
 }
@@ -178,13 +188,13 @@ export function EnvVarEditor({
           !row.plainValue &&
           !row.secretId;
         return (
-          <div key={index} className="flex items-center gap-1.5">
+          <div key={row.id} className="flex items-center gap-1.5">
             <input
               className={cn(inputClass, "flex-[2]")}
               placeholder="KEY"
               value={row.key}
               onChange={(event) => updateRow(index, { key: event.target.value })}
-            />
+             aria-label="Key"/>
             <select
               className={cn(inputClass, "flex-[1] bg-background")}
               value={row.source}
@@ -205,7 +215,7 @@ export function EnvVarEditor({
                   value={row.secretId}
                   onChange={(event) => updateRow(index, { secretId: event.target.value })}
                 >
-                  <option value="">Select secret...</option>
+                  <option value="">Select secret&hellip;</option>
                   {row.secretId && !secrets.some((s) => s.id === row.secretId) ? (
                     <option value={row.secretId}>Missing ({row.secretId.slice(0, 8)}…)</option>
                   ) : null}
@@ -258,7 +268,7 @@ export function EnvVarEditor({
                   placeholder="value"
                   value={row.plainValue}
                   onChange={(event) => updateRow(index, { plainValue: event.target.value })}
-                />
+                 aria-label="Plain Value"/>
                 <button
                   type="button"
                   className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent/50 transition-colors shrink-0"
@@ -276,7 +286,7 @@ export function EnvVarEditor({
                 className="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                 onClick={() => removeRow(index)}
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="size-3.5" />
               </button>
             ) : (
               <div className="w-[26px] shrink-0" />
@@ -287,9 +297,10 @@ export function EnvVarEditor({
       {sealError && <p className="text-[11px] text-destructive">{sealError}</p>}
       {(() => {
         const issues: { key: string; reason: string }[] = [];
+        const secretsById = new Map(secrets.map((secret) => [secret.id, secret]));
         for (const row of rows) {
           if (row.source !== "secret" || !row.secretId) continue;
-          const secret = secrets.find((s) => s.id === row.secretId);
+          const secret = secretsById.get(row.secretId);
           if (!secret) {
             issues.push({ key: row.key.trim() || row.secretId, reason: "missing" });
           } else if (secret.status !== "active") {
@@ -299,11 +310,11 @@ export function EnvVarEditor({
         if (!issues.length) return null;
         return (
           <p className="text-[11px] text-amber-700 dark:text-amber-400 inline-flex items-start gap-1">
-            <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+            <AlertCircle className="size-3 mt-0.5 shrink-0" />
             <span>
               {issues.length} secret binding{issues.length === 1 ? "" : "s"} need attention:{" "}
               {issues.map((issue, idx) => (
-                <span key={idx} className="font-mono">
+                <span key={`${issue.key}:${issue.reason}`} className="font-mono">
                   {issue.key}
                   <span className="text-muted-foreground"> ({issue.reason})</span>
                   {idx < issues.length - 1 ? ", " : ""}

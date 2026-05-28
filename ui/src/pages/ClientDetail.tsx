@@ -65,7 +65,7 @@ function ClientStatusPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <button type="button"
           className={cn(
             "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer hover:opacity-80 transition-opacity",
             colorClass,
@@ -118,32 +118,44 @@ function ClientEmployeeDialog({
   onSubmit,
 }: ClientEmployeeDialogProps) {
   const mode = editingEmployee ? "edit" : "create";
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [email, setEmail] = useState("");
-  const [projectScope, setProjectScope] = useState<"all_linked_projects" | "selected_projects">("all_linked_projects");
-  const [selectedClientProjectIds, setSelectedClientProjectIds] = useState<string[]>([]);
+  const formKey = `${open ? "open" : "closed"}:${editingEmployee?.id ?? "create"}`;
 
-  function reset() {
-    setName("");
-    setRole("");
-    setEmail("");
-    setProjectScope("all_linked_projects");
-    setSelectedClientProjectIds([]);
-  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="p-0 gap-0 sm:max-w-lg">
+        <ClientEmployeeDialogContent
+          key={formKey}
+          onOpenChange={onOpenChange}
+          linkedProjects={linkedProjects}
+          editingEmployee={editingEmployee}
+          pending={pending}
+          error={error}
+          onSubmit={onSubmit}
+          mode={mode}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-  useEffect(() => {
-    if (!open) return;
-    if (!editingEmployee) {
-      reset();
-      return;
-    }
-    setName(editingEmployee.name);
-    setRole(editingEmployee.role);
-    setEmail(editingEmployee.email);
-    setProjectScope(editingEmployee.projectScope);
-    setSelectedClientProjectIds(editingEmployee.projectLinks.map((link) => link.clientProjectId));
-  }, [open, editingEmployee]);
+function ClientEmployeeDialogContent({
+  onOpenChange,
+  linkedProjects,
+  editingEmployee,
+  pending,
+  error,
+  onSubmit,
+  mode,
+}: Omit<ClientEmployeeDialogProps, "open"> & { mode: "create" | "edit" }) {
+  const [name, setName] = useState(editingEmployee?.name ?? "");
+  const [role, setRole] = useState(editingEmployee?.role ?? "");
+  const [email, setEmail] = useState(editingEmployee?.email ?? "");
+  const [projectScope, setProjectScope] = useState<"all_linked_projects" | "selected_projects">(
+    editingEmployee?.projectScope ?? "all_linked_projects",
+  );
+  const [selectedClientProjectIds, setSelectedClientProjectIds] = useState<string[]>(() =>
+    editingEmployee?.projectLinks.map((link) => link.clientProjectId) ?? [],
+  );
 
   function toggleClientProject(clientProjectId: string) {
     setSelectedClientProjectIds((current) =>
@@ -166,21 +178,13 @@ function ClientEmployeeDialog({
       projectScope,
       clientProjectIds: projectScope === "selected_projects" ? selectedClientProjectIds : [],
     });
-    reset();
     onOpenChange(false);
   }
 
   const selectedScopeDisabled = linkedProjects.length === 0;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) reset();
-        onOpenChange(nextOpen);
-      }}
-    >
-      <DialogContent showCloseButton={false} className="p-0 gap-0 sm:max-w-lg">
+    <>
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <span className="text-sm text-muted-foreground">
             {mode === "edit" ? "Edit Employee" : "Add Employee"}
@@ -191,11 +195,10 @@ function ClientEmployeeDialog({
             className="text-muted-foreground"
             aria-label="Close"
             onClick={() => {
-              reset();
               onOpenChange(false);
             }}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="size-3.5" />
           </Button>
         </div>
 
@@ -283,8 +286,7 @@ function ClientEmployeeDialog({
             {pending ? "Saving..." : mode === "edit" ? "Save Changes" : "Add Employee"}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }
 
@@ -579,7 +581,7 @@ export function ClientDetail() {
                   onClick={addEmailDomain}
                   disabled={!emailDomainInput.trim() || createEmailDomain.isPending}
                 >
-                  <Plus className="h-4 w-4 mr-1" />
+                  <Plus className="size-4 mr-1" />
                   Add
                 </Button>
               </div>
@@ -606,13 +608,13 @@ export function ClientDetail() {
                       className="inline-flex items-center gap-1 rounded bg-muted px-2 py-1 text-xs font-mono"
                     >
                       {entry.domain}
-                      <button
+                      <button type="button"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={() => deleteEmailDomain.mutate(entry.id)}
                         disabled={deleteEmailDomain.isPending}
                         aria-label={`Remove ${entry.domain}`}
                       >
-                        <X className="h-3 w-3" />
+                        <X className="size-3" />
                       </button>
                     </span>
                   ))}
@@ -636,7 +638,7 @@ export function ClientDetail() {
                     setEmployeeDialogOpen(true);
                   }}
                 >
-                  <Plus className="h-4 w-4 mr-1" />
+                  <Plus className="size-4 mr-1" />
                   Add Employee
                 </Button>
               </CardAction>
@@ -684,7 +686,7 @@ export function ClientDetail() {
                             setEmployeeDialogOpen(true);
                           }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="size-3.5" />
                         </Button>
                         <Button
                           size="icon-xs"
@@ -693,7 +695,7 @@ export function ClientDetail() {
                           onClick={() => deleteEmployee.mutate(employee.id)}
                           disabled={deleteEmployee.isPending}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="size-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -718,7 +720,7 @@ export function ClientDetail() {
                     setLinkDialogOpen(true);
                   }}
                 >
-                  <Plus className="h-4 w-4 mr-1" />
+                  <Plus className="size-4 mr-1" />
                   Link Project
                 </Button>
               </CardAction>
@@ -795,7 +797,7 @@ export function ClientDetail() {
                             setLinkDialogOpen(true);
                           }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="size-3.5" />
                         </Button>
                         <Button
                           size="icon-xs"
@@ -803,7 +805,7 @@ export function ClientDetail() {
                           className="text-muted-foreground hover:text-destructive"
                           onClick={() => deleteClientProject.mutate(project.id)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="size-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -851,13 +853,13 @@ export function ClientDetail() {
         <div className="text-xs font-medium text-destructive uppercase tracking-wide">
           Danger Zone
         </div>
-        <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
+        <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm text-muted-foreground">
             Permanently delete this client and all linked project relationships. This cannot be undone.
           </p>
           {!confirmDelete ? (
             <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-3 w-3 mr-1" />
+              <Trash2 className="size-3 mr-1" />
               Delete client
             </Button>
           ) : (

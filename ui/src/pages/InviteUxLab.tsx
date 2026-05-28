@@ -148,7 +148,7 @@ function StatusCard({
   return (
     <Card className={cn("rounded-[24px] shadow-none", toneClassName)}>
       <CardHeader className="space-y-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full border border-current/10 bg-background/70 text-muted-foreground">
+        <div className="flex size-10 items-center justify-center rounded-full border border-current/10 bg-background/70 text-muted-foreground">
           {icon}
         </div>
         <div>
@@ -197,7 +197,7 @@ function InviteSummaryPanel({
           companyName="Acme Robotics"
           logoUrl="/api/invites/pcp_invite_test/logo"
           brandColor="#114488"
-          className="h-16 w-16 rounded-none border border-zinc-800"
+          className="size-16 rounded-none border border-zinc-800"
         />
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.24em] text-zinc-500">You&apos;ve been invited to join Paperclip</p>
@@ -289,16 +289,16 @@ function InlineAuthPreview({
         {mode === "sign_up" ? (
           <label className="block text-sm">
             <span className="mb-1 block text-zinc-400">Name</span>
-            <input name="name" className={fieldClassName} defaultValue="Jane Example" readOnly />
+            <input name="name" className={fieldClassName} defaultValue="Jane Example" readOnly  aria-label="Name"/>
           </label>
         ) : null}
         <label className="block text-sm">
           <span className="mb-1 block text-zinc-400">Email</span>
-          <input name="email" type="email" className={fieldClassName} defaultValue="jane@example.com" readOnly />
+          <input name="email" type="email" className={fieldClassName} defaultValue="jane@example.com" readOnly  aria-label="Email"/>
         </label>
         <label className="block text-sm">
           <span className="mb-1 block text-zinc-400">Password</span>
-          <input name="password" type="password" className={fieldClassName} defaultValue="supersecret" readOnly />
+          <input name="password" type="password" className={fieldClassName} defaultValue="supersecret" readOnly  aria-label="Password"/>
         </label>
         {feedback ? (
           <p className={cn("text-xs", feedback.tone === "info" ? "text-amber-300" : "text-red-400")}>
@@ -330,7 +330,7 @@ function AgentRequestPreview() {
       </div>
       <label className="block text-sm">
         <span className="mb-1 block text-zinc-400">Agent name</span>
-        <input className={fieldClassName} defaultValue="Acme Ops Agent" readOnly />
+        <input className={fieldClassName} defaultValue="Acme Ops Agent" readOnly  aria-label="Input"/>
       </label>
       <label className="block text-sm">
         <span className="mb-1 block text-zinc-400">Adapter type</span>
@@ -347,7 +347,7 @@ function AgentRequestPreview() {
           rows={4}
           defaultValue="Reviews invites, triages requests, and keeps the board queue moving."
           readOnly
-        />
+         aria-label="Text content"/>
       </label>
       <Button type="button" className="w-full rounded-none">
         Submit request
@@ -379,7 +379,7 @@ function AcceptInvitePreview({
       </div>
       {error ? <p className="text-xs text-red-400">{error}</p> : null}
       {autoAccept ? (
-        <div className="text-sm text-zinc-400">Submitting request...</div>
+        <div className="text-sm text-zinc-400">Submitting request&hellip;</div>
       ) : (
         <Button type="button" className="w-full rounded-none" disabled={isCurrentMember}>
           Accept invite
@@ -409,7 +409,7 @@ function InviteResultPreview({
           companyName="Acme Robotics"
           logoUrl="/api/invites/pcp_invite_test/logo"
           brandColor="#114488"
-          className="h-12 w-12 rounded-none border border-zinc-800"
+          className="size-12 rounded-none border border-zinc-800"
         />
         <h3 className="text-lg font-semibold">{title}</h3>
       </div>
@@ -428,7 +428,7 @@ function InviteResultPreview({
               </a>
             </div>
             <p className="text-xs text-zinc-500">
-              Refresh this page after you&apos;ve been approved — you&apos;ll be redirected automatically.
+              Refresh this page after you&apos;ve been approved, you&apos;ll be redirected automatically.
             </p>
           </>
         )}
@@ -456,7 +456,7 @@ function AuthScreenPreview({ mode, error }: { mode: "sign_in" | "sign_up"; error
         <div className="flex min-h-[420px] flex-col justify-center bg-background px-8 py-10">
           <div className="mx-auto w-full max-w-md">
             <div className="mb-8 flex items-center gap-2">
-              <FlaskConical className="h-4 w-4 text-muted-foreground" />
+              <FlaskConical className="size-4 text-muted-foreground" />
               <span className="text-sm font-medium">Paperclip</span>
             </div>
             <h3 className="text-xl font-semibold">
@@ -475,7 +475,7 @@ function AuthScreenPreview({ mode, error }: { mode: "sign_in" | "sign_up"; error
                     className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                     defaultValue="Jane Example"
                     readOnly
-                  />
+                   aria-label="Input"/>
                 </label>
               ) : null}
               <label className="block">
@@ -484,7 +484,7 @@ function AuthScreenPreview({ mode, error }: { mode: "sign_in" | "sign_up"; error
                   className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                   defaultValue="jane@example.com"
                   readOnly
-                />
+                 aria-label="Input"/>
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-muted-foreground">Password</span>
@@ -492,7 +492,7 @@ function AuthScreenPreview({ mode, error }: { mode: "sign_in" | "sign_up"; error
                   className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm"
                   defaultValue="supersecret"
                   readOnly
-                />
+                 aria-label="Input"/>
               </label>
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <Button type="button" className="w-full">
@@ -529,7 +529,7 @@ function CompanyInvitesPreview() {
       <Card className="rounded-[28px] shadow-none">
         <CardHeader className="space-y-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MailPlus className="h-4 w-4" />
+            <MailPlus className="size-4" />
             Company Invites
           </div>
           <div>
@@ -546,14 +546,14 @@ function CompanyInvitesPreview() {
               {inviteRoleOptions.map((option, index) => (
                 <label
                   key={option.value}
-                  className={cn("flex cursor-default gap-3 px-4 py-4", index > 0 && "border-t border-border")}
+                  className={cn("flex cursor-default gap-3 p-4", index > 0 && "border-t border-border")}
                 >
                   <input
                     type="radio"
                     readOnly
                     checked={option.value === "operator"}
-                    className="mt-1 h-4 w-4 border-border text-foreground"
-                  />
+                    className="mt-1 size-4 border-border text-foreground"
+                   aria-label="Radio"/>
                   <span className="min-w-0 space-y-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{option.label}</span>
@@ -580,7 +580,7 @@ function CompanyInvitesPreview() {
             <span className="text-sm text-muted-foreground">Invite history below keeps the audit trail.</span>
           </div>
 
-          <div className="space-y-3 rounded-2xl border border-border px-4 py-4">
+          <div className="space-y-3 rounded-2xl border border-border p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">Latest invite link</div>
@@ -589,7 +589,7 @@ function CompanyInvitesPreview() {
                 </div>
               </div>
               <div className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                <Check className="h-3.5 w-3.5" />
+                <Check className="size-3.5" />
                 Copied
               </div>
             </div>
@@ -601,7 +601,7 @@ function CompanyInvitesPreview() {
             </button>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline">
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="size-4" />
                 Open invite
               </Button>
             </div>
@@ -701,7 +701,7 @@ export function InviteUxLab() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_320px]">
           <div className="p-6 sm:p-7">
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/25 bg-cyan-500/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-700 dark:text-cyan-300">
-              <FlaskConical className="h-3.5 w-3.5" />
+              <FlaskConical className="size-3.5" />
               Invite UX Lab
             </div>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight">Invite and signup UX review surface</h1>
@@ -754,45 +754,45 @@ export function InviteUxLab() {
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatusCard
-            icon={<Loader2 className="h-4 w-4 animate-spin" />}
+            icon={<Loader2 className="size-4 animate-spin" />}
             title="Loading invite"
             body="Shown while invite summary, deployment mode, or auth session data is still loading."
           />
           <StatusCard
-            icon={<Clock3 className="h-4 w-4" />}
+            icon={<Clock3 className="size-4" />}
             title="Checking your access"
             body="Shown after sign-in while the app verifies whether the current user already belongs to the invited company."
           />
           <StatusCard
-            icon={<KeyRound className="h-4 w-4" />}
+            icon={<KeyRound className="size-4" />}
             title="Invalid invite token"
             body="The token is missing entirely, so the page short-circuits before any invite lookup."
             tone="error"
           />
           <StatusCard
-            icon={<Link2 className="h-4 w-4" />}
+            icon={<Link2 className="size-4" />}
             title="Invite not available"
             body="Used for expired, revoked, already-consumed, or otherwise missing invites."
             tone="warn"
           />
           <StatusCard
-            icon={<ShieldCheck className="h-4 w-4" />}
+            icon={<ShieldCheck className="size-4" />}
             title="Bootstrap complete"
             body="Result screen for bootstrap CEO invites after setup has been accepted successfully."
             tone="success"
           />
           <StatusCard
-            icon={<ArrowRight className="h-4 w-4" />}
+            icon={<ArrowRight className="size-4" />}
             title="Auto-accept in progress"
             body="Signed-in human users skip the extra button click and move straight into join submission."
           />
           <StatusCard
-            icon={<Users className="h-4 w-4" />}
+            icon={<Users className="size-4" />}
             title="Already a member"
             body="Acceptance stays disabled and the page redirects into the company once membership is confirmed."
           />
           <StatusCard
-            icon={<UserPlus className="h-4 w-4" />}
+            icon={<UserPlus className="size-4" />}
             title="Invite result surfaces"
             body="Both pending-approval and joined-now confirmations are included below with claim and onboarding extras."
             tone="success"

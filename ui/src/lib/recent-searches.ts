@@ -45,7 +45,7 @@ export function pushRecentSearch(companyId: string, query: string): string[] {
   return next;
 }
 
-export function clearRecentSearches(companyId: string): void {
+function clearRecentSearches(companyId: string): void {
   if (!isStorageAvailable() || !companyId) return;
   try {
     window.localStorage.removeItem(storageKey(companyId));
@@ -54,4 +54,4 @@ export function clearRecentSearches(companyId: string): void {
   }
 }
 
-export const RECENT_SEARCHES_LIMIT = MAX_RECENT_SEARCHES;
+const RECENT_SEARCHES_LIMIT = MAX_RECENT_SEARCHES;

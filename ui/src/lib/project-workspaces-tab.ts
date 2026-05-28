@@ -181,7 +181,7 @@ export function buildProjectWorkspaceSummaries(input: {
     });
   }
 
-  return [...summaries.values()].sort((a, b) => {
+  return Array.from(summaries.values()).sort((a, b) => {
     const liveDiff = Number(b.runningServiceCount > 0) - Number(a.runningServiceCount > 0);
     if (liveDiff !== 0) return liveDiff;
     const diff = b.lastUpdatedAt.getTime() - a.lastUpdatedAt.getTime();

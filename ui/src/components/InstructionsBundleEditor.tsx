@@ -33,6 +33,7 @@ type FileTreeNode = {
 
 function buildTree(files: InstructionsFileSummary[]): FileTreeNode[] {
   const root: FileTreeNode = { name: "", path: "", kind: "dir", children: [] };
+  const nodesByPath = new Map<string, FileTreeNode>([["", root]]);
   for (const file of files) {
     const segments = file.path.split("/").filter(Boolean);
     let current = root;
@@ -41,10 +42,11 @@ function buildTree(files: InstructionsFileSummary[]): FileTreeNode[] {
       const segment = segments[i]!;
       currentPath = currentPath ? `${currentPath}/${segment}` : segment;
       const isLeaf = i === segments.length - 1;
-      let next = current.children.find((c) => c.name === segment);
+      let next = nodesByPath.get(currentPath);
       if (!next) {
         next = { name: segment, path: currentPath, kind: isLeaf ? "file" : "dir", children: [] };
         current.children.push(next);
+        nodesByPath.set(currentPath, next);
       }
       current = next;
     }
@@ -58,6 +60,30 @@ function buildTree(files: InstructionsFileSummary[]): FileTreeNode[] {
   }
   sortNode(root);
   return root.children;
+}
+
+function expandedDirsForFiles(files: InstructionsFileSummary[]) {
+  const next = new Set<string>();
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let cur = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      cur = cur ? `${cur}/${parts[i]}` : parts[i]!;
+      next.add(cur);
+    }
+  }
+  return next;
+}
+
+function parentDirsForPath(path: string) {
+  const dirs: string[] = [];
+  const parts = path.split("/");
+  let cur = "";
+  for (let i = 0; i < parts.length - 1; i++) {
+    cur = cur ? `${cur}/${parts[i]}` : parts[i]!;
+    dirs.push(cur);
+  }
+  return dirs;
 }
 
 type InstructionsBundleEditorProps = {
@@ -107,49 +133,44 @@ export function InstructionsBundleEditor({
   onDeleteFile,
 }: InstructionsBundleEditorProps) {
   const [uncontrolledSelectedFile, setUncontrolledSelectedFile] = useState(initialSelectedFile ?? entryFile);
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ sourcePath: string; content: string } | null>(null);
   const [newFilePath, setNewFilePath] = useState("");
   const [showNewFileInput, setShowNewFileInput] = useState(false);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
-  const selectedFile = controlledSelectedFile ?? uncontrolledSelectedFile;
+  const rawSelectedFile = controlledSelectedFile ?? uncontrolledSelectedFile;
+  const filePaths = useMemo(() => files.map((file) => file.path), [files]);
+  const selectedFile =
+    filePaths.length > 0 && !filePaths.includes(rawSelectedFile)
+      ? filePaths.includes(entryFile) ? entryFile : filePaths[0]!
+      : rawSelectedFile;
   const fileTree = useMemo(() => buildTree(files), [files]);
+  const defaultExpandedDirs = useMemo(() => expandedDirsForFiles(files), [files]);
+  const expandedDirs = useMemo(() => {
+    const next = new Set(defaultExpandedDirs);
+    for (const path of collapsedDirs) {
+      next.delete(path);
+    }
+    return next;
+  }, [collapsedDirs, defaultExpandedDirs]);
   const selectedOrEntry = selectedFile || entryFile;
   const selectedExists = files.some((f) => f.path === selectedOrEntry);
   const currentContent = selectedExists ? (fileDetail?.content ?? "") : "";
-  const displayValue = draft ?? currentContent;
-  const isDirty = draft !== null && draft !== currentContent;
-
-  useEffect(() => {
-    if (files.length === 0) return;
-    const paths = files.map((file) => file.path);
-    if (!paths.includes(selectedFile)) {
-      const nextPath = paths.includes(entryFile) ? entryFile : paths[0]!;
-      if (onSelectedFileChange) onSelectedFileChange(nextPath);
-      else setUncontrolledSelectedFile(nextPath);
-    }
-  }, [entryFile, files, onSelectedFileChange, selectedFile]);
-
-  useEffect(() => {
-    const next = new Set<string>();
-    for (const file of files) {
-      const parts = file.path.split("/");
-      let cur = "";
-      for (let i = 0; i < parts.length - 1; i++) {
-        cur = cur ? `${cur}/${parts[i]}` : parts[i]!;
-        next.add(cur);
-      }
-    }
-    setExpandedDirs(next);
-  }, [files]);
-
-  useEffect(() => {
-    setDraft(null);
-  }, [selectedOrEntry]);
+  const displayValue = draft?.sourcePath === selectedOrEntry ? draft.content : currentContent;
+  const isDirty = draft?.sourcePath === selectedOrEntry && draft.content !== currentContent;
 
   const setSelectedFile = useCallback((path: string) => {
     if (onSelectedFileChange) onSelectedFileChange(path);
     else setUncontrolledSelectedFile(path);
+    setCollapsedDirs((current) => {
+      let next: Set<string> | null = null;
+      for (const dir of parentDirsForPath(path)) {
+        if (!current.has(dir)) continue;
+        if (!next) next = new Set(current);
+        next.delete(dir);
+      }
+      return next ?? current;
+    });
   }, [onSelectedFileChange]);
 
   const handleSave = useCallback(() => {
@@ -189,27 +210,27 @@ export function InstructionsBundleEditor({
       const isExpanded = expandedDirs.has(node.path);
       return (
         <div key={node.path}>
-          <button
+          <button type="button"
             className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 rounded transition-colors"
             style={{ paddingLeft: `${8 + depth * 16}px` }}
             onClick={() => {
-              setExpandedDirs((prev) => {
+              setCollapsedDirs((prev) => {
                 const next = new Set(prev);
-                if (isExpanded) next.delete(node.path);
-                else next.add(node.path);
+                if (isExpanded) next.add(node.path);
+                else next.delete(node.path);
                 return next;
               });
             }}
           >
             {isExpanded ? (
               <>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <ChevronDown className="size-3 shrink-0" />
+                <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
               </>
             ) : (
               <>
-                <ChevronRight className="h-3 w-3 shrink-0" />
-                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <ChevronRight className="size-3 shrink-0" />
+                <Folder className="size-3.5 shrink-0 text-muted-foreground" />
               </>
             )}
             <span className="truncate">{node.name}</span>
@@ -222,7 +243,7 @@ export function InstructionsBundleEditor({
     const isSelected = selectedOrEntry === node.path;
     const isEntry = node.path === entryFile;
     return (
-      <button
+      <button type="button"
         key={node.path}
         className={`flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded transition-colors ${
           isSelected
@@ -232,7 +253,7 @@ export function InstructionsBundleEditor({
         style={{ paddingLeft: `${8 + depth * 16}px` }}
         onClick={() => setSelectedFile(node.path)}
       >
-        <FileText className="h-3.5 w-3.5 shrink-0" />
+        <FileText className="size-3.5 shrink-0" />
         <span className="truncate">{node.name}</span>
         {isEntry ? (
           <span className="ml-auto text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
@@ -244,7 +265,7 @@ export function InstructionsBundleEditor({
   }
 
   if (loading) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
+    return <div className="p-4 text-sm text-muted-foreground">Loading&hellip;</div>;
   }
 
   return (
@@ -280,10 +301,10 @@ export function InstructionsBundleEditor({
               <Button
                 size="icon-xs"
                 variant="ghost"
-                className="h-5 w-5"
+                className="size-5"
                 onClick={() => setShowNewFileInput(true)}
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="size-3" />
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto py-1">
@@ -291,7 +312,6 @@ export function InstructionsBundleEditor({
               {showNewFileInput ? (
                 <div className="px-2 py-1">
                   <input
-                    autoFocus
                     className="w-full rounded border border-border bg-transparent px-1.5 py-0.5 text-xs outline-none"
                     placeholder="path/file.md"
                     value={newFilePath}
@@ -309,7 +329,7 @@ export function InstructionsBundleEditor({
                         setNewFilePath("");
                       }
                     }}
-                  />
+                   aria-label="New File Path"/>
                 </div>
               ) : null}
             </div>
@@ -318,7 +338,7 @@ export function InstructionsBundleEditor({
           <div className="flex-1 flex flex-col min-w-0">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
               <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <FileText className="size-3.5 shrink-0" />
                 <span className="truncate font-medium">{selectedOrEntry}</span>
                 {isDirty ? <span className="text-amber-500">modified</span> : null}
               </div>
@@ -331,7 +351,7 @@ export function InstructionsBundleEditor({
                     onClick={() => onDeleteFile(selectedOrEntry)}
                     disabled={deletePending}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="size-3.5" />
                   </Button>
                 ) : null}
                 <Button
@@ -341,26 +361,26 @@ export function InstructionsBundleEditor({
                   disabled={!isDirty || savePending}
                   onClick={handleSave}
                 >
-                  <Save className="h-3 w-3 mr-1" />
+                  <Save className="size-3 mr-1" />
                   {savePending ? "Saving..." : "Save"}
                 </Button>
               </div>
             </div>
             <div className="flex-1 min-h-0">
               {fileLoading && selectedExists ? (
-                <div className="p-4 text-sm text-muted-foreground">Loading...</div>
+                <div className="p-4 text-sm text-muted-foreground">Loading&hellip;</div>
               ) : !selectedExists && files.length > 0 ? (
                 <div className="p-4 text-sm text-muted-foreground">
                   File does not exist yet. It will be created when you save.
                 </div>
               ) : (
                 <textarea
-                  className="w-full h-full resize-none bg-transparent p-4 text-sm font-mono outline-none"
+                  className="size-full resize-none bg-transparent p-4 text-sm font-mono outline-none"
                   value={displayValue}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => setDraft({ sourcePath: selectedOrEntry, content: e.target.value })}
                   placeholder={`# ${selectedOrEntry}\n\nWrite your instructions here...`}
                   spellCheck={false}
-                />
+                 aria-label="Display Value"/>
               )}
             </div>
           </div>

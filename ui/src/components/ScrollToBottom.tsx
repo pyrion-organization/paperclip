@@ -34,7 +34,11 @@ function distanceFromBottom(target: ReturnType<typeof resolveScrollTarget>) {
  * On desktop that is `#main-content`; on mobile it falls back to window/page scroll.
  */
 export function ScrollToBottom() {
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(() => (
+    typeof window !== "undefined"
+    && typeof document !== "undefined"
+    && distanceFromBottom(resolveScrollTarget()) > 300
+  ));
   const { panelVisible, panelContent } = usePanel();
 
   useEffect(() => {
@@ -44,7 +48,6 @@ export function ScrollToBottom() {
 
     const mainContent = document.getElementById("main-content");
 
-    check();
     mainContent?.addEventListener("scroll", check, { passive: true });
     window.addEventListener("scroll", check, { passive: true });
     window.addEventListener("resize", check);
@@ -71,15 +74,15 @@ export function ScrollToBottom() {
   if (!visible) return null;
 
   return (
-    <button
+    <button type="button"
       onClick={scroll}
       className={cn(
-        "fixed bottom-[calc(1.5rem+5rem+env(safe-area-inset-bottom))] right-6 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background shadow-md hover:bg-accent transition-[background-color,right] duration-200 md:bottom-6",
+        "fixed bottom-[calc(1.5rem+5rem+env(safe-area-inset-bottom))] right-6 z-40 flex size-9 items-center justify-center rounded-full border border-border bg-background shadow-md hover:bg-accent transition-[background-color,right] duration-200 md:bottom-6",
         panelVisible && panelContent && "md:right-[calc(320px+1.5rem)]",
       )}
       aria-label="Scroll to bottom"
     >
-      <ArrowDown className="h-4 w-4" />
+      <ArrowDown className="size-4" />
     </button>
   );
 }

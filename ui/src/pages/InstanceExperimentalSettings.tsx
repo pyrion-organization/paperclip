@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, FlaskConical, Play, Search } from "lucide-react";
 import type {
   IssueGraphLivenessAutoRecoveryPreview,
@@ -11,6 +11,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 import {
   Dialog,
   DialogContent,
@@ -67,7 +68,7 @@ function RecoveryPreviewDialog({
           ) : null}
 
           {preview?.items.map((item) => (
-            <div key={item.incidentKey} className="rounded-md border border-border bg-card px-3 py-3">
+            <div key={item.incidentKey} className="rounded-md border border-border bg-card p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <a
                   href={issueHref(item.identifier, item.issueId)}
@@ -138,7 +139,7 @@ export function InstanceExperimentalSettings() {
     queryFn: () => instanceSettingsApi.getExperimental(),
   });
 
-  const toggleMutation = useMutation({
+  const toggleMutation = useInvalidatingMutation({
     mutationFn: async (patch: PatchInstanceExperimentalSettings) =>
       instanceSettingsApi.updateExperimental(patch),
     onSuccess: async () => {
@@ -153,7 +154,7 @@ export function InstanceExperimentalSettings() {
     },
   });
 
-  const previewMutation = useMutation({
+  const previewMutation = useInvalidatingMutation({
     mutationFn: async (lookbackHours: number) =>
       instanceSettingsApi.previewIssueGraphLivenessAutoRecovery({ lookbackHours }),
     onSuccess: (preview) => {
@@ -166,7 +167,7 @@ export function InstanceExperimentalSettings() {
     },
   });
 
-  const runRecoveryMutation = useMutation({
+  const runRecoveryMutation = useInvalidatingMutation({
     mutationFn: async (lookbackHours: number) =>
       instanceSettingsApi.runIssueGraphLivenessAutoRecovery({ lookbackHours }),
     onSuccess: async () => {
@@ -190,7 +191,7 @@ export function InstanceExperimentalSettings() {
   }, [experimentalQuery.data?.issueGraphLivenessAutoRecoveryLookbackHours]);
 
   if (experimentalQuery.isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading experimental settings...</div>;
+    return <div className="text-sm text-muted-foreground">Loading experimental settings&hellip;</div>;
   }
 
   if (experimentalQuery.error) {
@@ -249,7 +250,7 @@ export function InstanceExperimentalSettings() {
     <div className="max-w-4xl space-y-6">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <FlaskConical className="h-5 w-5 text-muted-foreground" />
+          <FlaskConical className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Experimental</h1>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -360,12 +361,13 @@ export function InstanceExperimentalSettings() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-[minmax(10rem,14rem)_1fr] sm:items-end">
-            <label className="space-y-1.5">
+            <label htmlFor="issue-graph-recovery-lookback-hours" className="space-y-1.5">
               <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" />
+                <Clock className="size-3.5" />
                 Lookback hours
               </span>
               <Input
+                id="issue-graph-recovery-lookback-hours"
                 type="number"
                 min={1}
                 max={720}
@@ -396,7 +398,7 @@ export function InstanceExperimentalSettings() {
                 onClick={previewForEnable}
                 disabled={recoveryActionPending}
               >
-                <Search className="h-4 w-4" />
+                <Search className="size-4" />
                 Preview
               </Button>
               <Button
@@ -409,7 +411,7 @@ export function InstanceExperimentalSettings() {
                 }}
                 disabled={recoveryActionPending || !enableIssueGraphLivenessAutoRecovery}
               >
-                <Play className="h-4 w-4" />
+                <Play className="size-4" />
                 Run now
               </Button>
             </div>

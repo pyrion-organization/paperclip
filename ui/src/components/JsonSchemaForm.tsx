@@ -22,6 +22,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SecretBindingPicker, type SecretBindingValue } from "./SecretBindingPicker";
+import {
+  getDefaultForSchema,
+  getDefaultValues,
+  labelFromKey,
+  resolveType,
+  validateJsonSchemaForm,
+  type JsonSchemaNode,
+} from "./json-schema-form-utils";
+export type { JsonSchemaNode } from "./json-schema-form-utils";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -31,54 +40,13 @@ import { SecretBindingPicker, type SecretBindingValue } from "./SecretBindingPic
  * Threshold for string length above which a Textarea is used instead of a standard Input.
  */
 const TEXTAREA_THRESHOLD = 200;
+const EMPTY_FORM_ERRORS: Record<string, string> = {};
+
+const EMPTY_ITEMS: unknown[] = [];
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/**
- * Subset of JSON Schema properties we understand for form rendering.
- * We intentionally keep this loose (`Record<string, unknown>`) at the top
- * level to match the `JsonSchema` type in shared, but narrow internally.
- */
-export interface JsonSchemaNode {
-  type?: string | string[];
-  title?: string;
-  description?: string;
-  default?: unknown;
-  enum?: unknown[];
-  const?: unknown;
-  format?: string;
-
-  // String constraints
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-
-  // Number constraints
-  minimum?: number;
-  maximum?: number;
-  exclusiveMinimum?: number;
-  exclusiveMaximum?: number;
-  multipleOf?: number;
-
-  // Object
-  properties?: Record<string, JsonSchemaNode>;
-  required?: string[];
-  additionalProperties?: boolean | JsonSchemaNode;
-
-  // Array
-  items?: JsonSchemaNode;
-  minItems?: number;
-  maxItems?: number;
-
-  // Metadata
-  readOnly?: boolean;
-  writeOnly?: boolean;
-
-  // Allow extra keys
-  [key: string]: unknown;
-}
 
 export interface JsonSchemaFormProps {
   /** The JSON Schema to render. */
@@ -93,217 +61,6 @@ export interface JsonSchemaFormProps {
   disabled?: boolean;
   /** Additional CSS class for the root container. */
   className?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Resolve the primary type string from a schema node. */
-export function resolveType(schema: JsonSchemaNode): string {
-  if (schema.enum) return "enum";
-  if (schema.const !== undefined) return "const";
-  if (schema.format === "secret-ref") return "secret-ref";
-  if (Array.isArray(schema.type)) {
-    // Use the first non-null type
-    return schema.type.find((t) => t !== "null") ?? "string";
-  }
-  return schema.type ?? "string";
-}
-
-/** Human-readable label from schema title or property key. */
-export function labelFromKey(key: string, schema: JsonSchemaNode): string {
-  if (schema.title) return schema.title;
-  // Convert camelCase / snake_case to Title Case
-  return key
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Produce a sensible default value for a schema node. */
-export function getDefaultForSchema(schema: JsonSchemaNode): unknown {
-  if (schema.default !== undefined) return schema.default;
-
-  const type = resolveType(schema);
-  switch (type) {
-    case "string":
-    case "secret-ref":
-      return "";
-    case "number":
-    case "integer":
-      return schema.minimum ?? 0;
-    case "boolean":
-      return false;
-    case "enum":
-      return schema.enum?.[0] ?? "";
-    case "array":
-      return [];
-    case "object": {
-      if (!schema.properties) return {};
-      const obj: Record<string, unknown> = {};
-      for (const [key, propSchema] of Object.entries(schema.properties)) {
-        obj[key] = getDefaultForSchema(propSchema);
-      }
-      return obj;
-    }
-    default:
-      return "";
-  }
-}
-
-/** Validate a single field value against schema constraints. Returns error string or null. */
-export function validateField(
-  value: unknown,
-  schema: JsonSchemaNode,
-  isRequired: boolean,
-): string | null {
-  const type = resolveType(schema);
-
-  // Required check
-  if (isRequired && (value === undefined || value === null || value === "")) {
-    return "This field is required";
-  }
-
-  // Skip further validation if empty and not required
-  if (value === undefined || value === null || value === "") return null;
-
-  if (type === "string" || type === "secret-ref") {
-    const str = String(value);
-    if (schema.minLength != null && str.length < schema.minLength) {
-      return `Must be at least ${schema.minLength} characters`;
-    }
-    if (schema.maxLength != null && str.length > schema.maxLength) {
-      return `Must be at most ${schema.maxLength} characters`;
-    }
-    if (schema.pattern) {
-      // Guard against ReDoS: reject overly complex patterns from plugin JSON Schemas.
-      // Limit pattern length and run the regex with a defensive try/catch.
-      const MAX_PATTERN_LENGTH = 512;
-      if (schema.pattern.length <= MAX_PATTERN_LENGTH) {
-        try {
-          const re = new RegExp(schema.pattern);
-          if (!re.test(str)) {
-            return `Must match pattern: ${schema.pattern}`;
-          }
-        } catch {
-          // Invalid regex in schema — skip
-        }
-      }
-    }
-  }
-
-  if (type === "number" || type === "integer") {
-    const num = Number(value);
-    if (isNaN(num)) return "Must be a valid number";
-    if (schema.minimum != null && num < schema.minimum) {
-      return `Must be at least ${schema.minimum}`;
-    }
-    if (schema.maximum != null && num > schema.maximum) {
-      return `Must be at most ${schema.maximum}`;
-    }
-    if (schema.exclusiveMinimum != null && num <= schema.exclusiveMinimum) {
-      return `Must be greater than ${schema.exclusiveMinimum}`;
-    }
-    if (schema.exclusiveMaximum != null && num >= schema.exclusiveMaximum) {
-      return `Must be less than ${schema.exclusiveMaximum}`;
-    }
-    if (type === "integer" && !Number.isInteger(num)) {
-      return "Must be a whole number";
-    }
-    if (schema.multipleOf != null && num % schema.multipleOf !== 0) {
-      return `Must be a multiple of ${schema.multipleOf}`;
-    }
-  }
-
-  if (type === "array") {
-    const arr = value as unknown[];
-    if (schema.minItems != null && arr.length < schema.minItems) {
-      return `Must have at least ${schema.minItems} items`;
-    }
-    if (schema.maxItems != null && arr.length > schema.maxItems) {
-      return `Must have at most ${schema.maxItems} items`;
-    }
-  }
-
-  return null;
-}
-
-/** Public API for validation */
-export function validateJsonSchemaForm(
-  schema: JsonSchemaNode,
-  values: Record<string, unknown>,
-  path: string[] = [],
-): Record<string, string> {
-  const errors: Record<string, string> = {};
-  const properties = schema.properties ?? {};
-  const requiredFields = new Set(schema.required ?? []);
-
-  for (const [key, propSchema] of Object.entries(properties)) {
-    const fieldPath = [...path, key];
-    const errorKey = `/${fieldPath.join("/")}`;
-    const value = values[key];
-    const isRequired = requiredFields.has(key);
-    const type = resolveType(propSchema);
-
-    // Per-field validation
-    const fieldErr = validateField(value, propSchema, isRequired);
-    if (fieldErr) {
-      errors[errorKey] = fieldErr;
-    }
-
-    // Recurse into objects
-    if (type === "object" && propSchema.properties && typeof value === "object" && value !== null) {
-      Object.assign(
-        errors,
-        validateJsonSchemaForm(propSchema, value as Record<string, unknown>, fieldPath),
-      );
-    }
-
-    // Recurse into arrays
-    if (type === "array" && propSchema.items && Array.isArray(value)) {
-      const itemSchema = propSchema.items as JsonSchemaNode;
-      const isObjectItem = resolveType(itemSchema) === "object";
-
-      value.forEach((item, index) => {
-        const itemPath = [...fieldPath, String(index)];
-        const itemErrorKey = `/${itemPath.join("/")}`;
-
-        if (isObjectItem) {
-          Object.assign(
-            errors,
-            validateJsonSchemaForm(
-              itemSchema,
-              item as Record<string, unknown>,
-              itemPath,
-            ),
-          );
-        } else {
-          const itemErr = validateField(item, itemSchema, false);
-          if (itemErr) {
-            errors[itemErrorKey] = itemErr;
-          }
-        }
-      });
-    }
-  }
-
-  return errors;
-}
-
-/** Public API for default values */
-export function getDefaultValues(schema: JsonSchemaNode): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const properties = schema.properties ?? {};
-
-  for (const [key, propSchema] of Object.entries(properties)) {
-    const def = getDefaultForSchema(propSchema);
-    if (def !== undefined) {
-      result[key] = def;
-    }
-  }
-
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +146,7 @@ const BooleanField = React.memo(({
   description?: string;
   error?: string;
 }) => (
-  <div className="flex items-start space-x-3 space-y-0">
+  <div className="flex items-start gap-x-3">
     <Checkbox
       id={id}
       checked={!!value}
@@ -568,9 +325,9 @@ const SecretField = React.memo(({
         disabled={disabled}
       >
         {isVisible ? (
-          <EyeOff className="h-4 w-4 text-muted-foreground" />
+          <EyeOff className="size-4 text-muted-foreground" />
         ) : (
-          <Eye className="h-4 w-4 text-muted-foreground" />
+          <Eye className="size-4 text-muted-foreground" />
         )}
         <span className="sr-only">
           {isVisible ? "Hide secret" : "Show secret"}
@@ -597,9 +354,9 @@ const SecretField = React.memo(({
         disabled={disabled}
       >
         {isVisible ? (
-          <EyeOff className="h-4 w-4 text-muted-foreground" />
+          <EyeOff className="size-4 text-muted-foreground" />
         ) : (
-          <Eye className="h-4 w-4 text-muted-foreground" />
+          <Eye className="size-4 text-muted-foreground" />
         )}
         <span className="sr-only">
           {isVisible ? "Hide secret" : "Show secret"}
@@ -776,6 +533,49 @@ StringField.displayName = "StringField";
 /**
  * Specialized field for array values, handling dynamic addition and removal of items.
  */
+const ArrayItemField = React.memo(({
+  item,
+  index,
+  items,
+  itemSchema,
+  onChange,
+  disabled,
+  errors,
+  path,
+}: {
+  item: unknown;
+  index: number;
+  items: unknown[];
+  itemSchema: JsonSchemaNode;
+  onChange: (val: unknown) => void;
+  disabled: boolean;
+  errors: Record<string, string>;
+  path: string;
+}) => {
+  const handleItemChange = useCallback(
+    (newVal: unknown) => {
+      const newItems = [...items];
+      newItems[index] = newVal;
+      onChange(newItems);
+    },
+    [index, items, onChange],
+  );
+
+  return (
+    <FormField
+      propSchema={itemSchema}
+      value={item}
+      label=""
+      path={`${path}/${index}`}
+      onChange={handleItemChange}
+      disabled={disabled}
+      errors={errors}
+    />
+  );
+});
+
+ArrayItemField.displayName = "ArrayItemField";
+
 const ArrayField = React.memo(({
   propSchema,
   value,
@@ -795,7 +595,7 @@ const ArrayField = React.memo(({
   errors: Record<string, string>;
   path: string;
 }) => {
-  const items = Array.isArray(value) ? value : [];
+  const items = Array.isArray(value) ? value : EMPTY_ITEMS;
   const itemSchema = propSchema.items as JsonSchemaNode;
   const isComplex = resolveType(itemSchema) === "object";
 
@@ -824,7 +624,7 @@ const ArrayField = React.memo(({
             onChange([...items, newItem]);
           }}
         >
-          <Plus className="mr-2 h-4 w-4" />
+          <Plus className="mr-2 size-4" />
           {isComplex ? "Add item" : "Add"}
         </Button>
       </div>
@@ -832,32 +632,29 @@ const ArrayField = React.memo(({
       <div className="space-y-3">
         {items.map((item, index) => (
           <div
-            key={index}
-            className="group relative flex items-start space-x-2 rounded-lg border p-3"
+            key={`${path}.${index}`}
+            className="group relative flex items-start gap-x-2 rounded-lg border p-3"
           >
             <div className="flex-1">
               <div className="mb-2 text-xs font-medium text-muted-foreground">
                 Item {index + 1}
               </div>
-              <FormField
-                propSchema={itemSchema}
-                value={item}
-                label=""
-                path={`${path}/${index}`}
-                onChange={(newVal) => {
-                  const newItems = [...items];
-                  newItems[index] = newVal;
-                  onChange(newItems);
-                }}
+              <ArrayItemField
+                item={item}
+                index={index}
+                items={items}
+                itemSchema={itemSchema}
+                onChange={onChange}
                 disabled={disabled}
                 errors={errors}
+                path={path}
               />
             </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              className="size-8 text-muted-foreground hover:text-destructive"
               disabled={
                 disabled ||
                 (propSchema.minItems !== undefined &&
@@ -869,7 +666,7 @@ const ArrayField = React.memo(({
                 onChange(newItems);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
               <span className="sr-only">Remove item</span>
             </Button>
           </div>
@@ -932,9 +729,9 @@ const ObjectField = React.memo(({
           )}
         </div>
         {isCollapsed ? (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRight className="size-4 text-muted-foreground" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="size-4 text-muted-foreground" />
         )}
       </button>
 
@@ -946,9 +743,11 @@ const ObjectField = React.memo(({
             onChange={handleObjectChange}
             disabled={disabled}
             errors={Object.fromEntries(
-              Object.entries(errors)
-                .filter(([errPath]) => errPath.startsWith(`${path}/`))
-                .map(([errPath, err]) => [errPath.replace(path, ""), err]),
+              Object.entries(errors).flatMap(([errPath, err]) =>
+                errPath.startsWith(`${path}/`)
+                  ? [[errPath.replace(path, ""), err]]
+                  : [],
+              ),
             )}
           />
         </div>
@@ -1083,6 +882,50 @@ const FormField = React.memo(({
 
 FormField.displayName = "FormField";
 
+const SchemaPropertyField = React.memo(({
+  fieldKey,
+  propSchema,
+  values,
+  errors,
+  disabled,
+  requiredFields,
+  onFieldChange,
+}: {
+  fieldKey: string;
+  propSchema: JsonSchemaNode;
+  values: Record<string, unknown>;
+  errors: Record<string, string>;
+  disabled?: boolean;
+  requiredFields: Set<string>;
+  onFieldChange: (key: string, value: unknown) => void;
+}) => {
+  const updateFieldValue = useCallback(
+    (val: unknown) => onFieldChange(fieldKey, val),
+    [fieldKey, onFieldChange],
+  );
+  const value = values[fieldKey];
+  const isRequired = requiredFields.has(fieldKey);
+  const error = errors[`/${fieldKey}`];
+  const label = labelFromKey(fieldKey, propSchema);
+  const path = `/${fieldKey}`;
+
+  return (
+    <FormField
+      propSchema={propSchema}
+      value={value}
+      onChange={updateFieldValue}
+      error={error}
+      disabled={disabled}
+      label={label}
+      isRequired={isRequired}
+      errors={errors}
+      path={path}
+    />
+  );
+});
+
+SchemaPropertyField.displayName = "SchemaPropertyField";
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -1096,7 +939,7 @@ export function JsonSchemaForm({
   schema,
   values,
   onChange,
-  errors = {},
+  errors = EMPTY_FORM_ERRORS,
   disabled,
   className,
 }: JsonSchemaFormProps) {
@@ -1106,6 +949,21 @@ export function JsonSchemaForm({
     // If root is a scalar, values IS the value
     onChange(newVal as Record<string, unknown>);
   }, [onChange]);
+
+  // Memoize to avoid re-renders when parent provides new object references.
+  // Keep these hooks before scalar early returns to preserve hook ordering.
+  const properties = useMemo(() => schema.properties ?? {}, [schema.properties]);
+  const requiredFields = useMemo(
+    () => new Set(schema.required ?? []),
+    [schema.required],
+  );
+
+  const handleFieldChange = useCallback(
+    (key: string, value: unknown) => {
+      onChange({ ...values, [key]: value });
+    },
+    [onChange, values],
+  );
 
   // If it's a scalar at root, render a single FormField
   if (type !== "object") {
@@ -1124,20 +982,6 @@ export function JsonSchemaForm({
     );
   }
 
-  // Memoize to avoid re-renders when parent provides new object references
-  const properties = useMemo(() => schema.properties ?? {}, [schema.properties]);
-  const requiredFields = useMemo(
-    () => new Set(schema.required ?? []),
-    [schema.required],
-  );
-
-  const handleFieldChange = useCallback(
-    (key: string, value: unknown) => {
-      onChange({ ...values, [key]: value });
-    },
-    [onChange, values],
-  );
-
   if (Object.keys(properties).length === 0) {
     return (
       <div
@@ -1153,28 +997,18 @@ export function JsonSchemaForm({
 
   return (
     <div className={cn("space-y-6", className)}>
-      {Object.entries(properties).map(([key, propSchema]) => {
-        const value = values[key];
-        const isRequired = requiredFields.has(key);
-        const error = errors[`/${key}`];
-        const label = labelFromKey(key, propSchema);
-        const path = `/${key}`;
-
-        return (
-          <FormField
-            key={key}
-            propSchema={propSchema}
-            value={value}
-            onChange={(val) => handleFieldChange(key, val)}
-            error={error}
-            disabled={disabled}
-            label={label}
-            isRequired={isRequired}
-            errors={errors}
-            path={path}
-          />
-        );
-      })}
+      {Object.entries(properties).map(([key, propSchema]) => (
+        <SchemaPropertyField
+          key={key}
+          fieldKey={key}
+          propSchema={propSchema}
+          values={values}
+          errors={errors}
+          disabled={disabled}
+          requiredFields={requiredFields}
+          onFieldChange={handleFieldChange}
+        />
+      ))}
     </div>
   );
 }

@@ -30,13 +30,15 @@ import { KanbanBoard } from "@/components/KanbanBoard";
 import { LiveRunWidget } from "@/components/LiveRunWidget";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import {
+  PackageFileTree,
+  type FileTreeNode,
+} from "@/components/PackageFileTree";
+import {
   buildFileTree,
   collectAllPaths,
   countFiles,
-  PackageFileTree,
   parseFrontmatter,
-  type FileTreeNode,
-} from "@/components/PackageFileTree";
+} from "@/components/file-tree-utils";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SwipeToArchive } from "@/components/SwipeToArchive";

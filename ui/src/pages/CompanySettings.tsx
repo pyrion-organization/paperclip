@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES,
   MAX_COMPANY_ATTACHMENT_MAX_BYTES,
@@ -14,6 +14,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { Settings, Check, CloudUpload, Download, Upload } from "lucide-react";
 import { CompanyPatternIcon } from "../components/CompanyPatternIcon";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 import {
   Field,
   ToggleField,
@@ -79,7 +80,7 @@ export function CompanySettings() {
       brandColor !== (selectedCompany.brandColor ?? "") ||
       attachmentMaxBytes !== (selectedCompany.attachmentMaxBytes ?? DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES));
 
-  const generalMutation = useMutation({
+  const generalMutation = useInvalidatingMutation({
     mutationFn: (data: {
       name: string;
       description: string | null;
@@ -91,7 +92,7 @@ export function CompanySettings() {
     }
   });
 
-  const settingsMutation = useMutation({
+  const settingsMutation = useInvalidatingMutation({
     mutationFn: (requireApproval: boolean) =>
       companiesApi.update(selectedCompanyId!, {
         requireBoardApprovalForNewAgents: requireApproval
@@ -101,7 +102,7 @@ export function CompanySettings() {
     }
   });
 
-  const inviteMutation = useMutation({
+  const inviteMutation = useInvalidatingMutation({
     mutationFn: () =>
       accessApi.createOpenClawInvitePrompt(selectedCompanyId!),
     onSuccess: async (invite) => {
@@ -159,7 +160,7 @@ export function CompanySettings() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
   };
 
-  const logoUploadMutation = useMutation({
+  const logoUploadMutation = useInvalidatingMutation({
     mutationFn: (file: File) =>
       assetsApi
         .uploadCompanyLogo(selectedCompanyId!, file)
@@ -170,7 +171,7 @@ export function CompanySettings() {
     }
   });
 
-  const clearLogoMutation = useMutation({
+  const clearLogoMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.update(selectedCompanyId!, { logoAssetId: null }),
     onSuccess: (company) => {
       setLogoUploadError(null);
@@ -197,7 +198,7 @@ export function CompanySettings() {
     setSnippetCopyDelightId(0);
   }, [selectedCompanyId]);
 
-  const archiveMutation = useMutation({
+  const archiveMutation = useInvalidatingMutation({
     mutationFn: ({
       companyId,
       nextCompanyId
@@ -245,7 +246,7 @@ export function CompanySettings() {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-2">
-        <Settings className="h-5 w-5 text-muted-foreground" />
+        <Settings className="size-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold">Company Settings</h1>
       </div>
 
@@ -254,14 +255,14 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           General
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <Field label="Company name" hint="The display name for your company.">
             <input
               className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-            />
+             aria-label="Company Name"/>
           </Field>
           <Field
             label="Description"
@@ -273,7 +274,7 @@ export function CompanySettings() {
               value={description}
               placeholder="Optional company description"
               onChange={(e) => setDescription(e.target.value)}
-            />
+             aria-label="Description"/>
           </Field>
         </div>
       </div>
@@ -283,7 +284,7 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Appearance
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <div className="flex items-start gap-4">
             <div className="shrink-0">
               <CompanyPatternIcon
@@ -304,7 +305,7 @@ export function CompanySettings() {
                     accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
                     onChange={handleLogoFileChange}
                     className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none file:mr-4 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1 file:text-xs"
-                  />
+                   aria-label="Select file"/>
                   {logoUrl && (
                     <div className="flex items-center gap-2">
                       <Button
@@ -331,7 +332,7 @@ export function CompanySettings() {
                     </span>
                   )}
                   {logoUploadMutation.isPending && (
-                    <span className="text-xs text-muted-foreground">Uploading logo...</span>
+                    <span className="text-xs text-muted-foreground">Uploading logo&hellip;</span>
                   )}
                 </div>
               </Field>
@@ -344,8 +345,8 @@ export function CompanySettings() {
                     type="color"
                     value={brandColor || "#6366f1"}
                     onChange={(e) => setBrandColor(e.target.value)}
-                    className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0"
-                  />
+                    className="size-8 cursor-pointer rounded border border-border bg-transparent p-0"
+                   aria-label="Brand Color"/>
                   <input
                     type="text"
                     value={brandColor}
@@ -357,7 +358,7 @@ export function CompanySettings() {
                     }}
                     placeholder="Auto"
                     className="w-28 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm font-mono outline-none"
-                  />
+                   aria-label="Brand Color"/>
                   {brandColor && (
                     <Button
                       size="sm"
@@ -384,7 +385,7 @@ export function CompanySettings() {
                       value={attachmentMaxMiB}
                       onChange={(e) => setAttachmentMaxMiB(e.target.value)}
                       className="w-28 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
-                    />
+                     aria-label="Attachment Max Mi B"/>
                     <span className="text-xs text-muted-foreground">MiB</span>
                   </div>
                   {!attachmentMaxValid && (
@@ -443,7 +444,7 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Invites
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">
               Generate an OpenClaw agent invite snippet.
@@ -479,7 +480,7 @@ export function CompanySettings() {
                     key={snippetCopyDelightId}
                     className="flex items-center gap-1 text-xs text-green-600 animate-pulse"
                   >
-                    <Check className="h-3 w-3" />
+                    <Check className="size-3" />
                     Copied
                   </span>
                 )}
@@ -490,7 +491,7 @@ export function CompanySettings() {
                   className="h-[28rem] w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs outline-none"
                   value={inviteSnippet}
                   readOnly
-                />
+                 aria-label="Invite Snippet"/>
                 <div className="flex justify-end">
                   <Button
                     data-testid="company-settings-invites-copy-button"
@@ -521,7 +522,7 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Company Packages
         </div>
-        <div className="rounded-md border border-border px-4 py-4">
+        <div className="rounded-md border border-border p-4">
           <p className="text-sm text-muted-foreground">
             Import and export have moved to dedicated pages accessible from the{" "}
             <a href="/org" className="underline hover:text-foreground">Org Chart</a> header.
@@ -530,20 +531,20 @@ export function CompanySettings() {
             {cloudSyncEnabled ? (
               <Button size="sm" asChild>
                 <a href="/company/settings/cloud-upstream">
-                  <CloudUpload className="mr-1.5 h-3.5 w-3.5" />
+                  <CloudUpload className="mr-1.5 size-3.5" />
                   Send to Paperclip Cloud
                 </a>
               </Button>
             ) : null}
             <Button size="sm" variant="outline" asChild>
               <a href="/company/export">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
+                <Download className="mr-1.5 size-3.5" />
                 Export
               </a>
             </Button>
             <Button size="sm" variant="outline" asChild>
               <a href="/company/import">
-                <Upload className="mr-1.5 h-3.5 w-3.5" />
+                <Upload className="mr-1.5 size-3.5" />
                 Import
               </a>
             </Button>
@@ -556,7 +557,7 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-destructive uppercase tracking-wide">
           Danger Zone
         </div>
-        <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
+        <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm text-muted-foreground">
             Archive this company to hide it from the sidebar. This persists in
             the database.
@@ -670,8 +671,10 @@ Then after you've connected to Paperclip (exchanged keys etc.) you MUST review a
 
 function buildCandidateOnboardingUrls(input: AgentSnippetInput): string[] {
   const candidates = (input.connectionCandidates ?? [])
-    .map((candidate) => candidate.trim())
-    .filter(Boolean);
+    .flatMap((candidate) => {
+      const trimmed = candidate.trim();
+      return trimmed ? [trimmed] : [];
+    });
   const urls = new Set<string>();
   let onboardingUrl: URL | null = null;
 

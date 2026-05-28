@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
 import { sortProjectsByStoredOrder } from "../lib/project-order";
@@ -38,14 +38,19 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
     enabled: Boolean(companyId && userId),
   });
 
-  const [orderedIds, setOrderedIds] = useState<string[]>(() => {
-    return buildOrderIds(projects, []);
-  });
-
-  useEffect(() => {
-    const nextIds = buildOrderIds(projects, data?.orderedIds ?? []);
-    setOrderedIds((current) => (areEqual(current, nextIds) ? current : nextIds));
-  }, [data?.orderedIds, projects]);
+  const orderedIdsSource = `${projects.map((project) => project.id).join("|")}:${data?.orderedIds?.join("|") ?? ""}`;
+  const persistedOrderedIds = useMemo(
+    () => buildOrderIds(projects, data?.orderedIds ?? []),
+    [data?.orderedIds, projects],
+  );
+  const [orderedIdsOverride, setOrderedIdsOverride] = useState<{
+    source: string;
+    value: string[];
+  } | null>(null);
+  const orderedIds =
+    orderedIdsOverride?.source === orderedIdsSource
+      ? orderedIdsOverride.value
+      : persistedOrderedIds;
 
   const mutation = useMutation({
     mutationFn: async (nextIds: string[]) => {
@@ -66,11 +71,18 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
     (ids: string[]) => {
       const idSet = new Set(projects.map((project) => project.id));
       const filtered = ids.filter((id) => idSet.has(id));
+      const filteredSet = new Set(filtered);
       for (const project of projects) {
-        if (!filtered.includes(project.id)) filtered.push(project.id);
+        if (filteredSet.has(project.id)) continue;
+        filtered.push(project.id);
+        filteredSet.add(project.id);
       }
 
-      setOrderedIds((current) => (areEqual(current, filtered) ? current : filtered));
+      setOrderedIdsOverride((current) =>
+        current?.source === orderedIdsSource && areEqual(current.value, filtered)
+          ? current
+          : { source: orderedIdsSource, value: filtered },
+      );
       if (!companyId || !userId) return;
 
       queryClient.setQueryData(queryKey, (current: { orderedIds?: string[]; updatedAt?: Date | null } | undefined) => ({
@@ -79,7 +91,7 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
       }));
       mutation.mutate(filtered);
     },
-    [companyId, mutation, projects, queryClient, queryKey, userId],
+    [companyId, mutation, orderedIdsSource, projects, queryClient, queryKey, userId],
   );
 
   return {

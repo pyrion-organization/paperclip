@@ -82,7 +82,7 @@ function WindowRow({ w }: { w: TimeWindow }) {
           </div>
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-1 shrink-0">
-              <Clock className="h-3 w-3 shrink-0" />
+              <Clock className="size-3 shrink-0" />
               <span>Resets {relativeReset(w.resetsAt)}</span>
             </div>
             {absoluteReset(w.resetsAt) && (
@@ -117,7 +117,7 @@ function ProviderCard({ p }: { p: ProviderUsage }) {
         </div>
         {p.error && (
           <div className="flex items-start gap-1.5 mt-1">
-            <AlertCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+            <AlertCircle className="size-3.5 text-muted-foreground shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-snug">{p.error}</p>
           </div>
         )}
@@ -219,7 +219,7 @@ export function Usage() {
             className="gap-1.5"
             aria-label="Refresh usage"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+            <RefreshCw className={cn("size-3.5", isFetching && "animate-spin")} />
             <span className="hidden xs:inline">Refresh</span>
           </Button>
         </div>
@@ -253,7 +253,7 @@ export function Usage() {
       {/* Mock disclaimer */}
       {hasMock && (
         <p className="text-xs text-muted-foreground px-0.5">
-          Providers marked "Mock" show placeholder values — CLI credentials were not found on this machine.
+          Providers marked "Mock" show placeholder values, CLI credentials were not found on this machine.
         </p>
       )}
     </div>

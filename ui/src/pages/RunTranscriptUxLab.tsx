@@ -120,7 +120,7 @@ function LiveWidgetPreview({
           </div>
           <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] text-muted-foreground">
             Open run
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="size-3" />
           </span>
         </div>
         <div className="max-h-[460px] overflow-y-auto pr-1">
@@ -154,12 +154,12 @@ function DashboardPreview({
           ? "border-cyan-500/25 bg-cyan-500/[0.04]"
           : "border-border bg-background/75",
       )}>
-        <div className="border-b border-border/60 px-4 py-4">
+        <div className="border-b border-border/60 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className={cn(
-                  "inline-flex h-2.5 w-2.5 rounded-full",
+                  "inline-flex size-2.5 rounded-full",
                   streaming ? "bg-cyan-500 shadow-[0_0_0_6px_rgba(34,211,238,0.12)]" : "bg-muted-foreground/35",
                 )} />
                 <Identity name={runTranscriptFixtureMeta.agentName} size="sm" />
@@ -169,7 +169,7 @@ function DashboardPreview({
               </div>
             </div>
             <span className="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground">
-              <ExternalLink className="h-2.5 w-2.5" />
+              <ExternalLink className="size-2.5" />
             </span>
           </div>
           <div className="mt-3 rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-xs text-cyan-700 dark:text-cyan-300">
@@ -205,7 +205,7 @@ export function RunTranscriptUxLab() {
           <aside className="border-b border-border/60 bg-background/75 p-5 lg:border-b-0 lg:border-r">
             <div className="mb-5">
               <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/25 bg-cyan-500/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-cyan-700 dark:text-cyan-300">
-                <FlaskConical className="h-3.5 w-3.5" />
+                <FlaskConical className="size-3.5" />
                 UX Lab
               </div>
               <h1 className="mt-4 text-2xl font-semibold tracking-tight">Run Transcript Fixtures</h1>
@@ -231,7 +231,7 @@ export function RunTranscriptUxLab() {
                   >
                     <div className="flex items-start gap-3">
                       <span className="rounded-lg border border-current/15 p-2 text-cyan-700 dark:text-cyan-300">
-                        <Icon className="h-4 w-4" />
+                        <Icon className="size-4" />
                       </span>
                       <span className="min-w-0">
                         <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">

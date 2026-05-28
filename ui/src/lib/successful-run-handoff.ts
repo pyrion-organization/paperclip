@@ -8,7 +8,7 @@ export const SUCCESSFUL_RUN_HANDOFF_REQUIRED_NOTICE_BODY =
 export const SUCCESSFUL_RUN_HANDOFF_EXHAUSTED_NOTICE_BODY =
   "Paperclip could not resolve this issue's missing disposition automatically. The issue is blocked on a recovery owner.";
 
-export function isSuccessfulRunHandoffActivity(action: string) {
+function isSuccessfulRunHandoffActivity(action: string) {
   return action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION
     || action === SUCCESSFUL_RUN_HANDOFF_RESOLVED_ACTION
     || action === SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION;
@@ -22,7 +22,7 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-export function successfulRunHandoffFromActivity(event: ActivityEvent): SuccessfulRunHandoffState | null {
+function successfulRunHandoffFromActivity(event: ActivityEvent): SuccessfulRunHandoffState | null {
   if (!isSuccessfulRunHandoffActivity(event.action)) return null;
   const details = event.details ?? {};
   const state = event.action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION

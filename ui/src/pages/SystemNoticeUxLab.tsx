@@ -54,7 +54,7 @@ function FixtureFrame({ caption, children }: { caption: string; children: ReactN
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-        <CircleDashed className="h-3.5 w-3.5" />
+        <CircleDashed className="size-3.5" />
         {caption}
       </div>
       {children}
@@ -141,7 +141,7 @@ export function SystemNoticeUxLab() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_320px]">
           <div className="p-6 sm:p-7">
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/[0.08] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-700 dark:text-amber-300">
-              <FlaskConical className="h-3.5 w-3.5" />
+              <FlaskConical className="size-3.5" />
               System Notice Lab
             </div>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight">
@@ -158,7 +158,7 @@ export function SystemNoticeUxLab() {
                 PAP-3525 plan
               </Badge>
               <Badge variant="outline" className="rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.18em]">
-                phase 1 — UX
+                phase 1, UX
               </Badge>
               <Badge variant="outline" className="rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.18em]">
                 tones: warning · danger · neutral
@@ -168,7 +168,7 @@ export function SystemNoticeUxLab() {
 
           <aside className="border-t border-border/60 bg-background/70 p-6 lg:border-l lg:border-t-0">
             <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              <ListChecks className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+              <ListChecks className="size-4 text-amber-700 dark:text-amber-300" />
               What this lab proves
             </div>
             <div className="space-y-3">
@@ -298,7 +298,7 @@ export function SystemNoticeUxLab() {
                 <div className="min-w-0 max-w-full rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 text-foreground">
                   <div className="rounded-md border border-red-500/35 bg-red-500/10 px-3 py-2.5 text-sm text-red-950 dark:text-red-100">
                     <div className="flex items-start gap-2">
-                      <Sparkles className="mt-1 h-4 w-4 shrink-0 text-red-600 dark:text-red-300" />
+                      <Sparkles className="mt-1 size-4 shrink-0 text-red-600 dark:text-red-300" />
                       <div className="min-w-0">
                         <p className="m-0 font-semibold">Successful run handoff missing</p>
                         <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[13px] leading-5">
@@ -345,7 +345,7 @@ export function SystemNoticeUxLab() {
       <Card className="gap-4 border-border/70 bg-background/85 py-0">
         <CardHeader className="px-5 pt-5 pb-0">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            <Layers className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+            <Layers className="size-4 text-amber-700 dark:text-amber-300" />
             Implementation notes
           </div>
           <CardTitle className="text-lg">Handoff to engineering</CardTitle>
@@ -370,7 +370,7 @@ export function SystemNoticeUxLab() {
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">authorType === &quot;system&quot;</code>{" "}
             or{" "}
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">presentation.kind === &quot;system_notice&quot;</code>{" "}
-            should render as a SystemNotice row at full content width — never inside an{" "}
+            should render as a SystemNotice row at full content width, never inside an{" "}
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[12px]">IssueChatUserMessage</code>{" "}
             or assistant bubble.
           </div>
@@ -399,5 +399,3 @@ export function SystemNoticeUxLab() {
     </div>
   );
 }
-
-export default SystemNoticeUxLab;

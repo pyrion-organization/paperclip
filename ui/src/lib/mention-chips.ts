@@ -182,8 +182,9 @@ function buildAgentIconMask(iconName: string | null): string | null {
 
   const body = iconNode.map(([tag, attrs]) => {
     const attrString = Object.entries(attrs)
-      .filter(([key]) => key !== "key")
-      .map(([key, value]) => `${key}="${escapeAttribute(String(value))}"`)
+      .flatMap(([key, value]) =>
+        key === "key" ? [] : [`${key}="${escapeAttribute(String(value))}"`],
+      )
       .join(" ");
     return `<${tag}${attrString ? ` ${attrString}` : ""}></${tag}>`;
   }).join("");

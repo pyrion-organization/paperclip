@@ -13,7 +13,7 @@ export function getPortableFileText(entry: CompanyPortabilityFileEntry | null | 
   return typeof entry === "string" ? entry : null;
 }
 
-export function getPortableFileContentType(
+function getPortableFileContentType(
   filePath: string,
   entry: CompanyPortabilityFileEntry | null | undefined,
 ) {

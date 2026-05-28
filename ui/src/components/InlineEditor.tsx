@@ -4,17 +4,11 @@ import { DeferredMarkdownBody } from "./DeferredMarkdownBody";
 import type { MarkdownEditorRef, MentionOption } from "./InlineMarkdownEditor";
 import { useAutosaveIndicator } from "../hooks/useAutosaveIndicator";
 import { FoldCurtain } from "./FoldCurtain";
+import { loadMarkdownEditor, queueContainedBlurCommit } from "./inline-editor-utils";
 
-type InlineMarkdownEditorModule = typeof import("./InlineMarkdownEditor");
-let loadMarkdownEditor = () => import("./InlineMarkdownEditor");
 const MarkdownEditor = lazy(() =>
   loadMarkdownEditor(),
 );
-
-export function setInlineMarkdownEditorLoaderForTest(loader: () => Promise<InlineMarkdownEditorModule>) {
-  if (import.meta.env.MODE !== "test") return;
-  loadMarkdownEditor = loader;
-}
 
 interface InlineEditorProps {
   value: string;
@@ -37,22 +31,10 @@ const pad = "px-1 -mx-1";
 const markdownPad = "px-1";
 const AUTOSAVE_DEBOUNCE_MS = 900;
 
-export function queueContainedBlurCommit(container: HTMLDivElement, onCommit: () => void) {
-  let frameId = requestAnimationFrame(() => {
-    frameId = requestAnimationFrame(() => {
-      frameId = 0;
-      const active = document.activeElement;
-      if (active instanceof Node && container.contains(active)) return;
-      onCommit();
-    });
-  });
-
-  return () => {
-    if (frameId === 0) return;
-    cancelAnimationFrame(frameId);
-    frameId = 0;
-  };
-}
+type DraftOverride = {
+  source: string;
+  value: string;
+};
 
 export function InlineEditor({
   value,
@@ -70,8 +52,13 @@ export function InlineEditor({
   const [editing, setEditing] = useState(false);
   const [multilineEditing, setMultilineEditing] = useState(false);
   const [multilineFocused, setMultilineFocused] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const lastPropValueRef = useRef(value);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride | null>(null);
+  const draft = draftOverride && (
+    draftOverride.source === value ||
+    (multiline && multilineFocused && draftOverride.value !== draftOverride.source)
+  )
+    ? draftOverride.value
+    : value;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const markdownRef = useRef<MarkdownEditorRef>(null);
   const autosaveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,16 +73,9 @@ export function InlineEditor({
     runSave,
   } = useAutosaveIndicator();
 
-  useEffect(() => {
-    const previousValue = lastPropValueRef.current;
-    lastPropValueRef.current = value;
-    setDraft((currentDraft) => {
-      if (multiline && multilineFocused && currentDraft !== previousValue) {
-        return currentDraft;
-      }
-      return value;
-    });
-  }, [value, multiline, multilineFocused]);
+  const setDraft = useCallback((nextDraft: string) => {
+    setDraftOverride({ source: value, value: nextDraft });
+  }, [value]);
 
   useEffect(() => {
     return () => {
@@ -204,7 +184,7 @@ export function InlineEditor({
     blurCommitFrameRef.current = null;
   }, []);
 
-  const scheduleBlurCommit = useCallback((container: HTMLDivElement) => {
+  const scheduleBlurCommit = useCallback((container: HTMLElement) => {
     cancelPendingBlurCommit();
     blurCommitFrameRef.current = queueContainedBlurCommit(container, () => {
       blurCommitFrameRef.current = null;
@@ -321,6 +301,8 @@ export function InlineEditor({
           "rounded transition-colors",
           multilineFocused ? "bg-transparent" : "hover:bg-accent/20",
         )}
+        role="group"
+        aria-label={placeholder}
         onFocusCapture={(event) => {
           // Ignore focus events where the active element isn't actually inside
           // the wrapper (React 19 can emit a synthetic focus after a blur).
@@ -397,7 +379,7 @@ export function InlineEditor({
           pad,
           className
         )}
-      />
+       aria-label="Draft"/>
     );
   }
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ComponentType } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BudgetPolicySummary,
   CostByAgentModel,
@@ -32,6 +32,7 @@ import { billingTypeDisplayName, cn, formatCents, formatTokens, providerDisplayN
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const NO_COMPANY = "__none__";
 
@@ -42,6 +43,26 @@ function currentWeekRange(): { from: string; to: string } {
   const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon, 0, 0, 0, 0);
   const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6, 23, 59, 59, 999);
   return { from: mon.toISOString(), to: sun.toISOString() };
+}
+
+function todaySnapshot() {
+  return new Date().toDateString();
+}
+
+function subscribeToDayChange(onStoreChange: () => void) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const schedule = () => {
+    const now = new Date();
+    const ms = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
+    timer = setTimeout(() => {
+      onStoreChange();
+      schedule();
+    }, ms);
+  };
+  schedule();
+  return () => {
+    if (timer != null) clearTimeout(timer);
+  };
 }
 
 function ProviderTabLabel({ provider, rows }: { provider: string; rows: CostByProviderModel[] }) {
@@ -87,8 +108,8 @@ function MetricTile({
           <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
           <div className="mt-1 text-xs leading-5 text-muted-foreground">{subtitle}</div>
         </div>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-border">
-          <Icon className="h-4 w-4 text-muted-foreground" />
+        <div className="flex size-9 shrink-0 items-center justify-center border border-border">
+          <Icon className="size-4 text-muted-foreground" />
         </div>
       </div>
     </div>
@@ -171,22 +192,7 @@ export function Costs() {
     setBreadcrumbs([{ label: "Costs" }]);
   }, [setBreadcrumbs]);
 
-  const [today, setToday] = useState(() => new Date().toDateString());
-  const todayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const schedule = () => {
-      const now = new Date();
-      const ms = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime();
-      todayTimerRef.current = setTimeout(() => {
-        setToday(new Date().toDateString());
-        schedule();
-      }, ms);
-    };
-    schedule();
-    return () => {
-      if (todayTimerRef.current != null) clearTimeout(todayTimerRef.current);
-    };
-  }, []);
+  const today = useSyncExternalStore(subscribeToDayChange, todaySnapshot, todaySnapshot);
 
   const weekRange = useMemo(() => currentWeekRange(), [today]);
   const companyId = selectedCompanyId ?? NO_COMPANY;
@@ -207,7 +213,7 @@ export function Costs() {
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(selectedCompanyId) });
   };
 
-  const policyMutation = useMutation({
+  const policyMutation = useInvalidatingMutation({
     mutationFn: (input: {
       scopeType: BudgetPolicySummary["scopeType"];
       scopeId: string;
@@ -223,7 +229,7 @@ export function Costs() {
     onSuccess: invalidateBudgetViews,
   });
 
-  const incidentMutation = useMutation({
+  const incidentMutation = useInvalidatingMutation({
     mutationFn: (input: { incidentId: string; action: "keep_paused" | "raise_budget_and_resume"; amount?: number }) =>
       budgetsApi.resolveIncident(companyId, input.incidentId, input),
     onSuccess: invalidateBudgetViews,
@@ -568,14 +574,14 @@ export function Costs() {
                 value={customFrom}
                 onChange={(event) => setCustomFrom(event.target.value)}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-              />
+               aria-label="Custom From"/>
               <span className="text-sm text-muted-foreground">to</span>
               <input
                 type="date"
                 value={customTo}
                 onChange={(event) => setCustomTo(event.target.value)}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-              />
+               aria-label="Custom To"/>
             </div>
           ) : null}
 
@@ -729,17 +735,22 @@ export function Costs() {
                         const hasBreakdown = modelRows.length > 0;
                         return (
                           <div key={row.agentId} className="border border-border px-4 py-3">
-                            <div
-                              className={cn("flex items-start justify-between gap-3", hasBreakdown ? "cursor-pointer select-none" : "")}
-                              onClick={() => hasBreakdown && toggleAgent(row.agentId)}
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex w-full appearance-none items-start justify-between gap-3 border-0 bg-transparent p-0 text-left text-inherit",
+                                hasBreakdown ? "cursor-pointer select-none" : "cursor-default",
+                              )}
+                              disabled={!hasBreakdown}
+                              onClick={() => toggleAgent(row.agentId)}
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 {hasBreakdown ? (
                                   isExpanded
-                                    ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                    : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                    ? <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                                    : <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
                                 ) : (
-                                  <span className="h-3 w-3 shrink-0" />
+                                  <span className="size-3 shrink-0" />
                                 )}
                                 <Identity name={row.agentName ?? row.agentId} size="sm" />
                                 {row.agentStatus === "terminated" ? <StatusBadge status="terminated" /> : null}
@@ -759,7 +770,7 @@ export function Costs() {
                                   </div>
                                 ) : null}
                               </div>
-                            </div>
+                            </button>
 
                             {isExpanded && modelRows.length > 0 ? (
                               <div className="mt-3 space-y-2 border-l border-border pl-4">

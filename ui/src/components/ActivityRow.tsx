@@ -1,6 +1,6 @@
 import { Link } from "@/lib/router";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { deriveInitials } from "./Identity";
+import { deriveInitials } from "./identity-utils";
 import { IssueReferenceActivitySummary } from "./IssueReferenceActivitySummary";
 import { timeAgo } from "../lib/timeAgo";
 import { clientUrl, cn } from "../lib/utils";
@@ -65,7 +65,7 @@ export function ActivityRow({ event, agentMap, userProfileMap, entityNameMap, en
             <span>{actorName}</span>
             <span className="text-muted-foreground"> {verb} </span>
             {name && <span className="font-medium">{name}</span>}
-            {entityTitle && <span className="text-muted-foreground"> — {entityTitle}</span>}
+            {entityTitle && <span className="text-muted-foreground">, {entityTitle}</span>}
           </p>
         </div>
         <span className="text-xs text-muted-foreground shrink-0">{timeAgo(event.createdAt)}</span>

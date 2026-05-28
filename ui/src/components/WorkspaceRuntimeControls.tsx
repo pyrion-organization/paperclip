@@ -1,50 +1,20 @@
-import type {
-  WorkspaceCommandDefinition,
-  WorkspaceRuntimeControlTarget,
-  WorkspaceRuntimeService,
-} from "@paperclipai/shared";
-import {
-  listWorkspaceCommandDefinitions,
-  matchWorkspaceRuntimeServiceToCommand,
-} from "@paperclipai/shared/workspace-commands";
 import { Activity, ExternalLink, Loader2, Play, RotateCcw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/classnames";
+import type {
+  LegacyWorkspaceRuntimeControlItem,
+  WorkspaceRuntimeAction,
+  WorkspaceRuntimeControlItem,
+  WorkspaceRuntimeControlRequest,
+  WorkspaceRuntimeControlSections,
+} from "./workspace-runtime-controls-utils";
 
-export type WorkspaceRuntimeAction = "start" | "stop" | "restart" | "run";
-
-export type WorkspaceRuntimeControlRequest = WorkspaceRuntimeControlTarget & {
-  action: WorkspaceRuntimeAction;
-};
-
-export type WorkspaceRuntimeControlItem = {
-  key: string;
-  title: string;
-  kind: "service" | "job";
-  statusLabel: string;
-  lifecycle: "shared" | "ephemeral" | null;
-  healthStatus: "unknown" | "healthy" | "unhealthy" | null;
-  command: string | null;
-  cwd: string | null;
-  port: number | null;
-  url: string | null;
-  canStart: boolean;
-  canRun: boolean;
-  workspaceCommandId?: string | null;
-  runtimeServiceId?: string | null;
-  serviceIndex?: number | null;
-  disabledReason?: string | null;
-};
-
-export type WorkspaceRuntimeControlSections = {
-  services: WorkspaceRuntimeControlItem[];
-  jobs: WorkspaceRuntimeControlItem[];
-  otherServices: WorkspaceRuntimeControlItem[];
-};
-
-type LegacyWorkspaceRuntimeControlItem = WorkspaceRuntimeControlItem & {
-  status?: string | null;
-};
+export type {
+  WorkspaceRuntimeAction,
+  WorkspaceRuntimeControlItem,
+  WorkspaceRuntimeControlRequest,
+  WorkspaceRuntimeControlSections,
+} from "./workspace-runtime-controls-utils";
 
 type WorkspaceRuntimeControlsProps = {
   sections: WorkspaceRuntimeControlSections;
@@ -72,127 +42,13 @@ type WorkspaceRuntimeControlsProps = {
   square?: boolean;
 };
 
-export function hasRunningRuntimeServices(
+function hasRunningRuntimeServices(
   runtimeServices: Array<{ status: string }> | null | undefined,
 ) {
   return (runtimeServices ?? []).some((service) => service.status === "starting" || service.status === "running");
 }
 
-function buildServiceItem(
-  command: WorkspaceCommandDefinition,
-  runtimeService: WorkspaceRuntimeService | null,
-  canStartServices: boolean,
-): WorkspaceRuntimeControlItem {
-  return {
-    key: `command:${command.id}:${runtimeService?.id ?? "idle"}`,
-    title: command.name,
-    kind: "service",
-    statusLabel: runtimeService?.status ?? "stopped",
-    lifecycle: runtimeService?.lifecycle ?? command.lifecycle,
-    healthStatus: runtimeService?.healthStatus ?? "unknown",
-    command: runtimeService?.command ?? command.command,
-    cwd: runtimeService?.cwd ?? command.cwd,
-    port: runtimeService?.port ?? null,
-    url: runtimeService?.url ?? null,
-    canStart: canStartServices && !command.disabledReason,
-    canRun: false,
-    workspaceCommandId: command.id,
-    runtimeServiceId: runtimeService?.id ?? null,
-    serviceIndex: command.serviceIndex,
-    disabledReason: command.disabledReason,
-  };
-}
-
-function buildJobItem(
-  command: WorkspaceCommandDefinition,
-  canRunJobs: boolean,
-): WorkspaceRuntimeControlItem {
-  return {
-    key: `command:${command.id}`,
-    title: command.name,
-    kind: "job",
-    statusLabel: "run once",
-    lifecycle: null,
-    healthStatus: null,
-    command: command.command,
-    cwd: command.cwd,
-    port: null,
-    url: null,
-    canStart: false,
-    canRun: canRunJobs && !command.disabledReason && Boolean(command.command),
-    workspaceCommandId: command.id,
-    runtimeServiceId: null,
-    serviceIndex: null,
-    disabledReason: command.disabledReason ?? (!command.command ? "This job is missing a command." : null),
-  };
-}
-
-export function buildWorkspaceRuntimeControlSections(input: {
-  runtimeConfig: Record<string, unknown> | null | undefined;
-  runtimeServices: WorkspaceRuntimeService[] | null | undefined;
-  canStartServices: boolean;
-  canRunJobs?: boolean;
-}): WorkspaceRuntimeControlSections {
-  const commands = listWorkspaceCommandDefinitions(input.runtimeConfig);
-  const runtimeServices = [...(input.runtimeServices ?? [])];
-  const matchedRuntimeServiceIds = new Set<string>();
-  const services: WorkspaceRuntimeControlItem[] = [];
-  const jobs: WorkspaceRuntimeControlItem[] = [];
-
-  for (const command of commands) {
-    if (command.kind === "job") {
-      jobs.push(buildJobItem(command, input.canRunJobs ?? input.canStartServices));
-      continue;
-    }
-
-    const runtimeService = matchWorkspaceRuntimeServiceToCommand(command, runtimeServices);
-    if (runtimeService) matchedRuntimeServiceIds.add(runtimeService.id);
-    services.push(buildServiceItem(command, runtimeService, input.canStartServices));
-  }
-
-  const otherServices = runtimeServices
-    .filter((runtimeService) =>
-      !matchedRuntimeServiceIds.has(runtimeService.id)
-      && (runtimeService.status === "starting" || runtimeService.status === "running"))
-    .map((runtimeService) => ({
-      key: `runtime:${runtimeService.id}`,
-      title: runtimeService.serviceName,
-      kind: "service" as const,
-      statusLabel: runtimeService.status,
-      lifecycle: runtimeService.lifecycle,
-      healthStatus: runtimeService.healthStatus,
-      command: runtimeService.command ?? null,
-      cwd: runtimeService.cwd ?? null,
-      port: runtimeService.port ?? null,
-      url: runtimeService.url ?? null,
-      canStart: false,
-      canRun: false,
-      workspaceCommandId: null,
-      runtimeServiceId: runtimeService.id,
-      serviceIndex: runtimeService.configIndex ?? null,
-      disabledReason: "This runtime service no longer matches a configured workspace command.",
-    }));
-
-  return {
-    services,
-    jobs,
-    otherServices,
-  };
-}
-
-export function buildWorkspaceRuntimeControlItems(input: {
-  runtimeConfig: Record<string, unknown> | null | undefined;
-  runtimeServices: WorkspaceRuntimeService[] | null | undefined;
-  canStartServices: boolean;
-  canRunJobs?: boolean;
-}): LegacyWorkspaceRuntimeControlItem[] {
-  return buildWorkspaceRuntimeControlSections(input).services.map((item) => ({
-    ...item,
-    status: item.statusLabel,
-  }));
-}
-
-export function getRunningRuntimeServiceUrl(
+function getRunningRuntimeServiceUrl(
   sections: WorkspaceRuntimeControlSections,
 ) {
   const runningService = [...sections.services, ...sections.otherServices].find(
@@ -270,7 +126,7 @@ function CommandActionButtons({
             disabled={disabled}
             onClick={() => onAction(request)}
           >
-            {showSpinner ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+            {showSpinner ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
             {label}
           </Button>
         );
@@ -336,7 +192,7 @@ function CommandSection({
                   {item.url ? (
                     <a href={item.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
                       {item.url}
-                      <ExternalLink className="h-3.5 w-3.5" />
+                      <ExternalLink className="size-3.5" />
                     </a>
                   ) : null}
                   {item.port ? <div>Port {item.port}</div> : null}
@@ -408,7 +264,7 @@ export function WorkspaceRuntimeControls({
                   : "border-border bg-background text-muted-foreground",
               )}
             >
-              <Activity className="h-3.5 w-3.5" />
+              <Activity className="size-3.5" />
               {runningCount > 0 ? `${runningCount} services running` : "No services running"}
             </span>
             <span className="text-xs text-muted-foreground">
@@ -506,7 +362,7 @@ export function WorkspaceRuntimeQuickControls({
           className="inline-flex min-w-0 items-center gap-1 self-start break-all text-xs text-muted-foreground hover:text-foreground hover:underline sm:self-end"
         >
           {serviceUrl}
-          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+          <ExternalLink className="size-3.5 shrink-0" />
         </a>
       ) : null}
     </div>

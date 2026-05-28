@@ -4,7 +4,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Issue, IssueStatus } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KanbanBoard, resolveKanbanTargetStatus } from "./KanbanBoard";
+import { KanbanBoard } from "./KanbanBoard";
+import { resolveKanbanTargetStatus } from "./kanban-board-utils";
 
 vi.mock("@/lib/router", () => ({
   Link: ({

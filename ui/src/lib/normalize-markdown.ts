@@ -18,7 +18,7 @@ export function normalizeMarkdown(text: string): string {
     const match = line.match(/^(\s+)/);
     if (match) {
       const leadingWhitespace = match[1];
-      const currentStyle = leadingWhitespace.includes("\t") ? "tabs" : "spaces";
+      const currentStyle = /\t/.test(leadingWhitespace) ? "tabs" : "spaces";
       if (indentStyle && indentStyle !== currentStyle) {
         return result;
       }

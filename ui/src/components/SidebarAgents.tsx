@@ -76,13 +76,10 @@ function sortAgents(agents: Agent[], sortMode: AgentSidebarSortMode): Agent[] {
 }
 
 function useSidebarAgentIconsReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as SidebarIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -154,7 +151,7 @@ function SidebarAgentItem({
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [actionsMenuRequested, setActionsMenuRequested] = useState(false);
   const actionsTriggerClassName = cn(
-    "absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 inline-flex items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
+    "absolute right-1 top-1/2 size-6 -translate-y-1/2 inline-flex items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
     isMobile
       ? "opacity-100"
       : "pointer-events-none opacity-0 group-hover/agent:pointer-events-auto group-hover/agent:opacity-100 group-focus-within/agent:pointer-events-auto group-focus-within/agent:opacity-100",
@@ -169,7 +166,7 @@ function SidebarAgentItem({
         setActionsMenuOpen(true);
       }}
     >
-      <MoreHorizontal className="h-3.5 w-3.5" />
+      <MoreHorizontal className="size-3.5" />
     </button>
   );
 
@@ -189,7 +186,7 @@ function SidebarAgentItem({
         <SidebarAgentIcon
           icon={agent.icon}
           ready={agentIconsReady}
-          className="h-3.5 w-3.5 text-muted-foreground"
+          className="size-3.5 text-muted-foreground"
         />
       </NavLink>
     );
@@ -213,7 +210,7 @@ function SidebarAgentItem({
         <SidebarAgentIcon
           icon={agent.icon}
           ready={agentIconsReady}
-          className="shrink-0 h-3.5 w-3.5 text-muted-foreground"
+          className="shrink-0 size-3.5 text-muted-foreground"
         />
         <span className="flex-1 truncate">{agent.name}</span>
         {(agent.pauseReason === "budget" || runCount > 0) && (
@@ -222,9 +219,9 @@ function SidebarAgentItem({
               <BudgetSidebarMarker title="Agent paused by budget" />
             ) : null}
             {runCount > 0 ? (
-              <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+              <span className="relative flex size-2">
+                <span className="animate-pulse absolute inline-flex size-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full size-2 bg-blue-500" />
               </span>
             ) : null}
             {runCount > 0 ? (
@@ -264,7 +261,9 @@ interface SidebarAgentsProps {
   liveRuns?: LiveRunForIssue[];
 }
 
-export function SidebarAgents({ liveRuns = [] }: SidebarAgentsProps) {
+const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
+
+export function SidebarAgents({ liveRuns = EMPTY_LIVE_RUNS }: SidebarAgentsProps) {
   const [open, setOpen] = useState(true);
   const [pendingAgentIds, setPendingAgentIds] = useState<Set<string>>(() => new Set());
   const queryClient = useQueryClient();

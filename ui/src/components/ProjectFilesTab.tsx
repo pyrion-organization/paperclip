@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { GitStatusEntry, GitStatusResponse, ProjectFileDetail, ProjectFilesBranch, ProjectFilesBranchSyncDetail, ProjectFilesBranchSyncResult, ProjectFilesTreeEntry } from "@paperclipai/shared";
 import { AlertCircle, AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, ChevronLeft, ChevronRight, Cloud, Copy, FilePlus2, FolderPlus, FolderTree, GitBranch, GitCommitHorizontal, GitMerge, Loader2, Minus, Plus, RefreshCw, RotateCcw, Save, Trash2, UploadCloud, XCircle, XIcon } from "lucide-react";
@@ -18,6 +18,7 @@ import { PageSkeleton } from "./PageSkeleton";
 import { CopyText } from "./CopyText";
 import { useToast } from "../context/ToastContext";
 import { ProjectCodeEditor } from "./ProjectCodeEditor";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 type TreeCache = Record<string, ProjectFilesTreeEntry[]>;
 
@@ -53,12 +54,12 @@ const BRANCH_SYNC_ACTION_CONFIG: Record<
   ProjectFilesBranchSyncDetail["action"],
   { icon: React.ReactNode; label: string; textColor: string }
 > = {
-  pushed_to_remote: { icon: <ArrowUpFromLine className="h-4 w-4" />, label: "Pushed to remote", textColor: "text-green-400" },
-  created_local_tracking: { icon: <ArrowDownToLine className="h-4 w-4" />, label: "Created local tracking branch", textColor: "text-blue-400" },
-  local_auto_deleted: { icon: <XCircle className="h-4 w-4" />, label: "Local branch deleted (remote was gone)", textColor: "text-muted-foreground" },
-  remote_deleted_local_remains: { icon: <AlertTriangle className="h-4 w-4" />, label: "Remote deleted — could not auto-delete local", textColor: "text-amber-400" },
-  already_in_sync: { icon: <CheckCircle2 className="h-4 w-4" />, label: "In sync", textColor: "text-muted-foreground" },
-  error: { icon: <XCircle className="h-4 w-4" />, label: "Error", textColor: "text-destructive" },
+  pushed_to_remote: { icon: <ArrowUpFromLine className="size-4" />, label: "Pushed to remote", textColor: "text-green-400" },
+  created_local_tracking: { icon: <ArrowDownToLine className="size-4" />, label: "Created local tracking branch", textColor: "text-blue-400" },
+  local_auto_deleted: { icon: <XCircle className="size-4" />, label: "Local branch deleted (remote was gone)", textColor: "text-muted-foreground" },
+  remote_deleted_local_remains: { icon: <AlertTriangle className="size-4" />, label: "Remote deleted — could not auto-delete local", textColor: "text-amber-400" },
+  already_in_sync: { icon: <CheckCircle2 className="size-4" />, label: "In sync", textColor: "text-muted-foreground" },
+  error: { icon: <XCircle className="size-4" />, label: "Error", textColor: "text-destructive" },
 };
 
 function BranchSyncDetailRow({ detail }: { detail: ProjectFilesBranchSyncDetail }) {
@@ -116,7 +117,15 @@ function GitFileRow({
   return (
     <div
       className={`group flex items-center gap-1 rounded px-2 py-1 text-sm cursor-pointer hover:bg-accent/30 ${selected ? "bg-accent/20 text-foreground" : "text-muted-foreground"}`}
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <span className="min-w-0 flex-1 truncate font-mono text-xs" title={entry.path}>
         {fileName}
@@ -130,7 +139,7 @@ function GitFileRow({
           className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
           onClick={(e) => { e.stopPropagation(); onUnstage(); }}
         >
-          <Minus className="h-3 w-3" />
+          <Minus className="size-3" />
         </button>
       ) : null}
       {!staged && onStage ? (
@@ -140,7 +149,7 @@ function GitFileRow({
           className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
           onClick={(e) => { e.stopPropagation(); onStage(); }}
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="size-3" />
         </button>
       ) : null}
       {onDiscard ? (
@@ -150,7 +159,7 @@ function GitFileRow({
           className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
           onClick={(e) => { e.stopPropagation(); onDiscard(); }}
         >
-          {entry.isUntracked ? <Trash2 className="h-3 w-3" /> : <RotateCcw className="h-3 w-3" />}
+          {entry.isUntracked ? <Trash2 className="size-3" /> : <RotateCcw className="size-3" />}
         </button>
       ) : null}
     </div>
@@ -175,17 +184,17 @@ function GitSectionHeader({
       <span className="flex-1">{label} <span className="font-normal opacity-60">({count})</span></span>
       {onStageAll ? (
         <button type="button" title="Stage all" className="rounded p-0.5 hover:bg-accent hover:text-foreground" onClick={onStageAll}>
-          <Plus className="h-3 w-3" />
+          <Plus className="size-3" />
         </button>
       ) : null}
       {onUnstageAll ? (
         <button type="button" title="Unstage all" className="rounded p-0.5 hover:bg-accent hover:text-foreground" onClick={onUnstageAll}>
-          <Minus className="h-3 w-3" />
+          <Minus className="size-3" />
         </button>
       ) : null}
       {onDiscardAll ? (
         <button type="button" title="Discard all" className="rounded p-0.5 hover:bg-destructive/20 hover:text-destructive" onClick={onDiscardAll}>
-          <RotateCcw className="h-3 w-3" />
+          <RotateCcw className="size-3" />
         </button>
       ) : null}
     </div>
@@ -351,13 +360,14 @@ export function ProjectFilesTab({
     if (loadedDirs.length === 0) return;
     watchInFlightRef.current = true;
     try {
-      for (const dirPath of loadedDirs) {
+      const treeChecks = await Promise.all(loadedDirs.map(async (dirPath) => {
         const latest = await projectsApi.filesTree(projectId, { path: dirPath, showIgnored, companyId });
         const currentEntries = entriesByDirRef.current[dirPath] ?? [];
-        if (treeSignature(latest.entries) !== treeSignature(currentEntries)) {
-          setShowReloadHint(true);
-          return;
-        }
+        return treeSignature(latest.entries) !== treeSignature(currentEntries);
+      }));
+      if (treeChecks.some(Boolean)) {
+        setShowReloadHint(true);
+        return;
       }
       if (selectedPathRef.current) {
         const latestFile = await projectsApi.fileContent(projectId, selectedPathRef.current, companyId);
@@ -396,7 +406,7 @@ export function ProjectFilesTab({
     }
   }, [companyId, loadDirectory, projectId, queryClient, refetch, selectedPath]);
 
-  const switchBranch = useMutation({
+  const switchBranch = useInvalidatingMutation({
     mutationFn: (input: { branch: string; mode?: "default" | "autostash" | "discard" }) =>
       projectsApi.switchBranch(projectId, input, companyId),
     onSuccess: async () => {
@@ -416,7 +426,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const createBranch = useMutation({
+  const createBranch = useInvalidatingMutation({
     mutationFn: (name: string) => projectsApi.createBranch(projectId, { name }, companyId),
     onSuccess: async () => {
       setCreateBranchName("");
@@ -431,7 +441,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const syncRepo = useMutation({
+  const syncRepo = useInvalidatingMutation({
     mutationFn: () => projectsApi.syncFiles(projectId, companyId),
     onSuccess: async (result) => {
       pushToast({
@@ -448,7 +458,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const deleteBranch = useMutation({
+  const deleteBranch = useInvalidatingMutation({
     mutationFn: ({ name, force }: { name: string; force?: boolean }) =>
       projectsApi.deleteBranch(projectId, name, force ?? false, companyId),
     onSuccess: async () => {
@@ -464,7 +474,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const syncBranches = useMutation({
+  const syncBranches = useInvalidatingMutation({
     mutationFn: () => projectsApi.syncBranches(projectId, companyId),
     onSuccess: async (result) => {
       await refreshAll();
@@ -479,7 +489,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const pushBranch = useMutation({
+  const pushBranch = useInvalidatingMutation({
     mutationFn: (name: string) => projectsApi.pushBranch(projectId, name, companyId),
     onSuccess: async (result) => {
       if (result.status === "success") {
@@ -497,7 +507,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const publishToRemote = useMutation({
+  const publishToRemote = useInvalidatingMutation({
     mutationFn: () => projectsApi.publishToRemote(projectId, publishUrl, companyId),
     onSuccess: async (result) => {
       if (result.status === "success") {
@@ -516,7 +526,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const saveFile = useMutation({
+  const saveFile = useInvalidatingMutation({
     mutationFn: (input: { path: string; content: string }) => projectsApi.saveFileContent(projectId, input, companyId),
     onSuccess: async (detail) => {
       setEditorValue(detail.textContent ?? "");
@@ -532,7 +542,7 @@ export function ProjectFilesTab({
     },
   });
 
-  const discardFiles = useMutation({
+  const discardFiles = useInvalidatingMutation({
     mutationFn: (paths: string[]) => projectsApi.discardFiles(projectId, { paths }, companyId),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.projects.gitStatus(projectId, companyId), data);
@@ -544,7 +554,7 @@ export function ProjectFilesTab({
     onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Discard failed", tone: "error" }),
   });
 
-  const stageFiles = useMutation({
+  const stageFiles = useInvalidatingMutation({
     mutationFn: (paths: string[]) => projectsApi.stageFiles(projectId, { paths }, companyId),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.projects.gitStatus(projectId, companyId), data);
@@ -552,7 +562,7 @@ export function ProjectFilesTab({
     onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Stage failed", tone: "error" }),
   });
 
-  const unstageFiles = useMutation({
+  const unstageFiles = useInvalidatingMutation({
     mutationFn: (paths: string[]) => projectsApi.unstageFiles(projectId, { paths }, companyId),
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.projects.gitStatus(projectId, companyId), data);
@@ -560,7 +570,7 @@ export function ProjectFilesTab({
     onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Unstage failed", tone: "error" }),
   });
 
-  const commitStaged = useMutation({
+  const commitStaged = useInvalidatingMutation({
     mutationFn: (message: string) => projectsApi.commitStaged(projectId, { message }, companyId),
     onSuccess: async (result) => {
       if (result.status === "success") {
@@ -578,7 +588,7 @@ export function ProjectFilesTab({
     onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Commit failed", tone: "error" }),
   });
 
-  const pushFiles = useMutation({
+  const pushFiles = useInvalidatingMutation({
     mutationFn: () => projectsApi.pushFiles(projectId, companyId),
     onSuccess: async (result) => {
       if (result.status === "success") {
@@ -591,7 +601,7 @@ export function ProjectFilesTab({
     onError: (err) => pushToast({ title: err instanceof Error ? err.message : "Push failed", tone: "error" }),
   });
 
-  const createPath = useMutation({
+  const createPath = useInvalidatingMutation({
     mutationFn: async () => {
       if (createPathOpen === "file") {
         return await projectsApi.createFile(projectId, { path: pathDraft }, companyId);
@@ -743,7 +753,7 @@ export function ProjectFilesTab({
       {showReloadHint ? (
         <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
           <div className="flex items-center gap-2 text-amber-100">
-            <AlertCircle className="h-4 w-4" />
+            <AlertCircle className="size-4" />
             Files may have changed outside the UI.
           </div>
           <Button size="sm" variant="outline" onClick={() => void refreshAll()}>
@@ -754,13 +764,13 @@ export function ProjectFilesTab({
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3">
         <Button variant="outline" size="sm" onClick={() => setBranchDialogOpen(true)}>
-          <GitBranch className="h-4 w-4" />
+          <GitBranch className="size-4" />
           {summary.currentBranch ?? "No branch"}
         </Button>
         {summary.hasRemote ? (
           <>
             <Button variant="outline" size="sm" onClick={() => syncRepo.mutate()} disabled={syncRepo.isPending}>
-              <RefreshCw className={`h-4 w-4 ${syncRepo.isPending ? "animate-spin" : ""}`} />
+              <RefreshCw className={`size-4 ${syncRepo.isPending ? "animate-spin" : ""}`} />
               Git Sync
             </Button>
           </>
@@ -779,9 +789,9 @@ export function ProjectFilesTab({
               disabled={!publishUrl.trim() || publishToRemote.isPending}
             >
               {publishToRemote.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <UploadCloud className="h-4 w-4" />
+                <UploadCloud className="size-4" />
               )}
               Publish
             </Button>
@@ -802,7 +812,7 @@ export function ProjectFilesTab({
                       className="h-7 gap-1.5 px-2 text-xs"
                       onClick={() => setGitViewActive(false)}
                     >
-                      <FolderTree className="h-3.5 w-3.5" />
+                      <FolderTree className="size-3.5" />
                       {!compactTreePane ? "Files" : null}
                     </Button>
                   </TooltipTrigger>
@@ -819,7 +829,7 @@ export function ProjectFilesTab({
                       onClick={() => { setGitViewActive(true); void gitStatusQuery.refetch(); }}
                       disabled={!summary.gitEnabled}
                     >
-                      <GitCommitHorizontal className="h-3.5 w-3.5" />
+                      <GitCommitHorizontal className="size-3.5" />
                       {!compactTreePane ? (
                         <span className="flex items-center gap-1">
                           Source Control
@@ -840,11 +850,11 @@ export function ProjectFilesTab({
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8"
+                className="size-8"
                 onClick={() => setCompactTreePane((current) => !current)}
                 title={compactTreePane ? "Expand tree pane" : "Compact tree pane"}
               >
-                {compactTreePane ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                {compactTreePane ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
               </Button>
             </div>
           </div>
@@ -852,11 +862,11 @@ export function ProjectFilesTab({
           {!gitViewActive && !compactTreePane ? (
             <div className="flex items-center gap-1 border-b border-border pb-2">
               <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => openPathDialog("file")}>
-                <FilePlus2 className="h-3.5 w-3.5" />
+                <FilePlus2 className="size-3.5" />
                 New file
               </Button>
               <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => openPathDialog("folder")}>
-                <FolderPlus className="h-3.5 w-3.5" />
+                <FolderPlus className="size-3.5" />
                 New folder
               </Button>
             </div>
@@ -866,7 +876,7 @@ export function ProjectFilesTab({
             <div className="space-y-2">
               {gitStatusQuery.isLoading ? (
                 <p className="px-2 py-4 text-xs text-muted-foreground flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading changes...
+                  <Loader2 className="size-3.5 animate-spin" /> Loading changes&hellip;
                 </p>
               ) : gitEntries.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground">No changes</p>
@@ -953,7 +963,7 @@ export function ProjectFilesTab({
                         commitStaged.mutate(commitMessage);
                       }
                     }}
-                  />
+                   aria-label="Commit Message"/>
                 ) : null}
                 <div className="flex gap-1.5">
                   <Button
@@ -963,7 +973,7 @@ export function ProjectFilesTab({
                     disabled={!commitMessage.trim() || stagedEntries.length === 0 || commitStaged.isPending}
                     title="Commit staged changes"
                   >
-                    {commitStaged.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitCommitHorizontal className="h-3.5 w-3.5" />}
+                    {commitStaged.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <GitCommitHorizontal className="size-3.5" />}
                     {!compactTreePane ? "Commit" : null}
                   </Button>
                   {summary.hasRemote ? (
@@ -976,9 +986,9 @@ export function ProjectFilesTab({
                       className="shrink-0"
                     >
                       {pushFiles.isPending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Loader2 className="size-3.5 animate-spin" />
                       ) : (
-                        <ArrowUpFromLine className="h-3.5 w-3.5" />
+                        <ArrowUpFromLine className="size-3.5" />
                       )}
                       {!compactTreePane ? (
                         <>
@@ -1008,7 +1018,7 @@ export function ProjectFilesTab({
                       entriesByDirRef.current = {};
                       setShowReloadHint(false);
                     }}
-                  />
+                   aria-label="Show Ignored"/>
                   {!compactTreePane ? "Show ignored folders" : null}
                 </label>
                 {summary.rootPath ? (
@@ -1018,7 +1028,7 @@ export function ProjectFilesTab({
                         <div className="flex items-center gap-1">
                           {!compactTreePane ? <span className="cursor-default">Folder path</span> : null}
                           <CopyText text={summary.rootPath} copiedLabel="Path copied">
-                            <Copy className="h-3.5 w-3.5" />
+                            <Copy className="size-3.5" />
                           </CopyText>
                         </div>
                       </TooltipTrigger>
@@ -1041,7 +1051,7 @@ export function ProjectFilesTab({
                   fileStatusMap={fileStatusMap}
                   showCheckboxes={false}
                 />
-                {loadingDirs.has("") ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading files...</p> : null}
+                {loadingDirs.has("") ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading files&hellip;</p> : null}
               </div>
             </>
           )}
@@ -1055,7 +1065,7 @@ export function ProjectFilesTab({
                 <span className="shrink-0 text-xs text-muted-foreground">{gitSelectedFile.staged ? "staged" : "working tree"}</span>
               </div>
               {gitDiffQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading diff...</p>
+                <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="size-4 animate-spin" /> Loading diff&hellip;</p>
               ) : (
                 <DiffViewer diff={gitDiffQuery.data?.diff ?? ""} path={gitSelectedFile.path} />
               )}
@@ -1102,7 +1112,7 @@ export function ProjectFilesTab({
                   onClick={() => saveFile.mutate({ path: selectedFile.path, content: editorValue })}
                   disabled={!fileDirty || saveFile.isPending}
                 >
-                  <Save className="h-4 w-4" />
+                  <Save className="size-4" />
                   Save
                 </Button>
               ) : null}
@@ -1112,7 +1122,7 @@ export function ProjectFilesTab({
           {!gitViewActive ? (!selectedPath ? (
             <p className="text-sm text-muted-foreground">Select a file to preview it.</p>
           ) : selectedFileQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading file...</p>
+            <p className="text-sm text-muted-foreground">Loading file&hellip;</p>
           ) : selectedFileQuery.error ? (
             <p className="text-sm text-destructive">{(selectedFileQuery.error as Error).message}</p>
           ) : selectedFile?.previewType === "image" && selectedFile.base64Content ? (
@@ -1158,8 +1168,8 @@ export function ProjectFilesTab({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void refetch()} disabled={syncBranches.isPending}>
-                      <RefreshCw className="h-4 w-4" />
+                    <Button variant="ghost" size="icon" className="size-8" onClick={() => void refetch()} disabled={syncBranches.isPending}>
+                      <RefreshCw className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent sideOffset={4}>Refresh branch list</TooltipContent>
@@ -1172,14 +1182,14 @@ export function ProjectFilesTab({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 relative"
+                        className="size-8 relative"
                         onClick={() => syncBranches.mutate()}
                         disabled={syncBranches.isPending}
                       >
-                        <GitMerge className="h-4 w-4" />
+                        <GitMerge className="size-4" />
                         {syncBranches.isPending ? (
                           <span className="absolute inset-0 flex items-center justify-center rounded-md bg-background/80">
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="size-4 animate-spin" />
                           </span>
                         ) : null}
                       </Button>
@@ -1192,8 +1202,8 @@ export function ProjectFilesTab({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DialogClose asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <XIcon className="h-4 w-4" />
+                      <Button variant="ghost" size="icon" className="size-8">
+                        <XIcon className="size-4" />
                       </Button>
                     </DialogClose>
                   </TooltipTrigger>
@@ -1219,7 +1229,7 @@ export function ProjectFilesTab({
                           onSelect={() => switchBranch.mutate({ branch: branch.name })}
                           className="rounded-md group"
                         >
-                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
                           <span className={`flex-1 truncate text-sm ${branch.current ? "font-semibold" : ""}`}>{branch.name}</span>
                           {branch.tracking ? (
                             <span className="text-xs text-muted-foreground/60 truncate max-w-[100px] shrink-0">
@@ -1227,7 +1237,7 @@ export function ProjectFilesTab({
                             </span>
                           ) : null}
                           {branch.current ? (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <Check className="size-3.5 shrink-0 text-muted-foreground" />
                           ) : (
                             <button
                               type="button"
@@ -1235,7 +1245,7 @@ export function ProjectFilesTab({
                               onClick={(e) => { e.stopPropagation(); setDeleteBranchTarget(branch.name); setDeleteBranchConfirmed(false); }}
                               tabIndex={-1}
                             >
-                              <XIcon className="h-3.5 w-3.5" />
+                              <XIcon className="size-3.5" />
                             </button>
                           )}
                         </CommandItem>
@@ -1269,7 +1279,7 @@ export function ProjectFilesTab({
                       onSelect={() => switchBranch.mutate({ branch: branch.name })}
                       className="rounded-md"
                     >
-                      <Cloud className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <Cloud className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="flex-1 truncate text-sm">{branch.name}</span>
                     </CommandItem>
                   ))}
@@ -1279,7 +1289,7 @@ export function ProjectFilesTab({
           </Command>
 
           {/* Create branch footer */}
-          <div className="flex items-center gap-2 px-3 py-3 border-t border-border bg-muted/30">
+          <div className="flex items-center gap-2 p-3 border-t border-border bg-muted/30">
             <Input
               value={createBranchName}
               onChange={(event) => setCreateBranchName(event.target.value)}
@@ -1297,7 +1307,7 @@ export function ProjectFilesTab({
               onClick={() => createBranch.mutate(createBranchName)}
               disabled={!createBranchName.trim() || createBranch.isPending}
             >
-              {createBranch.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {createBranch.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
               Create
             </Button>
           </div>
@@ -1397,7 +1407,7 @@ export function ProjectFilesTab({
                 disabled={deleteBranch.isPending}
                 onClick={() => deleteBranchTarget && deleteBranch.mutate({ name: deleteBranchTarget })}
               >
-                {deleteBranch.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {deleteBranch.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
                 Yes, delete it
               </Button>
             ) : (
@@ -1422,7 +1432,7 @@ export function ProjectFilesTab({
               {branchSyncResult.details.some((d) => d.action === "remote_deleted_local_remains") && (
                 <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm space-y-1 mb-3">
                   <p className="font-medium text-amber-200 flex items-center gap-1.5">
-                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTriangle className="size-4" />
                     Some branches could not be auto-deleted
                   </p>
                   <p className="text-amber-100/80 text-xs">
@@ -1461,7 +1471,7 @@ export function ProjectFilesTab({
               onClick={() => discardConfirmPaths && discardFiles.mutate(discardConfirmPaths)}
               disabled={discardFiles.isPending}
             >
-              {discardFiles.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {discardFiles.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
               Discard
             </Button>
           </DialogFooter>

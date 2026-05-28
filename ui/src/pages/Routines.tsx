@@ -13,7 +13,6 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
 import { buildMarkdownMentionOptions } from "../lib/company-members";
 import { queryKeys } from "../lib/queryKeys";
-import { groupBy } from "../lib/groupBy";
 import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { collectLiveIssueIds } from "../lib/liveIssueIds";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
@@ -25,7 +24,16 @@ import { PageTabBar } from "../components/PageTabBar";
 import { AgentIcon } from "../components/AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "../components/MarkdownEditor";
-import { RoutineListRow, nextRoutineStatus } from "../components/RoutineList";
+import { RoutineListRow } from "../components/RoutineList";
+import { nextRoutineStatus } from "../components/routine-list-utils";
+import {
+  buildRoutineGroups,
+  sortRoutines,
+  type RoutineGroup,
+  type RoutineGroupBy,
+  type RoutineSortDir,
+  type RoutineSortField,
+} from "./routines-utils";
 import {
   RoutineRunVariablesDialog,
   type RoutineRunDialogSubmitData,
@@ -69,21 +77,12 @@ function autoResizeTextarea(element: HTMLTextAreaElement | null) {
 }
 
 type RoutinesTab = "routines" | "runs";
-type RoutineGroupBy = "none" | "project" | "assignee";
-type RoutineSortField = "updated" | "created" | "title" | "lastRun";
-type RoutineSortDir = "asc" | "desc";
 
 type RoutineViewState = {
   sortField: RoutineSortField;
   sortDir: RoutineSortDir;
   groupBy: RoutineGroupBy;
   collapsedGroups: string[];
-};
-
-type RoutineGroup = {
-  key: string;
-  label: string | null;
-  items: RoutineListItem[];
 };
 
 const defaultRoutineViewState: RoutineViewState = {
@@ -105,16 +104,6 @@ function getRoutineViewState(key: string): RoutineViewState {
 
 function saveRoutineViewState(key: string, state: RoutineViewState) {
   localStorage.setItem(key, JSON.stringify(state));
-}
-
-function timestampValue(value: Date | string | null | undefined) {
-  if (!value) return Number.NEGATIVE_INFINITY;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
-}
-
-function compareNullableText(left: string | null | undefined, right: string | null | undefined) {
-  return (left ?? "").localeCompare(right ?? "", undefined, { sensitivity: "base" });
 }
 
 const executionModes = ["agent", "script_nodejs", "script_python", "bash_command", "shell_script"] as const;
@@ -155,70 +144,6 @@ function buildRoutineMutationPayload(input: {
     remediationAssigneeAgentId: input.remediationEnabled ? input.remediationAssigneeAgentId || null : null,
     notificationEmail: input.notificationEmail.trim() || null,
   };
-}
-
-export function buildRoutineGroups(
-  routines: RoutineListItem[],
-  groupByValue: RoutineGroupBy,
-  projectById: Map<string, { name: string }>,
-  agentById: Map<string, { name: string }>,
-): RoutineGroup[] {
-  if (groupByValue === "none") {
-    return [{ key: "__all", label: null, items: routines }];
-  }
-
-  if (groupByValue === "project") {
-    const groups = groupBy(routines, (routine) => routine.projectId ?? "__no_project");
-    return Object.keys(groups)
-      .sort((left, right) => {
-        const leftLabel = left === "__no_project" ? "No project" : (projectById.get(left)?.name ?? "Unknown project");
-        const rightLabel = right === "__no_project" ? "No project" : (projectById.get(right)?.name ?? "Unknown project");
-        return leftLabel.localeCompare(rightLabel);
-      })
-      .map((key) => ({
-        key,
-        label: key === "__no_project" ? "No project" : (projectById.get(key)?.name ?? "Unknown project"),
-        items: groups[key]!,
-      }));
-  }
-
-  const groups = groupBy(routines, (routine) => routine.assigneeAgentId ?? "__unassigned");
-  return Object.keys(groups)
-    .sort((left, right) => {
-      const leftLabel = left === "__unassigned" ? "Unassigned" : (agentById.get(left)?.name ?? "Unknown agent");
-      const rightLabel = right === "__unassigned" ? "Unassigned" : (agentById.get(right)?.name ?? "Unknown agent");
-      return leftLabel.localeCompare(rightLabel);
-    })
-    .map((key) => ({
-      key,
-      label: key === "__unassigned" ? "Unassigned" : (agentById.get(key)?.name ?? "Unknown agent"),
-      items: groups[key]!,
-    }));
-}
-
-export function sortRoutines(
-  routines: RoutineListItem[],
-  sortField: RoutineSortField,
-  sortDir: RoutineSortDir,
-): RoutineListItem[] {
-  const direction = sortDir === "asc" ? 1 : -1;
-  return [...routines].sort((left, right) => {
-    let result = 0;
-
-    if (sortField === "title") {
-      result = compareNullableText(left.title, right.title);
-    } else if (sortField === "created") {
-      result = timestampValue(left.createdAt) - timestampValue(right.createdAt);
-    } else if (sortField === "lastRun") {
-      result = timestampValue(left.lastRun?.triggeredAt ?? left.lastTriggeredAt) -
-        timestampValue(right.lastRun?.triggeredAt ?? right.lastTriggeredAt);
-    } else {
-      result = timestampValue(left.updatedAt) - timestampValue(right.updatedAt);
-    }
-
-    if (result !== 0) return result * direction;
-    return compareNullableText(left.title, right.title);
-  });
 }
 
 function buildRoutinesTabHref(tab: RoutinesTab) {
@@ -513,7 +438,7 @@ export function Routines() {
           </p>
         </div>
         <Button onClick={() => setComposerOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
+          <Plus className="mr-2 size-4" />
           Create routine
         </Button>
       </div>
@@ -537,7 +462,7 @@ export function Routines() {
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="sm" className="text-xs" title="Sort">
-                    <ArrowUpDown className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
+                    <ArrowUpDown className="size-3.5 sm:size-3 sm:mr-1" />
                     <span className="hidden sm:inline">Sort</span>
                   </Button>
                 </PopoverTrigger>
@@ -549,7 +474,7 @@ export function Routines() {
                       ["lastRun", "Last run"],
                       ["title", "Title"],
                     ] as const).map(([field, label]) => (
-                      <button
+                      <button type="button"
                         key={field}
                         className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm ${
                           routineViewState.sortField === field
@@ -578,7 +503,7 @@ export function Routines() {
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="sm" className="text-xs" title="Group">
-                    <Layers className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
+                    <Layers className="size-3.5 sm:size-3 sm:mr-1" />
                     <span className="hidden sm:inline">Group</span>
                   </Button>
                 </PopoverTrigger>
@@ -589,7 +514,7 @@ export function Routines() {
                       ["assignee", "Agent"],
                       ["none", "None"],
                     ] as const).map(([value, label]) => (
-                      <button
+                      <button type="button"
                         key={value}
                         className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm ${
                           routineViewState.groupBy === value
@@ -599,7 +524,7 @@ export function Routines() {
                         onClick={() => updateRoutineView({ groupBy: value, collapsedGroups: [] })}
                       >
                         <span>{label}</span>
-                        {routineViewState.groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+                        {routineViewState.groupBy === value ? <Check className="size-3.5" /> : null}
                       </button>
                     ))}
                   </div>
@@ -686,8 +611,7 @@ export function Routines() {
                     }
                   }
                 }}
-                autoFocus
-              />
+               aria-label="Title"/>
             </div>
 
             {/* Execution mode */}
@@ -740,7 +664,7 @@ export function Routines() {
                           option ? (
                             currentAssignee ? (
                               <>
-                                <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <AgentIcon icon={currentAssignee.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                                 <span className="truncate">{option.label}</span>
                               </>
                             ) : (
@@ -755,7 +679,7 @@ export function Routines() {
                           const assignee = agentById.get(option.id);
                           return (
                             <>
-                              {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                              {assignee ? <AgentIcon icon={assignee.icon} className="size-3.5 shrink-0 text-muted-foreground" /> : null}
                               <span className="truncate">{option.label}</span>
                             </>
                           );
@@ -782,7 +706,7 @@ export function Routines() {
                       option && currentProject ? (
                         <>
                           <span
-                            className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                            className="size-3.5 shrink-0 rounded-sm"
                             style={{ backgroundColor: currentProject.color ?? "#64748b" }}
                           />
                           <span className="truncate">{option.label}</span>
@@ -797,7 +721,7 @@ export function Routines() {
                       return (
                         <>
                           <span
-                            className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                            className="size-3.5 shrink-0 rounded-sm"
                             style={{ backgroundColor: project?.color ?? "#64748b" }}
                           />
                           <span className="truncate">{option.label}</span>
@@ -813,13 +737,14 @@ export function Routines() {
               <div className="space-y-3 px-5 pb-3">
                 {draft.executionMode === "bash_command" ? (
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium">Bash command</label>
+                    <label htmlFor="routine-create-bash-command" className="text-xs font-medium">Bash command</label>
                     <textarea
+                      id="routine-create-bash-command"
                       className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
                       placeholder={'echo "hello world" && date'}
                       value={draft.scriptPath}
                       onChange={(e) => setDraft((current) => ({ ...current, scriptPath: e.target.value }))}
-                    />
+                     aria-label="Script Path"/>
                     <p className="text-xs text-muted-foreground">
                       Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
                     </p>
@@ -863,7 +788,7 @@ export function Routines() {
                           {(agents ?? []).map((agent) => (
                             <SelectItem key={agent.id} value={agent.id}>
                               <div className="flex items-center gap-2">
-                                <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                                <AgentIcon icon={agent.icon} className="size-4" />
                                 {agent.name}
                               </div>
                             </SelectItem>
@@ -903,7 +828,7 @@ export function Routines() {
                     <p className="text-sm font-medium">Advanced delivery settings</p>
                     <p className="text-sm text-muted-foreground">Keep policy controls secondary to the work definition.</p>
                   </div>
-                  {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                  {advancedOpen ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-3">
                   <div className="grid gap-4 md:grid-cols-2">
@@ -973,7 +898,7 @@ export function Routines() {
                   !draft.title.trim()
                 }
               >
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="mr-2 size-4" />
                 {createRoutine.isPending ? "Creating..." : "Create routine"}
               </Button>
               {createRoutine.isError ? (
@@ -1020,7 +945,7 @@ export function Routines() {
                   {group.label ? (
                     <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                       <CollapsibleTrigger className="flex items-center gap-1.5">
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-90" />
+                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform [[data-state=open]>&]:rotate-90" />
                         <span className="text-sm font-semibold uppercase tracking-wide">
                           {group.label}
                         </span>

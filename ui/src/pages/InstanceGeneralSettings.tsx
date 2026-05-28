@@ -65,7 +65,7 @@ export function InstanceGeneralSettings() {
   });
 
   if (generalQuery.isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading general settings...</div>;
+    return <div className="text-sm text-muted-foreground">Loading general settings&hellip;</div>;
   }
 
   if (generalQuery.error) {
@@ -95,7 +95,7 @@ export function InstanceGeneralSettings() {
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="h-5 w-5 text-muted-foreground" />
+          <SlidersHorizontal className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">General</h1>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -383,7 +383,7 @@ export function InstanceGeneralSettings() {
 
 function StatusBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-background px-3 py-3">
+    <div className="rounded-lg border border-border bg-background p-3">
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-2 text-sm font-medium">{value}</div>
     </div>

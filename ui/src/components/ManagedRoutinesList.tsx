@@ -62,6 +62,9 @@ export type ManagedRoutinesListProps = {
   onReset?: (routine: ManagedRoutinesListItem) => void;
 };
 
+const EMPTY_MANAGED_ROUTINE_AGENTS: ManagedRoutinesListAgent[] = [];
+const EMPTY_MANAGED_ROUTINE_PROJECTS: ManagedRoutinesListProject[] = [];
+
 function managedRoutineToRow(routine: ManagedRoutinesListItem): RoutineListRowItem {
   return {
     id: routine.key,
@@ -80,8 +83,8 @@ function managedRoutineToRow(routine: ManagedRoutinesListItem): RoutineListRowIt
 
 export function ManagedRoutinesList({
   routines,
-  agents = [],
-  projects = [],
+  agents = EMPTY_MANAGED_ROUTINE_AGENTS,
+  projects = EMPTY_MANAGED_ROUTINE_PROJECTS,
   pluginDisplayName = null,
   emptyMessage = "No managed routines.",
   runningRoutineKey = null,

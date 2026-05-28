@@ -135,14 +135,14 @@ export function SecretBindingPicker({
               onClick={() => onChange(null)}
               disabled={disabled}
             >
-              <X className="h-3 w-3" /> Clear
+              <X className="size-3" /> Clear
             </button>
           ) : null}
         </div>
       ) : null}
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1">
-          <KeyRound className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <KeyRound className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <select
             className={cn(
               "h-9 w-full rounded-md border border-border bg-background pl-7 pr-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60",
@@ -165,7 +165,7 @@ export function SecretBindingPicker({
             ) : null}
             {filteredSecrets.map((secret) => (
               <option key={secret.id} value={secret.id}>
-                {secret.name} — {describeSecret(secret)}
+                {secret.name}, {describeSecret(secret)}
               </option>
             ))}
           </select>
@@ -205,7 +205,7 @@ export function SecretBindingPicker({
           disabled={disabled || !selectedCompanyId}
           aria-label="Create secret"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="size-3.5" />
         </Button>
       </div>
 
@@ -216,7 +216,7 @@ export function SecretBindingPicker({
         </p>
       ) : selectedMissing ? (
         <p className="text-[11px] text-destructive flex items-center gap-1">
-          <AlertCircle className="h-3 w-3" />
+          <AlertCircle className="size-3" />
           The previously selected secret is no longer available. Pick another or remove the binding.
         </p>
       ) : (filteredSecrets.length === 0 && !secretsQuery.isPending) ? (
@@ -271,7 +271,7 @@ export function SecretBindingPicker({
               onClick={() => createMutation.mutate()}
               disabled={!createName.trim() || !createValue || createMutation.isPending}
             >
-              {createMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {createMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
               Create &amp; bind
             </Button>
           </DialogFooter>

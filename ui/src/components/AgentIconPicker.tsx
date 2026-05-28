@@ -43,7 +43,7 @@ export function AgentIconPicker({ value, onChange, children, initialOpen = false
         />
         <div className="grid grid-cols-7 gap-1 max-h-48 overflow-y-auto">
           {filtered.map(([name, Icon]) => (
-            <button
+            <button type="button"
               key={name}
               onClick={() => {
                 onChange(name);
@@ -51,12 +51,12 @@ export function AgentIconPicker({ value, onChange, children, initialOpen = false
                 setSearch("");
               }}
               className={cn(
-                "flex items-center justify-center h-8 w-8 rounded hover:bg-accent transition-colors",
+                "flex items-center justify-center size-8 rounded hover:bg-accent transition-colors",
                 (value ?? DEFAULT_ICON) === name && "bg-accent ring-1 ring-primary"
               )}
               title={name}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="size-4" />
             </button>
           ))}
           {filtered.length === 0 && (

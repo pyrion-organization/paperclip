@@ -43,8 +43,8 @@ export function CompanySettingsSidebar() {
   const showCloudUpstream = experimentalSettings?.enableCloudSync === true;
 
   return (
-    <aside className="w-full h-full min-h-0 border-r border-border bg-background flex flex-col">
-      <div className="flex flex-col gap-1 px-3 py-3 shrink-0">
+    <aside className="size-full min-h-0 border-r border-border bg-background flex flex-col">
+      <div className="flex flex-col gap-1 p-3 shrink-0">
         <Link
           to="/dashboard"
           onClick={() => {
@@ -52,11 +52,11 @@ export function CompanySettingsSidebar() {
           }}
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         >
-          <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
+          <ChevronLeft className="size-3.5 shrink-0" />
           <span className="truncate">{selectedCompany?.name ?? "Company"}</span>
         </Link>
         <div className="flex items-center gap-2 px-2 py-1">
-          <Settings className="h-4 w-4 text-muted-foreground shrink-0" />
+          <Settings className="size-4 text-muted-foreground shrink-0" />
           <span className="flex-1 truncate text-sm font-bold text-foreground">
             Company Settings
           </span>
@@ -88,9 +88,7 @@ export function CompanySettingsSidebar() {
             badge={badges?.joinRequests ?? 0}
             end
           />
-          {companySettingsPluginSlots
-            .filter((slot) => slot.routePath)
-            .map((slot) => (
+          {companySettingsPluginSlots.flatMap((slot) => (slot.routePath) ? [(
               <SidebarNavItem
                 key={`${slot.pluginKey}:${slot.id}`}
                 to={`/company/settings/${slot.routePath}`}
@@ -98,7 +96,7 @@ export function CompanySettingsSidebar() {
                 icon={Puzzle}
                 end
               />
-            ))}
+            )] : [])}
           <SidebarNavItem to="/company/settings/invites" label="Invites" icon={MailPlus} end />
           <SidebarNavItem to="/company/settings/secrets" label="Secrets" icon={KeyRound} end />
         </div>

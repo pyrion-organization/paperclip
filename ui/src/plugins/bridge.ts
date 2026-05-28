@@ -25,7 +25,7 @@
  * @see PLUGIN_SPEC.md §19.7 — Error Propagation Through The Bridge
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createContext, useCallback, use, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation as useRouterLocation, useNavigate as useRouterNavigate, type NavigateOptions } from "react-router-dom";
 import type {
   PluginBridgeErrorCode,
@@ -173,7 +173,7 @@ export const PluginBridgeContext =
   createContext<PluginBridgeContextValue | null>(null);
 
 function usePluginBridgeContext(): PluginBridgeContextValue {
-  const ctx = useContext(PluginBridgeContext);
+  const ctx = use(PluginBridgeContext);
   if (!ctx) {
     throw new Error(
       "Plugin bridge hook called outside of a <PluginBridgeContext.Provider>. " +
@@ -662,14 +662,16 @@ export function usePluginStream<T = unknown>(
       }
     };
 
-    source.addEventListener("close", () => {
+    const handleClose = () => {
       source.close();
       if (sourceRef.current === source) {
         sourceRef.current = null;
       }
       setConnecting(false);
       setConnected(false);
-    });
+    };
+
+    source.addEventListener("close", handleClose);
 
     source.onerror = () => {
       setConnecting(false);
@@ -682,6 +684,7 @@ export function usePluginStream<T = unknown>(
     };
 
     return () => {
+      source.removeEventListener("close", handleClose);
       source.close();
       if (sourceRef.current === source) {
         sourceRef.current = null;

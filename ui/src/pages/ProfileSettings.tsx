@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, LoaderCircle, Save, Trash2, UserRoundPen } from "lucide-react";
 import type { AuthSession, CurrentUserProfile, UpdateCurrentUserProfile } from "@paperclipai/shared";
 import { authApi } from "@/api/auth";
@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 function deriveInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -70,7 +71,7 @@ export function ProfileSettings() {
     return name.trim() || sessionQuery.data?.user.name || "Board";
   }
 
-  const updateMutation = useMutation({
+  const updateMutation = useInvalidatingMutation({
     mutationFn: (input: UpdateCurrentUserProfile) => persistProfile(input),
     onSuccess: (profile) => {
       setActionError(null);
@@ -82,7 +83,7 @@ export function ProfileSettings() {
     },
   });
 
-  const uploadAvatarMutation = useMutation({
+  const uploadAvatarMutation = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) {
         throw new Error("Select a company before uploading a profile avatar.");
@@ -105,7 +106,7 @@ export function ProfileSettings() {
     },
   });
 
-  const removeAvatarMutation = useMutation({
+  const removeAvatarMutation = useInvalidatingMutation({
     mutationFn: () => persistProfile({ name: resolveProfileName(), image: null }),
     onSuccess: (profile) => {
       setActionError(null);
@@ -118,7 +119,7 @@ export function ProfileSettings() {
   });
 
   if (sessionQuery.isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading profile...</div>;
+    return <div className="text-sm text-muted-foreground">Loading profile&hellip;</div>;
   }
 
   if (sessionQuery.error || !sessionQuery.data) {
@@ -141,7 +142,7 @@ export function ProfileSettings() {
     <div className="max-w-4xl space-y-6">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <UserRoundPen className="h-5 w-5 text-muted-foreground" />
+          <UserRoundPen className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Profile</h1>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -179,7 +180,7 @@ export function ProfileSettings() {
                       uploadAvatarMutation.mutate(file);
                       event.target.value = "";
                     }}
-                  />
+                   aria-label="Select file"/>
                   <span className="absolute inset-0 z-10 rounded-full bg-black/0 transition-colors group-hover:bg-black/14 group-focus-within:bg-black/14" />
                   <span className="absolute bottom-1 right-1 z-20 flex size-9 items-center justify-center rounded-full border border-background bg-primary text-primary-foreground shadow-sm">
                     {uploadAvatarMutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Camera className="size-4" />}

@@ -90,7 +90,7 @@ export function mapCommentMetadataToSystemNoticeSections(
     .filter((s): s is SystemNoticeMetadataSection => s !== null);
 }
 
-export function systemNoticeLabelForTone(
+function systemNoticeLabelForTone(
   tone: SystemNoticeTone,
   presentationTitle?: string | null,
 ): string {

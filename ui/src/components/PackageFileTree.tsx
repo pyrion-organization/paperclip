@@ -4,13 +4,8 @@ import type { FileTreeProps } from "./FileTree";
 export function PackageFileTree({ wrapLabels = false, ...props }: FileTreeProps) {
   return <FileTree {...props} wrapLabels={wrapLabels} />;
 }
-
-export {
-  FRONTMATTER_FIELD_LABELS,
-  buildFileTree,
-  collectAllPaths,
-  countFiles,
-  parseFrontmatter,
+export type {
+  FileTreeProps,
 } from "./FileTree";
 export type {
   FileTreeBadge,
@@ -18,7 +13,6 @@ export type {
   FileTreeEmptyState,
   FileTreeErrorState,
   FileTreeNode,
-  FileTreeProps,
   FileTreeTone,
   FrontmatterData,
-} from "./FileTree";
+} from "./file-tree-utils";

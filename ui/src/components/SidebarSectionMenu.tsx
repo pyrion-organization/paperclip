@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { SidebarSectionMenu as SidebarSectionMenuConfig } from "./SidebarSection";
 
+type SidebarSectionMenuAction = NonNullable<SidebarSectionMenuConfig["actions"]>[number];
+
 interface SidebarSectionMenuProps {
   ariaLabel: string;
   headerContent: ReactNode;
@@ -28,6 +30,17 @@ export function SidebarSectionMenu({
   onOpenChange,
   triggerClassName,
 }: SidebarSectionMenuProps) {
+  function actionKey(action: SidebarSectionMenuAction, index: number) {
+    if (action.type === "separator") {
+      const previous = menu.actions?.[index - 1];
+      const next = menu.actions?.[index + 1];
+      const previousKey = previous?.type === "item" ? previous.href ?? previous.label : "start";
+      const nextKey = next?.type === "item" ? next.href ?? next.label : "end";
+      return `separator:${previousKey}:${nextKey}`;
+    }
+    return `item:${action.href ?? action.label}`;
+  }
+
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
@@ -43,7 +56,7 @@ export function SidebarSectionMenu({
       <DropdownMenuContent align="start" className="w-48">
         {menu.actions?.map((action, index) => {
           if (action.type === "separator") {
-            return <DropdownMenuSeparator key={`separator-${index}`} />;
+            return <DropdownMenuSeparator key={actionKey(action, index)} />;
           }
           const Icon = action.icon;
           const content = (
@@ -54,13 +67,13 @@ export function SidebarSectionMenu({
           );
           if (action.href) {
             return (
-              <DropdownMenuItem key={`${action.label}-${index}`} asChild>
+              <DropdownMenuItem key={actionKey(action, index)} asChild>
                 <Link to={action.href}>{content}</Link>
               </DropdownMenuItem>
             );
           }
           return (
-            <DropdownMenuItem key={`${action.label}-${index}`} onSelect={action.onSelect}>
+            <DropdownMenuItem key={actionKey(action, index)} onSelect={action.onSelect}>
               {content}
             </DropdownMenuItem>
           );

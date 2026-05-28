@@ -49,7 +49,7 @@ export function DocumentDiffModal({
 
   const sortedRevisions = useMemo(() => {
     if (!revisions) return [];
-    return [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber);
+    return revisions.toSorted((a, b) => b.revisionNumber - a.revisionNumber);
   }, [revisions]);
 
   // Default: compare previous (latestRevisionNumber - 1) with current (latestRevisionNumber)
@@ -89,7 +89,7 @@ export function DocumentDiffModal({
         <div className="flex items-center justify-between gap-4">
           <DialogHeader className="shrink-0">
             <DialogTitle>
-              Diff — <span className="font-mono text-sm">{documentKey}</span>
+              Diff, <span className="font-mono text-sm">{documentKey}</span>
             </DialogTitle>
           </DialogHeader>
 
@@ -135,7 +135,7 @@ export function DocumentDiffModal({
 
         <div className="overflow-auto flex-1 rounded-md border border-border text-xs">
           {!revisions ? (
-            <div className="p-6 text-center text-muted-foreground text-sm">Loading revisions...</div>
+            <div className="p-6 text-center text-muted-foreground text-sm">Loading revisions&hellip;</div>
           ) : !leftRevision || !rightRevision ? (
             <div className="p-6 text-center text-muted-foreground text-sm">Select two revisions to compare.</div>
           ) : leftRevision.id === rightRevision.id ? (

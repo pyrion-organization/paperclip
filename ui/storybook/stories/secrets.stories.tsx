@@ -144,7 +144,7 @@ export const EnvEditorWithSecrets: Story = {
               secrets={storybookSecrets as CompanySecret[]}
               onCreateSecret={async (name, value) => ({
                 ...storybookSecrets[0]!,
-                id: `secret-${Math.random().toString(36).slice(2, 8)}`,
+                id: `secret-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
                 name,
                 key: name.toLowerCase(),
                 description: `New secret with value len=${value.length}`,

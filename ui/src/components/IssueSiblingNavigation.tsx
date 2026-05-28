@@ -70,9 +70,9 @@ function SiblingLink({
           "flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground",
           direction === "next" && "sm:justify-end",
         )}>
-          {direction === "previous" ? <Icon className="h-3.5 w-3.5 shrink-0" /> : null}
+          {direction === "previous" ? <Icon className="size-3.5 shrink-0" /> : null}
           <span>{label}</span>
-          {direction === "next" ? <Icon className="h-3.5 w-3.5 shrink-0" /> : null}
+          {direction === "next" ? <Icon className="size-3.5 shrink-0" /> : null}
         </div>
         <div className={cn(
           "flex min-w-0 items-center gap-1.5 text-xs font-mono text-muted-foreground transition-colors group-hover:text-foreground",

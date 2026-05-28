@@ -64,7 +64,7 @@ function deriveUserSlug(name: string | null | undefined, email: string | null | 
 
 function MenuAction({ label, description, icon: Icon, onClick, href, external = false }: MenuActionProps) {
   const className =
-    "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-accent/60";
+    "flex w-full items-start gap-3 rounded-xl p-3 text-left transition-colors hover:bg-accent/60";
 
   const content = (
     <>
@@ -141,7 +141,7 @@ export function SidebarAccountMenu({
   }
 
   return (
-    <div className="w-full shrink-0 border-t border-border bg-background px-2 py-2">
+    <div className="w-full shrink-0 border-t border-border bg-background p-2">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -233,7 +233,7 @@ export function SidebarAccountMenu({
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-destructive/10",
+                    "flex w-full items-start gap-3 rounded-xl p-3 text-left transition-colors hover:bg-destructive/10",
                     signOutMutation.isPending && "cursor-not-allowed opacity-60",
                   )}
                   onClick={() => signOutMutation.mutate()}

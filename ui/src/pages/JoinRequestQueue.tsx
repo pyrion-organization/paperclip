@@ -40,9 +40,11 @@ export function JoinRequestQueue() {
   const approveMutation = useMutation({
     mutationFn: (requestId: string) => accessApi.approveJoinRequest(selectedCompanyId!, requestId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(selectedCompanyId!, `${status}:${requestType}`) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.companyMembers(selectedCompanyId!) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId!) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(selectedCompanyId!, `${status}:${requestType}`) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.companyMembers(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId!) }),
+      ]);
       pushToast({ title: "Join request approved", tone: "success" });
     },
   });
@@ -77,7 +79,7 @@ export function JoinRequestQueue() {
     <div className="max-w-6xl space-y-6">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <UserPlus2 className="h-5 w-5 text-muted-foreground" />
+          <UserPlus2 className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Join Request Queue</h1>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">

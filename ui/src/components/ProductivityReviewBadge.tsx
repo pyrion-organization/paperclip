@@ -4,12 +4,7 @@ import { Link } from "../lib/router";
 import { cn } from "../lib/classnames";
 import { createIssueDetailPath } from "../lib/issueDetailBreadcrumb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-
-const TRIGGER_LABELS: Record<string, string> = {
-  no_comment_streak: "No-comment streak",
-  long_active_duration: "Long active duration",
-  high_churn: "High churn",
-};
+import { productivityReviewTriggerLabel } from "./productivity-review-utils";
 
 const REVIEW_STATUS_LABELS: Record<string, string> = {
   todo: "Open",
@@ -18,13 +13,6 @@ const REVIEW_STATUS_LABELS: Record<string, string> = {
   blocked: "Blocked",
   backlog: "Open",
 };
-
-export function productivityReviewTriggerLabel(
-  trigger: IssueProductivityReview["trigger"],
-): string {
-  if (!trigger) return "Productivity review";
-  return TRIGGER_LABELS[trigger] ?? "Productivity review";
-}
 
 export function ProductivityReviewBadge({
   review,
@@ -51,7 +39,7 @@ export function ProductivityReviewBadge({
           )}
           aria-label={`Under review · productivity review ${reviewIdentifier} (${label})`}
         >
-          <Eye className="h-3 w-3" aria-hidden />
+          <Eye className="size-3" aria-hidden />
           {hideLabel ? null : <span>Under review</span>}
         </Link>
       </TooltipTrigger>

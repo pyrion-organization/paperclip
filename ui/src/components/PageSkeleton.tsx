@@ -110,8 +110,8 @@ export function PageSkeleton({ variant = "list" }: PageSkeletonProps) {
         <div className="space-y-3">
           <Skeleton className="h-3 w-64" />
           <div className="flex items-center gap-2">
-            <Skeleton className="h-6 w-6" />
-            <Skeleton className="h-6 w-6" />
+            <Skeleton className="size-6" />
+            <Skeleton className="size-6" />
             <Skeleton className="h-7 w-48" />
           </div>
           <Skeleton className="h-4 w-40" />

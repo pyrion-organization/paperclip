@@ -88,7 +88,7 @@ function workspaceChangeFromDetails(details: Record<string, unknown>) {
 }
 
 function sortTimelineEvents<T extends { createdAt: Date | string; id: string }>(events: T[]) {
-  return [...events].sort((a, b) => {
+  return events.toSorted((a, b) => {
     const createdAtDiff = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
     if (createdAtDiff !== 0) return createdAtDiff;
     return a.id.localeCompare(b.id);

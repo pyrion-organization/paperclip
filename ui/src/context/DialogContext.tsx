@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useMemo, useState, type ReactNode } from "react";
 import type { IssueWorkMode } from "@paperclipai/shared";
 
 interface NewIssueDefaults {
@@ -202,7 +202,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 }
 
 export function useDialogActions() {
-  const ctx = useContext(DialogActionsContext);
+  const ctx = use(DialogActionsContext);
   if (!ctx) {
     throw new Error("useDialogActions must be used within DialogProvider");
   }
@@ -210,7 +210,7 @@ export function useDialogActions() {
 }
 
 export function useDialogState() {
-  const ctx = useContext(DialogStateContext);
+  const ctx = use(DialogStateContext);
   if (!ctx) {
     throw new Error("useDialogState must be used within DialogProvider");
   }

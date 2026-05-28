@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "@/lib/router";
 import { accessApi } from "../api/access";
@@ -12,10 +11,7 @@ export function BoardClaimPage() {
   const [searchParams] = useSearchParams();
   const token = (params.token ?? "").trim();
   const code = (searchParams.get("code") ?? "").trim();
-  const currentPath = useMemo(
-    () => `/board-claim/${encodeURIComponent(token)}${code ? `?code=${encodeURIComponent(code)}` : ""}`,
-    [token, code],
-  );
+  const currentPath = `/board-claim/${encodeURIComponent(token)}${code ? `?code=${encodeURIComponent(code)}` : ""}`;
 
   const sessionQuery = useQuery({
     queryKey: queryKeys.auth.session,
@@ -32,11 +28,13 @@ export function BoardClaimPage() {
   const claimMutation = useMutation({
     mutationFn: () => accessApi.claimBoard(token, code),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.health });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats });
-      await statusQuery.refetch();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.auth.session }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.health }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats }),
+        statusQuery.refetch(),
+      ]);
     },
   });
 
@@ -45,7 +43,7 @@ export function BoardClaimPage() {
   }
 
   if (statusQuery.isLoading || sessionQuery.isLoading) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading claim challenge...</div>;
+    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading claim challenge&hellip;</div>;
   }
 
   if (statusQuery.error) {

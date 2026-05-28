@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { Link, useNavigate } from "@/lib/router";
+import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { agentsApi, type OrgNode } from "../api/agents";
 import { useCompany } from "../context/CompanyContext";
@@ -174,7 +174,6 @@ const defaultDotColor = "#a3a3a3";
 export function OrgChart() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const navigate = useNavigate();
 
   const { data: orgTree, isLoading } = useQuery({
     queryKey: queryKeys.org(selectedCompanyId!),
@@ -446,13 +445,13 @@ export function OrgChart() {
       <div className="mb-2 flex shrink-0 flex-wrap items-center justify-start gap-2">
         <Link to="/company/import">
           <Button variant="outline" size="sm">
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            <Upload className="mr-1.5 size-3.5" />
             Import company
           </Button>
         </Link>
         <Link to="/company/export">
           <Button variant="outline" size="sm">
-            <Download className="mr-1.5 h-3.5 w-3.5" />
+            <Download className="mr-1.5 size-3.5" />
             Export company
           </Button>
         </Link>
@@ -460,6 +459,8 @@ export function OrgChart() {
       <div
         ref={containerRef}
         data-testid="org-chart-viewport"
+        role="region"
+        aria-label="Organization chart"
         className="w-full flex-1 min-h-0 overflow-hidden relative bg-muted/20 border border-border rounded-lg"
         style={{
           cursor: dragging ? "grabbing" : "grab",
@@ -478,7 +479,7 @@ export function OrgChart() {
       >
         {/* Zoom controls */}
         <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
-          <button
+          <button type="button"
             className="flex size-9 items-center justify-center rounded border border-border bg-background text-sm transition-colors hover:bg-accent sm:size-7"
             onClick={() => {
               const container = containerRef.current;
@@ -492,9 +493,9 @@ export function OrgChart() {
             title="Zoom in"
             aria-label="Zoom in"
           >
-            <Plus className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+            <Plus className="size-4 sm:size-3.5" />
           </button>
-          <button
+          <button type="button"
             className="flex size-9 items-center justify-center rounded border border-border bg-background text-sm transition-colors hover:bg-accent sm:size-7"
             onClick={() => {
               const container = containerRef.current;
@@ -508,15 +509,15 @@ export function OrgChart() {
             title="Zoom out"
             aria-label="Zoom out"
           >
-            <Minus className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+            <Minus className="size-4 sm:size-3.5" />
           </button>
-          <button
+          <button type="button"
             className="flex size-9 items-center justify-center rounded border border-border bg-background text-[10px] transition-colors hover:bg-accent sm:size-7"
             onClick={fitToScreen}
             title="Fit to screen"
             aria-label="Fit chart to screen"
           >
-            <Maximize2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+            <Maximize2 className="size-4 sm:size-3.5" />
           </button>
         </div>
 
@@ -563,17 +564,17 @@ export function OrgChart() {
             const dotColor = statusDotColor[node.status] ?? defaultDotColor;
 
             return (
-              <div
+              <Link
                 key={node.id}
+                to={agent ? agentUrl(agent) : `/agents/${node.id}`}
                 data-org-card
-                className="absolute bg-card border border-border rounded-lg shadow-sm hover:shadow-md hover:border-foreground/20 transition-[box-shadow,border-color] duration-150 cursor-pointer select-none"
+                className="absolute bg-card border border-border rounded-lg shadow-sm hover:shadow-md hover:border-foreground/20 transition-[box-shadow,border-color] duration-150 cursor-pointer select-none no-underline text-inherit"
                 style={{
                   left: node.x,
                   top: node.y,
                   width: CARD_W,
                   minHeight: CARD_H,
                 }}
-                onClick={() => navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
                 onClickCapture={(e) => {
                   if (!suppressNextCardClick.current) return;
                   suppressNextCardClick.current = false;
@@ -584,11 +585,11 @@ export function OrgChart() {
                 <div className="flex items-center px-4 py-3 gap-3">
                   {/* Agent icon + status dot */}
                   <div className="relative shrink-0">
-                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center">
-                      <AgentIcon icon={agent?.icon} className="h-4.5 w-4.5 text-foreground/70" />
+                    <div className="size-9 rounded-full bg-muted flex items-center justify-center">
+                      <AgentIcon icon={agent?.icon} className="size-4.5 text-foreground/70" />
                     </div>
                     <span
-                      className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card"
+                      className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-card"
                       style={{ backgroundColor: dotColor }}
                     />
                   </div>
@@ -612,7 +613,7 @@ export function OrgChart() {
                     )}
                   </div>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

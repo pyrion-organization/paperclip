@@ -73,13 +73,13 @@ function SidebarSectionHeader({
     ? "opacity-100"
     : "opacity-0 group-hover/sidebar-section:opacity-100 group-focus-within/sidebar-section:opacity-100";
   const caretClassName = cn(
-    "h-3 w-3 shrink-0 text-muted-foreground/60 transition-all",
+    "size-3 shrink-0 text-muted-foreground/60 transition-all",
     headerControlVisibilityClassName,
     collapsible?.open && "rotate-90",
     menuOpen && "opacity-100",
   );
   const actionClassName = cn(
-    "h-5 w-5 shrink-0 text-muted-foreground/60 transition-opacity hover:text-foreground data-[state=open]:opacity-100",
+    "size-5 shrink-0 text-muted-foreground/60 transition-opacity hover:text-foreground data-[state=open]:opacity-100",
     headerControlVisibilityClassName,
   );
   const headerContent = <span className={labelClassName}>{label}</span>;
@@ -132,7 +132,7 @@ function SidebarSectionHeader({
             <button
               type="button"
               data-slot="icon-button"
-              className="absolute -left-4 flex h-5 w-5 items-center justify-center rounded-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="absolute -left-4 flex size-5 items-center justify-center rounded-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               aria-label={collapsible.open ? `Collapse ${label}` : `Expand ${label}`}
             >
               <ChevronRight className={caretClassName} aria-hidden="true" />
@@ -148,7 +148,7 @@ function SidebarSectionHeader({
             aria-label={headerAction.ariaLabel}
             onClick={headerAction.onClick}
           >
-            <HeaderActionIcon className="h-3.5 w-3.5" />
+            <HeaderActionIcon className="size-3.5" />
           </Button>
         ) : null}
       </div>

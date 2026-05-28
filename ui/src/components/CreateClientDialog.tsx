@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { clientsApi } from "../api/clients";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 export function CreateClientDialog() {
   const { newClientOpen, closeNewClient } = useDialog();
@@ -24,7 +25,7 @@ export function CreateClientDialog() {
   const [contactName, setContactName] = useState("");
   const [notes, setNotes] = useState("");
 
-  const createClient = useMutation({
+  const createClient = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       clientsApi.create(selectedCompanyId!, data),
   });

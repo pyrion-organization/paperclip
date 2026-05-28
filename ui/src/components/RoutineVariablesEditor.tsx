@@ -31,8 +31,10 @@ function serializeVariables(value: RoutineVariable[]) {
 function parseSelectOptions(value: string) {
   return value
     .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+    .flatMap((entry) => {
+      const trimmed = entry.trim();
+      return trimmed ? [trimmed] : [];
+    });
 }
 
 function updateVariableList(
@@ -81,7 +83,7 @@ export function RoutineVariablesEditor({
             Detected from `{"{{name}}"}` placeholders in the routine title and instructions.
           </p>
         </div>
-        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        {open ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
       </CollapsibleTrigger>
       <CollapsibleContent className="divide-y divide-border/70 border-t border-border/70">
         {syncedVariables.map((variable) => (
@@ -141,7 +143,7 @@ export function RoutineVariablesEditor({
                         ...current,
                         required: event.target.checked,
                       })))}
-                    />
+                     aria-label="Required"/>
                     Required
                   </label>
                 </div>
@@ -267,7 +269,7 @@ export function RoutineVariablesHint() {
           className="shrink-0 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Show variable help"
         >
-          <HelpCircle className="h-3.5 w-3.5" />
+          <HelpCircle className="size-3.5" />
         </button>
       </div>
 
@@ -306,7 +308,7 @@ export function RoutineVariablesHint() {
                 Built-in variables
               </h3>
               <p className="text-muted-foreground">
-                These are filled in automatically — no setup needed and they will not appear in the
+                These are filled in automatically, no setup needed and they will not appear in the
                 Variables list.
               </p>
               <div className="overflow-hidden rounded-lg border border-border/70">

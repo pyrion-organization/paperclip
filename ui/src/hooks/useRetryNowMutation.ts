@@ -21,7 +21,7 @@ function readErrorMessage(error: unknown): string {
   return "The request failed. Try again in a moment.";
 }
 
-export const RETRY_NOW_OUTCOME_HEADLINE: Record<IssueRetryNowOutcome, string> = {
+const RETRY_NOW_OUTCOME_HEADLINE: Record<IssueRetryNowOutcome, string> = {
   promoted: "Retry promoted",
   already_promoted: "Retry already running",
   no_scheduled_retry: "No scheduled retry",

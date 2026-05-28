@@ -66,8 +66,8 @@ function SearchResultRowImpl({
         className={cn(ROW_BASE, "py-3", isActive && "bg-muted/40", className)}
         data-result-type="agent"
       >
-        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <Bot className="h-3 w-3" />
+        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Bot className="size-3" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
@@ -93,7 +93,7 @@ function SearchResultRowImpl({
         className={cn(ROW_BASE, "py-3", isActive && "bg-muted/40", className)}
         data-result-type="project"
       >
-        <Hexagon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <Hexagon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <span className="truncate text-sm font-medium">{result.title}</span>
           {result.snippet ? (
@@ -174,7 +174,7 @@ function SearchResultRowImpl({
               alt=""
               loading="lazy"
               decoding="async"
-              className="h-[88px] w-[88px] shrink-0 rounded-md border border-border bg-muted object-cover"
+              className="size-[88px] shrink-0 rounded-md border border-border bg-muted object-cover"
             />
           ) : null}
         </div>
@@ -203,7 +203,7 @@ function SnippetLine({ text, highlights, field, fallbackLabel, multiline = false
       )}
     >
       <Icon
-        className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/60", multiline && "mt-0.5")}
+        className={cn("size-3.5 shrink-0 text-muted-foreground/60", multiline && "mt-0.5")}
         aria-hidden
       />
       <span className="sr-only">{label}: </span>

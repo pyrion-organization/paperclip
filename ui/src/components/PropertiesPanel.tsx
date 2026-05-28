@@ -17,7 +17,7 @@ export function PropertiesPanel() {
         <div className="flex items-center justify-between px-4 py-2 border-b border-border">
           <span className="text-sm font-medium">Properties</span>
           <Button variant="ghost" size="icon-xs" onClick={() => setPanelVisible(false)}>
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         </div>
         <ScrollArea className="flex-1">

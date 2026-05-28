@@ -16,8 +16,11 @@ export function InstanceAccess() {
   const { pushToast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [selectedCompanyIds, setSelectedCompanyIds] = useState<Set<string>>(new Set());
+  const [selectedUserIdOverride, setSelectedUserIdOverride] = useState<string | null>(null);
+  const [selectedCompanyIdsOverride, setSelectedCompanyIdsOverride] = useState<{
+    source: string;
+    value: Set<string>;
+  } | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -31,6 +34,8 @@ export function InstanceAccess() {
     queryFn: () => accessApi.searchAdminUsers(search),
   });
 
+  const selectedUserId = selectedUserIdOverride ?? usersQuery.data?.[0]?.id ?? null;
+
   const selectedUser = useMemo(
     () => usersQuery.data?.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, usersQuery.data],
@@ -42,22 +47,23 @@ export function InstanceAccess() {
     enabled: !!selectedUserId,
   });
 
-  useEffect(() => {
-    if (!selectedUserId && usersQuery.data?.[0]) {
-      setSelectedUserId(usersQuery.data[0].id);
-    }
-  }, [selectedUserId, usersQuery.data]);
-
-  useEffect(() => {
-    if (!userAccessQuery.data) return;
-    setSelectedCompanyIds(
+  const selectedCompanyIdsSource =
+    `${selectedUserId ?? ""}:${userAccessQuery.data?.companyAccess
+      .map((membership) => `${membership.companyId}:${membership.status}`)
+      .join("|") ?? ""}`;
+  const persistedSelectedCompanyIds = useMemo(
+    () =>
       new Set(
-        userAccessQuery.data.companyAccess
-          .filter((membership) => membership.status === "active")
-          .map((membership) => membership.companyId),
+        userAccessQuery.data?.companyAccess.flatMap((membership) =>
+          (membership.status === "active") ? [membership.companyId] : [],
+        ) ?? [],
       ),
-    );
-  }, [userAccessQuery.data]);
+    [userAccessQuery.data?.companyAccess],
+  );
+  const selectedCompanyIds =
+    selectedCompanyIdsOverride?.source === selectedCompanyIdsSource
+      ? selectedCompanyIdsOverride.value
+      : persistedSelectedCompanyIds;
 
   const updateCompanyAccessMutation = useMutation({
     mutationFn: () => accessApi.setUserCompanyAccess(selectedUserId!, [...selectedCompanyIds]),
@@ -101,7 +107,7 @@ export function InstanceAccess() {
     <div className="max-w-6xl space-y-6">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-muted-foreground" />
+          <Shield className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Instance Access</h1>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -118,15 +124,18 @@ export function InstanceAccess() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name or email"
-            />
+             aria-label="Search"/>
           </label>
           <div className="space-y-2">
             {(usersQuery.data ?? []).map((user) => (
               <button
                 key={user.id}
                 type="button"
-                onClick={() => setSelectedUserId(user.id)}
-                className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${
+                onClick={() => {
+                  setSelectedUserIdOverride(user.id);
+                  setSelectedCompanyIdsOverride(null);
+                }}
+                className={`w-full rounded-lg border p-3 text-left transition-colors ${
                   user.id === selectedUserId
                     ? "border-foreground bg-accent"
                     : "border-border hover:bg-accent/40"
@@ -138,7 +147,7 @@ export function InstanceAccess() {
                     <div className="truncate text-sm text-muted-foreground">{user.email || user.id}</div>
                   </div>
                   {user.isInstanceAdmin ? (
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                    <ShieldCheck className="size-4 text-emerald-600" />
                   ) : null}
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">
@@ -189,16 +198,20 @@ export function InstanceAccess() {
                   {companies.map((company) => (
                     <label
                       key={company.id}
-                      className="flex items-start gap-3 rounded-lg border border-border px-3 py-3"
+                      className="flex items-start gap-3 rounded-lg border border-border p-3"
                     >
                       <Checkbox
                         checked={selectedCompanyIds.has(company.id)}
                         onCheckedChange={(checked) => {
-                          setSelectedCompanyIds((current) => {
+                          setSelectedCompanyIdsOverride((currentOverride) => {
+                            const current =
+                              currentOverride?.source === selectedCompanyIdsSource
+                                ? currentOverride.value
+                                : selectedCompanyIds;
                             const next = new Set(current);
                             if (checked) next.add(company.id);
                             else next.delete(company.id);
-                            return next;
+                            return { source: selectedCompanyIdsSource, value: next };
                           });
                         }}
                       />

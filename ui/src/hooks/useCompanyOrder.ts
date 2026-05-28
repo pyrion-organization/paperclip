@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Company } from "@paperclipai/shared";
 import { sidebarPreferencesApi } from "../api/sidebarPreferences";
@@ -53,12 +53,19 @@ export function useCompanyOrder({ companies, userId }: UseCompanyOrderParams) {
     enabled: Boolean(userId),
   });
 
-  const [orderedIds, setOrderedIds] = useState<string[]>(() => buildOrderIds(companies, []));
-
-  useEffect(() => {
-    const nextIds = buildOrderIds(companies, data?.orderedIds ?? []);
-    setOrderedIds((current) => (areEqual(current, nextIds) ? current : nextIds));
-  }, [companies, data?.orderedIds]);
+  const orderedIdsSource = `${companies.map((company) => company.id).join("|")}:${data?.orderedIds?.join("|") ?? ""}`;
+  const persistedOrderedIds = useMemo(
+    () => buildOrderIds(companies, data?.orderedIds ?? []),
+    [companies, data?.orderedIds],
+  );
+  const [orderedIdsOverride, setOrderedIdsOverride] = useState<{
+    source: string;
+    value: string[];
+  } | null>(null);
+  const orderedIds =
+    orderedIdsOverride?.source === orderedIdsSource
+      ? orderedIdsOverride.value
+      : persistedOrderedIds;
 
   const mutation = useMutation({
     mutationFn: (nextIds: string[]) => sidebarPreferencesApi.updateCompanyOrder({ orderedIds: nextIds }),
@@ -76,11 +83,18 @@ export function useCompanyOrder({ companies, userId }: UseCompanyOrderParams) {
     (ids: string[]) => {
       const idSet = new Set(companies.map((company) => company.id));
       const filtered = ids.filter((id) => idSet.has(id));
+      const filteredSet = new Set(filtered);
       for (const company of companies) {
-        if (!filtered.includes(company.id)) filtered.push(company.id);
+        if (filteredSet.has(company.id)) continue;
+        filtered.push(company.id);
+        filteredSet.add(company.id);
       }
 
-      setOrderedIds((current) => (areEqual(current, filtered) ? current : filtered));
+      setOrderedIdsOverride((current) =>
+        current?.source === orderedIdsSource && areEqual(current.value, filtered)
+          ? current
+          : { source: orderedIdsSource, value: filtered },
+      );
       if (!userId) return;
 
       queryClient.setQueryData(queryKey, (current: { orderedIds?: string[]; updatedAt?: Date | null } | undefined) => ({
@@ -89,7 +103,7 @@ export function useCompanyOrder({ companies, userId }: UseCompanyOrderParams) {
       }));
       mutation.mutate(filtered);
     },
-    [companies, mutation, queryClient, queryKey, userId],
+    [companies, mutation, orderedIdsSource, queryClient, queryKey, userId],
   );
 
   return {

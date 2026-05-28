@@ -16,20 +16,19 @@ import { formatAssigneeUserLabel } from "./assignees";
 import type { InboxTab } from "./inbox-tabs";
 
 export {
-  INBOX_LAST_TAB_KEY,
   loadLastInboxTab,
   saveLastInboxTab,
   type InboxTab,
 } from "./inbox-tabs";
 
 export const RECENT_ISSUES_LIMIT = 100;
-export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
+const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
-export const DISMISSED_KEY = "paperclip:inbox:dismissed";
+const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
-export const INBOX_ISSUE_COLUMNS_KEY = "paperclip:inbox:issue-columns";
-export const INBOX_NESTING_KEY = "paperclip:inbox:nesting";
-export const INBOX_GROUP_BY_KEY = "paperclip:inbox:group-by";
+const INBOX_ISSUE_COLUMNS_KEY = "paperclip:inbox:issue-columns";
+const INBOX_NESTING_KEY = "paperclip:inbox:nesting";
+const INBOX_GROUP_BY_KEY = "paperclip:inbox:group-by";
 export const INBOX_FILTER_PREFERENCES_KEY_PREFIX = "paperclip:inbox:filters";
 export const INBOX_COLLAPSED_GROUPS_KEY_PREFIX = "paperclip:inbox:collapsed-groups";
 export type InboxCategoryFilter =
@@ -41,7 +40,7 @@ export type InboxCategoryFilter =
   | "alerts";
 export type InboxApprovalFilter = "all" | "actionable" | "resolved";
 export type InboxWorkItemGroupBy = "none" | "type" | "assignee" | "project" | "workspace";
-export const inboxIssueColumns = [
+const inboxIssueColumns = [
   "status",
   "id",
   "assignee",
@@ -386,7 +385,7 @@ export function shouldResetInboxWorkspaceGrouping(
   return experimentalSettingsLoaded && groupBy === "workspace" && !isolatedWorkspacesEnabled;
 }
 
-export function shouldIncludeRoutineExecutionIssue(
+function shouldIncludeRoutineExecutionIssue(
   issue: Pick<Issue, "originKind">,
   hideRoutineExecutions: boolean,
 ): boolean {
@@ -447,9 +446,9 @@ export function getArchivedInboxSearchIssues({
 
   const visibleIssueIds = new Set(visibleIssues.map((issue) => issue.id));
   return searchableIssues
-    .filter((issue) => !visibleIssueIds.has(issue.id))
     .filter((issue) =>
-      matchesInboxIssueSearch(issue, normalizedQuery, {
+      !visibleIssueIds.has(issue.id)
+      && matchesInboxIssueSearch(issue, normalizedQuery, {
         isolatedWorkspacesEnabled,
         executionWorkspaceById,
         projectWorkspaceById,
@@ -663,7 +662,7 @@ export function getInboxKeyboardSelectionIndex(
 }
 
 export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {
-  const sorted = [...runs].sort(
+  const sorted = runs.toSorted(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   const latestByAgent = new Map<string, HeartbeatRun>();
@@ -677,13 +676,13 @@ export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[]
   return Array.from(latestByAgent.values()).filter((run) => FAILED_RUN_STATUSES.has(run.status));
 }
 
-export function normalizeTimestamp(value: string | Date | null | undefined): number {
+function normalizeTimestamp(value: string | Date | null | undefined): number {
   if (!value) return 0;
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-export function issueLastActivityTimestamp(issue: Issue): number {
+function issueLastActivityTimestamp(issue: Issue): number {
   const lastActivityAt = normalizeTimestamp(issue.lastActivityAt);
   if (lastActivityAt > 0) return lastActivityAt;
 
@@ -693,14 +692,14 @@ export function issueLastActivityTimestamp(issue: Issue): number {
   return normalizeTimestamp(issue.updatedAt);
 }
 
-export function sortIssuesByMostRecentActivity(a: Issue, b: Issue): number {
+function sortIssuesByMostRecentActivity(a: Issue, b: Issue): number {
   const activityDiff = issueLastActivityTimestamp(b) - issueLastActivityTimestamp(a);
   if (activityDiff !== 0) return activityDiff;
   return normalizeTimestamp(b.updatedAt) - normalizeTimestamp(a.updatedAt);
 }
 
 export function getRecentTouchedIssues(issues: Issue[]): Issue[] {
-  return [...issues].sort(sortIssuesByMostRecentActivity).slice(0, RECENT_ISSUES_LIMIT);
+  return issues.toSorted(sortIssuesByMostRecentActivity).slice(0, RECENT_ISSUES_LIMIT);
 }
 
 export function getUnreadTouchedIssues(issues: Issue[]): Issue[] {
@@ -713,7 +712,7 @@ export function getApprovalsForTab(
   filter: InboxApprovalFilter,
   currentUserId?: string | null,
 ): Approval[] {
-  const sortedApprovals = [...approvals].sort(
+  const sortedApprovals = approvals.toSorted(
     (a, b) => normalizeTimestamp(b.updatedAt) - normalizeTimestamp(a.updatedAt),
   );
 
@@ -732,7 +731,7 @@ export function getApprovalsForTab(
   });
 }
 
-export function isApprovalVisibleInMine(
+function isApprovalVisibleInMine(
   approval: Approval,
   currentUserId?: string | null,
 ): boolean {
@@ -741,7 +740,7 @@ export function isApprovalVisibleInMine(
   return approval.requestedByUserId === currentUserId || approval.decidedByUserId === currentUserId;
 }
 
-export function approvalActivityTimestamp(approval: Approval): number {
+function approvalActivityTimestamp(approval: Approval): number {
   const updatedAt = normalizeTimestamp(approval.updatedAt);
   if (updatedAt > 0) return updatedAt;
   return normalizeTimestamp(approval.createdAt);
@@ -1017,7 +1016,7 @@ export function buildInboxIssueGroupCreateDefaults(
  *   with a recently-updated child floats to the top.
  * - If a parent is absent (e.g. archived), children remain as independent roots.
  */
-export function buildInboxNesting(items: InboxWorkItem[]): {
+function buildInboxNesting(items: InboxWorkItem[]): {
   displayItems: InboxWorkItem[];
   childrenByIssueId: Map<string, Issue[]>;
 } {
@@ -1065,13 +1064,12 @@ export function buildInboxNesting(items: InboxWorkItem[]): {
   }
 
   // Build root issue items with group-adjusted timestamps
-  const rootIssueItems: InboxWorkItem[] = issueItems
-    .filter((item) => !childIds.has(item.issue.id))
-    .map((item) => {
+  const rootIssueItems: InboxWorkItem[] = issueItems.flatMap((item) => {
+      if (childIds.has(item.issue.id)) return [];
       const children = childrenByIssueId.get(item.issue.id);
-      if (!children?.length) return item;
+      if (!children?.length) return [item];
       const maxChildTs = Math.max(...children.map((child) => subtreeActivityTimestamp(child)));
-      return { ...item, timestamp: Math.max(item.timestamp, maxChildTs) };
+      return [{ ...item, timestamp: Math.max(item.timestamp, maxChildTs) }];
     });
 
   // Merge and re-sort

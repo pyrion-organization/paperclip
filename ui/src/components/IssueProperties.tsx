@@ -53,7 +53,20 @@ import { User, Hexagon, ArrowUpRight, Tag, Plus, GitBranch, FolderOpen, Check, E
 import { AgentIcon } from "./AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 
-function toDatetimeLocalValue(date: Date): string {
+function AddBlockedByButton({ onClick }: { onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+      onClick={onClick}
+    >
+      <Plus className="size-3" />
+      Add blocker
+    </button>
+  );
+}
+
+function toDatetimeLocalValue(date: Date | number): string {
   const d = new Date(date);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -74,7 +87,7 @@ function TruncatedCopyable({ value, icon: Icon }: { value: string; icon: React.C
 
   return (
     <div className="flex items-start gap-1.5 min-w-0 flex-1">
-      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+      <Icon className="size-3.5 text-muted-foreground shrink-0 mt-0.5" />
       <button
         type="button"
         className="text-sm font-mono min-w-0 break-all text-left cursor-pointer hover:text-foreground transition-colors"
@@ -83,7 +96,7 @@ function TruncatedCopyable({ value, icon: Icon }: { value: string; icon: React.C
       >
         {value}
       </button>
-      {copied && <Check className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />}
+      {copied && <Check className="size-3 text-green-500 shrink-0 mt-0.5" />}
     </div>
   );
 }
@@ -151,6 +164,7 @@ interface IssuePropertiesProps {
   inline?: boolean;
 }
 
+const EMPTY_CHILD_ISSUES: Issue[] = [];
 const ISSUE_BLOCKER_SEARCH_LIMIT = 50;
 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -229,7 +243,7 @@ function overrideLane(overrides: Issue["assigneeAdapterOverrides"]): IssueModelL
 }
 
 function sortAdapterModels(models: AdapterModel[]) {
-  return [...models].sort((a, b) => {
+  return models.toSorted((a, b) => {
     const providerA = extractProviderIdWithFallback(a.id);
     const providerB = extractProviderIdWithFallback(b.id);
     const byProvider = providerA.localeCompare(providerB);
@@ -250,7 +264,7 @@ function RemovableIssueReferencePill({
   const confirmLabel = issue.identifier ? `${issue.identifier}: ${issue.title}` : issue.title;
   const content = (
     <>
-      <StatusIcon status={issue.status} className="h-3 w-3 shrink-0" />
+      <StatusIcon status={issue.status} className="size-3 shrink-0" />
       <span className="truncate">{issueLabel}</span>
     </>
   );
@@ -278,12 +292,12 @@ function RemovableIssueReferencePill({
       >
         <button
           type="button"
-          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-colors transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring group-hover:opacity-100"
+          className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-colors transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring group-hover:opacity-100"
           aria-label={removeLabel}
           title={removeLabel}
           onClick={handleRemove}
         >
-          <X className="h-3 w-3" />
+          <X className="size-3" />
         </button>
         {issue.identifier ? (
           <Link
@@ -352,7 +366,7 @@ function PropertyPicker({
     return (
       <div>
         <PropertyRow label={label}>
-          <button className={btnCn} onClick={() => onOpenChange(!open)}>
+          <button type="button" className={btnCn} onClick={() => onOpenChange(!open)}>
             {triggerContent}
           </button>
           {extra}
@@ -370,7 +384,7 @@ function PropertyPicker({
     <PropertyRow label={label}>
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger asChild>
-          <button className={btnCn}>{triggerContent}</button>
+          <button type="button" className={btnCn}>{triggerContent}</button>
         </PopoverTrigger>
         <PopoverContent className={cn("p-1", popoverClassName)} align={popoverAlign} collisionPadding={16}>
           {children}
@@ -383,7 +397,7 @@ function PropertyPicker({
 
 export function IssueProperties({
   issue,
-  childIssues = [],
+  childIssues = EMPTY_CHILD_ISSUES,
   onAddSubIssue,
   onUpdate,
   inline,
@@ -412,6 +426,8 @@ export function IssueProperties({
   const [newLabelColor, setNewLabelColor] = useState("#6366f1");
   const [scheduledAtOpen, setScheduledAtOpen] = useState(false);
   const [pendingScheduledAt, setPendingScheduledAt] = useState("");
+  const scheduleReferenceTimeRef = useRef(0);
+  const [scheduleMinDateTime, setScheduleMinDateTime] = useState("");
   const [monitorAtInput, setMonitorAtInput] = useState(() => toDateTimeLocalValue(issue.executionPolicy?.monitor?.nextCheckAt));
   const [monitorNotesInput, setMonitorNotesInput] = useState(issue.executionPolicy?.monitor?.notes ?? "");
   const [monitorServiceInput, setMonitorServiceInput] = useState(issue.executionPolicy?.monitor?.serviceName ?? "");
@@ -422,6 +438,13 @@ export function IssueProperties({
     queryFn: () => authApi.getSession(),
   });
   const currentUserId = session?.user?.id ?? session?.session?.userId;
+
+  useEffect(() => {
+    if (!scheduledAtOpen) return;
+    const now = Date.now();
+    scheduleReferenceTimeRef.current = now;
+    setScheduleMinDateTime(toDatetimeLocalValue(now));
+  }, [scheduledAtOpen]);
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(companyId!),
@@ -540,9 +563,7 @@ export function IssueProperties({
       });
     }
 
-    return referencedIssueIdentifiers
-      .filter((identifier) => !excluded.has(identifier))
-      .map((identifier) => ({ id: identifier, identifier, title: identifier }));
+    return referencedIssueIdentifiers.flatMap((identifier) => (!excluded.has(identifier)) ? [({ id: identifier, identifier, title: identifier })] : []);
   }, [childIssues, issue.blockedBy, issue.blocks, issue.relatedWork?.outbound, referencedIssueIdentifiers]);
   const projectLink = (id: string | null) => {
     if (!id) return null;
@@ -745,7 +766,7 @@ export function IssueProperties({
             <div className="text-xs text-muted-foreground">Thinking effort</div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {thinkingEffortOptionsFor(assigneeAdapterType).map((option) => (
-                <button
+                <button type="button"
                   key={option.value || "default"}
                   className={cn(
                     "px-2 py-1 rounded-md text-xs border border-border hover:bg-accent/50 transition-colors",
@@ -932,7 +953,7 @@ export function IssueProperties({
   const monitorTrigger = (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
       {monitorNextCheckAt ? (
-        <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Clock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       ) : null}
       <span
         className={cn(
@@ -993,7 +1014,7 @@ export function IssueProperties({
   ) : null;
   const scheduledRetryTrigger = (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-      <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-600 dark:text-cyan-400" aria-hidden="true" />
+      <Clock className="mt-0.5 size-3.5 shrink-0 text-cyan-600 dark:text-cyan-400" aria-hidden="true" />
       <span
         className="min-w-0 text-sm break-words text-foreground"
         title={scheduledRetryAbsolute ?? undefined}
@@ -1089,17 +1110,17 @@ export function IssueProperties({
         >
           {retryNow.isPending ? (
             <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               Retrying…
             </span>
           ) : scheduledRetryRetryNowSuccess ? (
             <span className="inline-flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <CheckCircle2 className="size-3.5" aria-hidden="true" />
               {retryNow.data?.outcome === "already_promoted" ? "Already promoted" : "Promoted"}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              <RotateCcw className="size-3.5" aria-hidden="true" />
               Retry now
             </span>
           )}
@@ -1126,14 +1147,14 @@ export function IssueProperties({
           className="rounded-md border border-border bg-transparent px-2 py-1 text-xs"
           value={monitorAtInput}
           onChange={(e) => setMonitorAtInput(e.target.value)}
-        />
+         aria-label="Monitor At Input"/>
         <input
           type="text"
           className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-xs"
           placeholder="What should the agent re-check?"
           value={monitorNotesInput}
           onChange={(e) => setMonitorNotesInput(e.target.value)}
-        />
+         aria-label="Monitor Notes Input"/>
       </div>
       <div className="flex flex-col gap-2 md:flex-row">
         <input
@@ -1142,7 +1163,7 @@ export function IssueProperties({
           placeholder="External service"
           value={monitorServiceInput}
           onChange={(e) => setMonitorServiceInput(e.target.value)}
-        />
+         aria-label="Monitor Service Input"/>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1200,19 +1221,19 @@ export function IssueProperties({
     </div>
   ) : (
     <>
-      <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+      <Tag className="size-3.5 text-muted-foreground" />
       <span className="text-sm text-muted-foreground">No labels</span>
     </>
   );
   const labelsExtra = (issue.labelIds ?? []).length > 0 ? (
     <button
       type="button"
-      className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+      className="inline-flex items-center justify-center size-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
       onClick={() => setLabelsOpen(true)}
       aria-label="Add label"
       title="Add label"
     >
-      <Plus className="h-3 w-3" />
+      <Plus className="size-3" />
     </button>
   ) : undefined;
 
@@ -1223,18 +1244,13 @@ export function IssueProperties({
         placeholder="Search labels..."
         value={labelSearch}
         onChange={(e) => setLabelSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+       aria-label="Label Search"/>
       <div className="max-h-44 overflow-y-auto overscroll-contain space-y-0.5">
-        {(labels ?? [])
-          .filter((label) => {
-            if (!labelSearch.trim()) return true;
-            return label.name.toLowerCase().includes(labelSearch.toLowerCase());
-          })
-          .map((label) => {
+        {(labels ?? []).flatMap((label) => {
+            if (labelSearch.trim() && !label.name.toLowerCase().includes(labelSearch.toLowerCase())) return [];
             const selected = (issue.labelIds ?? []).includes(label.id);
-            return (
-              <button
+            return [(
+              <button type="button"
                 key={label.id}
                 className={cn(
                   "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-left",
@@ -1242,29 +1258,29 @@ export function IssueProperties({
                 )}
                 onClick={() => toggleLabel(label.id)}
               >
-                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: label.color }} />
+                <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: label.color }} />
                 <span className="truncate flex-1">{label.name}</span>
-                {selected && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" aria-hidden="true" />}
+                {selected && <Check className="size-3.5 shrink-0 text-foreground" aria-hidden="true" />}
               </button>
-            );
+            )];
           })}
       </div>
       <div className="mt-2 border-t border-border pt-2 space-y-1">
         <div className="flex items-center gap-1">
           <input
-            className="h-7 w-7 p-0 rounded bg-transparent"
+            className="size-7 p-0 rounded bg-transparent"
             type="color"
             value={newLabelColor}
             onChange={(e) => setNewLabelColor(e.target.value)}
-          />
+           aria-label="New Label Color"/>
           <input
             className="flex-1 px-2 py-1.5 text-xs bg-transparent outline-none rounded placeholder:text-muted-foreground/50"
             placeholder="New label"
             value={newLabelName}
             onChange={(e) => setNewLabelName(e.target.value)}
-          />
+           aria-label="New Label Name"/>
         </div>
-        <button
+        <button type="button"
           className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 text-xs rounded border border-border hover:bg-accent/50 disabled:opacity-50"
           disabled={!newLabelName.trim() || createLabel.isPending}
           onClick={() =>
@@ -1274,7 +1290,7 @@ export function IssueProperties({
             })
           }
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="size-3" />
           {createLabel.isPending ? "Creating…" : "Create label"}
         </button>
       </div>
@@ -1285,12 +1301,12 @@ export function IssueProperties({
     <Identity name={assignee.name} size="sm" />
   ) : assigneeUserLabel ? (
     <>
-      <User className="h-3.5 w-3.5 text-muted-foreground" />
+      <User className="size-3.5 text-muted-foreground" />
       <span className="text-sm">{assigneeUserLabel}</span>
     </>
   ) : (
     <>
-      <User className="h-3.5 w-3.5 text-muted-foreground" />
+      <User className="size-3.5 text-muted-foreground" />
       <span className="text-sm text-muted-foreground">Unassigned</span>
     </>
   );
@@ -1342,17 +1358,17 @@ export function IssueProperties({
         placeholder="Search assignees..."
         value={assigneeSearch}
         onChange={(e) => setAssigneeSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+       aria-label="Assignee Search"/>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
-        {assigneePickerOptions
-          .filter((option) => {
-            if (!assigneeSearch.trim()) return true;
-            const q = assigneeSearch.toLowerCase();
-            return `${option.label} ${option.searchText}`.toLowerCase().includes(q);
-          })
-          .map((option) => (
-            <button
+        {assigneePickerOptions.flatMap((option) => {
+            if (
+              assigneeSearch.trim()
+              && !`${option.label} ${option.searchText}`.toLowerCase().includes(assigneeSearch.toLowerCase())
+            ) {
+              return [];
+            }
+            return [(
+            <button type="button"
               key={option.id || "__none__"}
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -1372,13 +1388,14 @@ export function IssueProperties({
               }}
             >
               {option.kind === "agent" ? (
-                <AgentIcon icon={option.agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+                <AgentIcon icon={option.agent.icon} className="shrink-0 size-3 text-muted-foreground" />
               ) : option.kind === "user" ? (
-                <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <User className="size-3 shrink-0 text-muted-foreground" />
               ) : null}
               {option.label}
             </button>
-          ))}
+            )];
+          })}
       </div>
     </>
   );
@@ -1396,10 +1413,9 @@ export function IssueProperties({
         placeholder={`Search ${stageType === "review" ? "reviewers" : "approvers"}...`}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+       aria-label="Search"/>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
-        <button
+        <button type="button"
           className={cn(
             "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
             values.length === 0 && "bg-accent",
@@ -1409,36 +1425,35 @@ export function IssueProperties({
           No {stageType === "review" ? "reviewers" : "approvers"}
         </button>
         {currentUserId && (
-          <button
+          <button type="button"
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
               values.includes(`user:${currentUserId}`) && "bg-accent",
             )}
             onClick={() => toggleExecutionParticipant(stageType, `user:${currentUserId}`)}
           >
-            <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <User className="size-3 shrink-0 text-muted-foreground" />
             Assign to me
           </button>
         )}
         {issue.createdByUserId && issue.createdByUserId !== currentUserId && (
-          <button
+          <button type="button"
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
               values.includes(`user:${issue.createdByUserId}`) && "bg-accent",
             )}
             onClick={() => toggleExecutionParticipant(stageType, `user:${issue.createdByUserId}`)}
           >
-            <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <User className="size-3 shrink-0 text-muted-foreground" />
             {creatorUserLabel ? creatorUserLabel : "Requester"}
           </button>
         )}
-        {otherUserOptions
-          .filter((option) => {
-            if (!search.trim()) return true;
-            return `${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(search.toLowerCase());
-          })
-          .map((option) => (
-            <button
+        {otherUserOptions.flatMap((option) => {
+            if (search.trim() && !`${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(search.toLowerCase())) {
+              return [];
+            }
+            return [(
+            <button type="button"
               key={`${stageType}:${option.id}`}
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -1446,19 +1461,16 @@ export function IssueProperties({
               )}
               onClick={() => toggleExecutionParticipant(stageType, option.id)}
             >
-              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <User className="size-3 shrink-0 text-muted-foreground" />
               {option.label}
             </button>
-          ))}
-        {sortedAgents
-          .filter((agent) => {
-            if (!search.trim()) return true;
-            return agent.name.toLowerCase().includes(search.toLowerCase());
-          })
-          .map((agent) => {
+            )];
+          })}
+        {sortedAgents.flatMap((agent) => {
+            if (search.trim() && !agent.name.toLowerCase().includes(search.toLowerCase())) return [];
             const encoded = `agent:${agent.id}`;
-            return (
-              <button
+            return [(
+              <button type="button"
                 key={`${stageType}:${agent.id}`}
                 className={cn(
                   "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -1466,10 +1478,10 @@ export function IssueProperties({
                 )}
                 onClick={() => toggleExecutionParticipant(stageType, encoded)}
               >
-                <AgentIcon icon={agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+                <AgentIcon icon={agent.icon} className="shrink-0 size-3 text-muted-foreground" />
                 {agent.name}
               </button>
-            );
+            )];
           })}
       </div>
     </>
@@ -1478,14 +1490,14 @@ export function IssueProperties({
   const projectTrigger = issue.projectId ? (
     <>
       <span
-        className="shrink-0 h-3 w-3 rounded-sm"
+        className="shrink-0 size-3 rounded-sm"
         style={{ backgroundColor: orderedProjects.find((p) => p.id === issue.projectId)?.color ?? "#6366f1" }}
       />
       <span className="text-sm break-words min-w-0">{projectName(issue.projectId)}</span>
     </>
   ) : (
     <>
-      <Hexagon className="h-3.5 w-3.5 text-muted-foreground" />
+      <Hexagon className="size-3.5 text-muted-foreground" />
       <span className="text-sm text-muted-foreground">No project</span>
     </>
   );
@@ -1511,17 +1523,12 @@ export function IssueProperties({
         placeholder="Search projects..."
         value={projectSearch}
         onChange={(e) => setProjectSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+       aria-label="Project Search"/>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
-        {projectPickerOptions
-          .filter((option) => {
-            if (!projectSearch.trim()) return true;
-            const q = projectSearch.toLowerCase();
-            return option.name.toLowerCase().includes(q);
-          })
-          .map((option) => (
-            <button
+        {projectPickerOptions.flatMap((option) => {
+            if (projectSearch.trim() && !option.name.toLowerCase().includes(projectSearch.toLowerCase())) return [];
+            return [(
+            <button type="button"
               key={option.id || "__none__"}
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 whitespace-nowrap",
@@ -1554,13 +1561,14 @@ export function IssueProperties({
             >
               {option.kind === "project" ? (
                 <span
-                  className="shrink-0 h-3 w-3 rounded-sm"
+                  className="shrink-0 size-3 rounded-sm"
                   style={{ backgroundColor: option.color ?? "#6366f1" }}
                 />
               ) : null}
               {option.name}
             </button>
-          ))}
+            )];
+          })}
       </div>
     </>
   );
@@ -1603,16 +1611,16 @@ export function IssueProperties({
   const parentLink = issue.parentId ? (
     <Link
       to={`/issues/${parentIdentifier ?? issue.parentId}`}
-      className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+      className="inline-flex items-center justify-center size-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
       onClick={(e) => e.stopPropagation()}
     >
-      <ArrowUpRight className="h-3 w-3" />
+      <ArrowUpRight className="size-3" />
     </Link>
   ) : undefined;
   const parentOptions = (allIssues ?? [])
-    .filter((candidate) => candidate.id !== issue.id)
-    .filter((candidate) => !descendantIssueIds.has(candidate.id))
     .filter((candidate) => {
+      if (candidate.id === issue.id) return false;
+      if (descendantIssueIds.has(candidate.id)) return false;
       if (!parentSearch.trim()) return true;
       const query = parentSearch.toLowerCase();
       return (
@@ -1632,10 +1640,9 @@ export function IssueProperties({
         placeholder="Search issues..."
         value={parentSearch}
         onChange={(e) => setParentSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+       aria-label="Parent Search"/>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
-        <button
+        <button type="button"
           className={cn(
             "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
             !issue.parentId && "bg-accent",
@@ -1648,7 +1655,7 @@ export function IssueProperties({
           No parent
         </button>
         {parentOptions.map((candidate) => (
-          <button
+          <button type="button"
             key={candidate.id}
             className={cn(
               "flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs rounded hover:bg-accent/50",
@@ -1704,11 +1711,10 @@ export function IssueProperties({
         placeholder="Search issues..."
         value={blockedBySearch}
         onChange={(e) => setBlockedBySearch(e.target.value)}
-        autoFocus={!inline}
         aria-label="Search issues to add as blockers"
       />
       <div className="max-h-48 overflow-y-auto overscroll-contain">
-        <button
+        <button type="button"
           className={cn(
             "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
             blockedByIds.length === 0 && "bg-accent",
@@ -1724,7 +1730,7 @@ export function IssueProperties({
         {blockerOptions.map((candidate) => {
           const selected = blockedByIds.includes(candidate.id);
           return (
-            <button
+            <button type="button"
               key={candidate.id}
               className={cn(
                 "flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs rounded hover:bg-accent/50",
@@ -1737,29 +1743,18 @@ export function IssueProperties({
                 {candidate.identifier ? `${candidate.identifier} ` : ""}
                 {candidate.title}
               </span>
-              {selected && <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-foreground" aria-hidden="true" />}
+              {selected && <Check className="ml-auto size-3.5 shrink-0 text-foreground" aria-hidden="true" />}
             </button>
           );
         })}
         {blockerOptionsLoading ? (
-          <div className="px-2 py-2 text-xs text-muted-foreground">Searching issues...</div>
+          <div className="p-2 text-xs text-muted-foreground">Searching issues&hellip;</div>
         ) : blockerOptions.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-muted-foreground">No matching issues.</div>
+          <div className="p-2 text-xs text-muted-foreground">No matching issues.</div>
         ) : null}
       </div>
     </>
   );
-  const renderAddBlockedByButton = (onClick?: () => void) => (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-      onClick={onClick}
-    >
-      <Plus className="h-3 w-3" />
-      Add blocker
-    </button>
-  );
-
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -1791,8 +1786,8 @@ export function IssueProperties({
             }}
           >
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors text-sm text-left">
-                <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <button type="button" className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors text-sm text-left">
+                <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className={issue.scheduledAt ? "text-foreground" : "text-muted-foreground"}>
                   {issue.scheduledAt
                     ? new Date(issue.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -1810,9 +1805,9 @@ export function IssueProperties({
                 type="datetime-local"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 value={pendingScheduledAt}
-                min={toDatetimeLocalValue(new Date())}
+                min={scheduleMinDateTime}
                 onChange={(e) => setPendingScheduledAt(e.target.value)}
-              />
+               aria-label="Pending Scheduled At"/>
               <div className="grid grid-cols-2 gap-1">
                 {[
                   { label: "In 1h", ms: 60 * 60 * 1000 },
@@ -1820,11 +1815,11 @@ export function IssueProperties({
                   { label: "Tomorrow", ms: 24 * 60 * 60 * 1000 },
                   { label: "Next week", ms: 7 * 24 * 60 * 60 * 1000 },
                 ].map(({ label, ms }) => (
-                  <button
+                  <button type="button"
                     key={label}
                     className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
                     onClick={() => {
-                      onUpdate({ scheduledAt: new Date(Date.now() + ms).toISOString() });
+                      onUpdate({ scheduledAt: new Date(scheduleReferenceTimeRef.current + ms).toISOString() });
                       setScheduledAtOpen(false);
                     }}
                   >
@@ -1833,7 +1828,7 @@ export function IssueProperties({
                 ))}
               </div>
               <div className="flex gap-2">
-                <button
+                <button type="button"
                   className="flex-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                   disabled={!pendingScheduledAt}
                   onClick={() => {
@@ -1843,7 +1838,7 @@ export function IssueProperties({
                 >
                   Set
                 </button>
-                <button
+                <button type="button"
                   className="flex-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 transition-colors"
                   onClick={() => setScheduledAtOpen(false)}
                 >
@@ -1851,7 +1846,7 @@ export function IssueProperties({
                 </button>
               </div>
               {(issue.scheduledAt || pendingScheduledAt) && (
-                <button
+                <button type="button"
                   className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors"
                   onClick={() => { onUpdate({ scheduledAt: null }); setScheduledAtOpen(false); }}
                 >
@@ -1861,12 +1856,12 @@ export function IssueProperties({
             </PopoverContent>
           </Popover>
           {issue.scheduledAt && (
-            <button
-              className="h-4 w-4 inline-flex items-center justify-center rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-destructive"
+            <button type="button"
+              className="size-4 inline-flex items-center justify-center rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-destructive"
               onClick={() => onUpdate({ scheduledAt: null })}
               title="Clear schedule"
             >
-              <X className="h-3 w-3" />
+              <X className="size-3" />
             </button>
           )}
         </PropertyRow>
@@ -1894,10 +1889,10 @@ export function IssueProperties({
           extra={issue.assigneeAgentId ? (
             <Link
               to={`/agents/${issue.assigneeAgentId}`}
-              className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center justify-center size-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
-              <ArrowUpRight className="h-3 w-3" />
+              <ArrowUpRight className="size-3" />
             </Link>
           ) : undefined}
         >
@@ -1916,12 +1911,12 @@ export function IssueProperties({
             extra={
               <button
                 type="button"
-                className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+                className="inline-flex items-center justify-center size-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
                 onClick={() => updateAssigneeAdapterOverrides(null)}
                 aria-label="Clear adapter options"
                 title="Clear adapter options"
               >
-                <X className="h-3 w-3" />
+                <X className="size-3" />
               </button>
             }
           >
@@ -1940,10 +1935,10 @@ export function IssueProperties({
           extra={issue.projectId ? (
             <Link
               to={projectLink(issue.projectId)!}
-              className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center justify-center size-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
-              <ArrowUpRight className="h-3 w-3" />
+              <ArrowUpRight className="size-3" />
             </Link>
           ) : undefined}
         >
@@ -1972,7 +1967,7 @@ export function IssueProperties({
               {(issue.blockedBy ?? []).map((relation) => (
                 <RemovableIssueReferencePill key={relation.id} issue={relation} onRemove={removeBlockedBy} />
               ))}
-              {renderAddBlockedByButton(() => setBlockedByOpen((open) => !open))}
+              <AddBlockedByButton onClick={() => setBlockedByOpen((open) => !open)} />
             </PropertyRow>
             {blockedByOpen && (
               <div className="rounded-md border border-border bg-popover p-1 mb-2">
@@ -1993,7 +1988,7 @@ export function IssueProperties({
               }}
             >
               <PopoverTrigger asChild>
-                {renderAddBlockedByButton()}
+                <AddBlockedByButton />
               </PopoverTrigger>
               <PopoverContent className="w-72 p-1" align="end" collisionPadding={16}>
                 {blockedByContent}
@@ -2025,7 +2020,7 @@ export function IssueProperties({
                 className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 onClick={onAddSubIssue}
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="size-3" />
               Add sub-issue
               </button>
             ) : null}
@@ -2134,7 +2129,7 @@ export function IssueProperties({
                   className="inline-flex min-w-0 items-start gap-1 text-sm font-mono text-emerald-700 hover:text-emerald-800 hover:underline dark:text-emerald-300 dark:hover:text-emerald-200"
                 >
                   <span className="min-w-0 break-all">{liveWorkspaceService.url}</span>
-                  <ExternalLink className="mt-1 h-3 w-3 shrink-0" />
+                  <ExternalLink className="mt-1 size-3 shrink-0" />
                 </a>
               </PropertyRow>
             )}
@@ -2145,7 +2140,7 @@ export function IssueProperties({
                   className="text-sm text-primary hover:underline inline-flex items-center gap-1"
                 >
                   View workspace
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="size-3" />
                 </Link>
               </PropertyRow>
             )}
@@ -2183,7 +2178,7 @@ export function IssueProperties({
               </Link>
             ) : (
               <>
-                <User className="h-3.5 w-3.5 text-muted-foreground" />
+                <User className="size-3.5 text-muted-foreground" />
                 <span className="text-sm">{creatorUserLabel ?? "User"}</span>
               </>
             )}

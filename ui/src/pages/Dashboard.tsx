@@ -8,15 +8,11 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { MetricCard } from "../components/MetricCard";
 import { EmptyState } from "../components/EmptyState";
-import { StatusIcon } from "../components/StatusIcon";
 
-import { Identity } from "../components/Identity";
-import { timeAgo } from "../lib/timeAgo";
-import { cn } from "../lib/classnames";
 import { formatCents } from "../lib/currency";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle } from "lucide-react";
 import { PageSkeleton } from "../components/PageSkeleton";
-import type { Agent, DashboardRecentIssue } from "@paperclipai/shared";
+import type { Agent } from "@paperclipai/shared";
 
 const ActiveAgentsPanel = lazy(() =>
   import("../components/ActiveAgentsPanel").then(({ ActiveAgentsPanel }) => ({ default: ActiveAgentsPanel })),
@@ -26,6 +22,9 @@ const ActivityRow = lazy(() =>
 );
 const DashboardCharts = lazy(() =>
   import("../components/DashboardCharts").then(({ DashboardCharts }) => ({ default: DashboardCharts })),
+);
+const DashboardRecentTasks = lazy(() =>
+  import("../components/DashboardRecentTasks").then(({ DashboardRecentTasks }) => ({ default: DashboardRecentTasks })),
 );
 const DashboardPluginSlotOutlet = lazy(() =>
   import("@/plugins/LazyPluginSlotOutlet").then(({ LazyPluginSlotOutlet }) => ({ default: LazyPluginSlotOutlet })),
@@ -68,13 +67,10 @@ function buildDashboardUserProfileMap(members: DashboardCompanyUserRecord[] | nu
 }
 
 function useDeferredDashboardDetailsReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as DashboardIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -141,7 +137,7 @@ export function Dashboard() {
     [companyMembers?.users],
   );
 
-  const recentIssues: DashboardRecentIssue[] = data?.recentIssues ?? [];
+  const recentIssues = data?.recentIssues ?? [];
   const recentActivity = useMemo(() => (activity ?? []).slice(0, 10), [activity]);
 
   useEffect(() => {
@@ -256,12 +252,12 @@ export function Dashboard() {
       {hasNoAgents && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/25 dark:bg-amber-950/60">
           <div className="flex items-center gap-2.5">
-            <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <Bot className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <p className="text-sm text-amber-900 dark:text-amber-100">
               You have no agents.
             </p>
           </div>
-          <button
+          <button type="button"
             onClick={() => openOnboarding({ initialStep: 2, companyId: selectedCompanyId! })}
             className="text-sm font-medium text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 underline underline-offset-2 shrink-0"
           >
@@ -281,7 +277,7 @@ export function Dashboard() {
           {data.budgets.activeIncidents > 0 ? (
             <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/20 bg-[linear-gradient(180deg,rgba(255,80,80,0.12),rgba(255,255,255,0.02))] px-4 py-3">
               <div className="flex items-start gap-2.5">
-                <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                <PauseCircle className="mt-0.5 size-4 shrink-0 text-red-300" />
                 <div>
                   <p className="text-sm font-medium text-red-50">
                     {data.budgets.activeIncidents} active budget incident{data.budgets.activeIncidents === 1 ? "" : "s"}
@@ -393,56 +389,11 @@ export function Dashboard() {
               </div>
             )}
 
-            {/* Recent Tasks */}
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                Recent Tasks
-              </h3>
-              {recentIssues.length === 0 ? (
-                <div className="border border-border p-4">
-                  <p className="text-sm text-muted-foreground">No tasks yet.</p>
-                </div>
-              ) : (
-                <div className="border border-border divide-y divide-border overflow-hidden">
-                  {recentIssues.slice(0, 10).map((issue) => (
-                    <Link
-                      key={issue.id}
-                      to={`/issues/${issue.identifier ?? issue.id}`}
-                      className="px-4 py-3 text-sm cursor-pointer hover:bg-accent/50 transition-colors no-underline text-inherit block"
-                    >
-                      <div className="flex items-start gap-2 sm:items-center sm:gap-3">
-                        {/* Status icon - left column on mobile */}
-                        <span className="shrink-0 sm:hidden">
-                          <StatusIcon status={issue.status} />
-                        </span>
-
-                        {/* Right column on mobile: title + metadata stacked */}
-                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:contents">
-                          <span className="line-clamp-2 text-sm sm:order-2 sm:flex-1 sm:min-w-0 sm:line-clamp-none sm:truncate">
-                            {issue.title}
-                          </span>
-                          <span className="flex items-center gap-2 sm:order-1 sm:shrink-0">
-                            <span className="hidden sm:inline-flex"><StatusIcon status={issue.status} /></span>
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {issue.identifier ?? issue.id.slice(0, 8)}
-                            </span>
-                            {issue.assigneeAgentId && (() => {
-                              return issue.assigneeAgentName
-                                ? <span className="hidden sm:inline-flex"><Identity name={issue.assigneeAgentName} size="sm" /></span>
-                                : null;
-                            })()}
-                            <span className="text-xs text-muted-foreground sm:hidden">&middot;</span>
-                            <span className="text-xs text-muted-foreground shrink-0 sm:order-last">
-                              {timeAgo(issue.updatedAt)}
-                            </span>
-                          </span>
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
+            {dashboardDetailsReady ? (
+              <Suspense fallback={<div className="min-w-0" aria-hidden="true" />}>
+                <DashboardRecentTasks recentIssues={recentIssues} />
+              </Suspense>
+            ) : null}
           </div>
 
         </>

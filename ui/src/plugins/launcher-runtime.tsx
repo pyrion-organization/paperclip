@@ -3,7 +3,7 @@ import {
   lazy,
   Suspense,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useRef,
@@ -22,7 +22,7 @@ import type {
   PluginRenderCloseEvent,
   PluginRenderCloseHandler,
 } from "./bridge";
-import type { RegisteredPluginComponent } from "./slots";
+import type { RegisteredPluginComponent } from "./slots-registry";
 
 const LauncherModalStack = lazy(() =>
   import("./launcher-shell").then((module) => ({ default: module.LauncherModalStack })),
@@ -83,7 +83,7 @@ const SUPPORTED_LAUNCHER_BOUNDS = [
 const supportedLauncherBounds = new Set<PluginLauncherBounds>(SUPPORTED_LAUNCHER_BOUNDS);
 const PluginLauncherRuntimeContext = createContext<PluginLauncherRuntimeContextValue | null>(null);
 
-export function isPluginLauncherBounds(value: unknown): value is PluginLauncherBounds {
+function isPluginLauncherBounds(value: unknown): value is PluginLauncherBounds {
   return typeof value === "string" && supportedLauncherBounds.has(value as PluginLauncherBounds);
 }
 
@@ -103,7 +103,13 @@ async function resolveLauncherComponent(
   contribution: PluginUiContribution,
   launcher: ResolvedPluginLauncher,
 ): Promise<RegisteredPluginComponent | null> {
-  const { ensurePluginContributionLoaded, resolveRegisteredPluginComponent } = await import("./slots");
+  const [
+    { ensurePluginContributionLoaded },
+    { resolveRegisteredPluginComponent },
+  ] = await Promise.all([
+    import("./slots-loader"),
+    import("./slots-registry"),
+  ]);
   const exportName = launcher.action.target;
   const existing = resolveRegisteredPluginComponent(launcher.pluginKey, exportName);
   if (existing) return existing;
@@ -115,7 +121,7 @@ export function PluginLauncherProvider({ children }: { children: ReactNode }) {
   const [stack, setStack] = useState<LauncherInstance[]>([]);
   const stackRef = useRef(stack);
   stackRef.current = stack;
-  const location = useLocation();
+  const routerLocation = useLocation();
   const navigate = useNavigate();
 
   const closeLauncher = useCallback(
@@ -148,7 +154,7 @@ export function PluginLauncherProvider({ children }: { children: ReactNode }) {
     );
     // Only react to navigation changes, not stack churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key]);
+  }, [routerLocation.key]);
 
   const requestBounds = useCallback(
     async (key: string, request: PluginModalBoundsRequest) => {
@@ -242,7 +248,7 @@ export function PluginLauncherProvider({ children }: { children: ReactNode }) {
 }
 
 export function usePluginLauncherRuntime(): PluginLauncherRuntimeContextValue {
-  const value = useContext(PluginLauncherRuntimeContext);
+  const value = use(PluginLauncherRuntimeContext);
   if (!value) {
     throw new Error("usePluginLauncherRuntime must be used within PluginLauncherProvider");
   }

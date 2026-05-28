@@ -84,7 +84,6 @@ function useFineReorderPointer() {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const query = window.matchMedia(REORDER_POINTER_MEDIA);
     const onChange = (event: MediaQueryListEvent) => setMatches(event.matches);
-    setMatches(query.matches);
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
@@ -93,13 +92,10 @@ function useFineReorderPointer() {
 }
 
 function useProjectPluginSlotsReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as SidebarIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -145,7 +141,7 @@ function ProjectItem({
         aria-label={project.name}
       >
         <span
-          className="shrink-0 h-3.5 w-3.5 rounded-sm"
+          className="shrink-0 size-3.5 rounded-sm"
           style={{ backgroundColor: project.color ?? "#6366f1" }}
         />
       </NavLink>
@@ -172,7 +168,7 @@ function ProjectItem({
         )}
       >
         <span
-          className="shrink-0 h-3.5 w-3.5 rounded-sm"
+          className="shrink-0 size-3.5 rounded-sm"
           style={{ backgroundColor: project.color ?? "#6366f1" }}
         />
         <span className="flex-1 truncate">{project.name}</span>
@@ -287,7 +283,7 @@ export function SidebarProjects() {
     [sortModeStorageKey],
   );
 
-  const renderProject = (project: Project, isDragging = false) => (
+  const projectItem = (project: Project, isDragging = false) => (
     <ProjectItem
       key={project.id}
       activeProjectRef={activeProjectRef}
@@ -302,9 +298,9 @@ export function SidebarProjects() {
     />
   );
 
-  const renderProjectList = (projectsToRender: Project[]) => (
+  const projectList = (projectsToRender: Project[]) => (
     <div className="flex flex-col gap-0.5">
-      {projectsToRender.map((project: Project) => renderProject(project))}
+      {projectsToRender.map((project: Project) => projectItem(project))}
     </div>
   );
 
@@ -330,15 +326,15 @@ export function SidebarProjects() {
       }}
     >
       {canReorderProjects ? (
-        <Suspense fallback={renderProjectList(orderedProjects)}>
+        <Suspense fallback={projectList(orderedProjects)}>
           <SidebarProjectReorderList
             projects={orderedProjects}
             onReorder={persistOrder}
-            renderProject={(project, state) => renderProject(project, state.isDragging)}
+            projectContent={(project, state) => projectItem(project, state.isDragging)}
           />
         </Suspense>
       ) : (
-        renderProjectList(sortedProjects)
+        projectList(sortedProjects)
       )}
     </SidebarSection>
   );

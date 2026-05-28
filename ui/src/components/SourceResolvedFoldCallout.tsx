@@ -72,12 +72,12 @@ export function SourceResolvedFoldCallout({
       <header className="flex items-start gap-3 px-3 py-2.5 sm:px-4">
         <span
           className={cn(
-            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+            "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md",
             "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200",
           )}
           aria-hidden
         >
-          <Sparkles className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
+          <Sparkles className="size-4 text-emerald-700 dark:text-emerald-300" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]">
@@ -155,7 +155,7 @@ export function SourceResolvedFoldCallout({
           >
             <span>{cleanupLabel}</span>
             {fold.cleanup.error ? (
-              <span className="text-muted-foreground">— {fold.cleanup.error}</span>
+              <span className="text-muted-foreground"> -  {fold.cleanup.error}</span>
             ) : null}
           </span>
         </MetaRow>
@@ -173,5 +173,3 @@ export function SourceResolvedFoldCallout({
     </section>
   );
 }
-
-export default SourceResolvedFoldCallout;

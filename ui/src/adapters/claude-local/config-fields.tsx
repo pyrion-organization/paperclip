@@ -4,8 +4,8 @@ import {
   ToggleField,
   DraftInput,
   DraftNumberInput,
-  help,
 } from "../../components/agent-config-primitives";
+import { help } from "../../components/agent-config-primitives-data";
 import { ChoosePathButton } from "../../components/PathInstructionsModal";
 import { LocalWorkspaceRuntimeFields } from "../local-workspace-runtime-fields";
 
@@ -119,7 +119,7 @@ export function ClaudeLocalAdvancedFields({
             className={inputClass}
             value={values!.maxTurnsPerRun}
             onChange={(e) => set!({ maxTurnsPerRun: Number(e.target.value) })}
-          />
+           aria-label="Max Turns Per Run"/>
         ) : (
           <DraftNumberInput
             value={eff(

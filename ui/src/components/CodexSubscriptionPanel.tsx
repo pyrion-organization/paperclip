@@ -18,7 +18,7 @@ function normalizeLabel(text: string): string {
 }
 
 function orderedWindows(windows: QuotaWindow[]): QuotaWindow[] {
-  return [...windows].sort((a, b) => {
+  return windows.toSorted((a, b) => {
     const aBase = normalizeLabel(a.label).replace(/^gpt53codexspark/, "");
     const bBase = normalizeLabel(b.label).replace(/^gpt53codexspark/, "");
     const aIndex = WINDOW_PRIORITY.indexOf(aBase as (typeof WINDOW_PRIORITY)[number]);
@@ -62,7 +62,7 @@ export function CodexSubscriptionPanel({
   const modelWindows = ordered.filter((window) => isModelSpecific(window.label));
 
   return (
-    <div className="border border-border px-4 py-4">
+    <div className="border border-border p-4">
       <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">

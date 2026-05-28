@@ -15,6 +15,7 @@ import {
 
 // ordered display labels for rolling-window rows
 const ROLLING_WINDOWS = ["5h", "24h", "7d"] as const;
+const EMPTY_QUOTA_WINDOWS: QuotaWindow[] = [];
 
 interface ProviderQuotaCardProps {
   provider: string;
@@ -43,7 +44,7 @@ export function ProviderQuotaCard({
   weekSpendCents,
   windowRows,
   showDeficitNotch,
-  quotaWindows = [],
+  quotaWindows = EMPTY_QUOTA_WINDOWS,
   quotaError = null,
   quotaSource = null,
   quotaLoading = false,
@@ -386,7 +387,7 @@ export function ProviderQuotaCard({
 
 function QuotaPanelSkeleton() {
   return (
-    <div className="border border-border px-4 py-4">
+    <div className="border border-border p-4">
       <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0 space-y-2">
           <Skeleton className="h-3 w-36" />

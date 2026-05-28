@@ -13,7 +13,8 @@ import { hermesLocalUIAdapter } from "./hermes-local";
 import { processUIAdapter } from "./process";
 import { httpUIAdapter } from "./http";
 import { loadDynamicParser, invalidateDynamicParser, setDynamicParserResultNotifier } from "./dynamic-loader";
-import { SchemaConfigFields, buildSchemaAdapterConfig } from "./schema-config-fields";
+import { SchemaConfigFields } from "./schema-config-fields";
+import { buildSchemaAdapterConfig } from "./schema-config-fields-utils";
 
 const uiAdapters: UIAdapterModule[] = [];
 const adaptersByType = new Map<string, UIAdapterModule>();
@@ -161,11 +162,12 @@ export function syncExternalAdapters(
   }[],
 ): void {
   const enabledExternalTypes = new Set(
-    serverAdapters.filter((a) => !a.disabled && !a.overrideDisabled).map((a) => a.type),
+    serverAdapters.flatMap((a) => (!a.disabled && !a.overrideDisabled) ? [a.type] : []),
   );
   const allExternalTypes = new Set(
     serverAdapters.map((a) => a.type),
   );
+  const serverAdaptersByType = new Map(serverAdapters.map((adapter) => [adapter.type, adapter]));
 
   // ── Builtin override lifecycle ──────────────────────────────────────────
 
@@ -186,7 +188,7 @@ export function syncExternalAdapters(
 
       let loadStarted = false;
       const fallbackParser = originalBuiltin.parseStdoutLine;
-      const externalEntry = serverAdapters.find((a) => a.type === builtinType);
+      const externalEntry = serverAdaptersByType.get(builtinType);
       const label = externalEntry?.label ?? builtinType;
 
       registerUIAdapter({

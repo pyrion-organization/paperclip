@@ -210,6 +210,7 @@ function LauncherRenderContent({
       <iframe
         src={launcherIframeSrc(instance.launcher)}
         title={`${instance.launcher.pluginDisplayName} ${instance.launcher.displayName}`}
+        sandbox="allow-downloads allow-forms allow-popups allow-scripts"
         className="h-full min-h-[24rem] w-full rounded-md border border-border bg-background"
       />
     );

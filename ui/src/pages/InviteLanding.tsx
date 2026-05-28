@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared/constants";
 import type { AgentAdapterType, JoinRequest } from "@paperclipai/shared";
@@ -171,7 +171,7 @@ function AwaitingJoinApprovalPanel({
             companyDisplayName={companyDisplayName}
             companyLogoUrl={companyLogoUrl}
             companyBrandColor={companyBrandColor}
-            className="h-12 w-12 border border-zinc-800 rounded-none"
+            className="size-12 border border-zinc-800 rounded-none"
           />
           <h1 className="text-lg font-semibold">Request to join {companyDisplayName}</h1>
         </div>
@@ -192,7 +192,7 @@ function AwaitingJoinApprovalPanel({
             Ask them to visit <a href={approvalUrl} className="text-zinc-200 underline underline-offset-2 hover:text-zinc-100">Company Settings → Members</a> to approve your request.
           </p>
           <p className="text-xs text-zinc-500">
-            Refresh this page after you've been approved — you'll be redirected automatically.
+            Refresh this page after you've been approved, you'll be redirected automatically.
           </p>
         </div>
         {claimSecret && claimApiKeyPath ? (
@@ -228,7 +228,7 @@ export function InviteLandingPage() {
   const [result, setResult] = useState<{ kind: "bootstrap" | "join"; payload: unknown } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [authFeedback, setAuthFeedback] = useState<AuthFeedback | null>(null);
-  const [autoAcceptStarted, setAutoAcceptStarted] = useState(false);
+  const autoAcceptStartedRef = useRef(false);
 
   const healthQuery = useQuery({
     queryKey: queryKeys.health,
@@ -258,7 +258,7 @@ export function InviteLandingPage() {
   }, [token]);
 
   useEffect(() => {
-    setAutoAcceptStarted(false);
+    autoAcceptStartedRef.current = false;
   }, [token]);
 
   useEffect(() => {
@@ -348,11 +348,11 @@ export function InviteLandingPage() {
   });
 
   useEffect(() => {
-    if (!shouldAutoAcceptHumanInvite || autoAcceptStarted || acceptMutation.isPending) return;
-    setAutoAcceptStarted(true);
+    if (!shouldAutoAcceptHumanInvite || autoAcceptStartedRef.current || acceptMutation.isPending) return;
+    autoAcceptStartedRef.current = true;
     setError(null);
     acceptMutation.mutate();
-  }, [acceptMutation, autoAcceptStarted, shouldAutoAcceptHumanInvite]);
+  }, [acceptMutation, shouldAutoAcceptHumanInvite]);
 
   const authMutation = useMutation({
     mutationFn: async () => {
@@ -414,11 +414,11 @@ export function InviteLandingPage() {
   }
 
   if (inviteQuery.isLoading || healthQuery.isLoading || sessionQuery.isLoading) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading invite...</div>;
+    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading invite&hellip;</div>;
   }
 
   if (isCheckingExistingMembership) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Checking your access...</div>;
+    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Checking your access&hellip;</div>;
   }
 
   if (inviteQuery.error || !invite) {
@@ -439,7 +439,7 @@ export function InviteLandingPage() {
     inviteJoinRequestType === "human" &&
     isCurrentMember
   ) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Opening company...</div>;
+    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Opening company&hellip;</div>;
   }
 
   if (inviteJoinRequestStatus === "pending_approval") {
@@ -503,7 +503,7 @@ export function InviteLandingPage() {
                 companyDisplayName={companyDisplayName}
                 companyLogoUrl={companyLogoUrl}
                 companyBrandColor={companyBrandColor}
-                className="h-12 w-12 border border-zinc-800 rounded-none"
+                className="size-12 border border-zinc-800 rounded-none"
               />
               <h1 className="text-lg font-semibold">You joined the company</h1>
             </div>
@@ -538,7 +538,7 @@ export function InviteLandingPage() {
                 companyDisplayName={companyDisplayName}
                 companyLogoUrl={companyLogoUrl}
                 companyBrandColor={companyBrandColor}
-                className="h-16 w-16 rounded-none border border-zinc-800"
+                className="size-16 rounded-none border border-zinc-800"
               />
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.24em] text-zinc-500">
@@ -607,7 +607,7 @@ export function InviteLandingPage() {
                     className={fieldClassName}
                     value={agentName}
                     onChange={(event) => setAgentName(event.target.value)}
-                  />
+                   aria-label="Agent Name"/>
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-zinc-400">Adapter type</span>
@@ -630,7 +630,7 @@ export function InviteLandingPage() {
                     rows={4}
                     value={capabilities}
                     onChange={(event) => setCapabilities(event.target.value)}
-                  />
+                   aria-label="Capabilities"/>
                 </label>
                 {error ? <p className="text-xs text-red-400">{error}</p> : null}
                 <Button
@@ -712,8 +712,7 @@ export function InviteLandingPage() {
                           setAuthFeedback(null);
                         }}
                         autoComplete="name"
-                        autoFocus
-                      />
+                       aria-label="Name"/>
                     </label>
                   ) : null}
                   <label className="block text-sm">
@@ -728,8 +727,7 @@ export function InviteLandingPage() {
                         setAuthFeedback(null);
                       }}
                       autoComplete="email"
-                      autoFocus={authMode === "sign_in"}
-                    />
+                     aria-label="Email"/>
                   </label>
                   <label className="block text-sm">
                     <span className="mb-1 block text-zinc-400">Password</span>
@@ -743,7 +741,7 @@ export function InviteLandingPage() {
                         setAuthFeedback(null);
                       }}
                       autoComplete={authMode === "sign_in" ? "current-password" : "new-password"}
-                    />
+                     aria-label="Password"/>
                   </label>
                   {authFeedback ? (
                     <p

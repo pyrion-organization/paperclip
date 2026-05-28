@@ -95,7 +95,7 @@ export function ExecutionParticipantPicker({
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(""); }}>
       <PopoverTrigger asChild>
-        <button
+        <button type="button"
           className={cn(
             "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer",
             values.length > 0
@@ -103,7 +103,7 @@ export function ExecutionParticipantPicker({
               : "border-dashed border-border/60 text-muted-foreground hover:border-border hover:text-foreground",
           )}
         >
-          <Icon className="h-3 w-3" />
+          <Icon className="size-3" />
           {values.length > 0 ? (
             <span className="truncate max-w-[100px]">
               {values.map(participantLabel).join(", ")}
@@ -119,10 +119,9 @@ export function ExecutionParticipantPicker({
           placeholder={`Search ${label.toLowerCase()}...`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          autoFocus
-        />
+         aria-label="Search"/>
         <div className="max-h-48 overflow-y-auto overscroll-contain">
-          <button
+          <button type="button"
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
               values.length === 0 && "bg-accent",
@@ -132,36 +131,38 @@ export function ExecutionParticipantPicker({
             No {label.toLowerCase()}
           </button>
           {currentUserId && (
-            <button
+            <button type="button"
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                 values.includes(`user:${currentUserId}`) && "bg-accent",
               )}
               onClick={() => toggle(`user:${currentUserId}`)}
             >
-              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <User className="size-3 shrink-0 text-muted-foreground" />
               Assign to me
             </button>
           )}
           {issue.createdByUserId && issue.createdByUserId !== currentUserId && (
-            <button
+            <button type="button"
               className={cn(
                 "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
                 values.includes(`user:${issue.createdByUserId}`) && "bg-accent",
               )}
               onClick={() => toggle(`user:${issue.createdByUserId}`)}
             >
-              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <User className="size-3 shrink-0 text-muted-foreground" />
               {creatorUserLabel ?? "Requester"}
             </button>
           )}
-          {otherUserOptions
-            .filter((option) => {
-              if (!search.trim()) return true;
-              return `${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(search.toLowerCase());
-            })
-            .map((option) => (
-              <button
+          {otherUserOptions.flatMap((option) => {
+            if (
+              search.trim()
+              && !`${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(search.toLowerCase())
+            ) {
+              return [];
+            }
+            return [(
+              <button type="button"
                 key={option.id}
                 className={cn(
                   "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -169,19 +170,16 @@ export function ExecutionParticipantPicker({
                 )}
                 onClick={() => toggle(option.id)}
               >
-                <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <User className="size-3 shrink-0 text-muted-foreground" />
                 {option.label}
               </button>
-            ))}
-          {sortedAgents
-            .filter((agent) => {
-              if (!search.trim()) return true;
-              return agent.name.toLowerCase().includes(search.toLowerCase());
-            })
-            .map((agent) => {
-              const encoded = `agent:${agent.id}`;
-              return (
-                <button
+            )];
+          })}
+          {sortedAgents.flatMap((agent) => {
+            if (search.trim() && !agent.name.toLowerCase().includes(search.toLowerCase())) return [];
+            const encoded = `agent:${agent.id}`;
+            return [(
+                <button type="button"
                   key={agent.id}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -189,11 +187,11 @@ export function ExecutionParticipantPicker({
                   )}
                   onClick={() => toggle(encoded)}
                 >
-                  <AgentIcon icon={agent.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+                  <AgentIcon icon={agent.icon} className="shrink-0 size-3 text-muted-foreground" />
                   {agent.name}
                 </button>
-              );
-            })}
+            )];
+          })}
         </div>
       </PopoverContent>
     </Popover>

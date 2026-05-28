@@ -90,7 +90,7 @@ export function RoutineHistoryTab({
 
   const revisions = useMemo(() => revisionsQuery.data ?? [], [revisionsQuery.data]);
   const sortedRevisions = useMemo(
-    () => [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber),
+    () => revisions.toSorted((a, b) => b.revisionNumber - a.revisionNumber),
     [revisions],
   );
   const currentRevision = useMemo(
@@ -197,7 +197,7 @@ export function RoutineHistoryTab({
 
   if (revisionsQuery.error) {
     return (
-      <div className="rounded-md border border-l-2 border-l-destructive border-border p-4 space-y-3">
+      <div className="rounded-md border border-border p-4 space-y-3 shadow-[inset_3px_0_0_hsl(var(--destructive))]">
         <div>
           <p className="text-sm font-medium">Could not load revisions</p>
           <p className="text-xs text-muted-foreground">
@@ -296,8 +296,9 @@ export function RoutineHistoryTab({
         />
       )}
 
-      {currentRevision && selectedRevision && (
+      {diffOpen && currentRevision && selectedRevision && (
         <RoutineRevisionDiffModal
+          key={`${selectedRevision.id}:${currentRevision.id}`}
           open={diffOpen}
           onOpenChange={setDiffOpen}
           revisions={sortedRevisions}
@@ -348,7 +349,7 @@ function HistoricalPreviewBanner({
             Return to current
           </Button>
           <Button size="sm" onClick={onRestore} disabled={pending}>
-            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            <RotateCcw className="mr-1.5 size-3.5" />
             Restore as new revision
           </Button>
         </div>
@@ -393,7 +394,7 @@ function ConflictBanner({
         <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
           {dirtyFields.map((field) => (
             <li key={field.key} className="flex items-center gap-2">
-              <span className="h-1 w-1 rounded-full bg-amber-400" />
+              <span className="size-1 rounded-full bg-amber-400" />
               {field.label}
             </li>
           ))}
@@ -583,7 +584,7 @@ function RevisionPreview({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={onCompare}>
-              <Search className="mr-1.5 h-3.5 w-3.5" />
+              <Search className="mr-1.5 size-3.5" />
               Compare with current
             </Button>
             <Button
@@ -593,7 +594,7 @@ function RevisionPreview({
               aria-label={restoreLabel}
               className={!isHistorical ? "text-muted-foreground/60" : undefined}
             >
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              <RotateCcw className="mr-1.5 size-3.5" />
               {restoreLabel}
             </Button>
           </div>
@@ -609,7 +610,7 @@ function RevisionPreview({
             <div key={row.key} className="space-y-1 p-2">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.label}</p>
               <p className="text-sm">
-                {row.value || <span className="text-muted-foreground">—</span>}
+                {row.value || <span className="text-muted-foreground"> - </span>}
                 {row.differs && (
                   <span className="ml-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] uppercase tracking-[0.12em] text-amber-200">
                     differs from current
@@ -724,24 +725,24 @@ function RestoreConfirmDialog({
         </DialogHeader>
         <ul className="space-y-2 text-sm">
           <li className="flex items-start gap-2">
-            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="mt-1 inline-block size-1.5 rounded-full bg-emerald-400" />
             Routine field values, variables, and schedule cron will revert.
           </li>
           {envDiffCounts.total > 0 && (
             <li className="flex items-start gap-2">
-              <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span className="mt-1 inline-block size-1.5 rounded-full bg-emerald-400" />
               Routine secrets will revert: {formatEnvDiffCounts(envDiffCounts)}.
             </li>
           )}
           <li className="flex items-start gap-2">
-            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <span className="mt-1 inline-block size-1.5 rounded-full bg-emerald-400" />
             Previous run history is preserved.
           </li>
           {recreatedWebhookLabels.map((label) => (
             <li key={label} className="flex items-start gap-2 text-amber-200">
-              <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+              <span className="mt-1 inline-block size-1.5 rounded-full bg-amber-400" />
               The webhook trigger {label} will be recreated with a new URL and secret. Paperclip will
-              show the secret once after restore — copy it before closing.
+              show the secret once after restore, copy it before closing.
             </li>
           ))}
         </ul>
@@ -761,7 +762,7 @@ function RestoreConfirmDialog({
             Cancel
           </Button>
           <Button onClick={onConfirm} disabled={pending}>
-            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            <RotateCcw className="mr-1.5 size-3.5" />
             {pending ? "Restoring…" : `Restore as revision ${newRevisionNumber}`}
           </Button>
         </DialogFooter>
@@ -793,13 +794,6 @@ function RoutineRevisionDiffModal({
 }) {
   const [leftId, setLeftId] = useState<string>(initialOldRevisionId);
   const [rightId, setRightId] = useState<string>(initialNewRevisionId);
-
-  useEffect(() => {
-    if (open) {
-      setLeftId(initialOldRevisionId);
-      setRightId(initialNewRevisionId);
-    }
-  }, [open, initialOldRevisionId, initialNewRevisionId]);
 
   const left = revisions.find((r) => r.id === leftId) ?? null;
   const right = revisions.find((r) => r.id === rightId) ?? null;
@@ -883,7 +877,7 @@ function RoutineRevisionDiffModal({
           </Button>
           {leftIsHistorical && left && (
             <Button onClick={() => onRestore(left)}>
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              <RotateCcw className="mr-1.5 size-3.5" />
               Restore rev {left.revisionNumber} as new revision
             </Button>
           )}
@@ -923,7 +917,7 @@ function RevisionPicker({
       >
         {revisions.map((revision) => (
           <option key={revision.id} value={revision.id}>
-            rev {revision.revisionNumber} — {relativeTime(revision.createdAt)}
+            rev {revision.revisionNumber}, {relativeTime(revision.createdAt)}
             {revision.changeSummary ? ` • ${revision.changeSummary}` : ""}
           </option>
         ))}
@@ -1024,9 +1018,7 @@ function collectWebhookTriggerDifferences(
   current: RoutineRevision,
 ): string[] {
   const currentIds = new Set(current.snapshot.triggers.map((t) => t.id));
-  return target.snapshot.triggers
-    .filter((trigger) => trigger.kind === "webhook" && !currentIds.has(trigger.id))
-    .map((trigger) => trigger.label ?? "webhook");
+  return target.snapshot.triggers.flatMap((trigger) => (trigger.kind === "webhook" && !currentIds.has(trigger.id)) ? [trigger.label ?? "webhook"] : []);
 }
 
 function describeSnapshotField(value: unknown): string {
@@ -1185,7 +1177,7 @@ function compareEnv(
   const oldRec = normalizeEnv(oldEnv);
   const newRec = normalizeEnv(newEnv);
   const keys = new Set<string>([...Object.keys(oldRec), ...Object.keys(newRec)]);
-  const sortedKeys = [...keys].sort();
+  const sortedKeys = Array.from(keys).sort();
   for (const key of sortedKeys) {
     const oldBinding = oldRec[key];
     const newBinding = newRec[key];
@@ -1289,7 +1281,7 @@ function compareTriggers(
   }
 }
 
-export function isUpdateConflictError(error: unknown): error is ApiError {
+function isUpdateConflictError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 409;
 }
 

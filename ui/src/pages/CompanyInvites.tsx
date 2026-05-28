@@ -172,7 +172,7 @@ export function CompanyInvites() {
     <div className="max-w-5xl space-y-8">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <MailPlus className="h-5 w-5 text-muted-foreground" />
+          <MailPlus className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Company Invites</h1>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -196,7 +196,7 @@ export function CompanyInvites() {
               return (
                 <label
                   key={option.value}
-                  className={`flex cursor-pointer gap-3 px-4 py-4 ${index > 0 ? "border-t border-border" : ""}`}
+                  className={`flex cursor-pointer gap-3 p-4 ${index > 0 ? "border-t border-border" : ""}`}
                 >
                   <input
                     type="radio"
@@ -204,8 +204,8 @@ export function CompanyInvites() {
                     value={option.value}
                     checked={checked}
                     onChange={() => setHumanRole(option.value)}
-                    className="mt-1 h-4 w-4 border-border text-foreground"
-                  />
+                    className="mt-1 size-4 border-border text-foreground"
+                   aria-label="Option"/>
                   <span className="min-w-0 space-y-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{option.label}</span>
@@ -236,13 +236,13 @@ export function CompanyInvites() {
         </div>
 
         {latestInviteUrl ? (
-          <div className="space-y-3 rounded-lg border border-border px-4 py-4">
+          <div className="space-y-3 rounded-lg border border-border p-4">
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-medium">Latest invite link</div>
                 {latestInviteCopied ? (
                   <div className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                    <Check className="h-3.5 w-3.5" />
+                    <Check className="size-3.5" />
                     Copied
                   </div>
                 ) : null}
@@ -264,7 +264,7 @@ export function CompanyInvites() {
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" asChild>
                 <a href={latestInviteUrl} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-4 w-4" />
+                  <ExternalLink className="size-4" />
                   Open invite
                 </a>
               </Button>
@@ -328,7 +328,7 @@ export function CompanyInvites() {
                             Review request
                           </Link>
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <span className="text-muted-foreground"> - </span>
                         )}
                       </td>
                       <td className="px-5 py-3 text-right align-top">

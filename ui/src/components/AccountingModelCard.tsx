@@ -47,8 +47,8 @@ export function AccountingModelCard() {
               className={`rounded-2xl border border-border/70 bg-gradient-to-br ${surface.tone} p-4 shadow-sm`}
             >
               <div className="mb-3 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-background/80">
-                  <Icon className="h-4 w-4 text-foreground" />
+                <div className="flex size-10 items-center justify-center rounded-full border border-border/70 bg-background/80">
+                  <Icon className="size-4 text-foreground" />
                 </div>
                 <div>
                   <div className="text-sm font-semibold">{surface.title}</div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ProjectWorkspace } from "@paperclipai/shared";
 import { isUuidLike } from "@paperclipai/shared/agent-url-key";
 import { ArrowLeft, Check, ExternalLink, Loader2, Sparkles } from "lucide-react";
@@ -13,14 +13,15 @@ import { projectsApi } from "../api/projects";
 import { PageTabBar } from "../components/PageTabBar";
 import { PluginSlotMount, usePluginSlots } from "@/plugins/slots";
 import {
-  buildWorkspaceRuntimeControlSections,
   WorkspaceRuntimeControls,
   type WorkspaceRuntimeControlRequest,
 } from "../components/WorkspaceRuntimeControls";
+import { buildWorkspaceRuntimeControlSections } from "../components/workspace-runtime-controls-utils";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 import { projectRouteRef, projectWorkspaceUrl } from "../lib/utils";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 type WorkspaceFormState = {
   name: string;
@@ -252,7 +253,7 @@ export function ProjectWorkspaceDetail() {
   }>();
   const { companies, selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<WorkspaceFormState | null>(null);
@@ -260,7 +261,7 @@ export function ProjectWorkspaceDetail() {
   const [runtimeActionMessage, setRuntimeActionMessage] = useState<string | null>(null);
   const routeProjectRef = projectId ?? "";
   const routeWorkspaceId = workspaceId ?? "";
-  const activeTab = useMemo(() => projectWorkspaceTabFromSearch(location.search), [location.search]);
+  const activeTab = useMemo(() => projectWorkspaceTabFromSearch(routerLocation.search), [routerLocation.search]);
 
   const routeCompanyId = useMemo(() => {
     if (!companyPrefix) return null;
@@ -332,8 +333,8 @@ export function ProjectWorkspaceDetail() {
   useEffect(() => {
     if (!project) return;
     if (routeProjectRef === canonicalProjectRef) return;
-    navigate(`${projectWorkspaceUrl(project, routeWorkspaceId)}${location.search}`, { replace: true });
-  }, [project, routeProjectRef, canonicalProjectRef, routeWorkspaceId, location.search, navigate]);
+    navigate(`${projectWorkspaceUrl(project, routeWorkspaceId)}${routerLocation.search}`, { replace: true });
+  }, [project, routeProjectRef, canonicalProjectRef, routeWorkspaceId, routerLocation.search, navigate]);
 
   const invalidateProject = () => {
     if (!project) return;
@@ -344,7 +345,7 @@ export function ProjectWorkspaceDetail() {
     }
   };
 
-  const updateWorkspace = useMutation({
+  const updateWorkspace = useInvalidatingMutation({
     mutationFn: (patch: Record<string, unknown>) =>
       projectsApi.updateWorkspace(project!.id, routeWorkspaceId, patch, lookupCompanyId),
     onSuccess: () => {
@@ -356,7 +357,7 @@ export function ProjectWorkspaceDetail() {
     },
   });
 
-  const setPrimaryWorkspace = useMutation({
+  const setPrimaryWorkspace = useInvalidatingMutation({
     mutationFn: () => projectsApi.updateWorkspace(project!.id, routeWorkspaceId, { isPrimary: true }, lookupCompanyId),
     onSuccess: () => {
       invalidateProject();
@@ -367,7 +368,7 @@ export function ProjectWorkspaceDetail() {
     },
   });
 
-  const controlRuntimeServices = useMutation({
+  const controlRuntimeServices = useInvalidatingMutation({
     mutationFn: (request: WorkspaceRuntimeControlRequest) =>
       projectsApi.controlWorkspaceCommands(project!.id, routeWorkspaceId, request.action, lookupCompanyId, request),
     onSuccess: (result, request) => {
@@ -438,7 +439,7 @@ export function ProjectWorkspaceDetail() {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link to={`/projects/${canonicalProjectRef}/workspaces`}>
-            <ArrowLeft className="mr-1 h-4 w-4" />
+            <ArrowLeft className="mr-1 size-4" />
             Back to workspaces
           </Link>
         </Button>
@@ -459,13 +460,13 @@ export function ProjectWorkspaceDetail() {
             onClick={() => setPrimaryWorkspace.mutate()}
           >
             {setPrimaryWorkspace.isPending
-              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              : <Check className="mr-2 h-4 w-4" />}
+              ? <Loader2 className="mr-2 size-4 animate-spin" />
+              : <Check className="mr-2 size-4" />}
             Make primary
           </Button>
         ) : (
           <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300 sm:max-w-sm">
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="size-4" />
             This is the project’s primary codebase workspace.
           </div>
         )}
@@ -499,7 +500,7 @@ export function ProjectWorkspaceDetail() {
                   value={form.name}
                   onChange={(event) => setForm((current) => current ? { ...current, name: event.target.value } : current)}
                   placeholder="Workspace name"
-                />
+                 aria-label="Name"/>
               </Field>
 
               <Field label="Visibility">
@@ -539,7 +540,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.cwd}
                     onChange={(event) => setForm((current) => current ? { ...current, cwd: event.target.value } : current)}
                     placeholder="/absolute/path/to/workspace"
-                  />
+                   aria-label="Cwd"/>
                 </Field>
                 <div className="flex items-end">
                   <ChoosePathButton />
@@ -553,7 +554,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.repoUrl}
                     onChange={(event) => setForm((current) => current ? { ...current, repoUrl: event.target.value } : current)}
                     placeholder="https://github.com/org/repo"
-                  />
+                   aria-label="Repo Url"/>
                 </Field>
                 <Field label="Repo ref">
                   <input
@@ -561,7 +562,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.repoRef}
                     onChange={(event) => setForm((current) => current ? { ...current, repoRef: event.target.value } : current)}
                     placeholder="origin/main"
-                  />
+                   aria-label="Repo Ref"/>
                 </Field>
               </div>
 
@@ -572,7 +573,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.defaultRef}
                     onChange={(event) => setForm((current) => current ? { ...current, defaultRef: event.target.value } : current)}
                     placeholder="origin/main"
-                  />
+                   aria-label="Default Ref"/>
                 </Field>
                 <Field label="Shared workspace key">
                   <input
@@ -580,7 +581,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.sharedWorkspaceKey}
                     onChange={(event) => setForm((current) => current ? { ...current, sharedWorkspaceKey: event.target.value } : current)}
                     placeholder="frontend"
-                  />
+                   aria-label="Shared Workspace Key"/>
                 </Field>
               </div>
 
@@ -591,7 +592,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.remoteProvider}
                     onChange={(event) => setForm((current) => current ? { ...current, remoteProvider: event.target.value } : current)}
                     placeholder="codespaces"
-                  />
+                   aria-label="Remote Provider"/>
                 </Field>
                 <Field label="Remote workspace ref">
                   <input
@@ -599,7 +600,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.remoteWorkspaceRef}
                     onChange={(event) => setForm((current) => current ? { ...current, remoteWorkspaceRef: event.target.value } : current)}
                     placeholder="workspace-123"
-                  />
+                   aria-label="Remote Workspace Ref"/>
                 </Field>
               </div>
 
@@ -610,7 +611,7 @@ export function ProjectWorkspaceDetail() {
                     value={form.setupCommand}
                     onChange={(event) => setForm((current) => current ? { ...current, setupCommand: event.target.value } : current)}
                     placeholder="pnpm install && pnpm dev"
-                  />
+                   aria-label="Setup Command"/>
                 </Field>
                 <Field label="Cleanup command" hint="Runs before project-level execution workspace teardown">
                   <textarea
@@ -618,11 +619,11 @@ export function ProjectWorkspaceDetail() {
                     value={form.cleanupCommand}
                     onChange={(event) => setForm((current) => current ? { ...current, cleanupCommand: event.target.value } : current)}
                     placeholder="pkill -f vite || true"
-                  />
+                   aria-label="Cleanup Command"/>
                 </Field>
               </div>
 
-              <details className="rounded-xl border border-dashed border-border/70 bg-background px-3 py-3">
+              <details className="rounded-xl border border-dashed border-border/70 bg-background p-3">
                 <summary className="cursor-pointer text-sm font-medium">Advanced runtime JSON</summary>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Paperclip derives Services and Jobs from this JSON. Prefer editing named commands first; use raw JSON for advanced lifecycle, port, readiness, or environment settings.
@@ -634,7 +635,7 @@ export function ProjectWorkspaceDetail() {
                       value={form.runtimeConfig}
                       onChange={(event) => setForm((current) => current ? { ...current, runtimeConfig: event.target.value } : current)}
                       placeholder={"{\n  \"commands\": [\n    {\n      \"id\": \"web\",\n      \"name\": \"web\",\n      \"kind\": \"service\",\n      \"command\": \"pnpm dev\",\n      \"cwd\": \".\",\n      \"port\": { \"type\": \"auto\" },\n      \"readiness\": {\n        \"type\": \"http\",\n        \"urlTemplate\": \"http://127.0.0.1:${port}\"\n      },\n      \"expose\": {\n        \"type\": \"url\",\n        \"urlTemplate\": \"http://127.0.0.1:${port}\"\n      },\n      \"lifecycle\": \"shared\",\n      \"reuseScope\": \"project_workspace\"\n    },\n    {\n      \"id\": \"db-migrate\",\n      \"name\": \"db:migrate\",\n      \"kind\": \"job\",\n      \"command\": \"pnpm db:migrate\",\n      \"cwd\": \".\"\n    }\n  ]\n}"}
-                    />
+                     aria-label="Runtime Config"/>
                   </Field>
                 </div>
               </details>
@@ -642,7 +643,7 @@ export function ProjectWorkspaceDetail() {
 
             <div className="mt-5 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button className="w-full sm:w-auto" disabled={!isDirty || updateWorkspace.isPending} onClick={saveChanges}>
-                {updateWorkspace.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {updateWorkspace.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                 Save changes
               </Button>
               <Button
@@ -683,7 +684,7 @@ export function ProjectWorkspaceDetail() {
               {workspace.repoUrl && isSafeExternalUrl(workspace.repoUrl) ? (
                 <a href={workspace.repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
                   {workspace.repoUrl}
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="size-3" />
                 </a>
               ) : workspace.repoUrl ? (
                 <span className="break-all font-mono text-xs">{workspace.repoUrl}</span>

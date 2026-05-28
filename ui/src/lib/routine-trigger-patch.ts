@@ -22,7 +22,7 @@ export function parseTimeToMin(hhmm: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-export function buildRoutineTriggerConditionsPayload(drafts: RoutineTriggerConditionDraft[]): RoutineTriggerCondition[] | null {
+function buildRoutineTriggerConditionsPayload(drafts: RoutineTriggerConditionDraft[]): RoutineTriggerCondition[] | null {
   const conditions = drafts.map((draft) => ({
     type: draft.type,
     ...(draft.type === "project_status" ? { statuses: draft.statuses } : {}),

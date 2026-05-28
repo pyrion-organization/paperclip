@@ -5,7 +5,7 @@
  * @see PLUGIN_SPEC.md §9 — Plugin Marketplace / Manager
  */
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PluginRecord } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
 import { AlertTriangle, FlaskConical, Plus, Power, Puzzle, Settings, Trash } from "lucide-react";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToastActions } from "@/context/ToastContext";
 import { cn } from "@/lib/classnames";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -96,7 +97,7 @@ export function PluginManager() {
     queryClient.invalidateQueries({ queryKey: queryKeys.plugins.uiContributions });
   };
 
-  const installMutation = useMutation({
+  const installMutation = useInvalidatingMutation({
     mutationFn: (params: { packageName: string; version?: string; isLocalPath?: boolean }) =>
       pluginsApi.install(params),
     onSuccess: () => {
@@ -110,7 +111,7 @@ export function PluginManager() {
     },
   });
 
-  const uninstallMutation = useMutation({
+  const uninstallMutation = useInvalidatingMutation({
     mutationFn: (pluginId: string) => pluginsApi.uninstall(pluginId),
     onSuccess: () => {
       invalidatePluginQueries();
@@ -121,7 +122,7 @@ export function PluginManager() {
     },
   });
 
-  const enableMutation = useMutation({
+  const enableMutation = useInvalidatingMutation({
     mutationFn: (pluginId: string) => pluginsApi.enable(pluginId),
     onSuccess: () => {
       invalidatePluginQueries();
@@ -132,7 +133,7 @@ export function PluginManager() {
     },
   });
 
-  const disableMutation = useMutation({
+  const disableMutation = useInvalidatingMutation({
     mutationFn: (pluginId: string) => pluginsApi.disable(pluginId),
     onSuccess: () => {
       invalidatePluginQueries();
@@ -155,21 +156,21 @@ export function PluginManager() {
     [installedPlugins]
   );
 
-  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading plugins...</div>;
+  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading plugins&hellip;</div>;
   if (error) return <div className="p-4 text-sm text-destructive">Failed to load plugins.</div>;
 
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Puzzle className="h-6 w-6 text-muted-foreground" />
+          <Puzzle className="size-6 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Plugin Manager</h1>
         </div>
         
         <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-2">
-              <Plus className="h-4 w-4" />
+              <Plus className="size-4" />
               Install Plugin
             </Button>
           </DialogTrigger>
@@ -206,7 +207,7 @@ export function PluginManager() {
 
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
           <div className="space-y-1 text-sm">
             <p className="font-medium text-foreground">Plugins are alpha.</p>
             <p className="text-muted-foreground">
@@ -218,13 +219,13 @@ export function PluginManager() {
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <FlaskConical className="h-5 w-5 text-muted-foreground" />
+          <FlaskConical className="size-5 text-muted-foreground" />
           <h2 className="text-base font-semibold">Available Plugins</h2>
           <Badge variant="outline">Bundled</Badge>
         </div>
 
         {examplesQuery.isLoading ? (
-          <div className="text-sm text-muted-foreground">Loading bundled plugins...</div>
+          <div className="text-sm text-muted-foreground">Loading bundled plugins&hellip;</div>
         ) : examplesQuery.error ? (
           <div className="text-sm text-destructive">Failed to load bundled plugins.</div>
         ) : examples.length === 0 ? (
@@ -305,14 +306,14 @@ export function PluginManager() {
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <Puzzle className="h-5 w-5 text-muted-foreground" />
+          <Puzzle className="size-5 text-muted-foreground" />
           <h2 className="text-base font-semibold">Installed Plugins</h2>
         </div>
 
         {!installedPlugins.length ? (
           <Card className="bg-muted/30">
             <CardContent className="flex flex-col items-center justify-center py-10">
-              <Puzzle className="h-10 w-10 text-muted-foreground mb-4" />
+              <Puzzle className="size-10 text-muted-foreground mb-4" />
               <p className="text-sm font-medium">No plugins installed</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Install a plugin to extend functionality.
@@ -350,7 +351,7 @@ export function PluginManager() {
                         <div className="flex flex-wrap items-start gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
-                              <AlertTriangle className="h-4 w-4 shrink-0" />
+                              <AlertTriangle className="size-4 shrink-0" />
                               <span>Plugin error</span>
                             </div>
                             <p
@@ -393,7 +394,7 @@ export function PluginManager() {
                         <Button
                           variant="outline"
                           size="icon-sm"
-                          className="h-8 w-8"
+                          className="size-8"
                           title={plugin.status === "ready" ? "Disable" : "Enable"}
                           onClick={() => {
                             if (plugin.status === "ready") {
@@ -404,12 +405,12 @@ export function PluginManager() {
                           }}
                           disabled={enableMutation.isPending || disableMutation.isPending}
                         >
-                          <Power className={cn("h-4 w-4", plugin.status === "ready" ? "text-green-600" : "")} />
+                          <Power className={cn("size-4", plugin.status === "ready" ? "text-green-600" : "")} />
                         </Button>
                         <Button
                           variant="outline"
                           size="icon-sm"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          className="size-8 text-destructive hover:text-destructive"
                           title="Uninstall"
                           onClick={() => {
                             setUninstallPluginId(plugin.id);
@@ -417,12 +418,12 @@ export function PluginManager() {
                           }}
                           disabled={uninstallMutation.isPending}
                         >
-                          <Trash className="h-4 w-4" />
+                          <Trash className="size-4" />
                         </Button>
                       </div>
                       <Button variant="outline" size="sm" className="mt-2 h-8" asChild>
                         <Link to={`/instance/settings/plugins/${plugin.id}`}>
-                          <Settings className="h-4 w-4" />
+                          <Settings className="size-4" />
                           Configure
                         </Link>
                       </Button>
@@ -479,7 +480,7 @@ export function PluginManager() {
           <div className="space-y-4">
             <div className="rounded-md border border-red-500/25 bg-red-500/[0.06] px-4 py-3">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700 dark:text-red-300" />
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-700 dark:text-red-300" />
                 <div className="space-y-1 text-sm">
                   <p className="font-medium text-red-700 dark:text-red-300">
                     What errored

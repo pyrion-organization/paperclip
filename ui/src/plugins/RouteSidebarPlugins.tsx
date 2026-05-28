@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 
-import { PluginSlotMount, resolveRouteSidebarSlot, usePluginSlots } from "./slots";
+import { PluginSlotMount, usePluginSlots } from "./slots";
+import { resolveRouteSidebarSlot } from "./slots-utils";
 
 type RouteSidebarPluginsProps = {
   companyId: string;
@@ -38,7 +39,7 @@ export function RouteSidebarPlugins({
     <PluginSlotMount
       slot={routeSidebarSlot}
       context={sidebarContext}
-      className="h-full w-full"
+      className="size-full"
       missingBehavior="placeholder"
     />
   );

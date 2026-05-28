@@ -8,6 +8,7 @@ type IssueGroupHeaderProps = {
   collapsed?: boolean;
   onToggle?: () => void;
   trailing?: ReactNode;
+  trailingSlot?: () => ReactNode;
   className?: string;
 };
 
@@ -17,8 +18,11 @@ export function IssueGroupHeader({
   collapsed = false,
   onToggle,
   trailing,
+  trailingSlot,
   className,
 }: IssueGroupHeaderProps) {
+  const trailingContent = trailingSlot ? trailingSlot() : trailing;
+
   return (
     <div className={cn("flex items-center py-1.5 pl-1 pr-3", className)}>
       {collapsible ? (
@@ -29,7 +33,7 @@ export function IssueGroupHeader({
           onClick={onToggle}
         >
           <ChevronRight
-            className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")}
+            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")}
           />
           <span className="truncate text-sm font-semibold uppercase tracking-wide">
             {label}
@@ -42,7 +46,7 @@ export function IssueGroupHeader({
           </span>
         </div>
       )}
-      {trailing ? <div className="ml-auto">{trailing}</div> : null}
+      {trailingContent ? <div className="ml-auto">{trailingContent}</div> : null}
     </div>
   );
 }

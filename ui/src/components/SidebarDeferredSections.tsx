@@ -49,13 +49,10 @@ interface SidebarDeferredSectionsProps {
 }
 
 function useSidebarPluginsReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as SidebarIdleWindow;
     if (idleWindow.requestIdleCallback) {

@@ -39,8 +39,11 @@ vi.mock("@/lib/router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("./slots", () => ({
+vi.mock("./slots-loader", () => ({
   ensurePluginContributionLoaded: mockEnsurePluginContributionLoaded,
+}));
+
+vi.mock("./slots-registry", () => ({
   resolveRegisteredPluginComponent: mockResolveRegisteredPluginComponent,
 }));
 

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useEffect, useMemo, useState, type ReactNode } from "react";
 
 export interface Breadcrumb {
   label: string;
@@ -54,16 +54,20 @@ export function BreadcrumbProvider({ children, companyName }: BreadcrumbProvider
   useEffect(() => {
     document.title = buildDocumentTitle(breadcrumbs, companyName);
   }, [breadcrumbs, companyName]);
+  const contextValue = useMemo(
+    () => ({ breadcrumbs, setBreadcrumbs, mobileToolbar, setMobileToolbar }),
+    [breadcrumbs, mobileToolbar, setBreadcrumbs, setMobileToolbar],
+  );
 
   return (
-    <BreadcrumbContext.Provider value={{ breadcrumbs, setBreadcrumbs, mobileToolbar, setMobileToolbar }}>
+    <BreadcrumbContext.Provider value={contextValue}>
       {children}
     </BreadcrumbContext.Provider>
   );
 }
 
 export function useBreadcrumbs() {
-  const ctx = useContext(BreadcrumbContext);
+  const ctx = use(BreadcrumbContext);
   if (!ctx) {
     throw new Error("useBreadcrumbs must be used within BreadcrumbProvider");
   }

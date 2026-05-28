@@ -17,12 +17,11 @@ import {
 import { agentUrl } from "@/lib/utils";
 import { cn } from "@/lib/classnames";
 import {
-  deriveRecoveryDisplayState,
   type RecoveryDisplayState,
 } from "@/lib/recovery-display";
+import { deriveRecoveryCardState } from "./issue-recovery-action-card-utils";
 
 export type RecoveryCardCardState = RecoveryDisplayState;
-export const deriveRecoveryCardState = deriveRecoveryDisplayState;
 
 export type RecoveryResolveOutcome =
   | "todo"
@@ -222,7 +221,7 @@ function MetadataRow({
 }
 
 function MissingValue() {
-  return <span className="text-muted-foreground">—</span>;
+  return <span className="text-muted-foreground"> - </span>;
 }
 
 function AgentLink({
@@ -389,12 +388,12 @@ export function IssueRecoveryActionCard({
       <header className="flex items-start gap-3 px-3 py-2.5 sm:px-4">
         <span
           className={cn(
-            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+            "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md",
             tone.iconWrapClass,
           )}
           aria-hidden
         >
-          <ToneIcon className={cn("h-4 w-4", tone.iconClass)} />
+          <ToneIcon className={cn("size-4", tone.iconClass)} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]">
@@ -430,7 +429,7 @@ export function IssueRecoveryActionCard({
             ) : action.ownerType === "system" ? (
               <span className="font-medium">System</span>
             ) : (
-              <span className="text-muted-foreground">unassigned — pick one to wake them</span>
+              <span className="text-muted-foreground">unassigned, pick one to wake them</span>
             )}
             {action.returnOwnerAgentId ? (
               <>

@@ -272,7 +272,7 @@ function TaskTreeNode({
               className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-900 transition-colors hover:bg-emerald-500/15 dark:text-emerald-100"
             >
               {createdTask.identifier ?? createdTask.issueId.slice(0, 8)}
-              <ChevronRight className="h-3 w-3" />
+              <ChevronRight className="size-3" />
             </Link>
           ) : isSkipped ? (
             <span className="inline-flex shrink-0 items-center rounded-sm border border-amber-500/60 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-900 dark:text-amber-100">
@@ -300,7 +300,7 @@ function TaskTreeNode({
 
         {hiddenChildCount > 0 ? (
           <div className="mt-2 flex items-center gap-2 rounded-sm border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-            <GitBranch className="h-3.5 w-3.5 shrink-0" />
+            <GitBranch className="size-3.5 shrink-0" />
             <span>
               {hiddenChildCount === 1
                 ? "1 follow-on task hidden in preview"
@@ -526,8 +526,8 @@ function SuggestTasksCard({
               >
                 {working === "accept" ? (
                   <>
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    Accepting...
+                    <Loader2 className="mr-2 size-3.5 animate-spin" />
+                    Accepting&hellip;
                   </>
                 ) : (
                   selectedCount === totalTasks ? "Accept drafts" : "Accept selected drafts"
@@ -571,8 +571,8 @@ function SuggestTasksCard({
                 >
                   {working === "reject" ? (
                     <>
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      Saving...
+                      <Loader2 className="mr-2 size-3.5 animate-spin" />
+                      Saving&hellip;
                     </>
                   ) : (
                     "Save rejection"
@@ -725,7 +725,7 @@ function AskUserQuestionsCard({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 font-medium uppercase tracking-[0.16em] text-foreground/70">
-          <MessageSquareQuote className="h-3 w-3" />
+          <MessageSquareQuote className="size-3" />
           Ask user questions
         </span>
         <span>
@@ -801,8 +801,8 @@ function AskUserQuestionsCard({
                 >
                   {cancelling ? (
                     <>
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      Cancelling...
+                      <Loader2 className="mr-2 size-3.5 animate-spin" />
+                      Cancelling&hellip;
                     </>
                   ) : (
                     "Cancel question"
@@ -816,8 +816,8 @@ function AskUserQuestionsCard({
               >
                 {working ? (
                   <>
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    Submitting...
+                    <Loader2 className="mr-2 size-3.5 animate-spin" />
+                    Submitting&hellip;
                   </>
                 ) : (
                   interaction.payload.submitLabel ?? "Submit answers"
@@ -922,7 +922,7 @@ function RequestConfirmationTargetChip({
   );
   const content = (
     <>
-      <GitBranch className="h-3 w-3 shrink-0" />
+      <GitBranch className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{requestConfirmationTargetLabel(target)}</span>
     </>
   );
@@ -968,7 +968,7 @@ function RequestConfirmationResolution({
           <RequestConfirmationTargetChip interaction={interaction} target={target} />
         </div>
         {interaction.result?.reason ? (
-          <blockquote className="rounded-sm border-l-2 border-rose-500/70 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-900 dark:text-rose-100">
+          <blockquote className="rounded-sm border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-900 shadow-[inset_3px_0_0_rgb(244_63_94_/_0.55)] dark:text-rose-100">
             {interaction.result.reason}
           </blockquote>
         ) : null}
@@ -1002,7 +1002,7 @@ function RequestConfirmationResolution({
               tone="subtle"
             />
             {staleTarget && target ? (
-              <ChevronRight className="h-3.5 w-3.5 text-amber-700" />
+              <ChevronRight className="size-3.5 text-amber-700" />
             ) : null}
             <RequestConfirmationTargetChip interaction={interaction} target={target} />
           </div>
@@ -1051,16 +1051,6 @@ function RequestConfirmationCard({
     ?? (interaction.payload.acceptLabel === "Approve plan"
       ? "Optional: what would you like revised?"
       : "Optional: tell the agent what you'd change.");
-
-  useEffect(() => {
-    setRejectReason(interaction.result?.reason ?? "");
-    setRejectAttempted(false);
-    setActionError(null);
-    if (interaction.status !== "pending") {
-      setRejecting(false);
-      setWorking(null);
-    }
-  }, [interaction.id, interaction.result?.reason, interaction.status]);
 
   async function handleAccept() {
     if (!onAcceptInteraction) return;
@@ -1120,8 +1110,8 @@ function RequestConfirmationCard({
             >
               {working === "accept" ? (
                 <>
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  Confirming...
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  Confirming&hellip;
                 </>
               ) : (
                 interaction.payload.acceptLabel ?? "Confirm"
@@ -1180,8 +1170,8 @@ function RequestConfirmationCard({
                 >
                   {working === "reject" ? (
                     <>
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      Saving...
+                      <Loader2 className="mr-2 size-3.5 animate-spin" />
+                      Saving&hellip;
                     </>
                   ) : (
                     interaction.payload.rejectLabel ?? "Decline"
@@ -1240,7 +1230,7 @@ export function IssueThreadInteractionCard({
         <div className="min-w-0 flex-1 basis-64">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("inline-flex items-center gap-1 rounded-sm border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]", styles.badge)}>
-              <StatusIcon className="h-3.5 w-3.5" />
+              <StatusIcon className="size-3.5" />
               {interactionKindLabel(interaction.kind)}
               <span className="text-current/60">/</span>
               {statusLabel(interaction.status)}
@@ -1248,7 +1238,7 @@ export function IssueThreadInteractionCard({
             {interaction.continuationPolicy === "wake_assignee"
               || interaction.continuationPolicy === "wake_assignee_on_accept" ? (
               <span className="inline-flex items-center gap-1 rounded-sm border border-border/70 bg-transparent px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-foreground/70">
-                <ListChecks className="h-3.5 w-3.5" />
+                <ListChecks className="size-3.5" />
                 {interaction.continuationPolicy === "wake_assignee_on_accept"
                   ? "Wakes on confirm"
                   : "Wakes assignee"}
@@ -1302,6 +1292,7 @@ export function IssueThreadInteractionCard({
           />
         ) : (
           <RequestConfirmationCard
+            key={`${interaction.id}:${interaction.status}:${interaction.result?.reason ?? ""}`}
             interaction={interaction}
             onAcceptInteraction={onAcceptInteraction}
             onRejectInteraction={onRejectInteraction}

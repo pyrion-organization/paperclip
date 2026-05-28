@@ -28,14 +28,12 @@ export function useDisabledAdaptersSync(): Set<string> {
   // This is idempotent — already-registered types are skipped.
   if (adapters) {
     syncExternalAdapters(
-      adapters
-        .filter((a) => a.source === "external")
-        .map((a) => ({
+      adapters.flatMap((a) => (a.source === "external") ? [({
           type: a.type,
           label: a.label,
           disabled: a.disabled,
           overrideDisabled: a.overridePaused,
-        })),
+        })] : []),
     );
   }
 
@@ -43,12 +41,12 @@ export function useDisabledAdaptersSync(): Set<string> {
   useEffect(() => {
     if (!adapters) return;
     setDisabledAdapterTypes(
-      adapters.filter((a) => a.disabled).map((a) => a.type),
+      adapters.flatMap((a) => (a.disabled) ? [a.type] : []),
     );
   }, [adapters]);
 
   return useMemo(
-    () => new Set(adapters?.filter((a) => a.disabled).map((a) => a.type) ?? []),
+    () => new Set(adapters?.flatMap((a) => (a.disabled ? [a.type] : [])) ?? []),
     [adapters],
   );
 }

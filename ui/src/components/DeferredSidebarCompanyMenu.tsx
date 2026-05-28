@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCompany } from "@/context/CompanyContext";
@@ -18,12 +18,9 @@ function WorkspaceIconFallback({
   logoUrl?: string | null;
 }) {
   const initial = companyName.trim().charAt(0).toUpperCase() || "?";
-  const [logoFailed, setLogoFailed] = useState(false);
-  const logo = !logoFailed && typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
-
-  useEffect(() => {
-    setLogoFailed(false);
-  }, [logoUrl]);
+  const [logoFailed, setLogoFailed] = useState<{ logoUrl: string | null } | null>(null);
+  const candidateLogo = typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
+  const logo = logoFailed?.logoUrl === candidateLogo ? null : candidateLogo;
 
   if (logo) {
     return (
@@ -35,7 +32,7 @@ function WorkspaceIconFallback({
           src={logo}
           alt=""
           className="absolute inset-0 size-full object-cover"
-          onError={() => setLogoFailed(true)}
+          onError={() => setLogoFailed({ logoUrl: logo })}
         />
       </span>
     );

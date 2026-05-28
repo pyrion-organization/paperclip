@@ -7,7 +7,8 @@ import { ExecutionParticipantPicker } from "@/components/ExecutionParticipantPic
 import { FoldCurtain } from "@/components/FoldCurtain";
 import { InlineEditor } from "@/components/InlineEditor";
 import { InlineEntitySelector, type InlineEntityOption } from "@/components/InlineEntitySelector";
-import { JsonSchemaForm, type JsonSchemaNode, getDefaultValues } from "@/components/JsonSchemaForm";
+import { JsonSchemaForm } from "@/components/JsonSchemaForm";
+import { getDefaultValues, type JsonSchemaNode } from "@/components/json-schema-form-utils";
 import { MarkdownBody } from "@/components/MarkdownBody";
 import { MarkdownEditor, type MentionOption } from "@/components/MarkdownEditor";
 import { ReportsToPicker } from "@/components/ReportsToPicker";
@@ -16,7 +17,8 @@ import {
   type RoutineRunDialogSubmitData,
 } from "@/components/RoutineRunVariablesDialog";
 import { RoutineVariablesEditor, RoutineVariablesHint } from "@/components/RoutineVariablesEditor";
-import { ScheduleEditor, describeSchedule } from "@/components/ScheduleEditor";
+import { ScheduleEditor } from "@/components/ScheduleEditor";
+import { describeSchedule } from "@/components/schedule-editor-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildExecutionPolicy } from "@/lib/issue-execution-policy";

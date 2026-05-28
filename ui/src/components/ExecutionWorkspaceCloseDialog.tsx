@@ -75,6 +75,9 @@ export function ExecutionWorkspaceCloseDialog({
   });
 
   const readiness = readinessQuery.data ?? null;
+  const readinessCheckedAtLabel = readinessQuery.dataUpdatedAt
+    ? formatDateTime(readinessQuery.dataUpdatedAt)
+    : null;
   const blockingIssues = readiness?.linkedIssues.filter((issue) => !issue.isTerminal) ?? [];
   const otherLinkedIssues = readiness?.linkedIssues.filter((issue) => issue.isTerminal) ?? [];
   const confirmDisabled =
@@ -99,8 +102,8 @@ export function ExecutionWorkspaceCloseDialog({
 
         {readinessQuery.isLoading ? (
           <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Checking whether this workspace is safe to close...
+            <Loader2 className="size-4 animate-spin" />
+            Checking whether this workspace is safe to close&hellip;
           </div>
         ) : readinessQuery.error ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -285,9 +288,11 @@ export function ExecutionWorkspaceCloseDialog({
               </div>
             ) : null}
 
-            <div className="text-xs text-muted-foreground">
-              Last checked {formatDateTime(new Date())}
-            </div>
+            {readinessCheckedAtLabel ? (
+              <div className="text-xs text-muted-foreground">
+                Last checked {readinessCheckedAtLabel}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -304,7 +309,7 @@ export function ExecutionWorkspaceCloseDialog({
             onClick={() => closeWorkspace.mutate()}
             disabled={confirmDisabled}
           >
-            {closeWorkspace.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {closeWorkspace.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
             {actionLabel}
           </Button>
         </DialogFooter>

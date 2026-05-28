@@ -1,7 +1,7 @@
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useState,
@@ -170,7 +170,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 }
 
 export function useCompany() {
-  const ctx = useContext(CompanyContext);
+  const ctx = use(CompanyContext);
   if (!ctx) {
     throw new Error("useCompany must be used within CompanyProvider");
   }
@@ -178,5 +178,5 @@ export function useCompany() {
 }
 
 export function useOptionalCompany() {
-  return useContext(CompanyContext);
+  return use(CompanyContext);
 }

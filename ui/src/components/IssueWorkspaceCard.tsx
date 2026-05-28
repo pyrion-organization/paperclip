@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/router";
 import type { Issue, ExecutionWorkspace } from "@paperclipai/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -89,7 +89,7 @@ function CopyableInline({ value, label, mono }: { value: string; label?: string;
         onClick={handleCopy}
         title={copied ? "Copied!" : "Copy"}
       >
-        {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+        {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
       </button>
     </span>
   );
@@ -156,6 +156,51 @@ function statusBadge(status: string) {
       {status.replace(/_/g, " ")}
     </span>
   );
+}
+
+type WorkspaceDraft = {
+  selection: string;
+  executionWorkspaceId: string;
+  environmentId: string;
+};
+
+type WorkspaceDraftOverride = {
+  source: string;
+  draft: WorkspaceDraft;
+};
+
+function buildWorkspaceDraftSource(draft: WorkspaceDraft) {
+  return JSON.stringify(draft);
+}
+
+function canSaveWorkspaceDraft(draft: WorkspaceDraft) {
+  return draft.selection !== "reuse_existing" || draft.executionWorkspaceId.length > 0;
+}
+
+function workspaceBranchNameForDraft(
+  draft: WorkspaceDraft,
+  reusableWorkspace: ExecutionWorkspace | null,
+) {
+  return draft.selection === "reuse_existing" && reusableWorkspace?.mode !== "shared_workspace"
+    ? reusableWorkspace?.branchName ?? null
+    : null;
+}
+
+function buildWorkspaceDraftUpdateFor(
+  draft: WorkspaceDraft,
+  reusableWorkspace: ExecutionWorkspace | null,
+) {
+  return {
+    executionWorkspacePreference: draft.selection,
+    executionWorkspaceId: draft.selection === "reuse_existing" ? draft.executionWorkspaceId || null : null,
+    executionWorkspaceSettings: {
+      mode:
+        draft.selection === "reuse_existing"
+          ? issueModeForExistingWorkspace(reusableWorkspace?.mode)
+          : draft.selection,
+      environmentId: draft.selection === "reuse_existing" ? null : draft.environmentId || null,
+    },
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -254,9 +299,14 @@ export function IssueWorkspaceCard({
         ?? defaultExecutionWorkspaceModeForProject(project)
       );
 
-  const [draftSelection, setDraftSelection] = useState(currentSelection);
-  const [draftExecutionWorkspaceId, setDraftExecutionWorkspaceId] = useState(issue.executionWorkspaceId ?? "");
-  const [draftEnvironmentId, setDraftEnvironmentId] = useState(issue.executionWorkspaceSettings?.environmentId ?? "");
+  const baseDraft = useMemo<WorkspaceDraft>(() => ({
+    selection: currentSelection,
+    executionWorkspaceId: issue.executionWorkspaceId ?? "",
+    environmentId: issue.executionWorkspaceSettings?.environmentId ?? "",
+  }), [currentSelection, issue.executionWorkspaceId, issue.executionWorkspaceSettings?.environmentId]);
+  const draftSource = buildWorkspaceDraftSource(baseDraft);
+  const [draftOverride, setDraftOverride] = useState<WorkspaceDraftOverride | null>(null);
+  const draft = draftOverride?.source === draftSource ? draftOverride.draft : baseDraft;
   const projectEnvironmentId = environmentsEnabled
     ? project?.executionWorkspacePolicy?.environmentId ?? null
     : null;
@@ -273,18 +323,14 @@ export function IssueWorkspaceCard({
     environments?.find((environment) => environment.id === currentEnvironmentId)
     ?? null;
 
-  useEffect(() => {
-    if (editing) return;
-    setDraftSelection(currentSelection);
-    setDraftExecutionWorkspaceId(issue.executionWorkspaceId ?? "");
-    setDraftEnvironmentId(issue.executionWorkspaceSettings?.environmentId ?? "");
-  }, [currentSelection, editing, issue.executionWorkspaceId, issue.executionWorkspaceSettings?.environmentId]);
-
   const activeNonDefaultWorkspace = Boolean(workspace && workspace.mode !== "shared_workspace");
 
-  const configuredReusableWorkspace =
-    deduplicatedReusableWorkspaces.find((w) => w.id === draftExecutionWorkspaceId)
-    ?? (draftExecutionWorkspaceId === issue.executionWorkspaceId ? selectedReusableExecutionWorkspace : null);
+  const findConfiguredReusableWorkspace = useCallback((executionWorkspaceId: string) => {
+    return deduplicatedReusableWorkspaces.find((w) => w.id === executionWorkspaceId)
+      ?? (executionWorkspaceId === issue.executionWorkspaceId ? selectedReusableExecutionWorkspace : null);
+  }, [deduplicatedReusableWorkspaces, issue.executionWorkspaceId, selectedReusableExecutionWorkspace]);
+
+  const configuredReusableWorkspace = findConfiguredReusableWorkspace(draft.executionWorkspaceId);
 
   const selectedReusableWorkspaceLink = workspaceDetailLink({
     projectId: project?.id,
@@ -297,8 +343,8 @@ export function IssueWorkspaceCard({
     workspace,
   });
 
-  const canSaveWorkspaceConfig = draftSelection !== "reuse_existing" || draftExecutionWorkspaceId.length > 0;
-  const reuseExistingSelection = draftSelection === "reuse_existing";
+  const canSaveWorkspaceConfig = canSaveWorkspaceDraft(draft);
+  const reuseExistingSelection = draft.selection === "reuse_existing";
   const selectedReusableEnvironmentId = configuredReusableWorkspace?.config?.environmentId ?? "";
   const runSelectableEnvironments = useMemo(
     () => environmentsEnabled ? (environments ?? []).filter((environment) => {
@@ -310,51 +356,58 @@ export function IssueWorkspaceCard({
     [environments, environmentsEnabled],
   );
   const draftWorkspaceBranchName =
-    draftSelection === "reuse_existing" && configuredReusableWorkspace?.mode !== "shared_workspace"
-      ? configuredReusableWorkspace?.branchName ?? null
-      : null;
+    workspaceBranchNameForDraft(draft, configuredReusableWorkspace);
 
-  const buildWorkspaceDraftUpdate = useCallback(() => ({
-    executionWorkspacePreference: draftSelection,
-    executionWorkspaceId: draftSelection === "reuse_existing" ? draftExecutionWorkspaceId || null : null,
-    executionWorkspaceSettings: {
-      mode:
-        draftSelection === "reuse_existing"
-          ? issueModeForExistingWorkspace(configuredReusableWorkspace?.mode)
-          : draftSelection,
-      environmentId: draftSelection === "reuse_existing" ? null : draftEnvironmentId || null,
-    },
-  }), [
-    configuredReusableWorkspace?.mode,
-    draftEnvironmentId,
-    draftExecutionWorkspaceId,
-    draftSelection,
-  ]);
-
-  useEffect(() => {
+  const emitDraftChange = useCallback((nextDraft: WorkspaceDraft) => {
     if (!onDraftChange) return;
-    onDraftChange(buildWorkspaceDraftUpdate(), {
-      canSave: canSaveWorkspaceConfig,
-      workspaceBranchName: draftWorkspaceBranchName,
+    const nextReusableWorkspace = findConfiguredReusableWorkspace(nextDraft.executionWorkspaceId);
+    onDraftChange(buildWorkspaceDraftUpdateFor(nextDraft, nextReusableWorkspace), {
+      canSave: canSaveWorkspaceDraft(nextDraft),
+      workspaceBranchName: workspaceBranchNameForDraft(nextDraft, nextReusableWorkspace),
     });
-  }, [buildWorkspaceDraftUpdate, canSaveWorkspaceConfig, draftWorkspaceBranchName, onDraftChange]);
+  }, [findConfiguredReusableWorkspace, onDraftChange]);
+
+  const applyDraft = useCallback((nextDraft: WorkspaceDraft) => {
+    setDraftOverride({ source: draftSource, draft: nextDraft });
+    emitDraftChange(nextDraft);
+  }, [draftSource, emitDraftChange]);
+
+  const handleSelectionChange = useCallback((nextMode: string) => {
+    const nextDraft = {
+      ...draft,
+      selection: nextMode,
+      executionWorkspaceId:
+        nextMode !== "reuse_existing"
+          ? ""
+          : draft.executionWorkspaceId || issue.executionWorkspaceId || "",
+    };
+    applyDraft(nextDraft);
+  }, [applyDraft, draft, issue.executionWorkspaceId]);
+
+  const handleExecutionWorkspaceChange = useCallback((executionWorkspaceId: string) => {
+    applyDraft({ ...draft, executionWorkspaceId });
+  }, [applyDraft, draft]);
+
+  const handleEnvironmentChange = useCallback((environmentId: string) => {
+    applyDraft({ ...draft, environmentId });
+  }, [applyDraft, draft]);
 
   const handleSave = useCallback(() => {
     if (!canSaveWorkspaceConfig) return;
-    onUpdate(buildWorkspaceDraftUpdate());
+    onUpdate(buildWorkspaceDraftUpdateFor(draft, configuredReusableWorkspace));
     setEditing(false);
   }, [
-    buildWorkspaceDraftUpdate,
     canSaveWorkspaceConfig,
+    configuredReusableWorkspace,
+    draft,
     onUpdate,
   ]);
 
   const handleCancel = useCallback(() => {
-    setDraftSelection(currentSelection);
-    setDraftExecutionWorkspaceId(issue.executionWorkspaceId ?? "");
-    setDraftEnvironmentId(issue.executionWorkspaceSettings?.environmentId ?? "");
+    setDraftOverride(null);
     setEditing(false);
-  }, [currentSelection, issue.executionWorkspaceId, issue.executionWorkspaceSettings?.environmentId]);
+    emitDraftChange(baseDraft);
+  }, [baseDraft, emitDraftChange]);
 
   if (!policyEnabled || !project) return null;
 
@@ -365,7 +418,7 @@ export function IssueWorkspaceCard({
       {/* Header row */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+          <GitBranch className="size-3.5 text-muted-foreground" />
           {activeNonDefaultWorkspace && workspace
             ? workspaceModeLabel(workspace.mode)
             : configuredWorkspaceLabel(currentSelection, selectedReusableExecutionWorkspace)}
@@ -380,7 +433,7 @@ export function IssueWorkspaceCard({
                 className="h-6 px-2 text-xs text-muted-foreground"
                 onClick={handleCancel}
               >
-                <X className="h-3 w-3 mr-1" />Cancel
+                <X className="size-3 mr-1" />Cancel
               </Button>
               <Button
                 size="sm"
@@ -398,7 +451,7 @@ export function IssueWorkspaceCard({
               className="h-6 px-2 text-xs text-muted-foreground"
               onClick={() => setEditing(true)}
             >
-              <Pencil className="h-3 w-3 mr-1" />Edit
+              <Pencil className="size-3 mr-1" />Edit
             </Button>
           )}
         </div>
@@ -409,13 +462,13 @@ export function IssueWorkspaceCard({
         <div className="space-y-1.5 text-xs">
           {workspace?.branchName && (
             <div className="flex items-center gap-1.5">
-              <GitBranch className="h-3 w-3 text-muted-foreground shrink-0" />
+              <GitBranch className="size-3 text-muted-foreground shrink-0" />
               <CopyableInline value={workspace.branchName} mono />
             </div>
           )}
           {workspace?.cwd && (
             <div className="flex items-center gap-1.5">
-              <FolderOpen className="h-3 w-3 text-muted-foreground shrink-0" />
+              <FolderOpen className="size-3 text-muted-foreground shrink-0" />
               <CopyableInline value={workspace.cwd} mono />
             </div>
           )}
@@ -477,16 +530,8 @@ export function IssueWorkspaceCard({
         <div className="space-y-2 pt-1">
           <select
             className="w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none"
-            value={draftSelection}
-            onChange={(e) => {
-              const nextMode = e.target.value;
-              setDraftSelection(nextMode);
-              if (nextMode !== "reuse_existing") {
-                setDraftExecutionWorkspaceId("");
-              } else if (!draftExecutionWorkspaceId && issue.executionWorkspaceId) {
-                setDraftExecutionWorkspaceId(issue.executionWorkspaceId);
-              }
-            }}
+            value={draft.selection}
+            onChange={(e) => handleSelectionChange(e.target.value)}
           >
             {EXECUTION_WORKSPACE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -497,13 +542,11 @@ export function IssueWorkspaceCard({
             ))}
           </select>
 
-          {draftSelection === "reuse_existing" && (
+          {draft.selection === "reuse_existing" && (
             <select
               className="w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none"
-              value={draftExecutionWorkspaceId}
-              onChange={(e) => {
-                setDraftExecutionWorkspaceId(e.target.value);
-              }}
+              value={draft.executionWorkspaceId}
+              onChange={(e) => handleExecutionWorkspaceChange(e.target.value)}
             >
               <option value="">Choose an existing workspace</option>
               {deduplicatedReusableWorkspaces.map((w) => (
@@ -521,8 +564,8 @@ export function IssueWorkspaceCard({
                   "w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none",
                   reuseExistingSelection && "cursor-not-allowed opacity-70",
                 )}
-                value={reuseExistingSelection ? selectedReusableEnvironmentId : draftEnvironmentId}
-                onChange={(e) => setDraftEnvironmentId(e.target.value)}
+                value={reuseExistingSelection ? selectedReusableEnvironmentId : draft.environmentId}
+                onChange={(e) => handleEnvironmentChange(e.target.value)}
                 disabled={reuseExistingSelection}
               >
                 <option value="">

@@ -75,8 +75,10 @@ function parseStructuredToolResult(result: string | undefined) {
   }
 
   const body = lines.slice(Math.min(bodyStartIndex + 1, lines.length))
-    .map((line) => compactWhitespace(line))
-    .filter(Boolean)
+    .flatMap((line) => {
+      const compacted = compactWhitespace(line);
+      return compacted ? [compacted] : [];
+    })
     .join("\n");
 
   return {
@@ -255,13 +257,15 @@ export function summarizeToolResult(
   }
   const lines = result
     .split(/\r?\n/)
-    .map((line) => compactWhitespace(line))
-    .filter(Boolean);
+    .flatMap((line) => {
+      const compacted = compactWhitespace(line);
+      return compacted ? [compacted] : [];
+    });
   const firstLine = lines[0] ?? result;
   return truncate(firstLine, density === "compact" ? 84 : 140);
 }
 
-export function parseSystemActivity(text: string): TranscriptActivity | null {
+function parseSystemActivity(text: string): TranscriptActivity | null {
   const match = text.match(/^item (started|completed):\s*([a-z0-9_-]+)(?:\s+\(id=([^)]+)\))?$/i);
   if (!match) return null;
   return {
@@ -271,7 +275,7 @@ export function parseSystemActivity(text: string): TranscriptActivity | null {
   };
 }
 
-export function shouldHideNiceModeStderr(text: string): boolean {
+function shouldHideNiceModeStderr(text: string): boolean {
   const normalized = compactWhitespace(text).toLowerCase();
   return normalized.startsWith("[paperclip] skipping saved session resume");
 }

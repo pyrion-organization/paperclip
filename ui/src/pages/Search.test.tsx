@@ -6,7 +6,8 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Search, buildSearchUrl } from "./Search";
+import { Search } from "./Search";
+import { buildSearchUrl } from "./search-utils";
 
 const companyState = vi.hoisted(() => ({
   selectedCompanyId: "company-1",

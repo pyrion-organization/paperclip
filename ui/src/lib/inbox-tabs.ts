@@ -1,4 +1,4 @@
-export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
+const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
 
 export type InboxTab = "mine" | "recent" | "unread" | "blocked" | "all";
 

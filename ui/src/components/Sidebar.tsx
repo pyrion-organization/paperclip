@@ -32,13 +32,10 @@ type SidebarIdleWindow = Window & {
 };
 
 function useSidebarChromeReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as SidebarIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -126,7 +123,7 @@ export function Sidebar() {
           title="Open search"
         >
           <NavLink to="/search">
-            <Search className="h-4 w-4" />
+            <Search className="size-4" />
           </NavLink>
         </Button>
         <Button
@@ -138,14 +135,14 @@ export function Sidebar() {
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {isCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         </Button>
       </div>
 
       <nav className={cn("flex-1 min-h-0 overflow-y-auto scrollbar-auto-hide flex flex-col gap-4 pointer-coarse:gap-3 py-2", isCollapsed && !isMobile ? "px-2" : "px-3")}>
         <div className="flex flex-col gap-0.5">
           {/* New Issue button aligned with nav items */}
-          <button
+          <button type="button"
             onClick={() => openNewIssue()}
             data-slot="icon-button"
             className={cn(
@@ -155,7 +152,7 @@ export function Sidebar() {
             title="New Issue"
             aria-label="New Issue"
           >
-            <SquarePen className="h-4 w-4 shrink-0" />
+            <SquarePen className="size-4 shrink-0" />
             {!isCollapsed && <span className="truncate">New Issue</span>}
           </button>
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />

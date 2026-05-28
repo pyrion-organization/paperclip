@@ -1,6 +1,7 @@
 import { PageTabBar } from "@/components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { useLocation, useNavigate } from "@/lib/router";
+import { getCompanySettingsTab } from "./company-settings-nav-utils";
 
 const items = [
   { value: "general", label: "General", href: "/company/settings" },
@@ -11,36 +12,6 @@ const items = [
   { value: "invites", label: "Invites", href: "/company/settings/invites" },
   { value: "secrets", label: "Secrets", href: "/company/settings/secrets" },
 ] as const;
-
-type CompanySettingsTab = (typeof items)[number]["value"];
-
-export function getCompanySettingsTab(pathname: string): CompanySettingsTab {
-  if (pathname.includes("/company/settings/email")) {
-    return "email";
-  }
-
-  if (pathname.includes("/company/settings/environments")) {
-    return "environments";
-  }
-
-  if (pathname.includes("/company/settings/cloud-upstream")) {
-    return "cloud-upstream";
-  }
-
-  if (pathname.includes("/company/settings/members") || pathname.includes("/company/settings/access")) {
-    return "members";
-  }
-
-  if (pathname.includes("/company/settings/invites")) {
-    return "invites";
-  }
-
-  if (pathname.includes("/company/settings/secrets")) {
-    return "secrets";
-  }
-
-  return "general";
-}
 
 export function CompanySettingsNav() {
   const location = useLocation();

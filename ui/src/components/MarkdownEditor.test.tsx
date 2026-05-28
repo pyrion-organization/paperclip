@@ -9,9 +9,11 @@ import {
   findClosestAutocompleteAnchor,
   findMentionMatch,
   isSameAutocompleteSession,
-  MarkdownEditor,
   placeCaretAfterMentionAnchor,
   shouldAcceptAutocompleteKey,
+} from "./markdown-editor-utils";
+import {
+  MarkdownEditor,
 } from "./MarkdownEditor";
 
 const mdxEditorMockState = vi.hoisted(() => ({

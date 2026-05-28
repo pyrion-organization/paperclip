@@ -23,13 +23,17 @@ export function CopyText({
   copiedLabel = "Copied!",
 }: CopyTextProps) {
   const [visible, setVisible] = useState(false);
-  const [label, setLabel] = useState(copiedLabel);
+  const [copyFailed, setCopyFailed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const label = copyFailed ? "Copy failed" : copiedLabel;
+  const clearTimer = useCallback(() => {
+    clearTimeout(timerRef.current);
+  }, []);
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  useEffect(() => clearTimer, [clearTimer]);
 
-  const handleClick = useCallback(async () => {
+  const copyTextToClipboard = useCallback(async () => {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -48,11 +52,11 @@ export function CopyText({
           document.body.removeChild(textarea);
         }
       }
-      setLabel(copiedLabel);
+      setCopyFailed(false);
     } catch {
-      setLabel("Copy failed");
+      setCopyFailed(true);
     }
-    clearTimeout(timerRef.current);
+    clearTimer();
     setVisible(true);
     timerRef.current = setTimeout(() => setVisible(false), 1500);
   }, [copiedLabel, text]);
@@ -68,12 +72,11 @@ export function CopyText({
           "cursor-copy hover:text-foreground transition-colors",
           className,
         )}
-        onClick={handleClick}
+        onClick={copyTextToClipboard}
       >
         {children ?? text}
       </button>
-      <span
-        role="status"
+      <output
         aria-live="polite"
         className={cn(
           "pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 rounded-md bg-foreground text-background px-2 py-1 text-xs whitespace-nowrap transition-opacity duration-300",
@@ -81,7 +84,7 @@ export function CopyText({
         )}
       >
         {label}
-      </span>
+      </output>
     </span>
   );
 }

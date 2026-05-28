@@ -114,7 +114,7 @@ export function Activity() {
       : data;
 
   const entityTypes = data
-    ? [...new Set(data.map((e) => e.entityType))].sort()
+    ? Array.from(new Set(data.map((e) => e.entityType))).sort()
     : [];
 
   return (

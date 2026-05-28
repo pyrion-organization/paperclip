@@ -81,7 +81,7 @@ export const routinesApi = {
     ];
     const events = (await Promise.all(requests)).flat();
     const deduped = new Map(events.map((event) => [event.id, event]));
-    return [...deduped.values()].sort(
+    return Array.from(deduped.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
   },

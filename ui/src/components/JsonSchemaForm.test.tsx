@@ -235,4 +235,37 @@ describe("JsonSchemaForm secret-ref rendering", () => {
       root.unmount();
     });
   });
+
+  it("keeps array row keys unique when item values repeat", async () => {
+    const root = createRoot(container);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await act(async () => {
+        root.render(
+          <JsonSchemaForm
+            schema={{
+              type: "object",
+              properties: {
+                values: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+            }}
+            values={{ values: ["", ""] }}
+            onChange={() => {}}
+          />,
+        );
+      });
+
+      const messages = consoleError.mock.calls.map((call) => call.join(" "));
+      expect(messages.some((message) => message.includes("Encountered two children with the same key"))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
 });

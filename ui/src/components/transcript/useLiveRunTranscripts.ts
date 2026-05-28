@@ -4,7 +4,9 @@ import type { LiveEvent } from "@paperclipai/shared";
 import { ApiError } from "../../api/client";
 import { instanceSettingsApi } from "../../api/instanceSettings";
 import { heartbeatsApi } from "../../api/heartbeats";
-import { buildTranscript, getUIAdapter, onAdapterChange, type RunLogChunk, type TranscriptEntry } from "../../adapters";
+import { getUIAdapter, onAdapterChange } from "../../adapters/registry";
+import { buildTranscript, type RunLogChunk } from "../../adapters/transcript";
+import type { TranscriptEntry } from "../../adapters/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { buildSameOriginWebSocketUrl } from "../../lib/websocket-url";
 
@@ -133,7 +135,7 @@ export function useLiveRunTranscripts({
 
   const runById = useMemo(() => new Map(normalizedRuns.map((run) => [run.id, run])), [normalizedRuns]);
   const activeRunIds = useMemo(
-    () => new Set(normalizedRuns.filter((run) => !isTerminalStatus(run.status)).map((run) => run.id)),
+    () => new Set(normalizedRuns.flatMap((run) => (!isTerminalStatus(run.status)) ? [run.id] : [])),
     [normalizedRuns],
   );
   const runIdsKey = useMemo(

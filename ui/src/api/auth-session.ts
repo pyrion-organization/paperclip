@@ -19,10 +19,10 @@ export const authSessionApi = {
       headers: { Accept: "application/json" },
     });
     if (res.status === 401) return null;
-    const payload = await res.json().catch(() => null);
     if (!res.ok) {
       throw new Error(`Failed to load session (${res.status})`);
     }
+    const payload = await res.json().catch(() => null);
     const direct = toSession(payload);
     if (direct) return direct;
     return payload && typeof payload === "object"

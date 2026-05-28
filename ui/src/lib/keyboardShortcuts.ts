@@ -1,4 +1,4 @@
-export const KEYBOARD_SHORTCUT_TEXT_INPUT_SELECTOR = [
+const KEYBOARD_SHORTCUT_TEXT_INPUT_SELECTOR = [
   "input",
   "textarea",
   "select",
@@ -75,7 +75,7 @@ export function shouldBlurPageSearchOnEscape({
   return key === "Escape" && !isComposing && currentValue.length === 0;
 }
 
-export function isModifierOnlyKey(key: string): boolean {
+function isModifierOnlyKey(key: string): boolean {
   return MODIFIER_ONLY_KEYS.has(key);
 }
 

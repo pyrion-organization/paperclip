@@ -1,8 +1,8 @@
 import {
   type ClipboardEvent,
-  forwardRef,
   useCallback,
   useEffect,
+  useEffectEvent,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type Ref,
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -32,12 +33,6 @@ import {
   type RealmPlugin,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
-import {
-  buildAgentMentionHref,
-  buildProjectMentionHref,
-  buildRoutineMentionHref,
-  buildUserMentionHref,
-} from "@paperclipai/shared/project-mentions";
 import { Boxes, CalendarClock, User } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { applyMentionChipDecoration, clearMentionChipDecoration, parseMentionChipHref } from "../lib/mention-chips";
@@ -50,22 +45,30 @@ import { cn } from "../lib/classnames";
 import {
   EditorAutocompleteProvider,
   useEditorAutocomplete,
-  type SlashCommandOption,
 } from "../context/EditorAutocompleteContext";
 import { useOptionalCompany } from "../context/CompanyContext";
+import {
+  autocompleteMarkdown,
+  computeMentionMenuPosition,
+  findClosestAutocompleteAnchor,
+  findMentionMatch,
+  isSameAutocompleteSession,
+  MAX_AUTOCOMPLETE_OPTIONS,
+  MENTION_MENU_CHROME_HEIGHT,
+  MENTION_MENU_HEIGHT,
+  MENTION_MENU_ROW_HEIGHT,
+  MENTION_MENU_WIDTH,
+  placeCaretAfterMentionAnchor,
+  shouldAcceptAutocompleteKey,
+  slashCommandLabel,
+  type AutocompleteOption,
+  type MentionMenuSize,
+  type MentionMenuViewport,
+  type MentionOption,
+  type MentionState,
+} from "./markdown-editor-utils";
 
-/* ---- Mention types ---- */
-
-export interface MentionOption {
-  id: string;
-  name: string;
-  kind?: "agent" | "project" | "user";
-  agentId?: string;
-  agentIcon?: string | null;
-  projectId?: string;
-  projectColor?: string | null;
-  userId?: string;
-}
+export type { MentionOption } from "./markdown-editor-utils";
 
 /* ---- Editor props ---- */
 
@@ -179,49 +182,6 @@ function isSafeMarkdownLinkUrl(url: string): boolean {
 
 /* ---- Mention detection helpers ---- */
 
-interface MentionState {
-  trigger: "mention" | "skill";
-  marker: "@" | "/";
-  query: string;
-  top: number;
-  left: number;
-  /**
-   * Caret-aligned viewport coords for portal positioning. `viewportTop` /
-   * `viewportBottom` describe the active text line, and `viewportLeft` is the
-   * caret X (right edge of the last typed character) so the menu can sit on
-   * the same line, just to the right of the cursor.
-   */
-  viewportTop: number;
-  viewportBottom: number;
-  viewportLeft: number;
-  textNode: Text;
-  atPos: number;
-  endPos: number;
-}
-
-type AutocompleteOption = MentionOption | SlashCommandOption;
-
-interface MentionMenuViewport {
-  offsetLeft: number;
-  offsetTop: number;
-  width: number;
-  height: number;
-}
-
-interface MentionMenuSize {
-  width: number;
-  height: number;
-}
-
-const MENTION_MENU_WIDTH = 188;
-const MENTION_MENU_HEIGHT = 208;
-const MENTION_MENU_PADDING = 8;
-const MENTION_MENU_ROW_HEIGHT = 34;
-const MENTION_MENU_CHROME_HEIGHT = 8;
-const MAX_AUTOCOMPLETE_OPTIONS = 50;
-/** Roughly one space-width of breathing room between the caret and the menu. */
-const MENTION_MENU_CARET_GAP = 10;
-
 const CODE_BLOCK_LANGUAGES: Record<string, string> = {
   txt: "Text",
   md: "Markdown",
@@ -249,41 +209,6 @@ const FALLBACK_CODE_BLOCK_DESCRIPTOR: CodeBlockEditorDescriptor = {
   match: () => true,
   Editor: CodeMirrorEditor,
 };
-
-export function findMentionMatch(
-  text: string,
-  offset: number,
-): Pick<MentionState, "trigger" | "marker" | "query" | "atPos" | "endPos"> | null {
-  let atPos = -1;
-  let trigger: MentionState["trigger"] | null = null;
-  let marker: MentionState["marker"] | null = null;
-  for (let i = offset - 1; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === "@" || ch === "/") {
-      if (i === 0 || /\s/.test(text[i - 1])) {
-        atPos = i;
-        trigger = ch === "@" ? "mention" : "skill";
-        marker = ch;
-      }
-      break;
-    }
-    if (ch === "\n" || ch === "\r") break;
-  }
-
-  if (atPos === -1) return null;
-  const query = text.slice(atPos + 1, offset);
-  if (trigger === "skill" && /\s/.test(query) && !query.toLowerCase().startsWith("routine:")) {
-    return null;
-  }
-
-  return {
-    trigger: trigger ?? "mention",
-    marker: marker ?? "@",
-    query,
-    atPos,
-    endPos: offset,
-  };
-}
 
 interface CaretRect {
   top: number;
@@ -368,35 +293,6 @@ function getMentionMenuViewport(): MentionMenuViewport {
   };
 }
 
-export function computeMentionMenuPosition(
-  anchor: Pick<MentionState, "viewportTop" | "viewportBottom" | "viewportLeft">,
-  viewport: MentionMenuViewport,
-  menuSize: MentionMenuSize = { width: MENTION_MENU_WIDTH, height: MENTION_MENU_HEIGHT },
-) {
-  const minLeft = viewport.offsetLeft + MENTION_MENU_PADDING;
-  const maxLeft = viewport.offsetLeft + viewport.width - menuSize.width;
-  const minTop = viewport.offsetTop + MENTION_MENU_PADDING;
-  const maxTop = viewport.offsetTop + viewport.height - menuSize.height;
-
-  // Place the menu's top edge on the current line so it sits next to the caret.
-  // If it would overflow below, flip above so the menu's bottom hugs the line.
-  const desiredTop = viewport.offsetTop + anchor.viewportTop;
-  let top: number;
-  if (desiredTop > maxTop) {
-    const flipped = viewport.offsetTop + anchor.viewportBottom - menuSize.height;
-    top = Math.max(minTop, Math.min(flipped, maxTop));
-  } else {
-    top = Math.max(minTop, desiredTop);
-  }
-
-  // Place the menu's left edge a small gap to the right of the caret X so
-  // there's roughly a space-width of breathing room between cursor and menu.
-  const desiredLeft = viewport.offsetLeft + anchor.viewportLeft + MENTION_MENU_CARET_GAP;
-  const left = Math.max(minLeft, Math.min(desiredLeft, maxLeft));
-
-  return { top, left };
-}
-
 function getMentionMenuSize(optionCount: number): MentionMenuSize {
   const visibleRows = Math.max(1, Math.min(optionCount, 8));
   return {
@@ -426,136 +322,6 @@ function isSelectionInsideCodeLikeElement(container: HTMLElement | null) {
   return false;
 }
 
-function mentionMarkdown(option: MentionOption): string {
-  if (option.kind === "project" && option.projectId) {
-    return `[@${option.name}](${buildProjectMentionHref(option.projectId, option.projectColor ?? null)}) `;
-  }
-  if (option.kind === "user" && option.userId) {
-    return `[@${option.name}](${buildUserMentionHref(option.userId)}) `;
-  }
-  const agentId = option.agentId ?? option.id.replace(/^agent:/, "");
-  return `[@${option.name}](${buildAgentMentionHref(agentId, option.agentIcon ?? null)}) `;
-}
-
-function slashCommandLabel(option: SlashCommandOption): string {
-  return option.kind === "routine" ? `/routine:${option.name}` : `/${option.slug}`;
-}
-
-function slashCommandMarkdown(option: SlashCommandOption): string {
-  if (option.kind === "routine") {
-    return `[${slashCommandLabel(option)}](${buildRoutineMentionHref(option.routineId)}) `;
-  }
-  return `[/${option.slug}](${option.href}) `;
-}
-
-function autocompleteMarkdown(option: AutocompleteOption): string {
-  return option.kind === "skill" || option.kind === "routine"
-    ? slashCommandMarkdown(option)
-    : mentionMarkdown(option);
-}
-
-export function shouldAcceptAutocompleteKey(
-  key: string,
-  trigger: MentionState["trigger"] | null,
-  skillEnterArmed = false,
-): boolean {
-  if (key === "Tab") return true;
-  if (key !== "Enter") return false;
-  return trigger === "mention" || (trigger === "skill" && skillEnterArmed);
-}
-
-export function isSameAutocompleteSession(
-  left: Pick<MentionState, "trigger" | "marker" | "query" | "textNode" | "atPos" | "endPos"> | null,
-  right: Pick<MentionState, "trigger" | "marker" | "query" | "textNode" | "atPos" | "endPos"> | null,
-): boolean {
-  if (!left || !right) return false;
-  return left.trigger === right.trigger
-    && left.marker === right.marker
-    && left.query === right.query
-    && left.textNode === right.textNode
-    && left.atPos === right.atPos
-    && left.endPos === right.endPos;
-}
-
-function autocompleteOptionMatchesLink(option: AutocompleteOption, href: string): boolean {
-  const parsed = parseMentionChipHref(href);
-  if (!parsed) return false;
-
-  if (option.kind === "skill") {
-    return parsed.kind === "skill" && parsed.skillId === option.skillId;
-  }
-  if (option.kind === "routine") {
-    return parsed.kind === "routine" && parsed.routineId === option.routineId;
-  }
-
-  if (option.kind === "project" && option.projectId) {
-    return parsed.kind === "project" && parsed.projectId === option.projectId;
-  }
-  if (option.kind === "user" && option.userId) {
-    return parsed.kind === "user" && parsed.userId === option.userId;
-  }
-
-  const agentId = option.agentId ?? option.id.replace(/^agent:/, "");
-  return parsed.kind === "agent" && parsed.agentId === agentId;
-}
-
-export function findClosestAutocompleteAnchor(
-  editable: HTMLElement,
-  option: AutocompleteOption,
-  origin?: Pick<MentionState, "left" | "top"> | null,
-): HTMLAnchorElement | null {
-  const matchingMentions = Array.from(editable.querySelectorAll("a"))
-    .filter((node): node is HTMLAnchorElement => node instanceof HTMLAnchorElement)
-    .filter((link) => autocompleteOptionMatchesLink(option, link.getAttribute("href") ?? ""));
-
-  if (matchingMentions.length === 0) return null;
-  if (!origin) return matchingMentions[0] ?? null;
-
-  const containerRect = editable.getBoundingClientRect();
-  return matchingMentions.sort((a, b) => {
-    const rectA = a.getBoundingClientRect();
-    const rectB = b.getBoundingClientRect();
-    const leftA = rectA.left - containerRect.left;
-    const topA = rectA.top - containerRect.top;
-    const leftB = rectB.left - containerRect.left;
-    const topB = rectB.top - containerRect.top;
-    const distA = Math.hypot(leftA - origin.left, topA - origin.top);
-    const distB = Math.hypot(leftB - origin.left, topB - origin.top);
-    return distA - distB;
-  })[0] ?? null;
-}
-
-export function placeCaretAfterMentionAnchor(target: HTMLAnchorElement): boolean {
-  const selection = window.getSelection();
-  if (!selection) return false;
-
-  const range = document.createRange();
-  const nextSibling = target.nextSibling;
-  if (nextSibling?.nodeType === Node.TEXT_NODE) {
-    const text = nextSibling.textContent ?? "";
-    if (text.startsWith(" ")) {
-      range.setStart(nextSibling, 1);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return true;
-    }
-    if (text.length > 0) {
-      range.setStart(nextSibling, 0);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return true;
-    }
-  }
-
-  range.setStartAfter(target);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return true;
-}
-
 /** Replace the active autocomplete token in the markdown string with the selected token. */
 function applyMention(markdown: string, state: MentionState, option: AutocompleteOption): string {
   const search = `${state.marker}${state.query}`;
@@ -567,7 +333,7 @@ function applyMention(markdown: string, state: MentionState, option: Autocomplet
 
 /* ---- Component ---- */
 
-const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditorContent({
+function MarkdownEditorContent({
   value,
   onChange,
   placeholder,
@@ -581,7 +347,8 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
   mentions,
   onSubmit,
   readOnly = false,
-}: MarkdownEditorProps, forwardedRef) {
+  ref: forwardedRef,
+}: MarkdownEditorProps & { ref?: Ref<MarkdownEditorRef> }) {
   const editorValue = useMemo(() => prepareMarkdownForEditor(value), [value]);
   const { slashCommands } = useEditorAutocomplete();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -870,6 +637,9 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
     }
     setMentionState(result);
   }, [mentions, slashCommands.length]);
+  const checkMentionEvent = useEffectEvent(() => {
+    checkMention();
+  });
 
   useEffect(() => {
     if ((!mentions || mentions.length === 0) && slashCommands.length === 0) return;
@@ -877,26 +647,27 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
     const el = containerRef.current;
     // Listen for input events on the container so mention detection
     // also fires after typing (e.g. space to dismiss).
-    const onInput = () => requestAnimationFrame(checkMention);
+    const runMentionCheck = () => checkMentionEvent();
+    const onInput = () => requestAnimationFrame(runMentionCheck);
 
-    document.addEventListener("selectionchange", checkMention);
+    document.addEventListener("selectionchange", runMentionCheck);
     el?.addEventListener("input", onInput, true);
     return () => {
-      document.removeEventListener("selectionchange", checkMention);
+      document.removeEventListener("selectionchange", runMentionCheck);
       el?.removeEventListener("input", onInput, true);
     };
-  }, [checkMention, mentions, slashCommands.length]);
+  }, [mentions, slashCommands.length]);
 
   useEffect(() => {
     if (!mentionActive) return;
 
-    const updatePosition = () => requestAnimationFrame(checkMention);
+    const updatePosition = () => requestAnimationFrame(checkMentionEvent);
     const viewport = window.visualViewport;
 
     viewport?.addEventListener("resize", updatePosition);
-    viewport?.addEventListener("scroll", updatePosition);
+    viewport?.addEventListener("scroll", updatePosition, { passive: true });
     window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("scroll", updatePosition, { capture: true, passive: true });
 
     return () => {
       viewport?.removeEventListener("resize", updatePosition);
@@ -904,7 +675,7 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [checkMention, mentionActive]);
+  }, [mentionActive]);
 
   useEffect(() => {
     if (!mentionActive) return;
@@ -1102,7 +873,7 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
             "min-h-[12rem] w-full resize-none bg-transparent px-3 pb-3 pt-2 font-mono text-sm leading-6 outline-none",
             contentClassName,
           )}
-        />
+         aria-label="Markdown content"/>
       </div>
     );
   }
@@ -1303,20 +1074,20 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
                 }}
               >
                 {option.kind === "routine" ? (
-                  <CalendarClock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <CalendarClock className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : option.kind === "skill" ? (
-                  <Boxes className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <Boxes className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : option.kind === "project" && option.projectId ? (
                   <span
-                    className="inline-flex h-2 w-2 rounded-full border border-border/50"
+                    className="inline-flex size-2 rounded-full border border-border/50"
                     style={{ backgroundColor: option.projectColor ?? "#64748b" }}
                   />
                 ) : option.kind === "user" ? (
-                  <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <User className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : (
                   <AgentIcon
                     icon={option.agentIcon}
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    className="size-3.5 shrink-0 text-muted-foreground"
                   />
                 )}
                 <span>
@@ -1365,12 +1136,12 @@ const MarkdownEditorContent = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       )}
     </div>
   );
-});
+}
 
-export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(function MarkdownEditor(
-  props,
-  forwardedRef,
-) {
+export function MarkdownEditor({
+  ref: forwardedRef,
+  ...props
+}: MarkdownEditorProps & { ref?: Ref<MarkdownEditorRef> }) {
   const companyContext = useOptionalCompany();
   if (!companyContext) {
     return <MarkdownEditorContent {...props} ref={forwardedRef} />;
@@ -1381,4 +1152,4 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       <MarkdownEditorContent {...props} ref={forwardedRef} />
     </EditorAutocompleteProvider>
   );
-});
+}

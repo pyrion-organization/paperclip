@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Agent,
   AdapterEnvironmentTestResult,
@@ -40,12 +40,11 @@ import {
   CollapsibleSection,
   DraftInput,
   DraftNumberInput,
-  help,
-  adapterLabels,
 } from "./agent-config-primitives";
+import { adapterLabels, help } from "./agent-config-primitives-data";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { defaultCreateValues } from "./agent-config-defaults";
-import { getUIAdapter } from "../adapters";
+import { getUIAdapter } from "../adapters/registry";
 import { ClaudeLocalAdvancedFields } from "../adapters/claude-local/config-fields";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ChoosePathButton } from "./PathInstructionsModal";
@@ -66,6 +65,7 @@ import { filterAcpxModelsByAgent } from "../lib/acpx-model-filter";
 // so existing imports from this file keep working.
 export type { CreateConfigValues } from "@paperclipai/adapter-utils";
 import type { CreateConfigValues } from "@paperclipai/adapter-utils";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 /* ---- Props ---- */
 
@@ -74,12 +74,6 @@ type AgentConfigFormProps = {
   onDirtyChange?: (dirty: boolean) => void;
   onSaveActionChange?: (save: (() => void) | null) => void;
   onCancelActionChange?: (cancel: (() => void) | null) => void;
-  onTestActionChange?: (test: (() => void) | null) => void;
-  onTestActionStateChange?: (state: { disabled: boolean; pending: boolean }) => void;
-  onTestFeedbackChange?: (feedback: {
-    errorMessage: string | null;
-    result: AdapterEnvironmentTestResult | null;
-  }) => void;
   hideInlineSave?: boolean;
   showAdapterTypeField?: boolean;
   showAdapterTestEnvironmentButton?: boolean;
@@ -133,8 +127,10 @@ const inputClass =
 function parseCommaArgs(value: string): string[] {
   return value
     .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+    .flatMap((item) => {
+      const trimmed = item.trim();
+      return trimmed ? [trimmed] : [];
+    });
 }
 
 function formatArgList(value: unknown): string {
@@ -200,9 +196,6 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   const cards = props.sectionLayout === "cards";
   const showAdapterTypeField = props.showAdapterTypeField ?? true;
   const showAdapterTestEnvironmentButton = props.showAdapterTestEnvironmentButton ?? true;
-  const showInlineAdapterTestEnvironmentButton =
-    showAdapterTestEnvironmentButton && !props.onTestActionChange;
-  const showInlineAdapterTestEnvironmentFeedback = !props.onTestFeedbackChange;
   const showCreateRunPolicySection = props.showCreateRunPolicySection ?? true;
   const hideInstructionsFile = props.hideInstructionsFile ?? false;
   const { selectedCompanyId } = useCompany();
@@ -228,7 +221,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     queryFn: () => environmentsApi.list(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId) && environmentsEnabled,
   });
-  const createSecret = useMutation({
+  const createSecret = useInvalidatingMutation({
     mutationFn: (input: { name: string; value: string }) => {
       if (!selectedCompanyId) throw new Error("Select a company to create secrets");
       return secretsApi.create(selectedCompanyId, input);
@@ -239,7 +232,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     },
   });
 
-  const uploadMarkdownImage = useMutation({
+  const uploadMarkdownImage = useInvalidatingMutation({
     mutationFn: async ({ file, namespace }: { file: File; namespace: string }) => {
       if (!selectedCompanyId) throw new Error("Select a company to upload images");
       return assetsApi.uploadImage(selectedCompanyId, file, namespace);
@@ -255,12 +248,22 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     if (!isCreate) {
       if (agentRef.current !== null && props.agent !== agentRef.current) {
         setOverlay({ ...emptyOverlay });
+        props.onDirtyChange?.(false);
       }
       agentRef.current = props.agent;
     }
-  }, [isCreate, !isCreate ? props.agent : undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isCreate, !isCreate ? props.agent : undefined, props.onDirtyChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isDirty = !isCreate && isOverlayDirty(overlay);
+  const updateOverlay = useCallback((
+    updater: AgentConfigOverlay | ((prev: AgentConfigOverlay) => AgentConfigOverlay),
+  ) => {
+    setOverlay((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      props.onDirtyChange?.(!isCreate && isOverlayDirty(next));
+      return next;
+    });
+  }, [isCreate, props.onDirtyChange]);
 
   type RecordOverlayGroup = "identity" | "adapterConfig" | "heartbeat" | "runtime";
 
@@ -273,7 +276,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
   /** Mark field dirty in overlay */
   function mark(group: RecordOverlayGroup, field: string, value: unknown) {
-    setOverlay((prev) => ({
+    updateOverlay((prev) => ({
       ...prev,
       [group]: { ...prev[group], [field]: value },
     }));
@@ -281,8 +284,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
   /** Build accumulated patch and send to parent */
   const handleCancel = useCallback(() => {
-    setOverlay({ ...emptyOverlay });
-  }, []);
+    updateOverlay({ ...emptyOverlay });
+  }, [updateOverlay]);
 
   const handleSave = useCallback(() => {
     if (isCreate || !isDirty) return;
@@ -291,11 +294,10 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
   useEffect(() => {
     if (!isCreate) {
-      props.onDirtyChange?.(isDirty);
       props.onSaveActionChange?.(handleSave);
       props.onCancelActionChange?.(handleCancel);
     }
-  }, [isCreate, isDirty, props.onDirtyChange, props.onSaveActionChange, props.onCancelActionChange, handleSave, handleCancel]);
+  }, [isCreate, props.onSaveActionChange, props.onCancelActionChange, handleSave, handleCancel]);
 
   useEffect(() => {
     if (isCreate) return;
@@ -463,7 +465,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     return next;
   }
 
-  const testEnvironment = useMutation({
+  const testEnvironment = useInvalidatingMutation({
     mutationFn: async () => {
       if (!selectedCompanyId) {
         throw new Error("Select a company to test adapter environment");
@@ -479,45 +481,6 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     if (testEnvironmentDisabled) return;
     testEnvironment.mutate();
   }, [testEnvironment.mutate, testEnvironmentDisabled]);
-
-  useEffect(() => {
-    if (!showAdapterTestEnvironmentButton || !props.onTestActionChange) return;
-    props.onTestActionChange(triggerTestEnvironment);
-    return () => {
-      props.onTestActionChange?.(null);
-    };
-  }, [showAdapterTestEnvironmentButton, props.onTestActionChange, triggerTestEnvironment]);
-
-  useEffect(() => {
-    if (!showAdapterTestEnvironmentButton || !props.onTestActionStateChange) return;
-    props.onTestActionStateChange({
-      disabled: testEnvironmentDisabled,
-      pending: testEnvironment.isPending,
-    });
-    return () => {
-      props.onTestActionStateChange?.({ disabled: true, pending: false });
-    };
-  }, [
-    showAdapterTestEnvironmentButton,
-    props.onTestActionStateChange,
-    testEnvironmentDisabled,
-    testEnvironment.isPending,
-  ]);
-
-  useEffect(() => {
-    if (!props.onTestFeedbackChange) return;
-    props.onTestFeedbackChange({
-      errorMessage: testEnvironment.error instanceof Error
-        ? testEnvironment.error.message
-        : testEnvironment.error
-          ? "Environment test failed"
-          : null,
-      result: testEnvironment.data ?? null,
-    });
-    return () => {
-      props.onTestFeedbackChange?.({ errorMessage: null, result: null });
-    };
-  }, [props.onTestFeedbackChange, testEnvironment.data, testEnvironment.error]);
 
   // Current model for display
   const currentModelId = isCreate
@@ -610,7 +573,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       set!({ cheapModelEnabled: next });
       return;
     }
-    setOverlay((prev) => ({
+    updateOverlay((prev) => ({
       ...prev,
       modelProfiles: {
         cheap: {
@@ -626,7 +589,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       set!({ cheapModel: next });
       return;
     }
-    setOverlay((prev) => {
+    updateOverlay((prev) => {
       const existing = prev.modelProfiles?.cheap ?? {};
       const nextAdapterConfig = {
         ...((existing.adapterConfig ?? {}) as Record<string, unknown>),
@@ -824,7 +787,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             ? <h3 className="text-sm font-medium">Adapter</h3>
             : <span className="text-xs font-medium text-muted-foreground">Adapter</span>
           }
-          {showInlineAdapterTestEnvironmentButton && (
+          {showAdapterTestEnvironmentButton && (
             <Button
               type="button"
               variant="outline"
@@ -863,7 +826,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   } else {
                     // Clear all adapter config and explicitly blank out model + effort/mode keys
                     // so the old adapter's values don't bleed through via eff()
-                    setOverlay((prev) => ({
+                    updateOverlay((prev) => ({
                       ...prev,
                       adapterType: t,
                       modelProfiles: { cheap: { cleared: true } },
@@ -896,7 +859,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </Field>
           )}
 
-          {showInlineAdapterTestEnvironmentFeedback && testEnvironment.error && (
+          {testEnvironment.error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {testEnvironment.error instanceof Error
                 ? testEnvironment.error.message
@@ -904,7 +867,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </div>
           )}
 
-          {showInlineAdapterTestEnvironmentFeedback && testEnvironment.data && (
+          {testEnvironment.data && (
             <AdapterEnvironmentResult result={testEnvironment.data} />
           )}
 
@@ -912,7 +875,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
           {showLegacyWorkingDirectoryField && (
             <Field label="Working directory (deprecated)" hint={help.cwd}>
               <div className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
-                <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
                 <DraftInput
                   value={
                     isCreate
@@ -1174,8 +1137,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       {isCreate && showCreateRunPolicySection ? (
         <div className={cn(!cards && "border-b border-border")}>
           {cards
-            ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="h-3 w-3" /> Run Policy</h3>
-            : <div className="px-4 py-2 text-xs font-medium text-muted-foreground flex items-center gap-2"><Heart className="h-3 w-3" /> Run Policy</div>
+            ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="size-3" /> Run Policy</h3>
+            : <div className="px-4 py-2 text-xs font-medium text-muted-foreground flex items-center gap-2"><Heart className="size-3" /> Run Policy</div>
           }
           <div className={cn(cards ? "border border-border rounded-lg p-4 space-y-3" : "px-4 pb-3 space-y-3")}>
             <ToggleWithNumber
@@ -1195,8 +1158,8 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
       ) : !isCreate ? (
         <div className={cn(!cards && "border-b border-border")}>
           {cards
-            ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="h-3 w-3" /> Run Policy</h3>
-            : <div className="px-4 py-2 text-xs font-medium text-muted-foreground flex items-center gap-2"><Heart className="h-3 w-3" /> Run Policy</div>
+            ? <h3 className="text-sm font-medium flex items-center gap-2 mb-3"><Heart className="size-3" /> Run Policy</h3>
+            : <div className="px-4 py-2 text-xs font-medium text-muted-foreground flex items-center gap-2"><Heart className="size-3" /> Run Policy</div>
           }
           <div className={cn(cards ? "border border-border rounded-lg overflow-hidden" : "")}>
             <div className={cn(cards ? "p-4 space-y-3" : "px-4 pb-3 space-y-3")}>
@@ -1298,7 +1261,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
   );
 }
 
-export function AdapterEnvironmentResult({ result }: { result: AdapterEnvironmentTestResult }) {
+function AdapterEnvironmentResult({ result }: { result: AdapterEnvironmentTestResult }) {
   const statusLabel =
     result.status === "pass" ? "Passed" : result.status === "warn" ? "Warnings" : "Failed";
   const statusClass =
@@ -1357,18 +1320,18 @@ function AdapterTypeDropdown({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
+        <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            {value === "opencode_local" ? <OpenCodeLogoIcon className="h-3.5 w-3.5" /> : null}
+            {value === "opencode_local" ? <OpenCodeLogoIcon className="size-3.5" /> : null}
             <span className="truncate">{adapterLabels[value] ?? getAdapterLabel(value)}</span>
             {selectedDisplay.experimental && <ExperimentalBadge />}
           </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          <ChevronDown className="size-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
         {adapterList.map((item) => (
-          <button
+          <button type="button"
             key={item.value}
             disabled={item.comingSoon}
             className={cn(
@@ -1386,7 +1349,7 @@ function AdapterTypeDropdown({
             }}
           >
             <span className="inline-flex items-center gap-1.5">
-              {item.value === "opencode_local" ? <OpenCodeLogoIcon className="h-3.5 w-3.5" /> : null}
+              {item.value === "opencode_local" ? <OpenCodeLogoIcon className="size-3.5" /> : null}
               <span>{item.label}</span>
               {item.experimental && <ExperimentalBadge />}
             </span>
@@ -1482,7 +1445,7 @@ function ModelDropdown({
       return [
         {
           provider: "models",
-          entries: [...filteredModels].sort((a, b) => a.id.localeCompare(b.id)),
+          entries: filteredModels.toSorted((a, b) => a.id.localeCompare(b.id)),
         },
       ];
     }
@@ -1497,7 +1460,7 @@ function ModelDropdown({
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([provider, entries]) => ({
         provider,
-        entries: [...entries].sort((a, b) => a.id.localeCompare(b.id)),
+        entries: entries.toSorted((a, b) => a.id.localeCompare(b.id)),
       }));
   }, [filteredModels, groupByProvider]);
 
@@ -1533,7 +1496,7 @@ function ModelDropdown({
                 : value
                   || (allowDefault ? (defaultLabel ?? "Default") : required ? "Select model (required)" : "Select model")}
             </span>
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            <ChevronDown className="size-3 text-muted-foreground" />
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
@@ -1543,15 +1506,14 @@ function ModelDropdown({
               placeholder={creatable ? "Search models... (type to create)" : "Search models..."}
               value={modelSearch}
               onChange={(e) => setModelSearch(e.target.value)}
-              autoFocus
-            />
+             aria-label="Model Search"/>
             {modelSearch && (
               <button
                 type="button"
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 onClick={() => setModelSearch("")}
-              >
-                <svg aria-hidden="true" focusable="false" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+               aria-label="Clear model search">
+                <svg aria-hidden="true" focusable="false" className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
@@ -1567,7 +1529,7 @@ function ModelDropdown({
               }}
               disabled={detectingModel}
             >
-              <svg aria-hidden="true" focusable="false" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden="true" focusable="false" className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                 <path d="M3 3v5h5" />
               </svg>
@@ -1583,7 +1545,7 @@ function ModelDropdown({
               }}
               disabled={refreshingModels}
             >
-              <svg aria-hidden="true" focusable="false" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden="true" focusable="false" className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 12a9 9 0 0 1 15.28-6.36L21 8" />
                 <path d="M21 3v5h-5" />
                 <path d="M21 12a9 9 0 0 1-15.28 6.36L3 16" />
@@ -1630,10 +1592,10 @@ function ModelDropdown({
             </button>
           )}
           {detectedModelCandidates
-            ?.filter((candidate) => candidate && candidate !== detectedModel && candidate !== value)
-            .map((candidate) => {
+            ?.flatMap((candidate) => {
+              if (!candidate || candidate === detectedModel || candidate === value) return [];
               const entry = models.find((m) => m.id === candidate);
-              return (
+              return [(
                 <button
                   key={`detected-${candidate}`}
                   type="button"
@@ -1652,7 +1614,7 @@ function ModelDropdown({
                     config
                   </span>
                 </button>
-              );
+              )];
             })}
           <div className="max-h-[240px] overflow-y-auto">
             {allowDefault && (
@@ -1712,7 +1674,7 @@ function ModelDropdown({
               </div>
             ))}
             {filteredModels.length === 0 && !canCreateManualModel && promotedModelIds.size === 0 && (
-              <div className="px-2 py-2 space-y-2">
+              <div className="p-2 space-y-2">
                 <p className="text-xs text-muted-foreground">
                   {onDetectModel
                     ? (emptyDetectHint ?? "No model detected yet. Enter a provider/model manually.")
@@ -1781,7 +1743,7 @@ function CheapModelSection({
       ) : null}
       {enabled && !model && adapterDefaultModel ? (
         <p className="text-[11px] text-muted-foreground">
-          No explicit cheap model selected — runtime falls back to <code>{adapterDefaultModel}</code>.
+          No explicit cheap model selected, runtime falls back to <code>{adapterDefaultModel}</code>.
         </p>
       ) : null}
       {enabled && !model && !adapterDefaultModel ? (
@@ -1812,14 +1774,14 @@ function ThinkingEffortDropdown({
     <Field label="Thinking effort" hint={help.thinkingEffort}>
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger asChild>
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
+          <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
             <span className={cn(!value && "text-muted-foreground")}>{selected?.label ?? "Auto"}</span>
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            <ChevronDown className="size-3 text-muted-foreground" />
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
           {options.map((option) => (
-            <button
+            <button type="button"
               key={option.id || "auto"}
               className={cn(
                 "flex items-center justify-between w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50",

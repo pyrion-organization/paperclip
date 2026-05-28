@@ -13,15 +13,12 @@ const LiveUpdatesRuntimeProvider = lazy(() =>
 );
 
 export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
     const enable = () => setEnabled(true);
 
-    if (typeof window === "undefined") {
-      enable();
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as LiveUpdatesIdleWindow;
     if (idleWindow.requestIdleCallback) {

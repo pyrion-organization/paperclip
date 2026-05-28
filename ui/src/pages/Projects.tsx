@@ -50,7 +50,7 @@ export function Projects() {
     <div className="space-y-4">
       <div className="flex items-center justify-end">
         <Button size="sm" variant="outline" onClick={openNewProject}>
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="size-4 mr-1" />
           Add Project
         </Button>
       </div>
@@ -82,7 +82,7 @@ export function Projects() {
                     : undefined
               }
               to={projectUrl(project)}
-              trailing={
+              trailingSlot={() => (
                 <div className="flex items-center gap-3">
                   {project.targetDate && (
                     <span className="text-xs text-muted-foreground">
@@ -91,7 +91,7 @@ export function Projects() {
                   )}
                   <StatusBadge status={project.status} />
                 </div>
-              }
+              )}
             />
           ))}
         </div>

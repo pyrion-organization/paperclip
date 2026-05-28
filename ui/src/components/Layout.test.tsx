@@ -146,9 +146,7 @@ vi.mock("./SidebarAccountMenu", () => ({
 }));
 
 vi.mock("../plugins/slots", async () => {
-  const actual = await vi.importActual<typeof import("../plugins/slots")>("../plugins/slots");
   return {
-    resolveRouteSidebarSlot: actual.resolveRouteSidebarSlot,
     usePluginSlots: (params: Record<string, unknown>) => {
       mockUsePluginSlots(params);
       return {
@@ -173,7 +171,7 @@ vi.mock("../plugins/slots", async () => {
 });
 
 vi.mock("../plugins/RouteSidebarPlugins", async () => {
-  const actual = await vi.importActual<typeof import("../plugins/slots")>("../plugins/slots");
+  const actual = await vi.importActual<typeof import("../plugins/slots-utils")>("../plugins/slots-utils");
   return {
     RouteSidebarPlugins: ({
       companyId,
@@ -199,7 +197,7 @@ vi.mock("../plugins/RouteSidebarPlugins", async () => {
 
       mockPluginSlotContexts.push({ companyId, companyPrefix });
       return (
-        <div data-plugin-slot-class="h-full w-full">
+        <div data-plugin-slot-class="size-full">
           Plugin route sidebar: {routeSidebarSlot.displayName}
         </div>
       );
@@ -676,7 +674,7 @@ describe("Layout", () => {
     await flushReact();
 
     expect(container.textContent).toContain("Plugin route sidebar: Wiki Sidebar");
-    expect(container.querySelector("[data-plugin-slot-class='h-full w-full']")).not.toBeNull();
+    expect(container.querySelector("[data-plugin-slot-class='size-full']")).not.toBeNull();
     expect(container.textContent).not.toContain("Main company nav");
     expect(container.textContent).not.toContain("Company settings sidebar");
     expect(container.textContent).not.toContain("Instance sidebar");

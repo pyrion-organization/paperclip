@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ClientProject } from "@paperclipai/shared";
 import { clientsApi } from "../api/clients";
 import { projectsApi } from "../api/projects";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 interface LinkClientProjectDialogProps {
   open: boolean;
@@ -27,63 +28,63 @@ export function LinkClientProjectDialog({
   companyId,
   editingProject,
 }: LinkClientProjectDialogProps) {
-  const queryClient = useQueryClient();
   const mode = editingProject ? "edit" : "create";
+  const formKey = `${open ? "open" : "closed"}:${editingProject?.id ?? "create"}`;
 
-  const [projectId, setProjectId] = useState("");
-  const [projectNameOverride, setProjectNameOverride] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [description, setDescription] = useState("");
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="p-0 gap-0 sm:max-w-lg">
+        <LinkClientProjectDialogContent
+          key={formKey}
+          onOpenChange={onOpenChange}
+          clientId={clientId}
+          companyId={companyId}
+          editingProject={editingProject}
+          mode={mode}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LinkClientProjectDialogContent({
+  onOpenChange,
+  clientId,
+  companyId,
+  editingProject,
+  mode,
+}: Omit<LinkClientProjectDialogProps, "open"> & { mode: "create" | "edit" }) {
+  const queryClient = useQueryClient();
+
+  const [projectId, setProjectId] = useState(editingProject?.projectId ?? "");
+  const [projectNameOverride, setProjectNameOverride] = useState(editingProject?.projectNameOverride ?? "");
+  const [startDate, setStartDate] = useState(
+    editingProject?.startDate ? new Date(editingProject.startDate).toISOString().slice(0, 10) : "",
+  );
+  const [endDate, setEndDate] = useState(
+    editingProject?.endDate ? new Date(editingProject.endDate).toISOString().slice(0, 10) : "",
+  );
+  const [description, setDescription] = useState(editingProject?.description ?? "");
   const [tagsInput, setTagsInput] = useState("");
-  const [tags, setTags] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>(() => editingProject?.tags ?? []);
   const [aliasInput, setAliasInput] = useState("");
-  const [projectAliases, setProjectAliases] = useState<string[]>([]);
+  const [projectAliases, setProjectAliases] = useState<string[]>(() => editingProject?.projectAliases ?? []);
 
   const { data: projects } = useQuery({
     queryKey: queryKeys.projects.list(companyId),
     queryFn: () => projectsApi.list(companyId),
-    enabled: !!companyId && open,
+    enabled: !!companyId,
   });
 
-  const createLink = useMutation({
+  const createLink = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) => clientsApi.createProject(clientId, data),
   });
 
-  const updateLink = useMutation({
+  const updateLink = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) => clientsApi.updateProject(editingProject!.id, data),
   });
 
   const activeMutation = mode === "edit" ? updateLink : createLink;
-
-  function reset() {
-    setProjectId("");
-    setProjectNameOverride("");
-    setStartDate("");
-    setEndDate("");
-    setDescription("");
-    setTagsInput("");
-    setTags([]);
-    setAliasInput("");
-    setProjectAliases([]);
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    if (!editingProject) {
-      reset();
-      return;
-    }
-    setProjectId(editingProject.projectId);
-    setProjectNameOverride(editingProject.projectNameOverride ?? "");
-    setStartDate(editingProject.startDate ? new Date(editingProject.startDate).toISOString().slice(0, 10) : "");
-    setEndDate(editingProject.endDate ? new Date(editingProject.endDate).toISOString().slice(0, 10) : "");
-    setDescription(editingProject.description ?? "");
-    setTags(editingProject.tags ?? []);
-    setTagsInput("");
-    setProjectAliases(editingProject.projectAliases ?? []);
-    setAliasInput("");
-  }, [open, editingProject]);
 
   function addUniqueValue(input: string, values: string[], setValues: (values: string[]) => void, normalize = false) {
     const value = normalize ? input.trim().toLowerCase() : input.trim();
@@ -132,7 +133,6 @@ export function LinkClientProjectDialog({
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.projects(clientId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(clientId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.list(companyId) });
-      reset();
       onOpenChange(false);
     } catch {
       // surfaced via mutation state
@@ -142,14 +142,7 @@ export function LinkClientProjectDialog({
   const activeProjects = (projects ?? []).filter((project) => !project.archivedAt);
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) reset();
-        onOpenChange(nextOpen);
-      }}
-    >
-      <DialogContent showCloseButton={false} className="p-0 gap-0 sm:max-w-lg">
+    <>
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <span className="text-sm text-muted-foreground">
             {mode === "edit" ? "Edit Linked Project" : "Link Project"}
@@ -159,7 +152,6 @@ export function LinkClientProjectDialog({
             size="icon-xs"
             className="text-muted-foreground"
             onClick={() => {
-              reset();
               onOpenChange(false);
             }}
           >
@@ -220,11 +212,11 @@ export function LinkClientProjectDialog({
                     className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono"
                   >
                     {alias}
-                    <button
+                    <button type="button"
                       className="text-muted-foreground hover:text-foreground"
                       onClick={() => setProjectAliases(projectAliases.filter((currentAlias) => currentAlias !== alias))}
                     >
-                      <X className="h-2.5 w-2.5" />
+                      <X className="size-2.5" />
                     </button>
                   </span>
                 ))}
@@ -258,11 +250,11 @@ export function LinkClientProjectDialog({
                     className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono"
                   >
                     {tag}
-                    <button
+                    <button type="button"
                       className="text-muted-foreground hover:text-foreground"
                       onClick={() => setTags(tags.filter((currentTag) => currentTag !== tag))}
                     >
-                      <X className="h-2.5 w-2.5" />
+                      <X className="size-2.5" />
                     </button>
                   </span>
                 ))}
@@ -289,7 +281,6 @@ export function LinkClientProjectDialog({
                 : "Link Project"}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

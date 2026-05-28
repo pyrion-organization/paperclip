@@ -27,12 +27,9 @@ import {
   useState,
   type ErrorInfo,
   type ReactNode,
-  type ComponentType,
 } from "react";
-import * as ReactModule from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
-  PluginLauncherDeclaration,
   PluginUiSlotDeclaration,
   PluginUiSlotEntityType,
   PluginUiSlotType,
@@ -45,6 +42,15 @@ import {
   PluginBridgeContext,
   type PluginHostContext,
 } from "./bridge";
+import {
+  resolveRegisteredComponent,
+} from "./slots-registry";
+import {
+  aggregateLoadState,
+  ensurePluginModulesLoaded,
+  getInflightPluginImport,
+  getPluginLoadState,
+} from "./slots-loader";
 
 export type PluginSlotContext = {
   companyId?: string | null;
@@ -64,48 +70,6 @@ export type ResolvedPluginSlot = PluginUiSlotDeclaration & {
   pluginVersion: string;
 };
 
-/**
- * Returns the unique `routeSidebar` slot that pairs with a single `page` slot
- * for the given route, or `null` if no unambiguous pairing exists.
- *
- * Used to detect when a route is taken over by a plugin's full-page sidebar so
- * host chrome (breadcrumb, in-page Back) can be suppressed.
- */
-export function resolveRouteSidebarSlot(
-  slots: ResolvedPluginSlot[],
-  routePath: string | null,
-): ResolvedPluginSlot | null {
-  if (!routePath) return null;
-
-  const pageMatches = slots.filter((slot) => slot.type === "page" && slot.routePath === routePath);
-  if (pageMatches.length !== 1) return null;
-
-  const [pageSlot] = pageMatches;
-  const sidebarMatches = slots.filter((slot) =>
-    slot.type === "routeSidebar"
-    && slot.routePath === routePath
-    && slot.pluginId === pageSlot.pluginId,
-  );
-
-  if (sidebarMatches.length !== 1) return null;
-  return sidebarMatches[0] ?? null;
-}
-
-type PluginSlotComponentProps = {
-  slot: ResolvedPluginSlot;
-  context: PluginSlotContext;
-};
-
-export type RegisteredPluginComponent =
-  | {
-    kind: "react";
-    component: ComponentType<PluginSlotComponentProps>;
-  }
-  | {
-    kind: "web-component";
-    tagName: string;
-  };
-
 type SlotFilters = {
   slotTypes: PluginUiSlotType[];
   entityType?: PluginUiSlotEntityType | null;
@@ -119,14 +83,15 @@ type UsePluginSlotsResult = {
   errorMessage: string | null;
 };
 
-/**
- * In-memory registry for plugin UI exports loaded by the host page.
- * Keys are `${pluginKey}:${exportName}` to match manifest slot declarations.
- */
-const registry = new Map<string, RegisteredPluginComponent>();
-
-function buildRegistryKey(pluginKey: string, exportName: string): string {
-  return `${pluginKey}:${exportName}`;
+function hasEntityType(
+  entityTypes: readonly PluginUiSlotEntityType[] | undefined,
+  entityType: PluginUiSlotEntityType,
+): boolean {
+  if (!entityTypes) return false;
+  for (const candidate of entityTypes) {
+    if (candidate === entityType) return true;
+  }
+  return false;
 }
 
 function requiresEntityType(slotType: PluginUiSlotType): boolean {
@@ -136,427 +101,6 @@ function requiresEntityType(slotType: PluginUiSlotType): boolean {
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return "Unknown error";
-}
-
-/**
- * Registers a React component export for a plugin UI slot.
- */
-export function registerPluginReactComponent(
-  pluginKey: string,
-  exportName: string,
-  component: ComponentType<PluginSlotComponentProps>,
-): void {
-  registry.set(buildRegistryKey(pluginKey, exportName), {
-    kind: "react",
-    component,
-  });
-}
-
-/**
- * Registers a custom element tag for a plugin UI slot.
- */
-export function registerPluginWebComponent(
-  pluginKey: string,
-  exportName: string,
-  tagName: string,
-): void {
-  registry.set(buildRegistryKey(pluginKey, exportName), {
-    kind: "web-component",
-    tagName,
-  });
-}
-
-function resolveRegisteredComponent(slot: ResolvedPluginSlot): RegisteredPluginComponent | null {
-  return registry.get(buildRegistryKey(slot.pluginKey, slot.exportName)) ?? null;
-}
-
-export function resolveRegisteredPluginComponent(
-  pluginKey: string,
-  exportName: string,
-): RegisteredPluginComponent | null {
-  return registry.get(buildRegistryKey(pluginKey, exportName)) ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// Plugin module dynamic import loader
-// ---------------------------------------------------------------------------
-
-type PluginLoadState = "idle" | "loading" | "loaded" | "error";
-
-/**
- * Tracks the load state for each plugin's UI module by contribution cache key.
- *
- * Once a plugin module is loaded, all its named exports are inspected and
- * registered into the component `registry` so that `resolveRegisteredComponent`
- * can find them when slots render.
- */
-const pluginLoadStates = new Map<string, PluginLoadState>();
-
-/**
- * Promise cache to prevent concurrent duplicate imports for the same plugin.
- */
-const inflightImports = new Map<string, Promise<void>>();
-
-/**
- * Build the full URL for a plugin's UI entry module.
- *
- * The server serves plugin UI bundles at `/_plugins/:pluginId/ui/*`.
- * The `uiEntryFile` from the contribution (typically `"index.js"`) is
- * appended to form the complete import path.
- */
-function buildPluginModuleKey(contribution: PluginUiContribution): string {
-  const cacheHint = contribution.updatedAt ?? contribution.version ?? "0";
-  return `${contribution.pluginId}:${cacheHint}`;
-}
-
-function buildPluginUiUrl(contribution: PluginUiContribution): string {
-  const cacheHint = encodeURIComponent(contribution.updatedAt ?? contribution.version ?? "0");
-  return `/_plugins/${encodeURIComponent(contribution.pluginId)}/ui/${contribution.uiEntryFile}?v=${cacheHint}`;
-}
-
-/**
- * Import a plugin's UI entry module with bare-specifier rewriting.
- *
- * Plugin bundles are built with `external: ["@paperclipai/plugin-sdk/ui", "react", "react-dom"]`,
- * so their ESM output contains bare specifier imports like:
- *
- * ```js
- * import { usePluginData } from "@paperclipai/plugin-sdk/ui";
- * import React from "react";
- * ```
- *
- * Browsers cannot resolve bare specifiers without an import map. Rather than
- * fighting import map timing constraints, we:
- * 1. Fetch the module source text
- * 2. Rewrite bare specifier imports to use blob URLs that re-export from the
- *    host's global bridge registry (`globalThis.__paperclipPluginBridge__`)
- * 3. Import the rewritten module via a blob URL
- *
- * This approach is compatible with all modern browsers and avoids import map
- * ordering issues.
- */
-const shimBlobUrls: Record<string, string> = {};
-let pluginBridgeInitPromise: Promise<void> | null = null;
-
-function applyJsxRuntimeKey(
-  props: Record<string, unknown> | null | undefined,
-  key: string | number | undefined,
-): Record<string, unknown> {
-  if (key === undefined) return props ?? {};
-  return { ...(props ?? {}), key };
-}
-
-function createReactShimSource(reactModule: object): string {
-  const exportNames = Object.keys(reactModule)
-    .filter((name) => name !== "default" && /^[A-Za-z_$][\w$]*$/.test(name))
-    .sort();
-  const namedExports = exportNames
-    .map((name) => `        export const ${name} = R.${name};`)
-    .join("\n");
-
-  return `
-        const R = globalThis.__paperclipPluginBridge__?.react;
-        if (!R) {
-          throw new Error("Paperclip plugin React runtime is not initialized.");
-        }
-        export default R;
-${namedExports}
-      `;
-}
-
-function getShimBlobUrl(specifier: "react" | "react-dom" | "react-dom/client" | "react/jsx-runtime" | "sdk-ui"): string {
-  if (shimBlobUrls[specifier]) return shimBlobUrls[specifier];
-
-  let source: string;
-  switch (specifier) {
-    case "react":
-      source = createReactShimSource(ReactModule);
-      break;
-    case "react/jsx-runtime":
-      source = `
-        const R = globalThis.__paperclipPluginBridge__?.react;
-        const withKey = ${applyJsxRuntimeKey.toString()};
-        export const jsx = (type, props, key) => R.createElement(type, withKey(props, key));
-        export const jsxs = (type, props, key) => R.createElement(type, withKey(props, key));
-        export const Fragment = R.Fragment;
-      `;
-      break;
-    case "react-dom":
-    case "react-dom/client":
-      source = `
-        const RD = globalThis.__paperclipPluginBridge__?.reactDom;
-        export default RD;
-        const { createRoot, hydrateRoot, createPortal, flushSync } = RD ?? {};
-        export { createRoot, hydrateRoot, createPortal, flushSync };
-      `;
-      break;
-    case "sdk-ui":
-      source = `
-        const SDK = globalThis.__paperclipPluginBridge__?.sdkUi ?? {};
-        function missing(name) {
-          return function MissingPaperclipSdkUiComponent() {
-            throw new Error('Paperclip plugin UI runtime is not initialized for "' + name + '". Ensure the host loaded the plugin bridge before rendering this UI module.');
-          };
-        }
-        const { usePluginData, usePluginAction, useHostContext, useHostLocation, useHostNavigation, usePluginStream, usePluginToast } = SDK;
-        const MetricCard = SDK.MetricCard ?? missing("MetricCard");
-        const StatusBadge = SDK.StatusBadge ?? missing("StatusBadge");
-        const DataTable = SDK.DataTable ?? missing("DataTable");
-        const TimeseriesChart = SDK.TimeseriesChart ?? missing("TimeseriesChart");
-        const MarkdownBlock = SDK.MarkdownBlock ?? missing("MarkdownBlock");
-        const MarkdownEditor = SDK.MarkdownEditor ?? missing("MarkdownEditor");
-        const KeyValueList = SDK.KeyValueList ?? missing("KeyValueList");
-        const ActionBar = SDK.ActionBar ?? missing("ActionBar");
-        const LogView = SDK.LogView ?? missing("LogView");
-        const JsonTree = SDK.JsonTree ?? missing("JsonTree");
-        const Spinner = SDK.Spinner ?? missing("Spinner");
-        const ErrorBoundary = SDK.ErrorBoundary ?? missing("ErrorBoundary");
-        const FileTree = SDK.FileTree ?? missing("FileTree");
-        const IssuesList = SDK.IssuesList ?? missing("IssuesList");
-        const AssigneePicker = SDK.AssigneePicker ?? missing("AssigneePicker");
-        const ProjectPicker = SDK.ProjectPicker ?? missing("ProjectPicker");
-        const ManagedRoutinesList = SDK.ManagedRoutinesList ?? missing("ManagedRoutinesList");
-        export { usePluginData, usePluginAction, useHostContext, useHostLocation, useHostNavigation, usePluginStream, usePluginToast, MetricCard, StatusBadge, DataTable, TimeseriesChart, MarkdownBlock, MarkdownEditor, KeyValueList, ActionBar, LogView, JsonTree, Spinner, ErrorBoundary, FileTree, IssuesList, AssigneePicker, ProjectPicker, ManagedRoutinesList };
-      `;
-      break;
-  }
-
-  const blob = new Blob([source], { type: "application/javascript" });
-  const url = URL.createObjectURL(blob);
-  shimBlobUrls[specifier] = url;
-  return url;
-}
-
-async function ensurePluginBridgeInitialized(): Promise<void> {
-  if (globalThis.__paperclipPluginBridge__) return;
-
-  pluginBridgeInitPromise ??= Promise.all([
-    import("./bridge-init"),
-    import("react-dom"),
-  ]).then(([{ initPluginBridge }, reactDom]) => {
-    initPluginBridge(ReactModule, reactDom);
-  });
-
-  await pluginBridgeInitPromise;
-}
-
-/**
- * Rewrite bare specifier imports in an ESM source string to use blob URLs.
- *
- * This handles the standard import patterns emitted by esbuild/rollup:
- * - `import { ... } from "react";`
- * - `import React from "react";`
- * - `import * as React from "react";`
- * - `import { ... } from "@paperclipai/plugin-sdk/ui";`
- *
- * Also handles re-exports:
- * - `export { ... } from "react";`
- */
-function rewriteBareSpecifiers(source: string): string {
-  // Build a mapping of bare specifiers to blob URLs.
-  const rewrites: Record<string, string> = {
-    '"@paperclipai/plugin-sdk/ui"': `"${getShimBlobUrl("sdk-ui")}"`,
-    "'@paperclipai/plugin-sdk/ui'": `'${getShimBlobUrl("sdk-ui")}'`,
-    '"@paperclipai/plugin-sdk/ui/hooks"': `"${getShimBlobUrl("sdk-ui")}"`,
-    "'@paperclipai/plugin-sdk/ui/hooks'": `'${getShimBlobUrl("sdk-ui")}'`,
-    '"react/jsx-runtime"': `"${getShimBlobUrl("react/jsx-runtime")}"`,
-    "'react/jsx-runtime'": `'${getShimBlobUrl("react/jsx-runtime")}'`,
-    '"react-dom/client"': `"${getShimBlobUrl("react-dom/client")}"`,
-    "'react-dom/client'": `'${getShimBlobUrl("react-dom/client")}'`,
-    '"react-dom"': `"${getShimBlobUrl("react-dom")}"`,
-    "'react-dom'": `'${getShimBlobUrl("react-dom")}'`,
-    '"react"': `"${getShimBlobUrl("react")}"`,
-    "'react'": `'${getShimBlobUrl("react")}'`,
-  };
-
-  let result = source;
-  for (const [from, to] of Object.entries(rewrites)) {
-    // Only rewrite in import/export from contexts, not in arbitrary strings.
-    // The regex matches `from "..."` or `from '...'` patterns.
-    result = result.replaceAll(` from ${from}`, ` from ${to}`);
-    // Also handle `import "..."` (side-effect imports)
-    result = result.replaceAll(`import ${from}`, `import ${to}`);
-  }
-
-  return result;
-}
-
-/**
- * Fetch, rewrite, and import a plugin UI module.
- *
- * @param url - The URL to the plugin's UI entry module
- * @returns The module's exports
- */
-async function importPluginModule(url: string): Promise<Record<string, unknown>> {
-  await ensurePluginBridgeInitialized();
-
-  // Fetch the module source text
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch plugin module: ${response.status} ${response.statusText}`);
-  }
-
-  const source = await response.text();
-
-  // Rewrite bare specifier imports to blob URLs
-  const rewritten = rewriteBareSpecifiers(source);
-
-  // Create a blob URL from the rewritten source and import it
-  const blob = new Blob([rewritten], { type: "application/javascript" });
-  const blobUrl = URL.createObjectURL(blob);
-
-  try {
-    const mod = await import(/* @vite-ignore */ blobUrl);
-    return mod;
-  } finally {
-    // Clean up the blob URL after import (the module is already loaded)
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-/**
- * Dynamically import a plugin's UI entry module and register all named
- * exports that look like React components (functions or classes) into the
- * component registry.
- *
- * This replaces the previous approach where plugin bundles had to
- * self-register via `window.paperclipPlugins.registerReactComponent()`.
- * Now the host is responsible for importing the module and binding
- * exports to the correct `pluginKey:exportName` registry keys.
- *
- * Plugin modules are loaded with bare-specifier rewriting so that imports
- * of `@paperclipai/plugin-sdk/ui`, `react`, and `react-dom` resolve to the
- * host-provided implementations via the bridge registry.
- *
- * Web-component registrations still work: if the module has a named export
- * that matches an `exportName` declared in a slot AND that export is a
- * string (the custom element tag name), it's registered as a web component.
- */
-async function loadPluginModule(contribution: PluginUiContribution): Promise<void> {
-  const { pluginId, pluginKey, slots, launchers } = contribution;
-  const moduleKey = buildPluginModuleKey(contribution);
-
-  // Already loaded or loading — return early.
-  const state = pluginLoadStates.get(moduleKey);
-  if (state === "loaded" || state === "loading") {
-    // If currently loading, wait for the inflight promise.
-    const inflight = inflightImports.get(pluginId);
-    if (inflight) await inflight;
-    return;
-  }
-
-  // If another import for this plugin ID is currently in progress, wait for it.
-  const running = inflightImports.get(pluginId);
-  if (running) {
-    await running;
-    const recheckedState = pluginLoadStates.get(moduleKey);
-    if (recheckedState === "loaded") {
-      return;
-    }
-  }
-
-  pluginLoadStates.set(moduleKey, "loading");
-
-  const url = buildPluginUiUrl(contribution);
-
-  const importPromise = (async () => {
-    try {
-      // Dynamic ESM import of the plugin's UI entry module with
-      // bare-specifier rewriting for host-provided dependencies.
-      const mod: Record<string, unknown> = await importPluginModule(url);
-
-      // Collect the set of export names declared across all UI contributions so
-      // we only register what the manifest advertises (ignore extra exports).
-      const declaredExports = new Set<string>();
-      for (const slot of slots) {
-        declaredExports.add(slot.exportName);
-      }
-      for (const launcher of launchers) {
-        if (launcher.exportName) {
-          declaredExports.add(launcher.exportName);
-        }
-        if (isLauncherComponentTarget(launcher)) {
-          declaredExports.add(launcher.action.target);
-        }
-      }
-
-      for (const exportName of declaredExports) {
-        const exported = mod[exportName];
-        if (exported === undefined) {
-          console.warn(
-            `Plugin "${pluginKey}" declares slot export "${exportName}" but the module does not export it.`,
-          );
-          continue;
-        }
-
-        if (typeof exported === "function") {
-          // React component (function component or class component).
-          registerPluginReactComponent(
-            pluginKey,
-            exportName,
-            exported as ComponentType<PluginSlotComponentProps>,
-          );
-        } else if (typeof exported === "string") {
-          // Web component tag name.
-          registerPluginWebComponent(pluginKey, exportName, exported);
-        } else {
-          console.warn(
-            `Plugin "${pluginKey}" export "${exportName}" is neither a function nor a string tag name — skipping.`,
-          );
-        }
-      }
-
-      pluginLoadStates.set(moduleKey, "loaded");
-    } catch (err) {
-      pluginLoadStates.set(moduleKey, "error");
-      console.error(`Failed to load UI module for plugin "${pluginKey}"`, err);
-    } finally {
-      inflightImports.delete(pluginId);
-    }
-  })();
-
-  inflightImports.set(pluginId, importPromise);
-  await importPromise;
-}
-
-function isLauncherComponentTarget(launcher: PluginLauncherDeclaration): boolean {
-  return launcher.action.type === "openModal"
-    || launcher.action.type === "openDrawer"
-    || launcher.action.type === "openPopover";
-}
-
-/**
- * Load UI modules for a set of plugin contributions.
- *
- * Returns a promise that resolves once all modules have been loaded (or
- * failed). Plugins that are already loaded are skipped.
- */
-async function ensurePluginModulesLoaded(contributions: PluginUiContribution[]): Promise<void> {
-  await Promise.all(
-    contributions.map((c) => loadPluginModule(c)),
-  );
-}
-
-export async function ensurePluginContributionLoaded(
-  contribution: PluginUiContribution,
-): Promise<void> {
-  await loadPluginModule(contribution);
-}
-
-/**
- * Returns the aggregate load state across a set of plugin contributions.
- * - If any plugin is still loading → "loading"
- * - If all are loaded (or no contributions) → "loaded"
- * - If all finished but some errored → "loaded" (errors are logged, not fatal)
- */
-function aggregateLoadState(contributions: PluginUiContribution[]): "loading" | "loaded" {
-  for (const c of contributions) {
-    const state = pluginLoadStates.get(buildPluginModuleKey(c));
-    if (state === "loading" || state === "idle" || state === undefined) {
-      return "loading";
-    }
-  }
-  return "loaded";
 }
 
 // ---------------------------------------------------------------------------
@@ -578,7 +122,7 @@ function usePluginModuleLoader(contributions: PluginUiContribution[] | undefined
 
     // Filter to contributions that haven't been loaded yet.
     const unloaded = contributions.filter((c) => {
-      const state = pluginLoadStates.get(buildPluginModuleKey(c));
+      const state = getPluginLoadState(c);
       return state !== "loaded" && state !== "loading";
     });
 
@@ -618,7 +162,7 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
   // Kick off dynamic imports for any new plugin contributions.
   usePluginModuleLoader(data);
 
-  const slotTypesKey = useMemo(() => [...filters.slotTypes].sort().join("|"), [filters.slotTypes]);
+  const slotTypesKey = useMemo(() => filters.slotTypes.toSorted().join("|"), [filters.slotTypes]);
 
   const slots = useMemo(() => {
     const allowedTypes = new Set(slotTypesKey.split("|").filter(Boolean) as PluginUiSlotType[]);
@@ -628,7 +172,7 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
         if (!allowedTypes.has(slot.type)) continue;
         if (requiresEntityType(slot.type)) {
           if (!filters.entityType) continue;
-          if (!slot.entityTypes?.includes(filters.entityType)) continue;
+          if (!hasEntityType(slot.entityTypes, filters.entityType)) continue;
         }
         rows.push({
           ...slot,
@@ -797,7 +341,7 @@ export function PluginSlotMount({
 
   useEffect(() => {
     if (component) return;
-    const inflight = inflightImports.get(slot.pluginId);
+    const inflight = getInflightPluginImport(slot.pluginId);
     if (!inflight) return;
 
     let cancelled = false;
@@ -893,29 +437,3 @@ export function PluginSlotOutlet({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Test helpers — exported for use in test suites only.
-// ---------------------------------------------------------------------------
-
-/**
- * Reset the module loader state. Only use in tests.
- * @internal
- */
-export function _resetPluginModuleLoader(): void {
-  pluginLoadStates.clear();
-  inflightImports.clear();
-  registry.clear();
-  if (typeof URL.revokeObjectURL === "function") {
-    for (const url of Object.values(shimBlobUrls)) {
-      URL.revokeObjectURL(url);
-    }
-  }
-  for (const key of Object.keys(shimBlobUrls)) {
-    delete shimBlobUrls[key];
-  }
-}
-
-export const _applyJsxRuntimeKeyForTests = applyJsxRuntimeKey;
-export const _createReactShimSourceForTests = createReactShimSource;
-export const _rewriteBareSpecifiersForTests = rewriteBareSpecifiers;

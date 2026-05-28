@@ -50,7 +50,7 @@ export function SidebarAgentActionsMenu({
           className={triggerClassName}
           aria-label={triggerLabel}
         >
-          <MoreHorizontal className="h-3.5 w-3.5" />
+          <MoreHorizontal className="size-3.5" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">

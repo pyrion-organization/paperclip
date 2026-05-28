@@ -107,6 +107,13 @@ interface CommentThreadProps {
   composerDisabledReason?: string | null;
 }
 
+const EMPTY_COMMENTS: CommentWithRunMeta[] = [];
+const EMPTY_APPROVALS: Approval[] = [];
+const EMPTY_FEEDBACK_VOTES: FeedbackVote[] = [];
+const EMPTY_LINKED_RUNS: LinkedRunItem[] = [];
+const EMPTY_TIMELINE_EVENTS: IssueTimelineEvent[] = [];
+const EMPTY_INLINE_ENTITY_OPTIONS: InlineEntityOption[] = [];
+
 const DRAFT_DEBOUNCE_MS = 800;
 
 function loadDraft(draftKey: string): string {
@@ -303,7 +310,7 @@ function CopyMarkdownButton({ text }: { text: string }) {
         }, 1500);
       }}
     >
-      {status === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {status === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
       <span className="sm:hidden">{label}</span>
       <span className="sr-only" aria-live="polite">
         {label}
@@ -514,7 +521,7 @@ function TimelineEventCard({
             <span className="text-muted-foreground">
               {humanizeValue(event.statusChange.from)}
             </span>
-            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <ArrowRight className="size-3.5 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {humanizeValue(event.statusChange.to)}
             </span>
@@ -529,7 +536,7 @@ function TimelineEventCard({
             <span className="text-muted-foreground">
               {formatTimelineAssigneeLabel(event.assigneeChange.from, agentMap, currentUserId)}
             </span>
-            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <ArrowRight className="size-3.5 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineAssigneeLabel(event.assigneeChange.to, agentMap, currentUserId)}
             </span>
@@ -544,7 +551,7 @@ function TimelineEventCard({
             <span className="text-muted-foreground">
               {formatTimelineWorkspaceLabel(event.workspaceChange.from)}
             </span>
-            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <ArrowRight className="size-3.5 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineWorkspaceLabel(event.workspaceChange.to)}
             </span>
@@ -722,13 +729,13 @@ const TimelineList = memo(function TimelineList({
 
 export function CommentThread({
   comments,
-  queuedComments = [],
-  linkedApprovals = [],
-  feedbackVotes = [],
+  queuedComments = EMPTY_COMMENTS,
+  linkedApprovals = EMPTY_APPROVALS,
+  feedbackVotes = EMPTY_FEEDBACK_VOTES,
   feedbackDataSharingPreference = "prompt",
   feedbackTermsUrl = null,
-  linkedRuns = [],
-  timelineEvents = [],
+  linkedRuns = EMPTY_LINKED_RUNS,
+  timelineEvents = EMPTY_TIMELINE_EVENTS,
   companyId,
   projectId,
   onApproveApproval,
@@ -744,7 +751,7 @@ export function CommentThread({
   draftKey,
   liveRunSlot,
   enableReassign = false,
-  reassignOptions = [],
+  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
   currentAssigneeValue = "",
   suggestedAssigneeValue,
   mentions: providedMentions,
@@ -756,20 +763,25 @@ export function CommentThread({
   const [submitting, setSubmitting] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const effectiveSuggestedAssigneeValue = suggestedAssigneeValue ?? currentAssigneeValue;
-  const [reassignTarget, setReassignTarget] = useState(effectiveSuggestedAssigneeValue);
+  const [reassignTargetOverride, setReassignTargetOverride] = useState<{
+    source: string;
+    value: string;
+  } | null>(null);
+  const reassignTarget =
+    reassignTargetOverride?.source === effectiveSuggestedAssigneeValue
+      ? reassignTargetOverride.value
+      : effectiveSuggestedAssigneeValue;
   const [highlightCommentId, setHighlightCommentId] = useState<string | null>(null);
   const [votingTargetId, setVotingTargetId] = useState<string | null>(null);
   const editorRef = useRef<MarkdownEditorRef>(null);
   const attachInputRef = useRef<HTMLInputElement | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const location = useLocation();
+  const routerLocation = useLocation();
   const hasScrolledRef = useRef(false);
 
   const timeline = useMemo<TimelineItem[]>(() => {
     const followUpCommentIds = new Set(
-      timelineEvents
-        .filter((event) => event.followUpRequested && event.commentId)
-        .map((event) => event.commentId as string),
+      timelineEvents.flatMap((event) => (event.followUpRequested && event.commentId) ? [event.commentId as string] : []),
     );
     const commentItems: TimelineItem[] = comments.map((comment) => {
       const followUpRequested = comment.followUpRequested === true || followUpCommentIds.has(comment.id);
@@ -824,15 +836,13 @@ export function CommentThread({
   const mentions = useMemo<MentionOption[]>(() => {
     if (providedMentions) return providedMentions;
     if (!agentMap) return [];
-    return Array.from(agentMap.values())
-      .filter((a) => a.status !== "terminated")
-      .map((a) => ({
+    return Array.from(agentMap.values()).flatMap((a) => (a.status !== "terminated") ? [({
         id: `agent:${a.id}`,
         name: a.name,
         kind: "agent",
         agentId: a.id,
         agentIcon: a.icon,
-      }));
+      })] : []);
   }, [agentMap, providedMentions]);
 
   useEffect(() => {
@@ -843,9 +853,11 @@ export function CommentThread({
   useEffect(() => {
     if (!draftKey) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
-    draftTimer.current = setTimeout(() => {
+    const timer = setTimeout(() => {
       saveDraft(draftKey, body);
     }, DRAFT_DEBOUNCE_MS);
+    draftTimer.current = timer;
+    return () => clearTimeout(timer);
   }, [body, draftKey]);
 
   useEffect(() => {
@@ -854,13 +866,9 @@ export function CommentThread({
     };
   }, []);
 
-  useEffect(() => {
-    setReassignTarget(effectiveSuggestedAssigneeValue);
-  }, [effectiveSuggestedAssigneeValue]);
-
   // Scroll to comment when URL hash matches #comment-{id}
   useEffect(() => {
-    const hash = location.hash;
+    const hash = routerLocation.hash;
     if (!hash.startsWith("#comment-") || comments.length + queuedComments.length === 0) return;
     const commentId = hash.slice("#comment-".length);
     // Only scroll once per hash
@@ -874,7 +882,7 @@ export function CommentThread({
       const timer = setTimeout(() => setHighlightCommentId(null), 3000);
       return () => clearTimeout(timer);
     }
-  }, [location.hash, comments, queuedComments]);
+  }, [routerLocation.hash, comments, queuedComments]);
 
   async function handleSubmit() {
     const trimmed = body.trim();
@@ -892,7 +900,7 @@ export function CommentThread({
     try {
       await onAdd(submittedBody, reopen, reassignment ?? undefined);
       if (draftKey) clearDraft(draftKey);
-      setReassignTarget(effectiveSuggestedAssigneeValue);
+      setReassignTargetOverride(null);
     } catch {
       setBody((current) =>
         restoreSubmittedCommentDraft({
@@ -1023,7 +1031,7 @@ export function CommentThread({
                   accept="image/png,image/jpeg,image/webp,image/gif"
                   className="hidden"
                   onChange={handleAttachFile}
-                />
+                 aria-label="Attach file"/>
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -1031,7 +1039,7 @@ export function CommentThread({
                   disabled={attaching}
                   title="Attach image"
                 >
-                  <Paperclip className="h-4 w-4" />
+                  <Paperclip className="size-4" />
                 </Button>
               </div>
             )}
@@ -1043,7 +1051,10 @@ export function CommentThread({
                 noneLabel="No assignee"
                 searchPlaceholder="Search assignees..."
                 emptyMessage="No assignees found."
-                onChange={setReassignTarget}
+                onChange={(value) => setReassignTargetOverride({
+                  source: effectiveSuggestedAssigneeValue,
+                  value,
+                })}
                 className="text-xs h-8"
                 renderTriggerValue={(option) => {
                   if (!option) return <span className="text-muted-foreground">Assignee</span>;
@@ -1052,7 +1063,7 @@ export function CommentThread({
                   return (
                     <>
                       {agent ? (
-                        <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                       ) : null}
                       <span className="truncate">{option.label}</span>
                     </>
@@ -1065,7 +1076,7 @@ export function CommentThread({
                   return (
                     <>
                       {agent ? (
-                        <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                       ) : null}
                       <span className="truncate">{option.label}</span>
                     </>

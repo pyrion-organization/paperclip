@@ -42,14 +42,14 @@ export function PriorityIcon({ priority, onChange, className, showLabel }: Prior
         className
       )}
     >
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="size-3.5" />
     </span>
   );
 
   if (!onChange) return showLabel ? <span className="inline-flex items-center gap-1.5">{icon}<span className="text-sm">{config.label}</span></span> : icon;
 
   const trigger = showLabel ? (
-    <button className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors">
+    <button type="button" className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors">
       {icon}
       <span className="text-sm">{config.label}</span>
     </button>
@@ -73,7 +73,7 @@ export function PriorityIcon({ priority, onChange, className, showLabel }: Prior
                 setOpen(false);
               }}
             >
-              <PIcon className={cn("h-3.5 w-3.5", c.color)} />
+              <PIcon className={cn("size-3.5", c.color)} />
               {c.label}
             </Button>
           );

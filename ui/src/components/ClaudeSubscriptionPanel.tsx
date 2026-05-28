@@ -37,7 +37,7 @@ function detailText(window: QuotaWindow): string | null {
 }
 
 function orderedWindows(windows: QuotaWindow[]): QuotaWindow[] {
-  return [...windows].sort((a, b) => {
+  return windows.toSorted((a, b) => {
     const aIndex = WINDOW_ORDER.indexOf(normalizeLabel(a.label) as (typeof WINDOW_ORDER)[number]);
     const bIndex = WINDOW_ORDER.indexOf(normalizeLabel(b.label) as (typeof WINDOW_ORDER)[number]);
     return (aIndex === -1 ? WINDOW_ORDER.length : aIndex) - (bIndex === -1 ? WINDOW_ORDER.length : bIndex);
@@ -59,7 +59,7 @@ export function ClaudeSubscriptionPanel({
   const ordered = orderedWindows(windows);
 
   return (
-    <div className="border border-border px-4 py-4">
+    <div className="border border-border p-4">
       <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">

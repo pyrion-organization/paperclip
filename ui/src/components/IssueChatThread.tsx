@@ -7,12 +7,11 @@ import type {
 import {
   createContext,
   Component,
-  forwardRef,
   lazy,
   memo,
   Suspense,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useId,
   useImperativeHandle,
@@ -133,6 +132,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, ArrowRight, Brain, Check, ChevronDown, ClipboardList, Copy, Hammer, Loader2, MoreHorizontal, Paperclip, PauseCircle, Search, Square, ThumbsDown, ThumbsUp } from "lucide-react";
 import type { RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
+import {
+  VIRTUALIZED_THREAD_ROW_THRESHOLD,
+  canStopIssueChatRun,
+  findLatestCommentMessageIndex,
+  resolveAssistantMessageFoldedState,
+  resolveIssueChatHumanAuthor,
+} from "./issue-chat-thread-utils";
 
 const LazyMarkdownEditor = lazy(() =>
   import("./MarkdownEditor").then(({ MarkdownEditor }) => ({ default: MarkdownEditor })),
@@ -262,38 +268,6 @@ const IssueChatCtx = createContext<IssueChatMessageContext>({
   issueStatus: undefined,
   successfulRunHandoff: null,
 });
-
-export function resolveAssistantMessageFoldedState(args: {
-  messageId: string;
-  currentFolded: boolean;
-  isFoldable: boolean;
-  previousMessageId: string | null;
-  previousIsFoldable: boolean;
-}) {
-  const {
-    messageId,
-    currentFolded,
-    isFoldable,
-    previousMessageId,
-    previousIsFoldable,
-  } = args;
-
-  if (messageId !== previousMessageId) return isFoldable;
-  if (!isFoldable) return false;
-  if (!previousIsFoldable) return true;
-  return currentFolded;
-}
-
-export function canStopIssueChatRun(args: {
-  runId: string | null;
-  runStatus: string | null;
-  activeRunIds: ReadonlySet<string>;
-}) {
-  const { runId, runStatus, activeRunIds } = args;
-  if (!runId) return false;
-  if (activeRunIds.has(runId)) return true;
-  return runStatus === "queued" || runStatus === "running";
-}
 
 function findCoTSegmentIndex(
   messageParts: ReadonlyArray<{ type: string }>,
@@ -462,6 +436,15 @@ interface IssueChatThreadProps {
   onRefreshLatestComments?: () => Promise<unknown> | void;
 }
 
+const EMPTY_INLINE_ENTITY_OPTIONS: InlineEntityOption[] = [];
+const EMPTY_MENTION_OPTIONS: MentionOption[] = [];
+const EMPTY_INTERACTIONS: IssueThreadInteraction[] = [];
+const EMPTY_FEEDBACK_VOTES: FeedbackVote[] = [];
+const EMPTY_LINKED_RUNS: IssueChatLinkedRun[] = [];
+const EMPTY_TIMELINE_EVENTS: IssueTimelineEvent[] = [];
+const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
+const EMPTY_BLOCKED_BY: IssueRelationIssueSummary[] = [];
+
 type IssueChatErrorBoundaryProps = {
   resetKey: string;
   messages: readonly ThreadMessage[];
@@ -472,13 +455,28 @@ type IssueChatErrorBoundaryProps = {
 
 type IssueChatErrorBoundaryState = {
   hasError: boolean;
+  resetKey: string;
 };
 
 class IssueChatErrorBoundary extends Component<IssueChatErrorBoundaryProps, IssueChatErrorBoundaryState> {
-  override state: IssueChatErrorBoundaryState = { hasError: false };
+  override state: IssueChatErrorBoundaryState = {
+    hasError: false,
+    resetKey: this.props.resetKey,
+  };
 
-  static getDerivedStateFromError(): IssueChatErrorBoundaryState {
+  static getDerivedStateFromError(): Partial<IssueChatErrorBoundaryState> {
     return { hasError: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: IssueChatErrorBoundaryProps,
+    state: IssueChatErrorBoundaryState,
+  ): Partial<IssueChatErrorBoundaryState> | null {
+    if (props.resetKey === state.resetKey) return null;
+    return {
+      hasError: false,
+      resetKey: props.resetKey,
+    };
   }
 
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
@@ -486,12 +484,6 @@ class IssueChatErrorBoundary extends Component<IssueChatErrorBoundaryProps, Issu
       error,
       info: info.componentStack,
     });
-  }
-
-  override componentDidUpdate(prevProps: IssueChatErrorBoundaryProps): void {
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
   }
 
   override render() {
@@ -521,7 +513,7 @@ function IssueAssigneePausedNotice({ agent }: { agent: Agent | null }) {
   return (
     <div className="mb-3 rounded-md border border-orange-300/70 bg-orange-50/90 px-3 py-2.5 text-sm text-orange-950 shadow-sm dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100">
       <div className="flex items-start gap-2">
-        <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+        <PauseCircle className="mt-0.5 size-4 shrink-0 text-orange-600 dark:text-orange-300" />
         <p className="min-w-0 leading-5">
           <span className="font-medium">{agent.name}</span> is paused. New runs will not start until the agent is resumed. {pauseDetail}
         </p>
@@ -574,7 +566,7 @@ function IssueChatFallbackThread({
     <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
       <div className="rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/20 dark:text-amber-200">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <div className="space-y-1">
             <p className="font-medium">Chat renderer hit an internal state error.</p>
             <p className="text-xs opacity-80">
@@ -608,8 +600,8 @@ function IssueChatFallbackThread({
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  {lines.length > 0 ? lines.map((line, index) => (
-                    <DeferredMarkdownBody key={`${message.id}:fallback:${index}`}>{line}</DeferredMarkdownBody>
+                  {lines.length > 0 ? lines.map((line) => (
+                    <DeferredMarkdownBody key={`${message.id}:fallback:${line}`}>{line}</DeferredMarkdownBody>
                   )) : (
                     <p className="text-sm text-muted-foreground">No message content.</p>
                   )}
@@ -791,7 +783,7 @@ function DeferredMarkdownBody(props: DeferredMarkdownBodyProps) {
 }
 
 const IssueChatTextPart = memo(function IssueChatTextPart({ text, recessed }: { text: string; recessed?: boolean }) {
-  const { onImageClick } = useContext(IssueChatCtx);
+  const { onImageClick } = use(IssueChatCtx);
   if (isSuccessfulRunHandoffComment(text)) {
     return <SuccessfulRunHandoffCommentCallout text={text} recessed={recessed} onImageClick={onImageClick} />;
   }
@@ -830,7 +822,7 @@ export function SuccessfulRunHandoffCommentCallout({
       <div className="flex items-start gap-2">
         <AlertTriangle
           className={cn(
-            "mt-1 h-4 w-4 shrink-0",
+            "mt-1 size-4 shrink-0",
             escalated ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300",
           )}
         />
@@ -885,26 +877,6 @@ function formatInteractionActorLabel(args: {
       ?? "Board";
   }
   return "System";
-}
-
-export function resolveIssueChatHumanAuthor(args: {
-  authorName?: string | null;
-  authorUserId?: string | null;
-  currentUserId?: string | null;
-  userProfileMap?: ReadonlyMap<string, CompanyUserProfile> | null;
-}) {
-  const { authorName, authorUserId, currentUserId, userProfileMap } = args;
-  const profile = authorUserId ? userProfileMap?.get(authorUserId) ?? null : null;
-  const isCurrentUser = Boolean(authorUserId && currentUserId && authorUserId === currentUserId);
-  const resolvedAuthorName = profile?.label?.trim()
-    || authorName?.trim()
-    || (authorUserId === "local-board" ? "Board" : (isCurrentUser ? "You" : "User"));
-
-  return {
-    isCurrentUser,
-    authorName: resolvedAuthorName,
-    avatarUrl: profile?.image ?? null,
-  };
 }
 
 function formatRunStatusLabel(status: string) {
@@ -969,7 +941,7 @@ function IssueChatChainOfThought({
   message: ThreadMessage;
   cotParts: readonly IssueChatCoTPart[];
 }) {
-  const { agentMap } = useContext(IssueChatCtx);
+  const { agentMap } = use(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const runAgentId = typeof custom.runAgentId === "string" ? custom.runAgentId : null;
   const authorAgentId = typeof custom.authorAgentId === "string" ? custom.authorAgentId : null;
@@ -1029,12 +1001,12 @@ function IssueChatChainOfThought({
       >
         <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80">
           {agentIcon ? (
-            <AgentIcon icon={agentIcon} className="h-4 w-4 shrink-0" />
+            <AgentIcon icon={agentIcon} className="size-4 shrink-0" />
           ) : isActive ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
           ) : (
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/70" />
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <span className="size-1.5 rounded-full bg-emerald-500/70" />
             </span>
           )}
           {isActive ? (
@@ -1050,7 +1022,7 @@ function IssueChatChainOfThought({
           <span className="text-xs text-muted-foreground/40">· {toolSummary}</span>
         ) : null}
         {hasContent ? (
-          <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-180")} />
         ) : null}
       </button>
       {expanded && hasContent ? (
@@ -1102,7 +1074,7 @@ function IssueChatReasoningPart({ text }: { text: string }) {
   return (
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-0.5">
-        <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+        <Brain className="size-3.5 shrink-0 text-muted-foreground/50" />
       </div>
       <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
         {ticker.exiting !== null && (
@@ -1130,9 +1102,7 @@ function IssueChatReasoningPart({ text }: { text: string }) {
 
 function IssueChatRollingToolPart({ toolParts }: { toolParts: ToolCallMessagePart[] }) {
   const latest = toolParts[toolParts.length - 1];
-  if (!latest) return null;
-
-  const fullText = cleanToolDisplayText(latest);
+  const fullText = latest ? cleanToolDisplayText(latest) : "";
 
   const prevRef = useRef(fullText);
   const [ticker, setTicker] = useState<{
@@ -1149,6 +1119,8 @@ function IssueChatRollingToolPart({ toolParts }: { toolParts: ToolCallMessagePar
     }
   }, [fullText]);
 
+  if (!latest) return null;
+
   const ToolIcon = getToolIcon(latest.toolName);
   const isRunning = latest.result === undefined;
 
@@ -1156,9 +1128,9 @@ function IssueChatRollingToolPart({ toolParts }: { toolParts: ToolCallMessagePar
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-0.5">
         {isRunning ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/50" />
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground/50" />
         ) : (
-          <ToolIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+          <ToolIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
         )}
       </div>
       <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
@@ -1193,7 +1165,7 @@ function CopyablePreBlock({ children, className }: { children: string; className
       <button
         type="button"
         className={cn(
-          "absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/pre:opacity-100",
+          "absolute right-1.5 top-1.5 inline-flex size-6 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/pre:opacity-100",
           copied && "opacity-100",
         )}
         title="Copy"
@@ -1205,7 +1177,7 @@ function CopyablePreBlock({ children, className }: { children: string; className
           });
         }}
       >
-        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
       </button>
     </div>
   );
@@ -1258,7 +1230,7 @@ function IssueChatToolPart({
   return (
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-1">
-        <ToolIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+        <ToolIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
         {open ? <div className="mt-1 w-px flex-1 bg-border/40" /> : null}
       </div>
 
@@ -1273,9 +1245,9 @@ function IssueChatToolPart({
             {!intentDetail && summary ? <span className="ml-1.5 text-muted-foreground/50">{summary}</span> : null}
           </span>
           {result === undefined ? (
-            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/50" />
+            <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/50" />
           ) : null}
-          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
+          <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
         </button>
 
         {open ? (
@@ -1339,9 +1311,9 @@ const IssueChatTextParts = memo(function IssueChatTextParts({
     <>
       {message.content
         .filter((part): part is TextMessagePart => part.type === "text")
-        .map((part, index) => (
+        .map((part) => (
           <IssueChatTextPart
-            key={`${message.id}:text:${index}`}
+            key={`${message.id}:text:${part.text}`}
             text={part.text}
             recessed={recessed}
           />
@@ -1430,7 +1402,7 @@ function IssueChatUserMessage({
     onCancelQueued,
     currentUserId,
     userProfileMap,
-  } = useContext(IssueChatCtx);
+  } = use(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const commentId = typeof custom.commentId === "string" ? custom.commentId : message.id;
@@ -1513,7 +1485,7 @@ function IssueChatUserMessage({
 
       {pending ? (
         <div className={cn("mt-1 flex px-1 text-[11px] text-muted-foreground", isCurrentUser ? "justify-end" : "justify-start")}>
-          Sending...
+          Sending&hellip;
         </div>
       ) : (
         <div
@@ -1537,7 +1509,7 @@ function IssueChatUserMessage({
           </Tooltip>
           <button
             type="button"
-            className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             title="Copy message"
             aria-label="Copy message"
             onClick={() => {
@@ -1551,7 +1523,7 @@ function IssueChatUserMessage({
               });
             }}
           >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
         </div>
       )}
@@ -1597,7 +1569,7 @@ function IssueChatAssistantMessage({
     stopRunLabel = "Stop run",
     stoppingRunLabel = "Stopping...",
     stopRunVariant = "stop",
-  } = useContext(IssueChatCtx);
+  } = use(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const authorName = typeof custom.authorName === "string"
@@ -1623,13 +1595,14 @@ function IssueChatAssistantMessage({
   const hasCoT = message.content.some((p) => p.type === "reasoning" || p.type === "tool-call");
   const isFoldable = !isRunning && !!chainOfThoughtLabel;
   const [folded, setFolded] = useState(isFoldable);
-  const [prevFoldKey, setPrevFoldKey] = useState({ messageId: message.id, isFoldable });
+  const prevFoldKeyRef = useRef({ messageId: message.id, isFoldable });
   const [copied, setCopied] = useState(false);
   const copyText = getThreadMessageCopyText(message);
 
   // Derive fold state synchronously during render (not in useEffect) so the
   // browser never paints the un-folded intermediate state — prevents the
   // visible "jump" when loading a page with already-folded work sections.
+  const prevFoldKey = prevFoldKeyRef.current;
   if (message.id !== prevFoldKey.messageId || isFoldable !== prevFoldKey.isFoldable) {
     const nextFolded = resolveAssistantMessageFoldedState({
       messageId: message.id,
@@ -1638,7 +1611,7 @@ function IssueChatAssistantMessage({
       previousMessageId: prevFoldKey.messageId,
       previousIsFoldable: prevFoldKey.isFoldable,
     });
-    setPrevFoldKey({ messageId: message.id, isFoldable });
+    prevFoldKeyRef.current = { messageId: message.id, isFoldable };
     if (nextFolded !== folded) {
       setFolded(nextFolded);
     }
@@ -1659,7 +1632,7 @@ function IssueChatAssistantMessage({
       <div className="flex items-start gap-2.5 py-1.5">
         <Avatar size="sm" className="shrink-0">
           {agentIcon ? (
-            <AvatarFallback><AgentIcon icon={agentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
+            <AvatarFallback><AgentIcon icon={agentIcon} className="size-3.5" /></AvatarFallback>
           ) : (
             <AvatarFallback>{initialsForName(authorName)}</AvatarFallback>
           )}
@@ -1680,7 +1653,7 @@ function IssueChatAssistantMessage({
                     {commentDateLabel(message.createdAt)}
                   </span>
                 ) : null}
-                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", !folded && "rotate-180")} />
+                <ChevronDown className={cn("size-3.5 text-muted-foreground/40 transition-transform", !folded && "rotate-180")} />
               </span>
             </button>
           ) : (
@@ -1693,7 +1666,7 @@ function IssueChatAssistantMessage({
               ) : null}
               {isRunning ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Loader2 className="size-3 animate-spin" />
                   Running
                 </span>
               ) : null}
@@ -1708,9 +1681,9 @@ function IssueChatAssistantMessage({
                   <div className="flex items-center gap-2.5 rounded-lg px-1 py-2">
                     <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80">
                       {agentIcon ? (
-                        <AgentIcon icon={agentIcon} className="h-4 w-4 shrink-0" />
+                        <AgentIcon icon={agentIcon} className="size-4 shrink-0" />
                       ) : (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
                       )}
                       <span className="shimmer-text">{waitingText}</span>
                     </span>
@@ -1718,9 +1691,9 @@ function IssueChatAssistantMessage({
                 ) : null}
                 {notices.length > 0 ? (
                   <div className="space-y-2">
-                    {notices.map((notice, index) => (
+                    {notices.map((notice) => (
                       <div
-                        key={`${message.id}:notice:${index}`}
+                        key={`${message.id}:notice:${notice}`}
                         className="rounded-sm border border-border/60 bg-accent/20 px-3 py-2 text-sm text-muted-foreground"
                       >
                         {notice}
@@ -1733,7 +1706,7 @@ function IssueChatAssistantMessage({
               <div className="mt-2 flex items-center gap-1">
                 <button
                   type="button"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   title="Copy message"
                   aria-label="Copy message"
                   onClick={() => {
@@ -1743,7 +1716,7 @@ function IssueChatAssistantMessage({
                     });
                   }}
                 >
-                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                 </button>
                 {commentId && onVote ? (
                   <IssueChatFeedbackButtons
@@ -1775,7 +1748,7 @@ function IssueChatAssistantMessage({
                       title="More actions"
                       aria-label="More actions"
                     >
-                      <MoreHorizontal className="h-3.5 w-3.5" />
+                      <MoreHorizontal className="size-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -1784,7 +1757,7 @@ function IssueChatAssistantMessage({
                         void navigator.clipboard.writeText(copyText);
                       }}
                     >
-                      <Copy className="mr-2 h-3.5 w-3.5" />
+                      <Copy className="mr-2 size-3.5" />
                       Copy message
                     </DropdownMenuItem>
                     {canStopRun && onStopRun && runId ? (
@@ -1800,9 +1773,9 @@ function IssueChatAssistantMessage({
                         }}
                       >
                         {stopRunVariant === "pause" ? (
-                          <PauseCircle className="mr-2 h-3.5 w-3.5" />
+                          <PauseCircle className="mr-2 size-3.5" />
                         ) : (
-                          <Square className="mr-2 h-3.5 w-3.5 fill-current" />
+                          <Square className="mr-2 size-3.5 fill-current" />
                         )}
                         {isStoppingRun ? stoppingRunLabel : stopRunLabel}
                       </DropdownMenuItem>
@@ -1810,7 +1783,7 @@ function IssueChatAssistantMessage({
                     {runHref ? (
                       <DropdownMenuItem asChild>
                         <Link to={runHref} target="_blank" rel="noreferrer noopener">
-                          <Search className="mr-2 h-3.5 w-3.5" />
+                          <Search className="mr-2 size-3.5" />
                           View run
                         </Link>
                       </DropdownMenuItem>
@@ -1911,7 +1884,7 @@ function IssueChatFeedbackButtons({
         type="button"
         disabled={isSaving}
         className={cn(
-          "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+          "inline-flex size-7 items-center justify-center rounded-md transition-colors",
           visibleVote === "up"
             ? "text-green-600 dark:text-green-400"
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1920,7 +1893,7 @@ function IssueChatFeedbackButtons({
         aria-label="Helpful"
         onClick={handleThumbsUp}
       >
-        <ThumbsUp className="h-3.5 w-3.5" />
+        <ThumbsUp className="size-3.5" />
       </button>
       <Popover open={reasonOpen} onOpenChange={setReasonOpen}>
         <PopoverTrigger asChild>
@@ -1928,7 +1901,7 @@ function IssueChatFeedbackButtons({
             type="button"
             disabled={isSaving}
             className={cn(
-              "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+              "inline-flex size-7 items-center justify-center rounded-md transition-colors",
               visibleVote === "down"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1937,7 +1910,7 @@ function IssueChatFeedbackButtons({
             aria-label="Needs work"
             onClick={handleThumbsDown}
           >
-            <ThumbsDown className="h-3.5 w-3.5" />
+            <ThumbsDown className="size-3.5" />
           </button>
         </PopoverTrigger>
         <PopoverContent side="top" align="start" className="w-80 p-3">
@@ -2062,7 +2035,7 @@ function ExpiredRequestConfirmationActivity({
     onAcceptInteraction,
     onRejectInteraction,
     onCancelInteraction,
-  } = useContext(IssueChatCtx);
+  } = use(IssueChatCtx);
   const [expanded, setExpanded] = useState(false);
   const hasResolvedActor = Boolean(interaction.resolvedByAgentId || interaction.resolvedByUserId);
   const actorAgentId = hasResolvedActor
@@ -2101,7 +2074,7 @@ function ExpiredRequestConfirmationActivity({
           aria-controls={detailsId}
           onClick={() => setExpanded((current) => !current)}
         >
-          <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
           {expanded ? "Hide confirmation" : "Expired confirmation"}
         </button>
       </div>
@@ -2123,7 +2096,7 @@ function ExpiredRequestConfirmationActivity({
         <div className="flex items-start gap-2.5 py-1">
           <Avatar size="sm" className="mt-0.5">
             {actorIcon ? (
-              <AvatarFallback><AgentIcon icon={actorIcon} className="h-3.5 w-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={actorIcon} className="size-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(actorName)}</AvatarFallback>
             )}
@@ -2369,7 +2342,7 @@ function StaleDispositionWarningRow({
                   {commentDateLabel(message.createdAt)}
                 </span>
               ) : null}
-              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
+              <ChevronDown className={cn("size-3.5 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
             </span>
           </button>
           <div id={detailsId} hidden={!open} className="space-y-1 py-1">
@@ -2388,7 +2361,7 @@ function SystemNoticeCommentRow({
   message: ThreadMessage;
   anchorId?: string;
 }) {
-  const { onImageClick, agentMap, issueStatus, successfulRunHandoff } = useContext(IssueChatCtx);
+  const { onImageClick, agentMap, issueStatus, successfulRunHandoff } = use(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const presentation = isIssueCommentPresentation(custom.presentation) ? custom.presentation : null;
   const commentMetadata = isIssueCommentMetadata(custom.commentMetadata) ? custom.commentMetadata : null;
@@ -2485,22 +2458,22 @@ function SystemNoticeCommentRow({
           {anchorId ? (
             <button
               type="button"
-              className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
               title="Copy link"
               aria-label="Copy link to system notice"
               onClick={handleCopyLink}
             >
-              {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Paperclip className="h-3.5 w-3.5" />}
+              {copiedLink ? <Check className="size-3.5" /> : <Paperclip className="size-3.5" />}
             </button>
           ) : null}
           <button
             type="button"
-            className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             title="Copy notice text"
             aria-label="Copy system notice"
             onClick={handleCopy}
           >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
         </div>
       </div>
@@ -2517,7 +2490,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
     onRejectInteraction,
     onSubmitInteractionAnswers,
     onCancelInteraction,
-  } = useContext(IssueChatCtx);
+  } = use(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const runId = typeof custom.runId === "string" ? custom.runId : null;
@@ -2605,7 +2578,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
               Status
             </span>
             <span className="text-muted-foreground">{humanizeValue(statusChange.from)}</span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className="size-3 text-muted-foreground" />
             <span className="font-medium text-foreground">{humanizeValue(statusChange.to)}</span>
           </div>
         ) : null}
@@ -2618,7 +2591,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
             <span className="text-muted-foreground">
               {formatTimelineAssigneeLabel(assigneeChange.from, agentMap, currentUserId, userLabelMap)}
             </span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className="size-3 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineAssigneeLabel(assigneeChange.to, agentMap, currentUserId, userLabelMap)}
             </span>
@@ -2633,7 +2606,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
             <span className="text-muted-foreground">
               {formatTimelineWorkspaceLabel(workspaceChange.from)}
             </span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className="size-3 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineWorkspaceLabel(workspaceChange.to)}
             </span>
@@ -2657,7 +2630,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
         <div className="flex items-start gap-2.5 py-1">
           <Avatar size="sm" className="mt-0.5">
             {agentIcon ? (
-              <AvatarFallback><AgentIcon icon={agentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={agentIcon} className="size-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(actorName)}</AvatarFallback>
             )}
@@ -2678,7 +2651,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
         <div className="flex items-center gap-2.5 py-1">
           <Avatar size="sm">
             {runAgentIcon ? (
-              <AvatarFallback><AgentIcon icon={runAgentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={runAgentIcon} className="size-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(displayedRunAgentName)}</AvatarFallback>
             )}
@@ -2775,7 +2748,6 @@ function issueChatMessageQueuedRunIsInterrupting(
 // re-render hundreds of Markdown bodies, feedback controls, and avatars on
 // unrelated parent updates. Above this threshold we switch to a windowed
 // render path so only visible rows plus overscan stay mounted.
-export const VIRTUALIZED_THREAD_ROW_THRESHOLD = 150;
 const VIRTUALIZED_THREAD_OVERSCAN = 6;
 // Rough "average row" estimate. The virtualizer measures real heights as
 // rows mount, so this only affects offscreen rows it has not seen yet.
@@ -2808,14 +2780,6 @@ function issueChatMessageAnchorId(message: ThreadMessage): string | null {
 
 function findMessageAnchorIndex(messages: readonly ThreadMessage[], anchorId: string): number {
   return messages.findIndex((message) => issueChatMessageAnchorId(message) === anchorId);
-}
-
-export function findLatestCommentMessageIndex(messages: readonly ThreadMessage[]): number {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const anchorId = issueChatMessageAnchorId(messages[index]);
-    if (anchorId && anchorId.startsWith("comment-")) return index;
-  }
-  return -1;
 }
 
 type VirtualizedVisibleAnchorSnapshot = {
@@ -2974,7 +2938,10 @@ function findScrollContainer(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
-const VirtualizedIssueChatThreadList = forwardRef<VirtualizedIssueChatThreadListHandle, VirtualizedIssueChatThreadListProps>(function VirtualizedIssueChatThreadList(props, ref) {
+function VirtualizedIssueChatThreadList({
+  ref,
+  ...props
+}: VirtualizedIssueChatThreadListProps & { ref?: Ref<VirtualizedIssueChatThreadListHandle> }) {
   const probeRef = useRef<HTMLDivElement | null>(null);
   // Default to window scroll on first render so the imperative handle is
   // available immediately for hash-target / submit-scroll effects. After mount
@@ -3012,17 +2979,15 @@ const VirtualizedIssueChatThreadList = forwardRef<VirtualizedIssueChatThreadList
       {...props}
     />
   );
-});
+}
 
 interface VirtualizedIssueChatThreadListInnerProps extends VirtualizedIssueChatThreadListProps {
   mode: VirtualizedScrollMode;
   probeRef: React.MutableRefObject<HTMLDivElement | null>;
+  ref?: Ref<VirtualizedIssueChatThreadListHandle>;
 }
 
-const VirtualizedIssueChatThreadListInner = forwardRef<
-  VirtualizedIssueChatThreadListHandle,
-  VirtualizedIssueChatThreadListInnerProps
->(function VirtualizedIssueChatThreadListInner({
+function VirtualizedIssueChatThreadListInner({
   messages,
   feedbackVoteByTargetId,
   activeRunIds,
@@ -3031,7 +2996,8 @@ const VirtualizedIssueChatThreadListInner = forwardRef<
   variant,
   mode,
   probeRef,
-}, ref) {
+  ref,
+}: VirtualizedIssueChatThreadListInnerProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const pendingPrependAnchorRef = useRef<VirtualizedVisibleAnchorSnapshot | null>(null);
@@ -3192,7 +3158,7 @@ const VirtualizedIssueChatThreadListInner = forwardRef<
       })}
     </div>
   );
-});
+}
 
 interface IssueChatMessageRowProps {
   message: ThreadMessage;
@@ -3263,18 +3229,19 @@ type DeferredIssueChatEditorProps = {
   onSubmit: () => void;
   imageUploadHandler?: (file: File) => Promise<string>;
   contentClassName?: string;
+  ref?: Ref<MarkdownEditorRef>;
 };
 
-const DeferredIssueChatEditor = forwardRef<MarkdownEditorRef, DeferredIssueChatEditorProps>(
-  function DeferredIssueChatEditor({
-    value,
-    onChange,
-    placeholder,
-    mentions,
-    onSubmit,
-    imageUploadHandler,
-    contentClassName,
-  }, forwardedRef) {
+function DeferredIssueChatEditor({
+  value,
+  onChange,
+  placeholder,
+  mentions,
+  onSubmit,
+  imageUploadHandler,
+  contentClassName,
+  ref: forwardedRef,
+}: DeferredIssueChatEditorProps) {
     const [loadRichEditor, setLoadRichEditor] = useState(false);
     const richEditorRef = useRef<MarkdownEditorRef | null>(null);
     const fallbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3344,26 +3311,26 @@ const DeferredIssueChatEditor = forwardRef<MarkdownEditorRef, DeferredIssueChatE
         />
       </Suspense>
     );
-  },
-);
+}
 
-const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerProps>(function IssueChatComposer({
+function IssueChatComposer({
   onAdd,
   onImageUpload,
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = [],
+  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = [],
+  mentions = EMPTY_MENTION_OPTIONS,
   agentMap,
   composerDisabledReason = null,
   composerHint = null,
   issueStatus,
   issueWorkMode,
   onWorkModeChange,
-}, forwardedRef) {
+  ref: forwardedRef,
+}: IssueChatComposerProps & { ref?: Ref<IssueChatComposerHandle> }) {
   const toastActions = useOptionalToastActions();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -3373,7 +3340,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
   const dragDepthRef = useRef(0);
   const effectiveSuggestedAssigneeValue = suggestedAssigneeValue ?? currentAssigneeValue;
   const [reassignTarget, setReassignTarget] = useState(effectiveSuggestedAssigneeValue);
-  const [unassignedConfirmed, setUnassignedConfirmed] = useState(false);
+  const unassignedConfirmedRef = useRef(false);
   const resolvedIssueWorkMode: IssueWorkMode = issueWorkMode ?? "standard";
   const [pendingWorkMode, setPendingWorkMode] = useState<IssueWorkMode>(resolvedIssueWorkMode);
   const [workModeMenuOpen, setWorkModeMenuOpen] = useState(false);
@@ -3409,9 +3376,11 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
   useEffect(() => {
     if (!draftKey) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
-    draftTimer.current = setTimeout(() => {
+    const timer = setTimeout(() => {
       saveDraft(draftKey, body);
     }, DRAFT_DEBOUNCE_MS);
+    draftTimer.current = timer;
+    return () => clearTimeout(timer);
   }, [body, draftKey]);
 
   useEffect(() => {
@@ -3425,7 +3394,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
   }, [effectiveSuggestedAssigneeValue]);
 
   useEffect(() => {
-    setUnassignedConfirmed(false);
+    unassignedConfirmedRef.current = false;
   }, [reassignTarget]);
 
   useEffect(() => {
@@ -3453,7 +3422,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
     if (
       composerHasAssigneePicker
       && isUnassignedReassignValue(reassignTarget)
-      && !unassignedConfirmed
+      && !unassignedConfirmedRef.current
     ) {
       toastActions?.pushToast({
         title: "No assignee selected",
@@ -3461,7 +3430,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
         tone: "warn",
         dedupeKey: `issue-chat-no-assignee:${draftKey ?? ""}`,
       });
-      setUnassignedConfirmed(true);
+      unassignedConfirmedRef.current = true;
       return;
     }
 
@@ -3477,7 +3446,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
     const workModeChanged = pendingWorkMode !== resolvedIssueWorkMode;
     setSubmitting(true);
     setBody("");
-    setUnassignedConfirmed(false);
+    unassignedConfirmedRef.current = false;
     try {
       if (workModeChanged && onWorkModeChange) {
         await onWorkModeChange(pendingWorkMode);
@@ -3574,9 +3543,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
     if (!files || files.length === 0) return;
     setAttaching(true);
     try {
-      for (const file of Array.from(files)) {
-        await attachFile(file);
-      }
+      await Promise.all(Array.from(files, attachFile));
     } finally {
       setAttaching(false);
     }
@@ -3651,8 +3618,8 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
           className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-sm border border-dashed border-primary/55 bg-background/75 px-4 py-3 text-center shadow-sm backdrop-blur-[2px] dark:bg-background/65"
         >
           <div className="flex max-w-md items-center gap-3 rounded-md bg-background/80 px-3 py-2 text-left shadow-sm ring-1 ring-border/60">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <Paperclip className="h-4 w-4" />
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Paperclip className="size-4" />
             </span>
             <div className="min-w-0">
               <div className="text-sm font-medium text-foreground">Drop to upload</div>
@@ -3707,11 +3674,11 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                 )}
               >
                 {attachment.status === "uploading" ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  <Loader2 className="size-3.5 shrink-0 animate-spin" />
                 ) : attachment.status === "attached" ? (
-                  <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                  <Check className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />
                 ) : (
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <AlertTriangle className="size-3.5 shrink-0" />
                 )}
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {attachment.name}
@@ -3735,7 +3702,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                 type="file"
                 className="hidden"
                 onChange={handleAttachFile}
-              />
+               aria-label="Attach file"/>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -3743,7 +3710,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                 disabled={attaching}
                 title="Attach file"
               >
-                <Paperclip className="h-4 w-4" />
+                <Paperclip className="size-4" />
               </Button>
             </>
           ) : null}
@@ -3756,7 +3723,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                   data-testid="issue-chat-composer-work-mode-menu"
                   title="More composer options"
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-44 p-1" align="start">
@@ -3774,9 +3741,9 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                   }}
                 >
                   {isPlanning ? (
-                    <Hammer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <Hammer className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   ) : (
-                    <ClipboardList className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+                    <ClipboardList className="size-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
                   )}
                   <span>{isPlanning ? "Switch to standard" : "Switch to planning"}</span>
                 </button>
@@ -3793,7 +3760,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
               onClick={() => setPendingWorkMode("standard")}
               className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/60 bg-amber-500/15 px-2 py-1 text-xs text-amber-800 transition-colors hover:bg-amber-500/25 dark:border-amber-500/50 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/25"
             >
-              <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+              <ClipboardList className="size-3.5" aria-hidden />
               <span>Planning</span>
             </button>
           ) : null}
@@ -3816,7 +3783,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
               return (
                 <>
                   {agent ? (
-                    <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                   ) : null}
                   <span className="truncate">{option.label}</span>
                 </>
@@ -3829,7 +3796,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
               return (
                 <>
                   {agent ? (
-                    <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                   ) : null}
                   <span className="truncate">{option.label}</span>
                 </>
@@ -3844,20 +3811,20 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
       </div>
     </div>
   );
-});
+}
 
 export function IssueChatThread({
   comments,
-  interactions = [],
-  feedbackVotes = [],
+  interactions = EMPTY_INTERACTIONS,
+  feedbackVotes = EMPTY_FEEDBACK_VOTES,
   feedbackDataSharingPreference = "prompt",
   feedbackTermsUrl = null,
-  linkedRuns = [],
-  timelineEvents = [],
-  liveRuns = [],
+  linkedRuns = EMPTY_LINKED_RUNS,
+  timelineEvents = EMPTY_TIMELINE_EVENTS,
+  liveRuns = EMPTY_LIVE_RUNS,
   activeRun = null,
   issueId = null,
-  blockedBy = [],
+  blockedBy = EMPTY_BLOCKED_BY,
   blockerAttention = null,
   successfulRunHandoff = null,
   scheduledRetry = null,
@@ -3882,10 +3849,10 @@ export function IssueChatThread({
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = [],
+  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = [],
+  mentions = EMPTY_MENTION_OPTIONS,
   composerDisabledReason = null,
   composerHint = null,
   showComposer = true,
@@ -3914,7 +3881,7 @@ export function IssueChatThread({
   onResumeFromBacklog,
   resumeFromBacklogPending = false,
 }: IssueChatThreadProps) {
-  const location = useLocation();
+  const routerLocation = useLocation();
   const lastScrolledHashRef = useRef<string | null>(null);
   const virtualizedThreadRef = useRef<VirtualizedIssueChatThreadListHandle | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -3949,7 +3916,7 @@ export function IssueChatThread({
         lastOutputBytes: activeRun.lastOutputBytes,
       });
     }
-    return [...deduped.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return Array.from(deduped.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [activeRun, liveRuns]);
   const transcriptRuns = useMemo(() => {
     return resolveIssueChatTranscriptRuns({
@@ -4159,7 +4126,7 @@ export function IssueChatThread({
   }, [messages]);
 
   useEffect(() => {
-    const hash = location.hash || (typeof window !== "undefined" ? window.location.hash : "");
+    const hash = routerLocation.hash || (typeof window !== "undefined" ? window.location.hash : "");
     if (
       !(
         hash.startsWith("#comment-")
@@ -4188,7 +4155,7 @@ export function IssueChatThread({
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [location.hash, messageAnchorIndex, messages, useVirtualizedThread]);
+  }, [routerLocation.hash, messageAnchorIndex, messages, useVirtualizedThread]);
 
   function jumpToLatestFallback() {
     if (useVirtualizedThread) {
@@ -4532,8 +4499,7 @@ export function IssueChatThread({
                                 {legacyRecoverySourceIssue.identifier}
                                 {legacyRecoverySourceIssue.title ? (
                                   <span className="text-muted-foreground">
-                                    {" "}
-                                    — {legacyRecoverySourceIssue.title}
+                                    {" "}, {legacyRecoverySourceIssue.title}
                                   </span>
                                 ) : null}
                               </Link>

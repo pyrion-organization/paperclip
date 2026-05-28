@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AdapterConfigFieldsProps } from "./types";
-import { Field, help } from "../components/agent-config-primitives";
+import { Field } from "../components/agent-config-primitives";
+import { help } from "../components/agent-config-primitives-data";
 
 // TODO(issue-worktree-support): re-enable this UI once the workflow is ready to ship.
 const SHOW_EXPERIMENTAL_ISSUE_WORKTREE_UI = false;
@@ -53,6 +54,11 @@ type JsonFieldProps = Pick<
   "isCreate" | "values" | "set" | "config" | "mark"
 >;
 
+type DraftOverride = {
+  source: string;
+  value: string;
+};
+
 export function RuntimeServicesJsonField({
   isCreate,
   values,
@@ -64,12 +70,27 @@ export function RuntimeServicesJsonField({
     return null;
   }
 
-  const existing = formatJsonObject(config.workspaceRuntime);
-  const [draft, setDraft] = useState(existing);
+  return (
+    <RuntimeServicesJsonFieldInner
+      isCreate={isCreate}
+      values={values}
+      set={set}
+      config={config}
+      mark={mark}
+    />
+  );
+}
 
-  useEffect(() => {
-    if (!isCreate) setDraft(existing);
-  }, [existing, isCreate]);
+function RuntimeServicesJsonFieldInner({
+  isCreate,
+  values,
+  set,
+  config,
+  mark,
+}: JsonFieldProps) {
+  const existing = formatJsonObject(config.workspaceRuntime);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride | null>(null);
+  const draft = draftOverride?.source === existing ? draftOverride.value : existing;
 
   const value = isCreate ? values?.runtimeServicesJson ?? "" : draft;
 
@@ -80,11 +101,11 @@ export function RuntimeServicesJsonField({
         value={value}
         onChange={(e) => {
           const next = e.target.value;
-          if (!isCreate) setDraft(next);
+          if (!isCreate) setDraftOverride({ source: existing, value: next });
           updateJsonConfig(isCreate, "runtimeServicesJson", next, set, mark, "workspaceRuntime");
         }}
         placeholder={`{\n  "services": [\n    {\n      "name": "preview",\n      "lifecycle": "ephemeral",\n      "metadata": {\n        "purpose": "remote preview"\n      }\n    }\n  ]\n}`}
-      />
+       aria-label="JSON value"/>
     </Field>
   );
 }
@@ -97,11 +118,8 @@ export function PayloadTemplateJsonField({
   mark,
 }: JsonFieldProps) {
   const existing = formatJsonObject(config.payloadTemplate);
-  const [draft, setDraft] = useState(existing);
-
-  useEffect(() => {
-    if (!isCreate) setDraft(existing);
-  }, [existing, isCreate]);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride | null>(null);
+  const draft = draftOverride?.source === existing ? draftOverride.value : existing;
 
   const value = isCreate ? values?.payloadTemplateJson ?? "" : draft;
 
@@ -112,11 +130,11 @@ export function PayloadTemplateJsonField({
         value={value}
         onChange={(e) => {
           const next = e.target.value;
-          if (!isCreate) setDraft(next);
+          if (!isCreate) setDraftOverride({ source: existing, value: next });
           updateJsonConfig(isCreate, "payloadTemplateJson", next, set, mark, "payloadTemplate");
         }}
         placeholder={`{\n  "agentId": "remote-agent-123",\n  "metadata": {\n    "team": "platform"\n  }\n}`}
-      />
+       aria-label="JSON value"/>
     </Field>
   );
 }

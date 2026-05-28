@@ -48,7 +48,8 @@ import {
   type RoutineRunDialogSubmitData,
 } from "../components/RoutineRunVariablesDialog";
 import { RoutineVariablesEditor, RoutineVariablesHint } from "../components/RoutineVariablesEditor";
-import { ScheduleEditor, describeSchedule } from "../components/ScheduleEditor";
+import { ScheduleEditor } from "../components/ScheduleEditor";
+import { describeSchedule } from "../components/schedule-editor-utils";
 import { RoutineScriptConfig } from "../components/RoutineScriptConfig";
 import { RunButton } from "../components/AgentActionButtons";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
@@ -173,9 +174,7 @@ function getUnusedTriggerConditionTypes(drafts: TriggerConditionDraft[]) {
 
 function describeProjectStatusCondition(statuses: ProjectStatus[]) {
   if (statuses.length === 0) return "Select statuses";
-  return projectStatusOptions
-    .filter((option) => statuses.includes(option.value))
-    .map((option) => option.label)
+  return projectStatusOptions.flatMap((option) => (statuses.includes(option.value)) ? [option.label] : [])
     .join(", ");
 }
 
@@ -195,11 +194,11 @@ function WeekdayPicker({ value, onChange }: { value: number[]; onChange: (days: 
         const active = value.includes(i);
         return (
           <button
-            key={i}
+            key={WEEKDAY_FULL[i]}
             type="button"
             aria-label={WEEKDAY_FULL[i]}
             aria-pressed={active}
-            className={`w-7 h-7 rounded text-xs font-medium border transition-colors ${
+            className={`size-7 rounded text-xs font-medium border transition-colors ${
               active
                 ? "bg-foreground text-background border-foreground"
                 : "bg-background text-muted-foreground border-border hover:border-foreground"
@@ -228,7 +227,7 @@ function ProjectStatusConditionValueEditor({
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" className="w-full justify-between" disabled={disabled}>
           <span className="truncate">{describeProjectStatusCondition(statuses)}</span>
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="size-4 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[240px] p-2">
@@ -329,7 +328,7 @@ function TriggerConditionsEditor({
                   disabled={disabled}
                   onClick={() => onChange(value.filter((entry) => entry.id !== condition.id))}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="size-3.5" />
                 </Button>
               </div>
             </div>
@@ -467,33 +466,15 @@ function TriggerEditor({
     timezone: trigger.timezone ?? getLocalTimezone(),
   });
 
-  useEffect(() => {
-    setDraft({
-      label: trigger.label ?? "",
-      conditions: triggerConditionsToDrafts(trigger.conditions),
-      cronExpression: trigger.cronExpression ?? "",
-      signingMode: trigger.signingMode ?? "bearer",
-      replayWindowSec: String(trigger.replayWindowSec ?? 300),
-      minIntervalSec: String(trigger.minIntervalSec ?? 3600),
-      maxIntervalSec: String(trigger.maxIntervalSec ?? 86400),
-      allowedWeekdays: trigger.allowedWeekdays ?? [1, 2, 3, 4, 5],
-      minTimeOfDayMin: minToHHMM(trigger.minTimeOfDayMin ?? 540),
-      maxTimeOfDayMin: minToHHMM(trigger.maxTimeOfDayMin ?? 1020),
-      minDaysAhead: String(trigger.minDaysAhead ?? 1),
-      maxDaysAhead: String(trigger.maxDaysAhead ?? 7),
-      timezone: trigger.timezone ?? getLocalTimezone(),
-    });
-  }, [trigger]);
-
   return (
     <div className="rounded-lg border border-border p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           {trigger.kind === "schedule" || trigger.kind === "random_cron_scheduler"
-            ? <Clock3 className="h-3.5 w-3.5" />
+            ? <Clock3 className="size-3.5" />
             : trigger.kind === "webhook"
-              ? <Webhook className="h-3.5 w-3.5" />
-              : <Zap className="h-3.5 w-3.5" />}
+              ? <Webhook className="size-3.5" />
+              : <Zap className="size-3.5" />}
           {trigger.label ?? trigger.kind}
         </div>
         <span className="text-xs text-muted-foreground">
@@ -666,7 +647,7 @@ function TriggerEditor({
         <div className="ml-auto flex items-center gap-2">
           {trigger.kind === "webhook" && (
             <Button variant="outline" size="sm" onClick={() => onRotate(trigger.id)}>
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              <RefreshCw className="mr-1.5 size-3.5" />
               Rotate secret
             </Button>
           )}
@@ -675,7 +656,7 @@ function TriggerEditor({
             size="sm"
             onClick={() => onSave(trigger.id, buildRoutineTriggerPatch(trigger, draft, getLocalTimezone()))}
           >
-            <Save className="mr-1.5 h-3.5 w-3.5" />
+            <Save className="mr-1.5 size-3.5" />
             Save trigger
           </Button>
           <Button
@@ -684,7 +665,7 @@ function TriggerEditor({
             className="text-muted-foreground hover:text-destructive"
             onClick={() => onDelete(trigger.id)}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -698,7 +679,7 @@ export function RoutineDetail() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const { pushToast } = useToastActions();
   const hydratedRoutineIdRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -760,7 +741,7 @@ export function RoutineDetail() {
     notificationEmail: "",
     env: null,
   });
-  const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
+  const activeTab = useMemo(() => getRoutineTabFromSearch(routerLocation.search), [routerLocation.search]);
 
   const { data: routine, isLoading, error } = useQuery({
     queryKey: queryKeys.routines.detail(routineId!),
@@ -936,7 +917,7 @@ export function RoutineDetail() {
 
   const setActiveTab = (value: string) => {
     if (!routineId || !isRoutineTab(value)) return;
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(routerLocation.search);
     if (value === "triggers") {
       params.delete("tab");
     } else {
@@ -945,7 +926,7 @@ export function RoutineDetail() {
     const search = params.toString();
     navigate(
       {
-        pathname: location.pathname,
+        pathname: routerLocation.pathname,
         search: search ? `?${search}` : "",
       },
       { replace: true },
@@ -1335,7 +1316,7 @@ export function RoutineDetail() {
                 }
               }
             }}
-          />
+           aria-label="Title"/>
           {routine.managedByPlugin ? (
             <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
               Managed by {routine.managedByPlugin.pluginDisplayName}
@@ -1391,14 +1372,14 @@ export function RoutineDetail() {
                 <div className="flex items-center gap-2">
                   <Input value={entry.webhookUrl} readOnly className="flex-1" />
                   <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook URL", entry.webhookUrl)}>
-                    <Copy className="h-3.5 w-3.5 mr-1" />
+                    <Copy className="size-3.5 mr-1" />
                     URL
                   </Button>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input value={entry.webhookSecret} readOnly className="flex-1" />
                   <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook secret", entry.webhookSecret)}>
-                    <Copy className="h-3.5 w-3.5 mr-1" />
+                    <Copy className="size-3.5 mr-1" />
                     Secret
                   </Button>
                 </div>
@@ -1493,7 +1474,7 @@ export function RoutineDetail() {
               option ? (
                 currentAssignee ? (
                   <>
-                    <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <AgentIcon icon={currentAssignee.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">{option.label}</span>
                   </>
                 ) : (
@@ -1508,7 +1489,7 @@ export function RoutineDetail() {
               const assignee = agentById.get(option.id);
               return (
                 <>
-                  {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                  {assignee ? <AgentIcon icon={assignee.icon} className="size-3.5 shrink-0 text-muted-foreground" /> : null}
                   <span className="truncate">{option.label}</span>
                 </>
               );
@@ -1533,7 +1514,7 @@ export function RoutineDetail() {
               option && currentProject ? (
                 <>
                   <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                    className="size-3.5 shrink-0 rounded-sm"
                     style={{ backgroundColor: currentProject.color ?? "#64748b" }}
                   />
                   <span className="truncate">{option.label}</span>
@@ -1548,7 +1529,7 @@ export function RoutineDetail() {
               return (
                 <>
                   <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                    className="size-3.5 shrink-0 rounded-sm"
                     style={{ backgroundColor: project?.color ?? "#64748b" }}
                   />
                   <span className="truncate">{option.label}</span>
@@ -1611,7 +1592,7 @@ export function RoutineDetail() {
                     option && currentProject ? (
                       <>
                         <span
-                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          className="size-3.5 shrink-0 rounded-sm"
                           style={{ backgroundColor: currentProject.color ?? "#64748b" }}
                         />
                         <span className="truncate">{option.label}</span>
@@ -1626,7 +1607,7 @@ export function RoutineDetail() {
                     return (
                       <>
                         <span
-                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          className="size-3.5 shrink-0 rounded-sm"
                           style={{ backgroundColor: project?.color ?? "#64748b" }}
                         />
                         <span className="truncate">{option.label}</span>
@@ -1639,13 +1620,14 @@ export function RoutineDetail() {
           )}
           {editDraft.executionMode === "bash_command" ? (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Bash command</label>
+              <label htmlFor="routine-edit-bash-command" className="text-xs font-medium">Bash command</label>
               <textarea
+                id="routine-edit-bash-command"
                 className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
                 placeholder={'echo "hello world" && date'}
                 value={editDraft.scriptPath}
                 onChange={(e) => setEditDraft((current) => ({ ...current, scriptPath: e.target.value }))}
-              />
+               aria-label="Script Path"/>
               <p className="text-xs text-muted-foreground">
                 Runs as <code className="font-mono">bash -c "…"</code>. Routine variables available as <code className="font-mono">ROUTINE_VAR_*</code> env vars.
               </p>
@@ -1690,7 +1672,7 @@ export function RoutineDetail() {
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
           <span className="text-sm font-medium">Advanced delivery settings</span>
-          {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          {advancedOpen ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-3">
           <div className="grid gap-4 md:grid-cols-2">
@@ -1767,7 +1749,7 @@ export function RoutineDetail() {
                         {(agents ?? []).map((agent) => (
                           <SelectItem key={agent.id} value={agent.id}>
                             <div className="flex items-center gap-2">
-                              <AgentIcon icon={agent.icon} className="h-4 w-4" />
+                              <AgentIcon icon={agent.icon} className="size-4" />
                               {agent.name}
                             </div>
                           </SelectItem>
@@ -1804,7 +1786,7 @@ export function RoutineDetail() {
           onClick={() => saveRoutine.mutate()}
           disabled={saveRoutine.isPending || !editDraft.title.trim()}
         >
-          <Save className="mr-2 h-4 w-4" />
+          <Save className="mr-2 size-4" />
           Save routine
         </Button>
       </div>
@@ -1815,24 +1797,24 @@ export function RoutineDetail() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="triggers" className="gap-1.5">
-            <Clock3 className="h-3.5 w-3.5" />
+            <Clock3 className="size-3.5" />
             Triggers
           </TabsTrigger>
           <TabsTrigger value="runs" className="gap-1.5">
-            <Play className="h-3.5 w-3.5" />
+            <Play className="size-3.5" />
             Runs
-            {hasLiveRun && <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />}
+            {hasLiveRun && <span className="size-2 rounded-full bg-blue-500 animate-pulse" />}
           </TabsTrigger>
 <TabsTrigger value="activity" className="gap-1.5">
-            <ActivityIcon className="h-3.5 w-3.5" />
+            <ActivityIcon className="size-3.5" />
             Activity
           </TabsTrigger>
           <TabsTrigger value="secrets" className="gap-1.5">
-            <KeyRound className="h-3.5 w-3.5" />
+            <KeyRound className="size-3.5" />
             Secrets
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-1.5">
-            <HistoryIcon className="h-3.5 w-3.5" />
+            <HistoryIcon className="size-3.5" />
             History
           </TabsTrigger>
         </TabsList>
@@ -2016,7 +1998,7 @@ export function RoutineDetail() {
             <div className="space-y-3">
               {routine.triggers.map((trigger) => (
                 <TriggerEditor
-                  key={trigger.id}
+                  key={`${trigger.id}:${JSON.stringify(trigger)}`}
                   trigger={trigger}
                   hasRoutineProject={Boolean(routine.projectId)}
                   onSave={(id, patch) => updateTrigger.mutate({ id, patch })}
@@ -2258,7 +2240,7 @@ export function RoutineDetail() {
           onClick={() => cloneRoutine.mutate()}
           disabled={cloneRoutine.isPending}
         >
-          <Copy className="mr-2 h-3.5 w-3.5" />
+          <Copy className="mr-2 size-3.5" />
           {cloneRoutine.isPending ? "Duplicating..." : "Duplicate routine"}
         </Button>
         {deleteConfirmStep === 0 ? (
@@ -2268,7 +2250,7 @@ export function RoutineDetail() {
             className="text-destructive border-destructive/40 hover:bg-destructive/10"
             onClick={() => setDeleteConfirmStep(1)}
           >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
+            <Trash2 className="mr-2 size-3.5" />
             Delete routine
           </Button>
         ) : (

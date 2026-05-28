@@ -23,7 +23,7 @@ export function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string | number): string {
   return new Date(date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -31,7 +31,7 @@ export function formatDate(date: Date | string): string {
   });
 }
 
-export function formatDateTime(date: Date | string): string {
+export function formatDateTime(date: Date | string | number): string {
   return new Date(date).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -41,14 +41,14 @@ export function formatDateTime(date: Date | string): string {
   });
 }
 
-export function formatShortDate(date: Date | string): string {
+export function formatShortDate(date: Date | string | number): string {
   return new Date(date).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
   });
 }
 
-export function relativeTime(date: Date | string): string {
+export function relativeTime(date: Date | string | number): string {
   const now = Date.now();
   const then = new Date(date).getTime();
   const diffSec = Math.round((now - then) / 1000);
@@ -198,7 +198,7 @@ export function readMetadataString(
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-export function readMetadataNumber(
+function readMetadataNumber(
   metadata: Record<string, unknown> | null | undefined,
   key: string,
 ): number | null {

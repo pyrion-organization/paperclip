@@ -3,7 +3,8 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CompanySettingsNav, getCompanySettingsTab } from "./CompanySettingsNav";
+import { CompanySettingsNav } from "./CompanySettingsNav";
+import { getCompanySettingsTab } from "./company-settings-nav-utils";
 
 let currentPathname = "/company/settings";
 const navigateMock = vi.hoisted(() => vi.fn());

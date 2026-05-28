@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createContext, useContext } from "react";
+import { createContext, use } from "react";
 
 export interface GeneralSettingsContextValue {
   keyboardShortcutsEnabled: boolean;
@@ -24,5 +24,5 @@ export function GeneralSettingsProvider({
 }
 
 export function useGeneralSettings() {
-  return useContext(GeneralSettingsContext);
+  return use(GeneralSettingsContext);
 }

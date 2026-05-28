@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Issue } from "@paperclipai/shared";
-import { buildIssuesSearchUrl, getNextIssuesPageOffset, mergeIssuePagesStable } from "./Issues";
+import { buildIssuesSearchUrl, getNextIssuesPageOffset, mergeIssuePagesStable } from "./issues-utils";
 
 function createIssue(id: string, title: string): Issue {
   return { id, title } as Issue;

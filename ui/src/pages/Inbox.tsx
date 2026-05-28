@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { INBOX_MINE_ISSUE_STATUS_FILTER } from "@paperclipai/shared/constants";
 import { approvalsApi } from "../api/approvals";
 import { accessApi } from "../api/access";
@@ -55,9 +55,9 @@ import {
   InboxIssueMetaLeading,
   InboxIssueTrailingColumns,
   IssueColumnPicker,
-  issueActivityText,
-  issueTrailingColumns,
 } from "../components/IssueColumns";
+import { issueActivityText, issueTrailingColumns } from "../components/issue-columns-utils";
+import { formatJoinRequestInboxLabel } from "./inbox-utils";
 import { IssueFiltersPopover } from "../components/IssueFiltersPopover";
 import { IssueRow } from "../components/IssueRow";
 import { BlockedInboxView } from "../components/BlockedInboxView";
@@ -66,7 +66,7 @@ import { SwipeToArchive } from "../components/SwipeToArchive";
 import { StatusIcon } from "../components/StatusIcon";
 import { cn } from "../lib/classnames";
 import { StatusBadge } from "../components/StatusBadge";
-import { approvalLabel, defaultTypeIcon, typeIcon } from "../components/ApprovalPayload";
+import { approvalLabel, defaultTypeIcon, typeIcon } from "../components/approval-payload-utils";
 import { timeAgo } from "../lib/timeAgo";
 import { Button } from "@/components/ui/button";
 import {
@@ -156,9 +156,8 @@ import {
   type InboxWorkItemGroupBy,
 } from "../lib/inbox";
 import { useDismissedInboxAlerts, useInboxDismissals, useReadInboxItems } from "../hooks/useInboxBadge";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
-export { InboxIssueMetaLeading, InboxIssueTrailingColumns } from "../components/IssueColumns";
-export { IssueGroupHeader as InboxGroupHeader } from "../components/IssueGroupHeader";
 type SectionKey =
   | "work_items"
   | "alerts";
@@ -198,40 +197,6 @@ function readIssueIdFromRun(run: HeartbeatRun): string | null {
 
   return null;
 }
-
-function nonEmptyLabel(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-export function formatJoinRequestInboxLabel(
-  joinRequest: Pick<
-    JoinRequest,
-    "requestType" | "agentName" | "requestEmailSnapshot" | "requestingUserId"
-  > & {
-    requesterUser?: {
-      name: string | null;
-      email: string | null;
-    } | null;
-  },
-) {
-  if (joinRequest.requestType !== "human") {
-    return `Agent join request${joinRequest.agentName ? `: ${joinRequest.agentName}` : ""}`;
-  }
-
-  const requesterName = nonEmptyLabel(joinRequest.requesterUser?.name);
-  const requesterEmail =
-    nonEmptyLabel(joinRequest.requesterUser?.email) ??
-    nonEmptyLabel(joinRequest.requestEmailSnapshot);
-  const requesterId = nonEmptyLabel(joinRequest.requestingUserId);
-
-  if (requesterName && requesterEmail) return `${requesterName} (${requesterEmail})`;
-  if (requesterEmail) return requesterEmail;
-  if (requesterName) return requesterName;
-  if (requesterId) return requesterId;
-  return "Human join request";
-}
-
 
 type NonIssueUnreadState = "visible" | "fading" | "hidden" | null;
 
@@ -277,19 +242,19 @@ export function FailedRunInboxRow({
     )}>
       <div className="flex items-start gap-2 sm:items-center">
         {showUnreadSlot ? (
-          <span className="hidden sm:inline-flex h-4 w-4 shrink-0 items-center justify-center self-center">
+          <span className="hidden sm:inline-flex size-4 shrink-0 items-center justify-center self-center">
             {showUnreadDot ? (
               <button
                 type="button"
                 onClick={onMarkRead}
                 className={cn(
-                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  "inline-flex size-4 items-center justify-center rounded-full transition-colors",
                   "hover:bg-blue-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  "block size-2 rounded-full transition-opacity duration-300",
                   "bg-blue-600 dark:bg-blue-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
@@ -299,13 +264,13 @@ export function FailedRunInboxRow({
                 type="button"
                 onClick={onArchive}
                 disabled={archiveDisabled}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+                className="inline-flex size-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Dismiss from inbox"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="size-3.5" />
               </button>
             ) : (
-              <span className="inline-flex h-4 w-4" aria-hidden="true" />
+              <span className="inline-flex size-4" aria-hidden="true" />
             )}
           </span>
         ) : null}
@@ -316,10 +281,10 @@ export function FailedRunInboxRow({
             selected ? "hover:bg-transparent" : "hover:bg-accent/50",
           )}
         >
-          {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
-          <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
+          {!showUnreadSlot && <span className="hidden size-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
+          <span className="hidden size-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
           <span className="mt-0.5 shrink-0 rounded-md bg-red-500/20 p-1.5 sm:mt-0">
-            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <XCircle className="size-4 text-red-600 dark:text-red-400" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="line-clamp-2 text-sm font-medium sm:truncate sm:line-clamp-none">
@@ -351,7 +316,7 @@ export function FailedRunInboxRow({
             onClick={onRetry}
             disabled={isRetrying}
           >
-            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            <RotateCcw className="mr-1.5 size-3.5" />
             {isRetrying ? "Retrying…" : "Retry"}
           </Button>
           {!showUnreadSlot && (
@@ -361,7 +326,7 @@ export function FailedRunInboxRow({
               className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100"
               aria-label="Dismiss"
             >
-              <X className="h-4 w-4" />
+              <X className="size-4" />
             </button>
           )}
         </div>
@@ -375,7 +340,7 @@ export function FailedRunInboxRow({
           onClick={onRetry}
           disabled={isRetrying}
         >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          <RotateCcw className="mr-1.5 size-3.5" />
           {isRetrying ? "Retrying…" : "Retry"}
         </Button>
         {!showUnreadSlot && (
@@ -385,7 +350,7 @@ export function FailedRunInboxRow({
             className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Dismiss"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         )}
       </div>
@@ -433,19 +398,19 @@ function ApprovalInboxRow({
     )}>
       <div className="flex items-start gap-2 sm:items-center">
         {showUnreadSlot ? (
-          <span className="hidden sm:inline-flex h-4 w-4 shrink-0 items-center justify-center self-center">
+          <span className="hidden sm:inline-flex size-4 shrink-0 items-center justify-center self-center">
             {showUnreadDot ? (
               <button
                 type="button"
                 onClick={onMarkRead}
                 className={cn(
-                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  "inline-flex size-4 items-center justify-center rounded-full transition-colors",
                   "hover:bg-blue-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  "block size-2 rounded-full transition-opacity duration-300",
                   "bg-blue-600 dark:bg-blue-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
@@ -455,13 +420,13 @@ function ApprovalInboxRow({
                 type="button"
                 onClick={onArchive}
                 disabled={archiveDisabled}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+                className="inline-flex size-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Dismiss from inbox"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="size-3.5" />
               </button>
             ) : (
-              <span className="inline-flex h-4 w-4" aria-hidden="true" />
+              <span className="inline-flex size-4" aria-hidden="true" />
             )}
           </span>
         ) : null}
@@ -472,10 +437,10 @@ function ApprovalInboxRow({
             selected ? "hover:bg-transparent" : "hover:bg-accent/50",
           )}
         >
-          {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
-          <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
+          {!showUnreadSlot && <span className="hidden size-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
+          <span className="hidden size-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
           <span className="mt-0.5 shrink-0 rounded-md bg-muted p-1.5 sm:mt-0">
-            <Icon className="h-4 w-4 text-muted-foreground" />
+            <Icon className="size-4 text-muted-foreground" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="line-clamp-2 text-sm font-medium sm:truncate sm:line-clamp-none">
@@ -569,19 +534,19 @@ function JoinRequestInboxRow({
     )}>
       <div className="flex items-start gap-2 sm:items-center">
         {showUnreadSlot ? (
-          <span className="hidden sm:inline-flex h-4 w-4 shrink-0 items-center justify-center self-center">
+          <span className="hidden sm:inline-flex size-4 shrink-0 items-center justify-center self-center">
             {showUnreadDot ? (
               <button
                 type="button"
                 onClick={onMarkRead}
                 className={cn(
-                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  "inline-flex size-4 items-center justify-center rounded-full transition-colors",
                   "hover:bg-blue-500/20",
                 )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  "block size-2 rounded-full transition-opacity duration-300",
                   "bg-blue-600 dark:bg-blue-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
@@ -591,21 +556,21 @@ function JoinRequestInboxRow({
                 type="button"
                 onClick={onArchive}
                 disabled={archiveDisabled}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+                className="inline-flex size-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Dismiss from inbox"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="size-3.5" />
               </button>
             ) : (
-              <span className="inline-flex h-4 w-4" aria-hidden="true" />
+              <span className="inline-flex size-4" aria-hidden="true" />
             )}
           </span>
         ) : null}
         <div className="flex min-w-0 flex-1 items-start gap-2">
-          {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
-          <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
+          {!showUnreadSlot && <span className="hidden size-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
+          <span className="hidden size-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
           <span className="mt-0.5 shrink-0 rounded-md bg-muted p-1.5 sm:mt-0">
-            <UserPlus className="h-4 w-4 text-muted-foreground" />
+            <UserPlus className="size-4 text-muted-foreground" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="line-clamp-2 text-sm font-medium sm:truncate sm:line-clamp-none">
@@ -666,7 +631,7 @@ export function Inbox() {
   const { openNewIssue } = useDialogActions();
   const { isMobile } = useSidebar();
   const navigate = useNavigate();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const { keyboardShortcutsEnabled } = useGeneralSettings();
@@ -690,7 +655,7 @@ export function Inbox() {
   const { readItems, markRead: markItemRead, markUnread: markItemUnread } = useReadInboxItems();
   const { allCategoryFilter, allApprovalFilter, issueFilters } = filterPreferences;
 
-  const pathSegment = location.pathname.split("/").pop() ?? "mine";
+  const pathSegment = routerLocation.pathname.split("/").pop() ?? "mine";
   const tab: InboxTab =
     pathSegment === "mine"
     || pathSegment === "recent"
@@ -704,10 +669,10 @@ export function Inbox() {
     () =>
       createIssueDetailLocationState(
         "Inbox",
-        `${location.pathname}${location.search}${location.hash}`,
+        `${routerLocation.pathname}${routerLocation.search}${routerLocation.hash}`,
         "inbox",
       ),
-    [location.pathname, location.search, location.hash],
+    [routerLocation.pathname, routerLocation.search, routerLocation.hash],
   );
 
   const { data: session } = useQuery({
@@ -930,7 +895,7 @@ export function Inbox() {
       }
     }
 
-    return [...options.values()].sort((a, b) => {
+    return Array.from(options.values()).sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "user" ? -1 : 1;
       return a.label.localeCompare(b.label);
     });
@@ -1358,7 +1323,7 @@ export function Inbox() {
     saveInboxWorkItemGroupBy(nextGroupBy);
   }, []);
 
-  const approveMutation = useMutation({
+  const approveMutation = useInvalidatingMutation({
     mutationFn: (id: string) => approvalsApi.approve(id),
     onSuccess: (_approval, id) => {
       setActionError(null);
@@ -1370,7 +1335,7 @@ export function Inbox() {
     },
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useInvalidatingMutation({
     mutationFn: (id: string) => approvalsApi.reject(id),
     onSuccess: () => {
       setActionError(null);
@@ -1381,7 +1346,7 @@ export function Inbox() {
     },
   });
 
-  const approveJoinMutation = useMutation({
+  const approveJoinMutation = useInvalidatingMutation({
     mutationFn: (joinRequest: JoinRequest) =>
       accessApi.approveJoinRequest(selectedCompanyId!, joinRequest.id),
     onSuccess: () => {
@@ -1396,7 +1361,7 @@ export function Inbox() {
     },
   });
 
-  const rejectJoinMutation = useMutation({
+  const rejectJoinMutation = useInvalidatingMutation({
     mutationFn: (joinRequest: JoinRequest) =>
       accessApi.rejectJoinRequest(selectedCompanyId!, joinRequest.id),
     onSuccess: () => {
@@ -1411,7 +1376,7 @@ export function Inbox() {
 
   const [retryingRunIds, setRetryingRunIds] = useState<Set<string>>(new Set());
 
-  const retryRunMutation = useMutation({
+  const retryRunMutation = useInvalidatingMutation({
     mutationFn: async (run: HeartbeatRun) => {
       const payload: Record<string, unknown> = {};
       const context = run.contextSnapshot as Record<string, unknown> | null;
@@ -1452,11 +1417,12 @@ export function Inbox() {
   const [fadingOutIssues, setFadingOutIssues] = useState<Set<string>>(new Set());
   const [showMarkAllReadConfirm, setShowMarkAllReadConfirm] = useState(false);
   const [archivingIssueIds, setArchivingIssueIds] = useState<Set<string>>(new Set());
-  const [undoableArchiveIssueIds, setUndoableArchiveIssueIds] = useState<string[]>([]);
-  const [unarchivingIssueIds, setUnarchivingIssueIds] = useState<Set<string>>(new Set());
+  const undoableArchiveIssueIdsRef = useRef<string[]>([]);
+  const unarchivingIssueIdsRef = useRef<Set<string>>(new Set());
   const [fadingNonIssueItems, setFadingNonIssueItems] = useState<Set<string>>(new Set());
   const [archivingNonIssueIds, setArchivingNonIssueIds] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [todayCutoff] = useState(() => Date.now() - 24 * 60 * 60 * 1000);
   const listRef = useRef<HTMLDivElement>(null);
 
   const invalidateInboxIssueQueries = () => {
@@ -1467,7 +1433,7 @@ export function Inbox() {
     queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(selectedCompanyId) });
   };
 
-  const archiveIssueMutation = useMutation({
+  const archiveIssueMutation = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.archiveFromInbox(id),
     onMutate: async (id) => {
       setActionError(null);
@@ -1518,36 +1484,34 @@ export function Inbox() {
       invalidateInboxIssueQueries();
     },
     onSuccess: (_data, id) => {
-      setUndoableArchiveIssueIds((prev) => [...prev.filter((issueId) => issueId !== id), id]);
+      undoableArchiveIssueIdsRef.current = [
+        ...undoableArchiveIssueIdsRef.current.filter((issueId) => issueId !== id),
+        id,
+      ];
     },
   });
 
-  const unarchiveIssueMutation = useMutation({
+  const unarchiveIssueMutation = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.unarchiveFromInbox(id),
     onMutate: (id) => {
       setActionError(null);
-      setUnarchivingIssueIds((prev) => new Set(prev).add(id));
+      unarchivingIssueIdsRef.current = new Set(unarchivingIssueIdsRef.current).add(id);
     },
     onError: (err) => {
       setActionError(err instanceof Error ? err.message : "Failed to undo inbox archive");
     },
     onSuccess: (_data, id) => {
-      setUndoableArchiveIssueIds((prev) => {
-        const next = prev.filter((issueId) => issueId !== id);
-        return next;
-      });
+      undoableArchiveIssueIdsRef.current = undoableArchiveIssueIdsRef.current.filter((issueId) => issueId !== id);
     },
     onSettled: (_data, _error, id) => {
-      setUnarchivingIssueIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      const next = new Set(unarchivingIssueIdsRef.current);
+      next.delete(id);
+      unarchivingIssueIdsRef.current = next;
       invalidateInboxIssueQueries();
     },
   });
 
-  const markReadMutation = useMutation({
+  const markReadMutation = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.markRead(id),
     onMutate: (id) => {
       setFadingOutIssues((prev) => new Set(prev).add(id));
@@ -1566,7 +1530,7 @@ export function Inbox() {
     },
   });
 
-  const markAllReadMutation = useMutation({
+  const markAllReadMutation = useInvalidatingMutation({
     mutationFn: async (issueIds: string[]) => {
       await Promise.all(issueIds.map((issueId) => issuesApi.markRead(issueId)));
     },
@@ -1591,7 +1555,7 @@ export function Inbox() {
     },
   });
 
-  const markUnreadMutation = useMutation({
+  const markUnreadMutation = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.markUnread(id),
     onSuccess: () => {
       invalidateInboxIssueQueries();
@@ -1641,8 +1605,8 @@ export function Inbox() {
   }, [flatNavItems.length]);
 
   useEffect(() => {
-    setUndoableArchiveIssueIds([]);
-    setUnarchivingIssueIds(new Set());
+    undoableArchiveIssueIdsRef.current = [];
+    unarchivingIssueIdsRef.current = new Set();
   }, [selectedCompanyId]);
 
   // Use refs for keyboard handler to avoid stale closures
@@ -1653,8 +1617,8 @@ export function Inbox() {
     canArchive: canArchiveFromTab,
     nonInboxSearchIssueIds,
     archivingIssueIds,
-    undoableArchiveIssueIds,
-    unarchivingIssueIds,
+    undoableArchiveIssueIds: undoableArchiveIssueIdsRef.current,
+    unarchivingIssueIds: unarchivingIssueIdsRef.current,
     archivingNonIssueIds,
     fadingOutIssues,
     readItems,
@@ -1666,8 +1630,8 @@ export function Inbox() {
     canArchive: canArchiveFromTab,
     nonInboxSearchIssueIds,
     archivingIssueIds,
-    undoableArchiveIssueIds,
-    unarchivingIssueIds,
+    undoableArchiveIssueIds: undoableArchiveIssueIdsRef.current,
+    unarchivingIssueIds: unarchivingIssueIdsRef.current,
     archivingNonIssueIds,
     fadingOutIssues,
     readItems,
@@ -1921,7 +1885,7 @@ export function Inbox() {
       <div className="space-y-2">
         {/* Search — full-width row on mobile, inline on desktop */}
         <div className="relative sm:hidden">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Search inbox…"
@@ -1969,7 +1933,7 @@ export function Inbox() {
 
         <div className="flex items-center gap-2">
           <div className="relative hidden sm:block">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
               placeholder="Search inbox…"
@@ -2010,7 +1974,7 @@ export function Inbox() {
                 enableRoutineVisibilityFilter
                 buttonVariant="outline"
                 iconOnly
-                workspaces={isolatedWorkspacesEnabled ? executionWorkspaces.filter((w) => w.mode === "isolated_workspace").map((w) => ({ id: w.id, name: w.name })) : undefined}
+                workspaces={isolatedWorkspacesEnabled ? executionWorkspaces.flatMap((w) => (w.mode === "isolated_workspace") ? [({ id: w.id, name: w.name })] : []) : undefined}
               />
               <Popover>
                 <PopoverTrigger asChild>
@@ -2018,10 +1982,10 @@ export function Inbox() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className={cn("h-8 w-8 shrink-0", blockedGroupBy !== "none" && "bg-accent")}
+                    className={cn("size-8 shrink-0", blockedGroupBy !== "none" && "bg-accent")}
                     title="Group"
                   >
-                    <Layers className="h-3.5 w-3.5" />
+                    <Layers className="size-3.5" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-44 p-0">
@@ -2037,7 +2001,7 @@ export function Inbox() {
                         onClick={() => setBlockedGroupBy(value)}
                       >
                         <span>{label}</span>
-                        {blockedGroupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+                        {blockedGroupBy === value ? <Check className="size-3.5" /> : null}
                       </button>
                     ))}
                   </div>
@@ -2057,10 +2021,10 @@ export function Inbox() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8 shrink-0"
+                    className="size-8 shrink-0"
                     title="Sort"
                   >
-                    <ArrowUpDown className="h-3.5 w-3.5" />
+                    <ArrowUpDown className="size-3.5" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-48 p-0">
@@ -2076,7 +2040,7 @@ export function Inbox() {
                         onClick={() => setBlockedSortBy(value)}
                       >
                         <span>{label}</span>
-                        {blockedSortBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+                        {blockedSortBy === value ? <Check className="size-3.5" /> : null}
                       </button>
                     ))}
                   </div>
@@ -2089,11 +2053,11 @@ export function Inbox() {
                 type="button"
                 variant="outline"
                 size="icon"
-                className={cn("hidden h-8 w-8 shrink-0 sm:inline-flex", nestingEnabled && "bg-accent")}
+                className={cn("hidden size-8 shrink-0 sm:inline-flex", nestingEnabled && "bg-accent")}
                 onClick={toggleNesting}
                 title={nestingEnabled ? "Disable parent-child nesting" : "Enable parent-child nesting"}
               >
-                <ListTree className="h-3.5 w-3.5" />
+                <ListTree className="size-3.5" />
               </Button>
               <IssueFiltersPopover
                 state={issueFilters}
@@ -2107,7 +2071,7 @@ export function Inbox() {
                 enableRoutineVisibilityFilter
                 buttonVariant="outline"
                 iconOnly
-                workspaces={isolatedWorkspacesEnabled ? executionWorkspaces.filter((w) => w.mode === "isolated_workspace").map((w) => ({ id: w.id, name: w.name })) : undefined}
+                workspaces={isolatedWorkspacesEnabled ? executionWorkspaces.flatMap((w) => (w.mode === "isolated_workspace") ? [({ id: w.id, name: w.name })] : []) : undefined}
               />
               <Popover>
                 <PopoverTrigger asChild>
@@ -2115,10 +2079,10 @@ export function Inbox() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className={cn("h-8 w-8 shrink-0", groupBy !== "none" && "bg-accent")}
+                    className={cn("size-8 shrink-0", groupBy !== "none" && "bg-accent")}
                     title="Group"
                   >
-                    <Layers className="h-3.5 w-3.5" />
+                    <Layers className="size-3.5" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-40 p-2">
@@ -2140,7 +2104,7 @@ export function Inbox() {
                         onClick={() => updateGroupBy(value)}
                       >
                         <span>{label}</span>
-                        {groupBy === value ? <Check className="h-3.5 w-3.5" /> : null}
+                        {groupBy === value ? <Check className="size-3.5" /> : null}
                       </button>
                     ))}
                   </div>
@@ -2320,7 +2284,7 @@ export function Inbox() {
                           ? "pointer-events-none -translate-x-4 scale-[0.98] opacity-0 transition-all duration-200 ease-out"
                           : "transition-all duration-200 ease-out"
                       }
-                      desktopMetaLeading={
+                      desktopMetaLeadingSlot={() => (
                         <>
                           {nestingEnabled ? (
                             depth === 0 && hasChildren && collapseParentId ? (
@@ -2334,7 +2298,7 @@ export function Inbox() {
                                   toggleInboxParentCollapse(collapseParentId);
                                 }}
                               >
-                                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-90")} />
+                                <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
                               </button>
                             ) : (
                               <span className="hidden w-4 shrink-0 sm:block" />
@@ -2348,14 +2312,14 @@ export function Inbox() {
                             showIdentifier={visibleIssueColumnSet.has("id") && availableIssueColumnSet.has("id")}
                           />
                         </>
-                      }
-                      titleSuffix={hasChildren && !isExpanded && depth === 0 ? (
+                      )}
+                      titleSuffixSlot={hasChildren && !isExpanded && depth === 0 ? () => (
                         <span className="ml-1.5 text-xs text-muted-foreground">
                           ({childCount} sub-task{childCount !== 1 ? "s" : ""})
                         </span>
                       ) : undefined}
                       mobileMeta={issueActivityText(issue).toLowerCase()}
-                      mobileLeading={
+                      mobileLeadingSlot={() => (
                         depth === 0 && hasChildren && collapseParentId ? (
                           <button
                             type="button"
@@ -2366,15 +2330,15 @@ export function Inbox() {
                               toggleInboxParentCollapse(collapseParentId);
                             }}
                           >
-                            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-90")} />
+                            <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
                           </button>
                         ) : undefined
-                      }
+                      )}
                       unreadState={isUnread ? "visible" : isFading ? "fading" : "hidden"}
                       onMarkRead={() => markReadMutation.mutate(issue.id)}
                       onArchive={allowArchive ? () => archiveIssueMutation.mutate(issue.id) : undefined}
                       archiveDisabled={isArchiving || archiveIssueMutation.isPending}
-                      desktopTrailing={
+                      desktopTrailingSlot={() => (
                         visibleTrailingIssueColumns.length > 0 ? (
                           <InboxIssueTrailingColumns
                             issue={issue}
@@ -2398,7 +2362,7 @@ export function Inbox() {
                             parentTitle={issue.parentId ? (issueById.get(issue.parentId)?.title ?? null) : null}
                           />
                         ) : undefined
-                      }
+                      )}
                     />
                   );
                 };
@@ -2432,12 +2396,19 @@ export function Inbox() {
                       <div
                         key={`group-${group.key}`}
                         data-inbox-item
+                        role="button"
+                        tabIndex={0}
                         className={cn(
                           "px-3 sm:px-4",
                           groupIndex > 0 && "pt-2",
                           isGroupSelected && "bg-accent/50",
                         )}
                         onClick={() => {
+                          if (groupNavIdx >= 0) setSelectedIndex(groupNavIdx);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
                           if (groupNavIdx >= 0) setSelectedIndex(groupNavIdx);
                         }}
                         onMouseEnter={() => {
@@ -2449,7 +2420,7 @@ export function Inbox() {
                           collapsible
                           collapsed={isGroupCollapsed}
                           onToggle={() => toggleGroupCollapse(group.key)}
-                          trailing={canCreateIssueInGroup ? (
+                          trailingSlot={canCreateIssueInGroup ? () => (
                             <Button
                               variant="ghost"
                               size="icon-xs"
@@ -2461,9 +2432,9 @@ export function Inbox() {
                                 openCreateIssueForGroup(group);
                               }}
                             >
-                              <Plus className="h-3 w-3" />
+                              <Plus className="size-3" />
                             </Button>
-                          ) : null}
+                          ) : undefined}
                         />
                       </div>,
                     );
@@ -2477,14 +2448,20 @@ export function Inbox() {
                       <div
                         key={`sel-${key}`}
                         data-inbox-item
+                        role="button"
+                        tabIndex={0}
                         className="relative"
                         onClick={() => setSelectedIndex(navIdx)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          setSelectedIndex(navIdx);
+                        }}
                         onMouseEnter={() => setSelectedIndex(navIdx)}
                       >
                         {child}
                       </div>
                     );
-                    const todayCutoff = Date.now() - 24 * 60 * 60 * 1000;
                     const showTodayDivider =
                       groupBy === "none" &&
                       item.timestamp > 0 &&
@@ -2504,16 +2481,17 @@ export function Inbox() {
                     const isSelected = selectedIndex === navIdx;
 
                     if (item.kind === "approval") {
-                      const approvalKey = `approval:${item.approval.id}`;
+                      const { approval } = item;
+                      const approvalKey = `approval:${approval.id}`;
                       const isArchiving = archivingNonIssueIds.has(approvalKey);
                       const row = (
                         <ApprovalInboxRow
                           key={approvalKey}
-                          approval={item.approval}
+                          approval={approval}
                           selected={isSelected}
-                          requesterName={agentName(item.approval.requestedByAgentId)}
-                          onApprove={() => approveMutation.mutate(item.approval.id)}
-                          onReject={() => rejectMutation.mutate(item.approval.id)}
+                          requesterName={agentName(approval.requestedByAgentId)}
+                          onApprove={() => approveMutation.mutate(approval.id)}
+                          onReject={() => rejectMutation.mutate(approval.id)}
                           isPending={approveMutation.isPending || rejectMutation.isPending}
                           unreadState={nonIssueUnreadState(approvalKey)}
                           onMarkRead={() => handleMarkNonIssueRead(approvalKey)}
@@ -2646,8 +2624,15 @@ export function Inbox() {
                           <div
                             key={`sel-issue:${child.id}`}
                             data-inbox-item
+                            role="button"
+                            tabIndex={0}
                             className="relative"
                             onClick={() => {
+                              if (childNavIdx >= 0) setSelectedIndex(childNavIdx);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
                               if (childNavIdx >= 0) setSelectedIndex(childNavIdx);
                             }}
                             onMouseEnter={() => {
@@ -2720,7 +2705,7 @@ export function Inbox() {
                     to="/agents"
                     className="flex flex-1 cursor-pointer items-center gap-3 no-underline text-inherit"
                   >
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                    <AlertTriangle className="size-4 shrink-0 text-red-600 dark:text-red-400" />
                     <span className="text-sm">
                       <span className="font-medium">{dashboard!.agents.error}</span>{" "}
                       {dashboard!.agents.error === 1 ? "agent has" : "agents have"} errors
@@ -2732,7 +2717,7 @@ export function Inbox() {
                     className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
                     aria-label="Dismiss"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="size-3.5" />
                   </button>
                 </div>
               )}
@@ -2742,7 +2727,7 @@ export function Inbox() {
                     to="/costs"
                     className="flex flex-1 cursor-pointer items-center gap-3 no-underline text-inherit"
                   >
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-400" />
+                    <AlertTriangle className="size-4 shrink-0 text-yellow-400" />
                     <span className="text-sm">
                       Budget at{" "}
                       <span className="font-medium">{dashboard!.costs.monthUtilizationPercent}%</span>{" "}
@@ -2755,7 +2740,7 @@ export function Inbox() {
                     className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
                     aria-label="Dismiss"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="size-3.5" />
                   </button>
                 </div>
               )}

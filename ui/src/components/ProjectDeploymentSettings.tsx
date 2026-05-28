@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PROJECT_INFRA_PROVIDER_DESCRIPTORS } from "@paperclipai/shared/constants";
 import type {
   Project,
@@ -17,6 +17,7 @@ import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, formatDate } from "../lib/utils";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const EMPTY_TARGET_FORM = {
   name: "",
@@ -132,8 +133,10 @@ function normalizeTargetPayload(form: typeof EMPTY_TARGET_FORM) {
     maintenanceUpdatesEnabled: form.maintenanceUpdatesEnabled,
     maintenanceRecipients: form.maintenanceRecipients
       .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
+      .flatMap((value) => {
+        const trimmed = value.trim();
+        return trimmed ? [trimmed] : [];
+      }),
   };
 }
 
@@ -179,7 +182,7 @@ function DeployCommandRecords({
     queryKey,
     queryFn: () => projectsApi.listDeployCommandRecords(projectId, event.id, companyId),
   });
-  const createRecord = useMutation({
+  const createRecord = useInvalidatingMutation({
     mutationFn: ({
       commandType,
       status,
@@ -207,7 +210,7 @@ function DeployCommandRecords({
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.deployEvents(projectId, companyId) });
     },
   });
-  const executeCommand = useMutation({
+  const executeCommand = useInvalidatingMutation({
     mutationFn: (commandType: "deploy" | "rollback") =>
       projectsApi.executeDeployCommand(projectId, event.id, { commandType }, companyId),
     onSuccess: () => {
@@ -260,7 +263,7 @@ function DeployCommandRecords({
                   disabled={executeCommand.isPending}
                   onClick={() => executeCommand.mutate("deploy")}
                 >
-                  {executeCommand.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {executeCommand.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
                   Execute deploy
                 </Button>
               ) : null}
@@ -303,7 +306,7 @@ function DeployCommandRecords({
                   disabled={executeCommand.isPending}
                   onClick={() => executeCommand.mutate("rollback")}
                 >
-                  {executeCommand.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  {executeCommand.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
                   Execute rollback
                 </Button>
               ) : null}
@@ -332,7 +335,7 @@ function DeployCommandRecords({
         </div>
       ) : null}
       {isLoading ? (
-        <div className="text-[11px] text-muted-foreground">Loading command records...</div>
+        <div className="text-[11px] text-muted-foreground">Loading command records&hellip;</div>
       ) : isError ? (
         <div className="text-[11px] text-destructive">Failed to load command records.</div>
       ) : records.length > 0 ? (
@@ -411,7 +414,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
     queryClient.invalidateQueries({ queryKey: infraActionProposalQueryKey });
   };
 
-  const createTarget = useMutation({
+  const createTarget = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       projectsApi.createDeploymentTarget(project.id, data, selectedCompanyId ?? undefined),
     onSuccess: () => {
@@ -419,7 +422,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const updateTarget = useMutation({
+  const updateTarget = useInvalidatingMutation({
     mutationFn: ({ targetId, data }: { targetId: string; data: Record<string, unknown> }) =>
       projectsApi.updateDeploymentTarget(project.id, targetId, data, selectedCompanyId ?? undefined),
     onSuccess: () => {
@@ -427,22 +430,22 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const removeTarget = useMutation({
+  const removeTarget = useInvalidatingMutation({
     mutationFn: (targetId: string) =>
       projectsApi.removeDeploymentTarget(project.id, targetId, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const updateDeployEventStatus = useMutation({
+  const updateDeployEventStatus = useInvalidatingMutation({
     mutationFn: ({ eventId, status }: { eventId: string; status: "deploying" | "deployed" | "failed" | "rolled_back" }) =>
       projectsApi.recordDeployEventStatus(project.id, eventId, { status }, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const sendMaintenanceMessage = useMutation({
+  const sendMaintenanceMessage = useInvalidatingMutation({
     mutationFn: (eventId: string) =>
       projectsApi.sendDeployMaintenanceMessage(project.id, eventId, {}, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const createInfraTarget = useMutation({
+  const createInfraTarget = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       projectsApi.createInfraTarget(project.id, data, selectedCompanyId ?? undefined),
     onSuccess: () => {
@@ -450,12 +453,12 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const removeInfraTarget = useMutation({
+  const removeInfraTarget = useInvalidatingMutation({
     mutationFn: (targetId: string) =>
       projectsApi.removeInfraTarget(project.id, targetId, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const createHealthCheck = useMutation({
+  const createHealthCheck = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       projectsApi.createInfraHealthCheck(project.id, data, selectedCompanyId ?? undefined),
     onSuccess: () => {
@@ -463,7 +466,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const recordHealthResult = useMutation({
+  const recordHealthResult = useInvalidatingMutation({
     mutationFn: ({
       healthCheckId,
       status,
@@ -481,7 +484,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       ),
     onSuccess: invalidate,
   });
-  const rotateExternalMonitorToken = useMutation({
+  const rotateExternalMonitorToken = useInvalidatingMutation({
     mutationFn: (healthCheckId: string) =>
       projectsApi.rotateInfraHealthExternalMonitorToken(project.id, healthCheckId, selectedCompanyId ?? undefined),
     onSuccess: (result) => {
@@ -489,7 +492,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const revokeExternalMonitorToken = useMutation({
+  const revokeExternalMonitorToken = useInvalidatingMutation({
     mutationFn: (healthCheckId: string) =>
       projectsApi.revokeInfraHealthExternalMonitorToken(project.id, healthCheckId, selectedCompanyId ?? undefined),
     onSuccess: (_result, healthCheckId) => {
@@ -497,17 +500,17 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       invalidate();
     },
   });
-  const updateIncident = useMutation({
+  const updateIncident = useInvalidatingMutation({
     mutationFn: ({ incidentId, status }: { incidentId: string; status: "investigating" | "resolved" | "ignored" }) =>
       projectsApi.updateInfraIncident(project.id, incidentId, { status }, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const createInfraActionProposal = useMutation({
+  const createInfraActionProposal = useInvalidatingMutation({
     mutationFn: ({ incidentId, data }: { incidentId: string; data: Record<string, unknown> }) =>
       projectsApi.createInfraActionProposal(project.id, incidentId, data, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
   });
-  const createInfraActionEvidence = useMutation({
+  const createInfraActionEvidence = useInvalidatingMutation({
     mutationFn: ({ proposalId, data }: { proposalId: string; data: Record<string, unknown> }) =>
       projectsApi.createInfraActionEvidence(project.id, proposalId, data, selectedCompanyId ?? undefined),
     onSuccess: invalidate,
@@ -590,49 +593,49 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={form.name}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Target name"
-          />
+           aria-label="Name"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={form.environment}
             onChange={(event) => setForm((current) => ({ ...current, environment: event.target.value }))}
             placeholder="production"
-          />
+           aria-label="Environment"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={form.provider}
             onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
             placeholder="manual"
-          />
+           aria-label="Provider"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={form.targetUrl}
             onChange={(event) => setForm((current) => ({ ...current, targetUrl: event.target.value }))}
             placeholder="https://app.example.com"
-          />
+           aria-label="Target Url"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={form.healthCheckUrl}
             onChange={(event) => setForm((current) => ({ ...current, healthCheckUrl: event.target.value }))}
             placeholder="https://app.example.com/health"
-          />
+           aria-label="Health Check Url"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs font-mono outline-none"
             value={form.deployCommand}
             onChange={(event) => setForm((current) => ({ ...current, deployCommand: event.target.value }))}
             placeholder="Deploy command descriptor"
-          />
+           aria-label="Deploy Command"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs font-mono outline-none"
             value={form.rollbackCommand}
             onChange={(event) => setForm((current) => ({ ...current, rollbackCommand: event.target.value }))}
             placeholder="Rollback command descriptor"
-          />
+           aria-label="Rollback Command"/>
           <label className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={form.commandExecutionEnabled}
               onChange={(event) => setForm((current) => ({ ...current, commandExecutionEnabled: event.target.checked }))}
-            />
+             aria-label="Command Execution Enabled"/>
             Allow approved command execution on Paperclip host
           </label>
           <input
@@ -640,13 +643,13 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={form.rollbackInstructions}
             onChange={(event) => setForm((current) => ({ ...current, rollbackInstructions: event.target.value }))}
             placeholder="Rollback instructions"
-          />
+           aria-label="Rollback Instructions"/>
           <label className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={form.maintenanceUpdatesEnabled}
               onChange={(event) => setForm((current) => ({ ...current, maintenanceUpdatesEnabled: event.target.checked }))}
-            />
+             aria-label="Maintenance Updates Enabled"/>
             Maintenance updates
           </label>
           <input
@@ -654,7 +657,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={form.maintenanceRecipients}
             onChange={(event) => setForm((current) => ({ ...current, maintenanceRecipients: event.target.value }))}
             placeholder="updates@example.com, ops@example.com"
-          />
+           aria-label="Maintenance Recipients"/>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -664,7 +667,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             disabled={!form.name.trim() || createTarget.isPending}
             onClick={submitTarget}
           >
-            {createTarget.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+            {createTarget.isPending ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Plus className="mr-1 size-3" />}
             Add target
           </Button>
           {createTarget.isError ? <span className="text-xs text-destructive">Failed to add target.</span> : null}
@@ -673,7 +676,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
 
       <div className="space-y-2">
         {targetsLoading ? (
-          <div className="text-xs text-muted-foreground">Loading deploy targets...</div>
+          <div className="text-xs text-muted-foreground">Loading deploy targets&hellip;</div>
         ) : targetsError ? (
           <div className="text-xs text-destructive">Failed to load deploy targets.</div>
         ) : targets.length === 0 ? (
@@ -730,7 +733,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                       }
                     }}
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="size-3" />
                   </Button>
                 </div>
               </div>
@@ -754,7 +757,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={infraForm.name}
             onChange={(event) => setInfraForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Infra target name"
-          />
+           aria-label="Name"/>
           <select
             className="rounded border border-border bg-background px-2 py-1 text-xs outline-none"
             value={infraForm.provider}
@@ -769,44 +772,44 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={infraForm.host}
             onChange={(event) => setInfraForm((current) => ({ ...current, host: event.target.value }))}
             placeholder="host or instance"
-          />
+           aria-label="Host"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.environment}
             onChange={(event) => setInfraForm((current) => ({ ...current, environment: event.target.value }))}
             placeholder="production"
-          />
+           aria-label="Environment"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.region}
             onChange={(event) => setInfraForm((current) => ({ ...current, region: event.target.value }))}
             placeholder="region"
-          />
+           aria-label="Region"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.role}
             onChange={(event) => setInfraForm((current) => ({ ...current, role: event.target.value }))}
             placeholder="app"
-          />
+           aria-label="Role"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.providerAccountRef}
             onChange={(event) => setInfraForm((current) => ({ ...current, providerAccountRef: event.target.value }))}
             placeholder="provider account ref"
-          />
+           aria-label="Provider Account Ref"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.failoverGroup}
             onChange={(event) => setInfraForm((current) => ({ ...current, failoverGroup: event.target.value }))}
             placeholder="failover group"
-          />
+           aria-label="Failover Group"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
             value={infraForm.failoverRank}
             onChange={(event) => setInfraForm((current) => ({ ...current, failoverRank: event.target.value }))}
             placeholder="rank"
             inputMode="numeric"
-          />
+           aria-label="Failover Rank"/>
         </div>
         <Button
           variant="outline"
@@ -815,7 +818,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
           disabled={!infraForm.name.trim() || createInfraTarget.isPending}
           onClick={submitInfraTarget}
         >
-          {createInfraTarget.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+          {createInfraTarget.isPending ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Plus className="mr-1 size-3" />}
           Add infra target
         </Button>
         {createInfraTarget.isError ? <span className="ml-2 text-xs text-destructive">Failed to add infra target.</span> : null}
@@ -823,7 +826,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
 
       <div className="space-y-2">
         {infraTargetsLoading ? (
-          <div className="text-xs text-muted-foreground">Loading infra targets...</div>
+          <div className="text-xs text-muted-foreground">Loading infra targets&hellip;</div>
         ) : infraTargetsError ? (
           <div className="text-xs text-destructive">Failed to load infra targets.</div>
         ) : infraTargets.length === 0 ? (
@@ -873,7 +876,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
                     }
                   }}
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="size-3" />
                 </Button>
               </div>
             </div>
@@ -889,7 +892,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             value={healthForm.name}
             onChange={(event) => setHealthForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Health check name"
-          />
+           aria-label="Name"/>
           <select
             className="rounded border border-border bg-background px-2 py-1 text-xs outline-none"
             value={healthForm.infraTargetId}
@@ -915,13 +918,13 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
             onChange={(event) => setHealthForm((current) => ({ ...current, expectedStatus: event.target.value }))}
             placeholder="200"
             inputMode="numeric"
-          />
+           aria-label="Expected Status"/>
           <input
             className="rounded border border-border bg-transparent px-2 py-1 text-xs outline-none md:col-span-3"
             value={healthForm.url}
             onChange={(event) => setHealthForm((current) => ({ ...current, url: event.target.value }))}
             placeholder="https://app.example.com/health"
-          />
+           aria-label="Url"/>
         </div>
         <Button
           variant="outline"
@@ -930,7 +933,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
           disabled={!healthForm.name.trim() || createHealthCheck.isPending}
           onClick={submitHealthCheck}
         >
-          {createHealthCheck.isPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+          {createHealthCheck.isPending ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Plus className="mr-1 size-3" />}
           Add health check
         </Button>
         {createHealthCheck.isError ? <span className="ml-2 text-xs text-destructive">Failed to add health check.</span> : null}
@@ -938,7 +941,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
 
       <div className="space-y-2">
         {healthChecksLoading ? (
-          <div className="text-xs text-muted-foreground">Loading health checks...</div>
+          <div className="text-xs text-muted-foreground">Loading health checks&hellip;</div>
         ) : healthChecksError ? (
           <div className="text-xs text-destructive">Failed to load health checks.</div>
         ) : healthChecks.length === 0 ? (
@@ -1032,7 +1035,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted-foreground">Infra incidents</div>
         {infraIncidentsLoading ? (
-          <div className="text-xs text-muted-foreground">Loading infra incidents...</div>
+          <div className="text-xs text-muted-foreground">Loading infra incidents&hellip;</div>
         ) : infraIncidentsError ? (
           <div className="text-xs text-destructive">Failed to load infra incidents.</div>
         ) : infraIncidents.length === 0 ? (
@@ -1118,7 +1121,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted-foreground">Infra action proposals</div>
         {infraActionProposalsLoading ? (
-          <div className="text-xs text-muted-foreground">Loading infra action proposals...</div>
+          <div className="text-xs text-muted-foreground">Loading infra action proposals&hellip;</div>
         ) : infraActionProposalsError ? (
           <div className="text-xs text-destructive">Failed to load infra action proposals.</div>
         ) : infraActionProposals.length === 0 ? (
@@ -1180,7 +1183,7 @@ export function ProjectDeploymentSettings({ project }: { project: Project }) {
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted-foreground">Deploy events</div>
         {eventsLoading ? (
-          <div className="text-xs text-muted-foreground">Loading deploy events...</div>
+          <div className="text-xs text-muted-foreground">Loading deploy events&hellip;</div>
         ) : eventsError ? (
           <div className="text-xs text-destructive">Failed to load deploy events.</div>
         ) : events.length === 0 ? (

@@ -121,7 +121,7 @@ export function BlockedInboxView({
                 key={rowIdx}
                 className="flex items-center gap-3 border-b border-border/60 px-3 py-2.5 sm:px-4"
               >
-                <div className="h-3.5 w-3.5 animate-pulse rounded-full bg-muted" />
+                <div className="size-3.5 animate-pulse rounded-full bg-muted" />
                 <div className="h-4 w-16 animate-pulse rounded bg-muted/70" />
                 <div className="h-4 w-32 animate-pulse rounded-md bg-muted/70" />
                 <div className="h-4 flex-1 animate-pulse rounded bg-muted/60" />
@@ -144,7 +144,7 @@ export function BlockedInboxView({
         className="flex flex-col gap-2 rounded-md border border-amber-300/70 bg-amber-50/90 p-4 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
       >
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <div className="flex-1 space-y-1">
             <p className="text-sm font-medium">Couldn't load the Blocked tab.</p>
             <p className="text-xs opacity-80">
@@ -172,8 +172,8 @@ export function BlockedInboxView({
         data-testid="blocked-inbox-empty"
         className="flex flex-col items-center gap-3 rounded-lg border border-border/70 bg-card/40 px-6 py-10 text-center"
       >
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+        <span className="inline-flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <CheckCircle2 className="size-5" aria-hidden="true" />
         </span>
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">No work is stopped.</p>
@@ -290,7 +290,36 @@ function BlockedInboxRow({
   const { label: ownerName, isAgent } = resolveOwnerName(row, agentNameById, userLabelById);
   const stoppedAge = formatStoppedAge(row.attention.stoppedSinceAt);
 
-  const desktopTrailing = (
+  const desktopMetaLeading = useMemo(
+    () => (
+      <BlockedRowDesktopMeta
+        row={row}
+        showStatusColumn={showStatusColumn}
+        showIdentifierColumn={showIdentifierColumn}
+      />
+    ),
+    [row, showIdentifierColumn, showStatusColumn],
+  );
+  const mobileLeading = useMemo(
+    () => (
+      <span className="flex shrink-0 items-center gap-1.5 pt-px">
+        <StatusIcon status={row.issue.status} blockerAttention={row.issue.blockerAttention} />
+      </span>
+    ),
+    [row.issue.blockerAttention, row.issue.status],
+  );
+  const titleSuffix = useMemo(
+    () => (
+      <BlockedReasonChip
+        reason={row.attention.reason}
+        severity={row.attention.severity}
+        className="ml-2 max-w-[12rem] align-middle sm:hidden"
+      />
+    ),
+    [row.attention.reason, row.attention.severity],
+  );
+
+  const desktopTrailing = useMemo(() => (
     <span className="flex shrink-0 items-center gap-3 text-xs">
       <span
         className="hidden w-[10.5rem] shrink-0 justify-start sm:inline-flex"
@@ -319,9 +348,9 @@ function BlockedInboxRow({
         </span>
       ) : null}
     </span>
-  );
+  ), [ownerName, row.attention.reason, row.attention.severity, showUpdatedColumn, stoppedAge]);
 
-  const mobileMeta = (
+  const mobileMeta = useMemo(() => (
     <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
       <span data-testid="blocked-row-age-mobile">{stoppedAge}</span>
       {ownerName ? (
@@ -336,31 +365,15 @@ function BlockedInboxRow({
         </>
       ) : null}
     </span>
-  );
+  ), [isAgent, ownerName, stoppedAge]);
 
   return (
     <IssueRow
       issue={row.issue}
       issueLinkState={issueLinkState}
-      desktopMetaLeading={
-        <BlockedRowDesktopMeta
-          row={row}
-          showStatusColumn={showStatusColumn}
-          showIdentifierColumn={showIdentifierColumn}
-        />
-      }
-      mobileLeading={
-        <span className="flex shrink-0 items-center gap-1.5 pt-px">
-          <StatusIcon status={row.issue.status} blockerAttention={row.issue.blockerAttention} />
-        </span>
-      }
-      titleSuffix={
-        <BlockedReasonChip
-          reason={row.attention.reason}
-          severity={row.attention.severity}
-          className="ml-2 max-w-[12rem] align-middle sm:hidden"
-        />
-      }
+      desktopMetaLeading={desktopMetaLeading}
+      mobileLeading={mobileLeading}
+      titleSuffix={titleSuffix}
       mobileMeta={mobileMeta}
       desktopTrailing={desktopTrailing}
     />

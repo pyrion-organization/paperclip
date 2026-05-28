@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { IssueDocument } from "@paperclipai/shared";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setDeferredMarkdownBodyLoaderForTest } from "./DeferredMarkdownBody";
+import { setDeferredMarkdownBodyLoaderForTest } from "./deferred-markdown-body-loader";
 import { IssueContinuationHandoff } from "./IssueContinuationHandoff";
 
 vi.mock("@/components/ui/button", () => ({

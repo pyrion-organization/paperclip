@@ -109,6 +109,7 @@ function mergeFrontmatter(markdown: string, body: string) {
 
 function buildTree(entries: CompanySkillFileInventoryEntry[]) {
   const root: SkillTreeNode = { name: "", path: null, kind: "dir", children: [] };
+  const nodesByPath = new Map<string, SkillTreeNode>([["", root]]);
 
   for (const entry of entries) {
     const segments = entry.path.split("/").filter(Boolean);
@@ -117,7 +118,7 @@ function buildTree(entries: CompanySkillFileInventoryEntry[]) {
     for (const [index, segment] of segments.entries()) {
       currentPath = currentPath ? `${currentPath}/${segment}` : segment;
       const isLeaf = index === segments.length - 1;
-      let next = current.children.find((child) => child.name === segment);
+      let next = nodesByPath.get(currentPath);
       if (!next) {
         next = {
           name: segment,
@@ -127,6 +128,7 @@ function buildTree(entries: CompanySkillFileInventoryEntry[]) {
           children: [],
         };
         current.children.push(next);
+        nodesByPath.set(currentPath, next);
       }
       current = next;
     }
@@ -264,7 +266,7 @@ function NewSkillForm({
   const [description, setDescription] = useState("");
 
   return (
-    <div className="border-b border-border px-4 py-4">
+    <div className="border-b border-border p-4">
       <div className="space-y-3">
         <Input
           value={name}
@@ -337,17 +339,17 @@ function SkillTree({
                   style={{ paddingLeft: `${SKILL_TREE_BASE_INDENT + depth * SKILL_TREE_STEP_INDENT}px` }}
                   onClick={() => node.path && onToggleDir(node.path)}
                 >
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                    {expanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    {expanded ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
                   </span>
                   <span className="truncate">{node.name}</span>
                 </button>
                 <button
                   type="button"
-                  className="flex h-9 w-9 items-center justify-center self-center rounded-sm text-muted-foreground opacity-70 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                  className="flex size-9 items-center justify-center self-center rounded-sm text-muted-foreground opacity-70 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
                   onClick={() => node.path && onToggleDir(node.path)}
                 >
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                 </button>
               </div>
               {expanded && (
@@ -378,8 +380,8 @@ function SkillTree({
             to={skillRoute(skillId, node.path)}
             onClick={() => node.path && onSelectPath(node.path)}
           >
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-              <FileIcon className="h-3.5 w-3.5" />
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <FileIcon className="size-3.5" />
             </span>
             <span className="truncate">{node.name}</span>
           </Link>
@@ -449,8 +451,8 @@ function SkillList({
                 <span className="flex min-w-0 items-center gap-2 self-center">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
-                        <SourceIcon className="h-3.5 w-3.5" />
+                      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
+                        <SourceIcon className="size-3.5" />
                         <span className="sr-only">{source.managedLabel}</span>
                       </span>
                     </TooltipTrigger>
@@ -463,11 +465,11 @@ function SkillList({
               </Link>
               <button
                 type="button"
-                className="flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                className="flex size-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
                 onClick={() => onToggleSkill(skill.id)}
                 aria-label={expanded ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
               >
-                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
               </button>
             </div>
             <div
@@ -569,7 +571,7 @@ function SkillPane({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 truncate text-2xl font-semibold">
-              <SourceIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <SourceIcon className="size-5 shrink-0 text-muted-foreground" />
               {detail.name}
             </h1>
             {detail.description && (
@@ -584,15 +586,15 @@ function SkillPane({
               disabled={deletePending}
               title={removeDisabledReason ?? undefined}
             >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              <Trash2 className="mr-1.5 size-3.5" />
               {deletePending ? "Removing..." : "Remove"}
             </Button>
             {detail.editable ? (
-              <button
+              <button type="button"
                 className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => setEditMode(!editMode)}
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <Pencil className="size-3.5" />
                 {editMode ? "Stop editing" : "Edit"}
               </button>
             ) : (
@@ -606,7 +608,7 @@ function SkillPane({
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Source</span>
               <span className="flex min-w-0 items-center gap-2">
-                <SourceIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                <SourceIcon className="size-3.5 text-muted-foreground" />
                 {detail.sourcePath && displaySourcePath ? (
                   <>
                     <span
@@ -620,9 +622,9 @@ function SkillPane({
                       copiedLabel="Copied path"
                       ariaLabel="Copy source path"
                       title="Copy source path"
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     </CopyText>
                   </>
                 ) : (
@@ -643,7 +645,7 @@ function SkillPane({
                   onClick={onCheckUpdates}
                   disabled={checkUpdatesPending || updateStatusLoading}
                 >
-                  <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", (checkUpdatesPending || updateStatusLoading) && "animate-spin")} />
+                  <RefreshCw className={cn("mr-1.5 size-3.5", (checkUpdatesPending || updateStatusLoading) && "animate-spin")} />
                   Check for updates
                 </Button>
                 {updateStatus?.supported && updateStatus.hasUpdate && (
@@ -652,7 +654,7 @@ function SkillPane({
                     onClick={onInstallUpdate}
                     disabled={installUpdatePending}
                   >
-                    <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", installUpdatePending && "animate-spin")} />
+                    <RefreshCw className={cn("mr-1.5 size-3.5", installUpdatePending && "animate-spin")} />
                     Install update{latestPin ? ` ${latestPin}` : ""}
                   </Button>
                 )}
@@ -702,21 +704,21 @@ function SkillPane({
           <div className="flex items-center gap-2">
             {file?.markdown && !editMode && (
               <div className="flex items-center border border-border">
-                <button
+                <button type="button"
                   className={cn("px-3 py-1.5 text-sm", viewMode === "preview" && "text-foreground", viewMode !== "preview" && "text-muted-foreground")}
                   onClick={() => setViewMode("preview")}
                 >
                   <span className="flex items-center gap-1.5">
-                    <Eye className="h-3.5 w-3.5" />
+                    <Eye className="size-3.5" />
                     View
                   </span>
                 </button>
-                <button
+                <button type="button"
                   className={cn("border-l border-border px-3 py-1.5 text-sm", viewMode === "code" && "text-foreground", viewMode !== "code" && "text-muted-foreground")}
                   onClick={() => setViewMode("code")}
                 >
                   <span className="flex items-center gap-1.5">
-                    <Code2 className="h-3.5 w-3.5" />
+                    <Code2 className="size-3.5" />
                     Code
                   </span>
                 </button>
@@ -728,7 +730,7 @@ function SkillPane({
                   Cancel
                 </Button>
                 <Button size="sm" onClick={onSave} disabled={savePending}>
-                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                  <Save className="mr-1.5 size-3.5" />
                   {savePending ? "Saving..." : "Save"}
                 </Button>
               </>
@@ -737,7 +739,7 @@ function SkillPane({
         </div>
       </div>
 
-      <div className="min-h-[560px] px-5 py-5">
+      <div className="min-h-[560px] p-5">
         {fileLoading ? (
           <PageSkeleton variant="detail" />
         ) : !file ? (
@@ -754,7 +756,7 @@ function SkillPane({
             <Textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              className="min-h-[520px] rounded-none border-0 bg-transparent px-0 py-0 font-mono text-sm shadow-none focus-visible:ring-0"
+              className="min-h-[520px] rounded-none border-0 bg-transparent p-0 font-mono text-sm shadow-none focus-visible:ring-0"
             />
           )
         ) : file.markdown && viewMode === "preview" ? (
@@ -1109,7 +1111,7 @@ export function CompanySkills() {
                 : "You are about to remove this skill."}
             </p>
             {deleteTargetDetail?.usedByAgents?.length ? (
-              <div className="rounded-md border border-border px-3 py-3 text-muted-foreground">
+              <div className="rounded-md border border-border p-3 text-muted-foreground">
                 Currently used by {deleteTargetDetail.usedByAgents.map((agent) => agent.name).join(", ")}.
               </div>
             ) : null}
@@ -1155,7 +1157,7 @@ export function CompanySkills() {
               href="https://skills.sh"
               target="_blank"
               rel="noreferrer"
-              className="flex items-start justify-between rounded-md border border-border px-3 py-3 text-foreground no-underline transition-colors hover:bg-accent/40"
+              className="flex items-start justify-between rounded-md border border-border p-3 text-foreground no-underline transition-colors hover:bg-accent/40"
             >
               <span>
                 <span className="block font-medium">Browse skills.sh</span>
@@ -1163,13 +1165,13 @@ export function CompanySkills() {
                   Find install commands and paste one here.
                 </span>
               </span>
-              <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <ExternalLink className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             </a>
             <a
               href="https://github.com/search?q=SKILL.md&type=code"
               target="_blank"
               rel="noreferrer"
-              className="flex items-start justify-between rounded-md border border-border px-3 py-3 text-foreground no-underline transition-colors hover:bg-accent/40"
+              className="flex items-start justify-between rounded-md border border-border p-3 text-foreground no-underline transition-colors hover:bg-accent/40"
             >
               <span>
                 <span className="block font-medium">Search GitHub</span>
@@ -1177,7 +1179,7 @@ export function CompanySkills() {
                   Look for repositories with `SKILL.md`, then paste the repo URL here.
                 </span>
               </span>
-              <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <ExternalLink className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             </a>
           </div>
           <DialogFooter showCloseButton />
@@ -1202,22 +1204,22 @@ export function CompanySkills() {
                   disabled={scanProjects.isPending}
                   title="Scan project workspaces for skills"
                 >
-                  <RefreshCw className={cn("h-4 w-4", scanProjects.isPending && "animate-spin")} />
+                  <RefreshCw className={cn("size-4", scanProjects.isPending && "animate-spin")} />
                 </Button>
                 <Button variant="ghost" size="icon-sm" onClick={() => setCreateOpen((value) => !value)}>
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                 </Button>
               </div>
             </div>
 
             <div className="mt-3 flex items-center gap-2 border-b border-border pb-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
+              <Search className="size-4 text-muted-foreground" />
               <input
                 value={skillFilter}
                 onChange={(event) => setSkillFilter(event.target.value)}
                 placeholder="Filter skills"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
+               aria-label="Skill Filter"/>
             </div>
 
             <div className="mt-3 flex items-center gap-2 border-b border-border pb-2">
@@ -1226,14 +1228,14 @@ export function CompanySkills() {
                 onChange={(event) => setSource(event.target.value)}
                 placeholder="Paste path, GitHub URL, or skills.sh command"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
+               aria-label="Source"/>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={handleAddSkillSource}
                 disabled={importSkill.isPending}
               >
-                {importSkill.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Add"}
+                {importSkill.isPending ? <RefreshCw className="size-4 animate-spin" /> : "Add"}
               </Button>
             </div>
             {scanStatusMessage && (

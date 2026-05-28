@@ -24,7 +24,7 @@ import {
   type PluginBridgeContextValue,
 } from "./bridge";
 import { initPluginBridge } from "./bridge-init";
-import { _createReactShimSourceForTests } from "./slots";
+import { _createReactShimSourceForTests } from "./slots-loader";
 
 const mockPluginsApi = vi.hoisted(() => ({
   bridgeGetData: vi.fn(),

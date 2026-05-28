@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 
-import { act, forwardRef, useImperativeHandle, useRef, type ReactNode } from "react";
+import { act, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const MarkdownEditorMock = forwardRef<
-  { focus: () => void },
-  { value: string; onChange: (value: string) => void }
->(function MarkdownEditorMock(props, ref) {
+function MarkdownEditorMock({
+  ref,
+  ...props
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  ref?: Ref<{ focus: () => void }>;
+}) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
@@ -20,10 +24,11 @@ const MarkdownEditorMock = forwardRef<
       onChange={(e) => props.onChange(e.target.value)}
     />
   );
-});
+}
 
-import { setDeferredMarkdownBodyLoaderForTest } from "./DeferredMarkdownBody";
-import { InlineEditor, queueContainedBlurCommit, setInlineMarkdownEditorLoaderForTest } from "./InlineEditor";
+import { setDeferredMarkdownBodyLoaderForTest } from "./deferred-markdown-body-loader";
+import { InlineEditor } from "./InlineEditor";
+import { queueContainedBlurCommit, setInlineMarkdownEditorLoaderForTest } from "./inline-editor-utils";
 
 /** Enter multiline edit mode by clicking the preview surface. */
 function enterMultilineEdit(container: HTMLDivElement) {
@@ -79,7 +84,9 @@ describe("InlineEditor", () => {
         <div data-testid="multiline-md-preview">{children}</div>
       ),
     }));
-    setInlineMarkdownEditorLoaderForTest(async () => ({ default: MarkdownEditorMock }));
+    setInlineMarkdownEditorLoaderForTest(async () => ({
+      default: MarkdownEditorMock as unknown as typeof import("./InlineMarkdownEditor")["default"],
+    }));
     container = document.createElement("div");
     document.body.appendChild(container);
   });

@@ -91,7 +91,7 @@ export function PathInstructionsModal({
               )}
               onClick={() => setPlatform(p.id)}
             >
-              <p.icon className="h-3.5 w-3.5" />
+              <p.icon className="size-3.5" />
               {p.label}
             </button>
           ))}
@@ -100,7 +100,7 @@ export function PathInstructionsModal({
         {/* Steps */}
         <ol className="space-y-2 text-sm">
           {current.steps.map((step, i) => (
-            <li key={i} className="flex gap-2">
+            <li key={step} className="flex gap-2">
               <span className="text-muted-foreground font-mono text-xs mt-0.5 shrink-0">
                 {i + 1}.
               </span>

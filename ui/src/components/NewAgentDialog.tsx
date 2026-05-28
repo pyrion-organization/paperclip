@@ -16,7 +16,7 @@ import {
   Bot,
 } from "lucide-react";
 import { cn } from "@/lib/classnames";
-import { listUIAdapters } from "../adapters";
+import { listUIAdapters } from "../adapters/registry";
 import { isVisualAdapterChoice } from "../adapters/metadata";
 import { getAdapterDisplay } from "../adapters/adapter-display-registry";
 import { useDisabledAdaptersSync } from "../adapters/use-disabled-adapters";
@@ -139,24 +139,24 @@ export function NewAgentDialog() {
             <>
               {/* Recommendation */}
               <div className="text-center space-y-3">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-accent">
-                  <Bot className="h-6 w-6 text-foreground" />
+                <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent">
+                  <Bot className="size-6 text-foreground" />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  We recommend letting your CEO handle agent setup — they know the
+                  We recommend letting your CEO handle agent setup, they know the
                   org structure and can configure reporting, permissions, and
                   adapters.
                 </p>
               </div>
 
               <Button className="w-full" size="lg" onClick={handleAskCeo}>
-                <Bot className="h-4 w-4 mr-2" />
+                <Bot className="size-4 mr-2" />
                 Ask the CEO to create a new agent
               </Button>
 
               {/* Advanced link */}
               <div className="text-center">
-                <button
+                <button type="button"
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
                   onClick={handleAdvancedConfig}
                 >
@@ -167,11 +167,11 @@ export function NewAgentDialog() {
           ) : (
             <>
               <div className="space-y-2">
-                <button
+                <button type="button"
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowAdvancedCards(false)}
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <ArrowLeft className="size-3.5" />
                   Back
                 </button>
                 <p className="text-sm text-muted-foreground">
@@ -181,7 +181,7 @@ export function NewAgentDialog() {
 
               <div className="grid grid-cols-2 gap-2">
                 {adapterGrid.map((opt) => (
-                  <button
+                  <button type="button"
                     key={opt.value}
                     className={cn(
                       "flex flex-col items-center gap-1.5 rounded-md border border-border p-3 text-xs transition-colors hover:bg-accent/50 relative",
@@ -198,7 +198,7 @@ export function NewAgentDialog() {
                         Recommended
                       </span>
                     )}
-                    <opt.icon className="h-4 w-4" />
+                    <opt.icon className="size-4" />
                     <span className="font-medium">{opt.label}</span>
                     <span className="text-muted-foreground text-[10px]">
                       {opt.desc}

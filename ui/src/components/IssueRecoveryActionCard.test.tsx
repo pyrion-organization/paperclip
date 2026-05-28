@@ -5,7 +5,8 @@ import { createRoot } from "react-dom/client";
 import type { AnchorHTMLAttributes, ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Agent, IssueRecoveryAction } from "@paperclipai/shared";
-import { IssueRecoveryActionCard, deriveRecoveryCardState } from "./IssueRecoveryActionCard";
+import { IssueRecoveryActionCard } from "./IssueRecoveryActionCard";
+import { deriveRecoveryCardState } from "./issue-recovery-action-card-utils";
 
 vi.mock("@/lib/router", () => ({
   Link: ({ children, to, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (

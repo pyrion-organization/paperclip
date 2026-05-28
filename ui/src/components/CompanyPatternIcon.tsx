@@ -174,12 +174,10 @@ export function CompanyPatternIcon({
   logoFit = "cover",
 }: CompanyPatternIconProps) {
   const initial = companyName.trim().charAt(0).toUpperCase() || "?";
-  const [imageError, setImageError] = useState(false);
+  const [imageError, setImageError] = useState<{ logoUrl: string | null } | null>(null);
   const [patternDataUrl, setPatternDataUrl] = useState("");
-  const logo = !imageError && typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
-  useEffect(() => {
-    setImageError(false);
-  }, [logoUrl]);
+  const candidateLogo = typeof logoUrl === "string" && logoUrl.trim().length > 0 ? logoUrl : null;
+  const logo = imageError?.logoUrl === candidateLogo ? null : candidateLogo;
 
   useEffect(() => {
     if (logo) {
@@ -214,7 +212,7 @@ export function CompanyPatternIcon({
   return (
     <div
       className={cn(
-        "relative flex items-center justify-center w-11 h-11 text-base font-semibold text-white overflow-hidden",
+        "relative flex items-center justify-center size-11 text-base font-semibold text-white overflow-hidden",
         className,
       )}
     >
@@ -222,9 +220,9 @@ export function CompanyPatternIcon({
         <img
           src={logo}
           alt={`${companyName} logo`}
-          onError={() => setImageError(true)}
+          onError={() => setImageError({ logoUrl: logo })}
           className={cn(
-            "absolute inset-0 h-full w-full",
+            "absolute inset-0 size-full",
             logoFit === "contain" ? "object-contain" : "object-cover",
           )}
         />
@@ -233,7 +231,7 @@ export function CompanyPatternIcon({
           src={patternDataUrl}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 h-full w-full"
+          className="absolute inset-0 size-full"
           style={{ imageRendering: "pixelated" }}
         />
       ) : (

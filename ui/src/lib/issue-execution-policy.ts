@@ -25,7 +25,7 @@ export function principalFromSelectionValue(value: string): IssueExecutionStageP
   return null;
 }
 
-export function selectionValueFromPrincipal(principal: IssueExecutionStagePrincipal | IssueExecutionStageParticipant): string {
+function selectionValueFromPrincipal(principal: IssueExecutionStagePrincipal | IssueExecutionStageParticipant): string {
   return principal.type === "agent" ? `agent:${principal.agentId}` : `user:${principal.userId}`;
 }
 

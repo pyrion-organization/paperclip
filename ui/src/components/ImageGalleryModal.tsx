@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import type { IssueAttachment } from "@paperclipai/shared";
@@ -19,10 +19,6 @@ export function ImageGalleryModal({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  useEffect(() => {
-    if (open) setCurrentIndex(initialIndex);
-  }, [open, initialIndex]);
-
   const goNext = useCallback(() => {
     setCurrentIndex((i) => (i + 1) % images.length);
   }, [images.length]);
@@ -31,16 +27,20 @@ export function ImageGalleryModal({
     setCurrentIndex((i) => (i - 1 + images.length) % images.length);
   }, [images.length]);
 
+  const handleGalleryKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === "ArrowRight") goNext();
+    else if (e.key === "ArrowLeft") goPrev();
+    else if (e.key === "Escape") onOpenChange(false);
+  });
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") goNext();
-      else if (e.key === "ArrowLeft") goPrev();
-      else if (e.key === "Escape") onOpenChange(false);
+      handleGalleryKeyDown(e);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, goNext, goPrev, onOpenChange]);
+  }, [open]);
 
   /** Close when clicking empty curtain space (not interactive elements or the image) */
   const handleBackdropClick = useCallback(
@@ -87,7 +87,7 @@ export function ImageGalleryModal({
                 title="Download"
                 onClick={(e) => e.stopPropagation()}
               >
-                <Download className="h-4.5 w-4.5" />
+                <Download className="size-4.5" />
               </a>
               <button
                 type="button"
@@ -95,7 +95,7 @@ export function ImageGalleryModal({
                 className="text-white/50 hover:text-white transition-colors"
                 title="Close"
               >
-                <X className="h-5 w-5" />
+                <X className="size-5" />
               </button>
             </div>
           </div>
@@ -111,7 +111,7 @@ export function ImageGalleryModal({
                   className="rounded-full bg-white/10 p-3 text-white/60 hover:text-white hover:bg-white/20 transition-colors"
                   title="Previous"
                 >
-                  <ChevronLeft className="h-7 w-7" />
+                  <ChevronLeft className="size-7" />
                 </button>
               )}
             </div>
@@ -136,7 +136,7 @@ export function ImageGalleryModal({
                   className="rounded-full bg-white/10 p-3 text-white/60 hover:text-white hover:bg-white/20 transition-colors"
                   title="Next"
                 >
-                  <ChevronRight className="h-7 w-7" />
+                  <ChevronRight className="size-7" />
                 </button>
               )}
             </div>

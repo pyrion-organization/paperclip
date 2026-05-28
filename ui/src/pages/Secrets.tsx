@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   AlertTriangle,
@@ -48,6 +48,13 @@ import {
   type SecretProviderHealthResponse,
   type UpdateSecretProviderConfigInput,
 } from "../api/secrets";
+import {
+  getAwsManagedPathPreview,
+  getCreateProviderBlockReason,
+  getDefaultProviderConfigId,
+  getProviderConfigBlockReason,
+  type CreateMode,
+} from "./secrets-utils";
 import { ApiError } from "../api/client";
 import { queryKeys } from "../lib/queryKeys";
 import { EmptyState } from "../components/EmptyState";
@@ -76,9 +83,13 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "../lib/classnames";
 import { PageTabBar } from "../components/PageTabBar";
 import { ImportFromVaultDialog } from "./secrets/ImportFromVaultDialog";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
-type CreateMode = "managed" | "external";
 type SecretsTab = "secrets" | "vaults";
+
+const EMPTY_SECRETS: CompanySecret[] = [];
+const EMPTY_SECRET_PROVIDERS: SecretProviderDescriptor[] = [];
+const EMPTY_PROVIDER_CONFIGS: CompanySecretProviderConfig[] = [];
 
 type ProviderVaultForm = {
   provider: SecretProvider;
@@ -195,16 +206,6 @@ function providerLabel(providers: SecretProviderDescriptor[] | undefined, id: Se
   return providers?.find((p) => p.id === id)?.label ?? id.replaceAll("_", " ");
 }
 
-function normalizeSecretKeyForPreview(input: string) {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
-}
-
-
 function modeLabel(managedMode: SecretManagedMode) {
   return managedMode === "paperclip_managed" ? "Paperclip-managed" : "Linked external";
 }
@@ -222,31 +223,6 @@ function healthEntryForProvider(
   return health?.providers.find((entry) => entry.provider === providerId) ?? null;
 }
 
-export function getCreateProviderBlockReason(
-  provider: SecretProviderDescriptor | null | undefined,
-  mode: CreateMode,
-  health: SecretProviderHealthResponse | null,
-) {
-  if (!provider) return "Select a provider.";
-  if (mode === "managed" && provider.supportsManagedValues === false) {
-    return `${provider.label} does not support Paperclip-managed secret values.`;
-  }
-  if (mode === "external" && provider.supportsExternalReferences === false) {
-    return `${provider.label} does not support linked external references.`;
-  }
-  if (provider.configured === false) {
-    const healthEntry = healthEntryForProvider(health, provider.id);
-    return healthEntry?.message
-      ? `${provider.label} is not configured in this deployment. ${healthEntry.message}`
-      : `${provider.label} is not configured in this deployment.`;
-  }
-  const healthEntry = healthEntryForProvider(health, provider.id);
-  if (healthEntry?.status === "error") {
-    return `${provider.label} health check failed: ${healthEntry.message}`;
-  }
-  return null;
-}
-
 function providerHealthText(
   provider: SecretProviderDescriptor | null | undefined,
   health: SecretProviderHealthResponse | null,
@@ -256,37 +232,6 @@ function providerHealthText(
   if (!entry) return null;
   const warnings = entry.warnings?.join(" ");
   return [entry.message, warnings].filter(Boolean).join(" ");
-}
-
-function detailString(details: Record<string, unknown> | undefined, key: string) {
-  const value = details?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function getProviderConfigBlockReason(
-  config: CompanySecretProviderConfig | null | undefined,
-) {
-  if (!config) return null;
-  if (config.status === "disabled") return "This provider vault is disabled.";
-  if (config.status === "coming_soon") return "This provider vault is saved as draft metadata only.";
-  if (config.healthStatus === "error") {
-    return config.healthMessage ?? "This provider vault health check failed.";
-  }
-  return null;
-}
-
-export function getDefaultProviderConfigId(
-  configs: CompanySecretProviderConfig[],
-  provider: SecretProvider,
-) {
-  const providerConfigs = configs.filter((config) => config.provider === provider);
-  const selectable = providerConfigs.filter((config) => !getProviderConfigBlockReason(config));
-  return (
-    selectable.find((config) => config.isDefault)?.id ??
-    selectable[0]?.id ??
-    providerConfigs.find((config) => config.isDefault)?.id ??
-    ""
-  );
 }
 
 function providerVaultLabel(configs: CompanySecretProviderConfig[], id: string | null | undefined) {
@@ -335,20 +280,6 @@ function getAwsProviderVaultDiscoveryQuery(form: ProviderVaultForm): string | nu
     form.ownerTag.trim() ||
     null
   );
-}
-
-export function getAwsManagedPathPreview(input: {
-  provider: SecretProviderDescriptor | null | undefined;
-  health: SecretProviderHealthResponse | null;
-  companyId: string;
-  secretKeySource: string;
-}) {
-  if (input.provider?.id !== "aws_secrets_manager") return null;
-  const healthEntry = healthEntryForProvider(input.health, "aws_secrets_manager");
-  const prefix = detailString(healthEntry?.details, "prefix") ?? "paperclip";
-  const deploymentId = detailString(healthEntry?.details, "deploymentId") ?? "{deploymentId}";
-  const secretKey = normalizeSecretKeyForPreview(input.secretKeySource) || "{secretKey}";
-  return `${prefix}/${deploymentId}/${input.companyId}/${secretKey}`;
 }
 
 export function Secrets() {
@@ -431,9 +362,9 @@ export function Secrets() {
     retry: false,
   });
 
-  const secrets = secretsQuery.data ?? [];
-  const providers = providersQuery.data ?? [];
-  const providerConfigs = providerConfigsQuery.data ?? [];
+  const secrets = secretsQuery.data ?? EMPTY_SECRETS;
+  const providers = providersQuery.data ?? EMPTY_SECRET_PROVIDERS;
+  const providerConfigs = providerConfigsQuery.data ?? EMPTY_PROVIDER_CONFIGS;
   const selectedSecret = useMemo(
     () => secrets.find((secret) => secret.id === selectedSecretId) ?? null,
     [secrets, selectedSecretId],
@@ -526,7 +457,7 @@ export function Secrets() {
     }
   }
 
-  const createMutation = useMutation({
+  const createMutation = useInvalidatingMutation({
     mutationFn: () => {
       const input: CreateSecretInput = {
         name: createForm.name.trim(),
@@ -564,7 +495,7 @@ export function Secrets() {
     },
   });
 
-  const rotateMutation = useMutation({
+  const rotateMutation = useInvalidatingMutation({
     mutationFn: () => {
       if (!selectedSecret) throw new Error("Select a secret first");
       if (selectedSecret.managedMode === "external_reference") {
@@ -592,7 +523,7 @@ export function Secrets() {
     },
   });
 
-  const statusMutation = useMutation({
+  const statusMutation = useInvalidatingMutation({
     mutationFn: ({ id, status }: { id: string; status: SecretStatus }) => {
       switch (status) {
         case "active":
@@ -618,7 +549,7 @@ export function Secrets() {
     },
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useInvalidatingMutation({
     mutationFn: (id: string) => secretsApi.remove(id),
     onSuccess: (_response, id) => {
       pushToast({ title: "Secret deleted", tone: "info" });
@@ -635,7 +566,7 @@ export function Secrets() {
     },
   });
 
-  const saveVaultMutation = useMutation({
+  const saveVaultMutation = useInvalidatingMutation({
     mutationFn: () => {
       const data: CreateSecretProviderConfigInput | UpdateSecretProviderConfigInput = {
         displayName: vaultForm.displayName.trim(),
@@ -664,7 +595,7 @@ export function Secrets() {
     },
   });
 
-  const discoverVaultMutation = useMutation({
+  const discoverVaultMutation = useInvalidatingMutation({
     mutationFn: () =>
       secretsApi.providerConfigDiscoveryPreview(selectedCompanyId!, {
         provider: "aws_secrets_manager",
@@ -682,7 +613,7 @@ export function Secrets() {
     },
   });
 
-  const disableVaultMutation = useMutation({
+  const disableVaultMutation = useInvalidatingMutation({
     mutationFn: (id: string) => secretsApi.disableProviderConfig(id),
     onSuccess: (updated) => {
       pushToast({ title: "Provider vault disabled", body: updated.displayName, tone: "info" });
@@ -697,7 +628,7 @@ export function Secrets() {
     },
   });
 
-  const removeVaultMutation = useMutation({
+  const removeVaultMutation = useInvalidatingMutation({
     mutationFn: (id: string) => secretsApi.removeProviderConfig(id),
     onSuccess: (removed) => {
       pushToast({
@@ -717,7 +648,7 @@ export function Secrets() {
     },
   });
 
-  const defaultVaultMutation = useMutation({
+  const defaultVaultMutation = useInvalidatingMutation({
     mutationFn: (id: string) => secretsApi.setDefaultProviderConfig(id),
     onSuccess: (updated) => {
       pushToast({ title: "Default vault set", body: updated.displayName, tone: "success" });
@@ -732,7 +663,7 @@ export function Secrets() {
     },
   });
 
-  const healthVaultMutation = useMutation({
+  const healthVaultMutation = useInvalidatingMutation({
     mutationFn: (id: string) => secretsApi.checkProviderConfigHealth(id),
     onSuccess: (health) => {
       pushToast({ title: "Health checked", body: health.message, tone: health.status === "error" ? "error" : "info" });
@@ -827,7 +758,7 @@ export function Secrets() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-center gap-2">
-        <KeyRound className="h-5 w-5 text-muted-foreground" />
+        <KeyRound className="size-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold">Secrets</h1>
       </div>
 
@@ -850,7 +781,7 @@ export function Secrets() {
           <SecretsHowToUse />
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-48 sm:w-64 md:w-80">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -875,13 +806,13 @@ export function Secrets() {
               className="ml-auto"
             />
             <Button onClick={() => setCreateOpen(true)} size="sm">
-              <Plus className="h-3.5 w-3.5 mr-1" /> New secret
+              <Plus className="size-3.5 mr-1" /> New secret
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {secretsQuery.isError ? (
               <div className="text-sm text-destructive flex items-center gap-2 py-4">
-                <AlertCircle className="h-4 w-4" /> Failed to load secrets:{" "}
+                <AlertCircle className="size-4" /> Failed to load secrets:{" "}
                 {(secretsQuery.error as Error).message}
                 <Button variant="ghost" size="sm" onClick={() => secretsQuery.refetch()}>
                   Retry
@@ -901,15 +832,17 @@ export function Secrets() {
               <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-2 py-2 text-left font-medium">Mode</th>
-                  <th className="px-2 py-2 text-left font-medium">Provider</th>
-                  <th className="px-2 py-2 text-left font-medium">Status</th>
-                  <th className="px-2 py-2 text-left font-medium">Version</th>
-                  <th className="px-2 py-2 text-left font-medium">Last rotated</th>
-                  <th className="px-2 py-2 text-left font-medium">Last resolved</th>
-                  <th className="px-2 py-2 text-left font-medium">References</th>
-                  <th className="px-2 py-2 text-left font-medium">Reference</th>
-                  <th className="px-3 py-2"></th>
+                  <th className="p-2 text-left font-medium">Mode</th>
+                  <th className="p-2 text-left font-medium">Provider</th>
+                  <th className="p-2 text-left font-medium">Status</th>
+                  <th className="p-2 text-left font-medium">Version</th>
+                  <th className="p-2 text-left font-medium">Last rotated</th>
+                  <th className="p-2 text-left font-medium">Last resolved</th>
+                  <th className="p-2 text-left font-medium">References</th>
+                  <th className="p-2 text-left font-medium">Reference</th>
+                  <th className="px-3 py-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -960,7 +893,7 @@ export function Secrets() {
                     <td className="px-2 py-2.5 text-xs">
                       {secret.managedMode === "external_reference" ? (
                         <span className="inline-flex items-center gap-1 font-mono text-muted-foreground">
-                          <Link2 className="h-3 w-3" />
+                          <Link2 className="size-3" />
                           {secret.externalRef ?? "—"}
                         </span>
                       ) : (
@@ -1016,7 +949,7 @@ export function Secrets() {
             <>
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2 text-base">
-                  <KeyRound className="h-4 w-4" />
+                  <KeyRound className="size-4" />
                   {selectedSecret.name}
                   <span className={cn("ml-2 text-sm font-normal", statusTextTone(selectedSecret.status))}>
                     {selectedSecret.status}
@@ -1041,7 +974,7 @@ export function Secrets() {
                     setRotateError(null);
                   }}
                 >
-                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                  <RefreshCw className="size-3.5 mr-1" />
                   {selectedSecret.managedMode === "external_reference" ? "Update reference" : "Update value"}
                 </Button>
                 {selectedSecret.status === "active" ? (
@@ -1051,7 +984,7 @@ export function Secrets() {
                     onClick={() => statusMutation.mutate({ id: selectedSecret.id, status: "disabled" })}
                     disabled={statusMutation.isPending}
                   >
-                    <Ban className="h-3.5 w-3.5 mr-1" /> Disable
+                    <Ban className="size-3.5 mr-1" /> Disable
                   </Button>
                 ) : (
                   <Button
@@ -1060,7 +993,7 @@ export function Secrets() {
                     onClick={() => statusMutation.mutate({ id: selectedSecret.id, status: "active" })}
                     disabled={statusMutation.isPending}
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Activate
+                    <CheckCircle2 className="size-3.5 mr-1" /> Activate
                   </Button>
                 )}
                 {selectedSecret.status === "archived" ? (
@@ -1070,7 +1003,7 @@ export function Secrets() {
                     onClick={() => statusMutation.mutate({ id: selectedSecret.id, status: "active" })}
                     disabled={statusMutation.isPending}
                   >
-                    <ArchiveRestore className="h-3.5 w-3.5 mr-1" /> Unarchive
+                    <ArchiveRestore className="size-3.5 mr-1" /> Unarchive
                   </Button>
                 ) : (
                   <Button
@@ -1079,7 +1012,7 @@ export function Secrets() {
                     onClick={() => statusMutation.mutate({ id: selectedSecret.id, status: "archived" })}
                     disabled={statusMutation.isPending}
                   >
-                    <Archive className="h-3.5 w-3.5 mr-1" /> Archive
+                    <Archive className="size-3.5 mr-1" /> Archive
                   </Button>
                 )}
                 <Button
@@ -1088,7 +1021,7 @@ export function Secrets() {
                   className="text-destructive hover:text-destructive"
                   onClick={() => setDeleteConfirm(selectedSecret)}
                 >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                  <Trash2 className="size-3.5 mr-1" /> Delete
                 </Button>
               </div>
               <Tabs value={secretDetailTab} onValueChange={setSecretDetailTab} className="flex-1 min-h-0 flex flex-col">
@@ -1239,7 +1172,7 @@ export function Secrets() {
               </select>
               {createProviderBlockReason ? (
                 <p className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
-                  <AlertCircle className="h-3 w-3" />
+                  <AlertCircle className="size-3" />
                   {createProviderBlockReason}
                 </p>
               ) : createProviderHealthText ? (
@@ -1353,7 +1286,7 @@ export function Secrets() {
                 (createMode === "managed" ? !createForm.value : !createForm.externalRef.trim())
               }
             >
-              {createMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {createMutation.isPending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
               {createMode === "managed" ? "Create secret" : "Link reference"}
             </Button>
           </DialogFooter>
@@ -1431,13 +1364,13 @@ export function Secrets() {
               <label className="flex items-center gap-2 pt-6 text-sm">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-border"
+                  className="size-4 rounded border-border"
                   checked={vaultForm.isDefault}
                   disabled={vaultForm.status === "coming_soon" || vaultForm.status === "disabled"}
                   onChange={(event) =>
                     setVaultForm((current) => ({ ...current, isDefault: event.target.checked }))
                   }
-                />
+                 aria-label="Is Default"/>
                 Default for {providerLabel(providers, vaultForm.provider)}
               </label>
             </div>
@@ -1482,7 +1415,7 @@ export function Secrets() {
                 (vaultForm.provider === "aws_secrets_manager" && !vaultForm.region.trim())
               }
             >
-              {saveVaultMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {saveVaultMutation.isPending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
               {editingVault ? "Save vault" : "Create vault"}
             </Button>
           </DialogFooter>
@@ -1574,7 +1507,7 @@ export function Secrets() {
                   : !rotateValue)
               }
             >
-              {rotateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {rotateMutation.isPending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
               {selectedSecret?.managedMode === "external_reference" ? "Update reference" : "Update value"}
             </Button>
           </DialogFooter>
@@ -1596,7 +1529,7 @@ export function Secrets() {
               onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}
               disabled={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {deleteMutation.isPending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
               Delete
             </Button>
           </DialogFooter>
@@ -1622,7 +1555,7 @@ export function Secrets() {
               onClick={() => removeVaultConfirm && removeVaultMutation.mutate(removeVaultConfirm.id)}
               disabled={removeVaultMutation.isPending}
             >
-              {removeVaultMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {removeVaultMutation.isPending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
               Remove from Paperclip
             </Button>
           </DialogFooter>
@@ -1635,7 +1568,7 @@ export function Secrets() {
 function SecretsHowToUse() {
   return (
     <div className="flex items-start gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <Info className="mt-0.5 size-3.5 shrink-0" />
       <div className="space-y-1">
         <p className="font-medium text-foreground">Use secrets by binding them to runtime environment variables.</p>
         <p>
@@ -1685,12 +1618,12 @@ function SecretsFiltersPopover({
         <Button
           variant="outline"
           size="icon"
-          className={cn("relative h-8 w-8 shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
+          className={cn("relative size-8 shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="size-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -1709,7 +1642,7 @@ function SecretsFiltersPopover({
                 className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 onClick={resetFilters}
               >
-                <X className="h-3 w-3" />
+                <X className="size-3" />
                 Clear
               </button>
             ) : null}
@@ -1734,8 +1667,9 @@ function SecretsFiltersPopover({
             <div className="space-y-1">
               <span className="text-xs text-muted-foreground">Provider</span>
               <div className="max-h-48 space-y-0.5 overflow-y-auto pr-1">
-                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                <label htmlFor="secret-provider-filter-all" className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                   <Checkbox
+                    id="secret-provider-filter-all"
                     checked={providerFilter === "all"}
                     onCheckedChange={() => onProviderChange("all")}
                   />
@@ -1802,7 +1736,7 @@ function ProviderVaultInlineWarning({ config }: { config: CompanySecretProviderC
   const warning = config.status === "warning" || config.healthStatus === "warning";
   return (
     <p className={cn("mt-1 flex items-center gap-1 text-[11px]", warning ? "text-amber-600 dark:text-amber-400" : "text-destructive")}>
-      {warning ? <AlertTriangle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+      {warning ? <AlertTriangle className="size-3" /> : <AlertCircle className="size-3" />}
       {message}
     </p>
   );
@@ -1839,7 +1773,7 @@ function ImportFromVaultButton({
         className={cn("text-xs text-muted-foreground", className)}
         title="Configure an AWS provider vault to enable remote import"
       >
-        <Cloud className="h-3.5 w-3.5 mr-1" /> AWS vault disabled — manage
+        <Cloud className="size-3.5 mr-1" /> AWS vault disabled, manage
       </Button>
     );
   }
@@ -1852,7 +1786,7 @@ function ImportFromVaultButton({
       className={className}
       data-testid="import-from-vault-button"
     >
-      <Cloud className="h-3.5 w-3.5 mr-1" /> Import from vault
+      <Cloud className="size-3.5 mr-1" /> Import from vault
     </Button>
   );
 }
@@ -1887,7 +1821,7 @@ export function ProviderVaultsTab({
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="size-4 animate-spin" />
         Loading provider vaults
       </div>
     );
@@ -1896,7 +1830,7 @@ export function ProviderVaultsTab({
   if (error) {
     return (
       <div className="py-4 text-sm text-destructive flex items-center gap-2">
-        <AlertCircle className="h-4 w-4" /> Failed to load provider vaults: {(error as Error).message}
+        <AlertCircle className="size-4" /> Failed to load provider vaults: {(error as Error).message}
         <Button variant="ghost" size="sm" onClick={onRetry}>
           Retry
         </Button>
@@ -1923,7 +1857,7 @@ export function ProviderVaultsTab({
               href={`#provider-vaults-${id}`}
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="size-4" />
               <span className="truncate">{provider?.label ?? id.replaceAll("_", " ")}</span>
             </a>
           ))}
@@ -1934,13 +1868,13 @@ export function ProviderVaultsTab({
         {providerRows.map(({ id, provider, Icon, isComingSoonFamily, configs }) => (
           <section key={id} id={`provider-vaults-${id}`} className={cn("scroll-mt-6 space-y-2", isComingSoonFamily && "opacity-50")}>
             <div className="flex flex-wrap items-center gap-2">
-              <Icon className="h-4 w-4 text-muted-foreground" />
+              <Icon className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">{provider?.label ?? id.replaceAll("_", " ")}</h2>
               {isComingSoonFamily ? (
                 <span className="ml-auto text-xs text-muted-foreground">Coming soon</span>
               ) : (
                 <Button variant="outline" size="sm" className="ml-auto" onClick={() => onCreate(id)}>
-                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  <Plus className="size-3.5 mr-1" />
                   Add vault
                 </Button>
               )}
@@ -2001,7 +1935,7 @@ function ProviderVaultCard({
             <h3 className="text-sm font-medium leading-snug">{config.displayName}</h3>
             {config.isDefault ? (
               <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
-                <Star className="h-3 w-3 fill-current" />
+                <Star className="size-3 fill-current" />
                 Default
               </span>
             ) : null}
@@ -2020,7 +1954,7 @@ function ProviderVaultCard({
           </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onEdit}>
-          <Edit3 className="h-3.5 w-3.5" />
+          <Edit3 className="size-3.5" />
         </Button>
       </div>
       {config.healthMessage || blockReason ? (
@@ -2037,7 +1971,7 @@ function ProviderVaultCard({
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={onHealthCheck} disabled={pending}>
-          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+          {pending ? <Loader2 className="size-3.5 animate-spin mr-1" /> : <RefreshCw className="size-3.5 mr-1" />}
           Check health
         </Button>
         <Button
@@ -2046,7 +1980,7 @@ function ProviderVaultCard({
           onClick={onSetDefault}
           disabled={pending || Boolean(blockReason) || config.isDefault}
         >
-          <Star className="h-3.5 w-3.5 mr-1" />
+          <Star className="size-3.5 mr-1" />
           Make default
         </Button>
         <Button
@@ -2056,7 +1990,7 @@ function ProviderVaultCard({
           onClick={onDisable}
           disabled={pending || config.status === "disabled"}
         >
-          <Ban className="h-3.5 w-3.5 mr-1" />
+          <Ban className="size-3.5 mr-1" />
           Disable
         </Button>
         <Button
@@ -2066,7 +2000,7 @@ function ProviderVaultCard({
           onClick={onRemove}
           disabled={pending}
         >
-          <Trash2 className="h-3.5 w-3.5 mr-1" />
+          <Trash2 className="size-3.5 mr-1" />
           Remove
         </Button>
       </div>
@@ -2090,10 +2024,10 @@ function ProviderVaultFields({
       <label className="flex items-start gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm">
         <input
           type="checkbox"
-          className="mt-0.5 h-4 w-4 rounded border-border"
+          className="mt-0.5 size-4 rounded border-border"
           checked={form.backupReminderAcknowledged}
           onChange={(event) => setField("backupReminderAcknowledged", event.target.checked)}
-        />
+         aria-label="Backup Reminder Acknowledged"/>
         <span>
           I understand backup and restore require both the database metadata and the local encrypted master key file.
         </span>
@@ -2171,9 +2105,9 @@ function AwsProviderVaultDiscoveryPanel({
           data-testid="aws-vault-discovery-button"
         >
           {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+            <Loader2 className="size-3.5 animate-spin mr-1" />
           ) : (
-            <Search className="h-3.5 w-3.5 mr-1" />
+            <Search className="size-3.5 mr-1" />
           )}
           Find existing AWS values
         </Button>
@@ -2185,7 +2119,7 @@ function AwsProviderVaultDiscoveryPanel({
 
       {loading ? (
         <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="size-3.5 animate-spin" />
           Searching AWS Secrets Manager metadata
         </div>
       ) : null}
@@ -2195,7 +2129,7 @@ function AwsProviderVaultDiscoveryPanel({
           className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
           role="alert"
         >
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
@@ -2204,7 +2138,7 @@ function AwsProviderVaultDiscoveryPanel({
         <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
           {warnings.map((warning) => (
             <div key={warning} className="flex gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <span>{warning}</span>
             </div>
           ))}
@@ -2220,7 +2154,7 @@ function AwsProviderVaultDiscoveryPanel({
       {preview && preview.candidates.length > 0 ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Database className="h-3.5 w-3.5" />
+            <Database className="size-3.5" />
             <span>
               {preview.candidates.length} candidate{preview.candidates.length === 1 ? "" : "s"} from{" "}
               {preview.sampledSecretCount} sampled secret{preview.sampledSecretCount === 1 ? "" : "s"}
@@ -2281,7 +2215,7 @@ function AwsProviderVaultDiscoveryCandidateRow({
         <div className="mt-2 space-y-1 text-xs text-amber-700 dark:text-amber-300">
           {candidate.warnings.map((warning) => (
             <div key={warning} className="flex gap-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <span>{warning}</span>
             </div>
           ))}
@@ -2326,7 +2260,7 @@ function SecretDetailsTab({
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
       <DetailRow label="Description">
-        <span>{secret.description ?? <span className="text-muted-foreground">—</span>}</span>
+        <span>{secret.description ?? <span className="text-muted-foreground"> - </span>}</span>
       </DetailRow>
       <DetailRow label="Custody">{modeLabel(secret.managedMode)}</DetailRow>
       <DetailRow label="Provider">{secret.provider.replaceAll("_", " ")}</DetailRow>
@@ -2342,7 +2276,7 @@ function SecretDetailsTab({
             {secret.managedMode === "external_reference" ? "Linked provider reference" : "Provider-managed path"}
           </dt>
           <dd className="font-mono text-xs break-all flex items-center gap-1">
-            <ExternalLink className="h-3 w-3" /> {secret.externalRef}
+            <ExternalLink className="size-3" /> {secret.externalRef}
           </dd>
         </div>
       ) : null}

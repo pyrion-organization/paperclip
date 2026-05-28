@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { accessApi } from "../api/access";
@@ -38,6 +38,7 @@ import { cn } from "../lib/classnames";
 import { MarkdownEditor, type MarkdownEditorRef, type MentionOption } from "./MarkdownEditor";
 import { StatusBadge } from "./StatusBadge";
 import { ChoosePathButton } from "./PathInstructionsModal";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const projectStatuses = [
   { value: "backlog", label: "Backlog" },
@@ -90,12 +91,12 @@ export function NewProjectDialog() {
     });
   }, [agents, companyMembers?.users]);
 
-  const createProject = useMutation({
+  const createProject = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       projectsApi.create(selectedCompanyId!, data),
   });
 
-  const uploadDescriptionImage = useMutation({
+  const uploadDescriptionImage = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) throw new Error("No company selected");
       return assetsApi.uploadImage(selectedCompanyId, file, "projects/drafts");
@@ -233,7 +234,7 @@ export function NewProjectDialog() {
               className="text-muted-foreground"
               onClick={() => setExpanded(!expanded)}
             >
-              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
             </Button>
             <Button
               variant="ghost"
@@ -259,8 +260,7 @@ export function NewProjectDialog() {
                 descriptionEditorRef.current?.focus();
               }
             }}
-            autoFocus
-          />
+           aria-label="Name"/>
         </div>
 
         {/* Description */}
@@ -283,11 +283,11 @@ export function NewProjectDialog() {
         <div className="px-4 pt-3 pb-3 space-y-3 border-t border-border">
           <div>
             <div className="mb-1 flex items-center gap-1.5">
-              <label className="block text-xs text-muted-foreground">Repo URL</label>
+              <label htmlFor="new-project-repo-url" className="block text-xs text-muted-foreground">Repo URL</label>
               <span className="text-xs text-muted-foreground/50">optional</span>
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
-                  <HelpCircle className="h-3 w-3 text-muted-foreground/50 cursor-help" />
+                  <HelpCircle className="size-3 text-muted-foreground/50 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[240px] text-xs">
                   Link a GitHub repository so agents can clone, read, and push code for this project.
@@ -295,20 +295,21 @@ export function NewProjectDialog() {
               </Tooltip>
             </div>
             <input
+              id="new-project-repo-url"
               className="w-full rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
               value={workspaceRepoUrl}
               onChange={(e) => { setWorkspaceRepoUrl(e.target.value); setWorkspaceError(null); }}
               placeholder="https://github.com/org/repo"
-            />
+             aria-label="Workspace Repo Url"/>
           </div>
 
           <div>
             <div className="mb-1 flex items-center gap-1.5">
-              <label className="block text-xs text-muted-foreground">Local folder</label>
+              <label htmlFor="new-project-local-folder" className="block text-xs text-muted-foreground">Local folder</label>
               <span className="text-xs text-muted-foreground/50">optional</span>
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
-                  <HelpCircle className="h-3 w-3 text-muted-foreground/50 cursor-help" />
+                  <HelpCircle className="size-3 text-muted-foreground/50 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[240px] text-xs">
                   Set an absolute path on this machine where local agents will read and write files for this project.
@@ -317,11 +318,12 @@ export function NewProjectDialog() {
             </div>
             <div className="flex items-center gap-2">
               <input
+                id="new-project-local-folder"
                 className="w-full rounded border border-border bg-transparent px-2 py-1 text-xs font-mono outline-none"
                 value={workspaceLocalPath}
                 onChange={(e) => { setWorkspaceLocalPath(e.target.value); setWorkspaceError(null); }}
                 placeholder="/absolute/path/to/workspace"
-              />
+               aria-label="Workspace Local Path"/>
               <ChoosePathButton />
             </div>
           </div>
@@ -336,13 +338,13 @@ export function NewProjectDialog() {
           {/* Status */}
           <Popover open={statusOpen} onOpenChange={setStatusOpen}>
             <PopoverTrigger asChild>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors">
                 <StatusBadge status={status} />
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-40 p-1" align="start">
               {projectStatuses.map((s) => (
-                <button
+                <button type="button"
                   key={s.value}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -361,7 +363,7 @@ export function NewProjectDialog() {
               key={goal.id}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"
             >
-              <Target className="h-3 w-3 text-muted-foreground" />
+              <Target className="size-3 text-muted-foreground" />
               <span className="max-w-[160px] truncate">{goal.title}</span>
               <button
                 className="text-muted-foreground hover:text-foreground"
@@ -369,24 +371,24 @@ export function NewProjectDialog() {
                 aria-label={`Remove goal ${goal.title}`}
                 type="button"
               >
-                <X className="h-3 w-3" />
+                <X className="size-3" />
               </button>
             </span>
           ))}
 
           <Popover open={goalOpen} onOpenChange={setGoalOpen}>
             <PopoverTrigger asChild>
-              <button
+              <button type="button"
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors disabled:opacity-60"
                 disabled={selectedGoals.length > 0 && availableGoals.length === 0}
               >
-                {selectedGoals.length > 0 ? <Plus className="h-3 w-3 text-muted-foreground" /> : <Target className="h-3 w-3 text-muted-foreground" />}
+                {selectedGoals.length > 0 ? <Plus className="size-3 text-muted-foreground" /> : <Target className="size-3 text-muted-foreground" />}
                 {selectedGoals.length > 0 ? "+ Goal" : "Goal"}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-56 p-1" align="start">
               {selectedGoals.length === 0 && (
-                <button
+                <button type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-muted-foreground"
                   onClick={() => setGoalOpen(false)}
                 >
@@ -394,7 +396,7 @@ export function NewProjectDialog() {
                 </button>
               )}
               {availableGoals.map((g) => (
-                <button
+                <button type="button"
                   key={g.id}
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 truncate"
                   onClick={() => {
@@ -415,14 +417,14 @@ export function NewProjectDialog() {
 
           {/* Target date */}
           <div className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
-            <Calendar className="h-3 w-3 text-muted-foreground" />
+            <Calendar className="size-3 text-muted-foreground" />
             <input
               type="date"
               className="bg-transparent outline-none text-xs w-24"
               value={targetDate}
               onChange={(e) => setTargetDate(e.target.value)}
               placeholder="Target date"
-            />
+             aria-label="Target Date"/>
           </div>
         </div>
 

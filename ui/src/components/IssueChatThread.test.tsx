@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 
-import { act, createRef, forwardRef, useImperativeHandle, useState } from "react";
-import type { ReactNode } from "react";
+import { act, createRef, useImperativeHandle, useState } from "react";
+import type { ReactNode, Ref } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "@paperclipai/shared";
 import {
   IssueChatThread,
+} from "./IssueChatThread";
+import {
   VIRTUALIZED_THREAD_ROW_THRESHOLD,
   canStopIssueChatRun,
   findLatestCommentMessageIndex,
   resolveAssistantMessageFoldedState,
   resolveIssueChatHumanAuthor,
-} from "./IssueChatThread";
+} from "./issue-chat-thread-utils";
 import { ToastProvider } from "../context/ToastContext";
 import { ToastViewport } from "./ToastViewport";
 import type {
@@ -81,13 +83,14 @@ vi.mock("./MarkdownBody", () => ({
 }));
 
 vi.mock("./MarkdownEditor", () => ({
-  MarkdownEditor: forwardRef(({
+  MarkdownEditor: ({
     value = "",
     onChange,
     placeholder,
     className,
     contentClassName,
     fileDropTarget,
+    ref,
   }: {
     value?: string;
     onChange?: (value: string) => void;
@@ -95,7 +98,8 @@ vi.mock("./MarkdownEditor", () => ({
     className?: string;
     contentClassName?: string;
     fileDropTarget?: "editor" | "parent";
-  }, ref) => {
+    ref?: Ref<{ focus: () => void }>;
+  }) => {
     markdownEditorRenderMock();
     useImperativeHandle(ref, () => ({
       focus: markdownEditorFocusMock,
@@ -112,7 +116,7 @@ vi.mock("./MarkdownEditor", () => ({
         onChange={(event) => onChange?.(event.target.value)}
       />
     );
-  }),
+  },
 }));
 
 vi.mock("./InlineEntitySelector", () => ({

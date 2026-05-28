@@ -34,7 +34,7 @@ function mergeIssueSnapshots(existing: Issue | undefined, incoming: Issue): Issu
   };
 }
 
-export function getIssueDetailCacheRefs(issue: Pick<Issue, "id" | "identifier">): string[] {
+function getIssueDetailCacheRefs(issue: Pick<Issue, "id" | "identifier">): string[] {
   return collectIssueRefs(null, issue);
 }
 

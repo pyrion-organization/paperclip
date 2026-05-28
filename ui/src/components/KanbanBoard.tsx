@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@/lib/router";
 import {
   DndContext,
@@ -28,6 +28,7 @@ import {
   KANBAN_COLUMN_INITIAL_VISIBLE_LIMIT,
   KANBAN_COLUMN_REVEAL_INCREMENT,
 } from "./kanban-board-constants";
+import { boardStatuses, resolveKanbanTargetStatus } from "./kanban-board-utils";
 export {
   KANBAN_BOARD_HIGH_VOLUME_THRESHOLD,
   KANBAN_COLD_STATUSES,
@@ -38,25 +39,8 @@ export {
   type KanbanColumnPageSize,
 } from "./kanban-board-constants";
 
-export const boardStatuses = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "blocked",
-  "done",
-  "cancelled",
-] as const satisfies readonly IssueStatus[];
-
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export function resolveKanbanTargetStatus(overId: string, issues: Issue[]): IssueStatus | null {
-  if ((boardStatuses as readonly string[]).includes(overId)) {
-    return overId as IssueStatus;
-  }
-  return issues.find((issue) => issue.id === overId)?.status ?? null;
 }
 
 interface Agent {
@@ -74,6 +58,8 @@ interface KanbanBoardProps {
   revealIncrement?: number;
   onUpdateIssue: (id: string, data: Record<string, unknown>) => void;
 }
+
+const EMPTY_COLLAPSED_STATUSES: string[] = [];
 
 /* ── Droppable Column ── */
 
@@ -127,7 +113,7 @@ function KanbanColumn({
 
   return (
     <div className={`flex flex-col shrink-0 transition-[width,min-width] ${isEmpty && !isOver ? "min-w-[48px] w-[48px]" : "min-w-[260px] w-[260px]"}`}>
-      <div className={`flex items-center gap-2 px-2 py-2 mb-1 ${isEmpty && !isOver ? "justify-center" : ""}`}>
+      <div className={`flex items-center gap-2 p-2 mb-1 ${isEmpty && !isOver ? "justify-center" : ""}`}>
         <StatusIcon status={status} />
         {(!isEmpty || isOver) && (
           <>
@@ -164,7 +150,7 @@ function KanbanColumn({
         {hiddenCount > 0 ? (
           <button
             type="button"
-            className="mt-1 flex w-full items-center justify-center rounded-md border border-dashed border-border bg-background/70 px-2 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+            className="mt-1 flex w-full items-center justify-center rounded-md border border-dashed border-border bg-background/70 p-2 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
             onClick={onShowMore}
           >
             Show {nextRevealCount} more
@@ -245,15 +231,15 @@ function KanbanCard({
               title="This issue needs a next step"
               aria-label="Needs next step"
             >
-              <AlertTriangle className="h-3 w-3" />
+              <AlertTriangle className="size-3" />
               Next step
             </span>
           ) : null}
           {isLive && (
             <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+              <span className="relative flex size-2">
+                <span className="animate-pulse absolute inline-flex size-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full size-2 bg-blue-500" />
               </span>
               {compact ? "Live" : null}
             </span>
@@ -285,18 +271,20 @@ export function KanbanBoard({
   agents,
   liveIssueIds,
   compactCards = false,
-  collapsedStatuses = [],
+  collapsedStatuses = EMPTY_COLLAPSED_STATUSES,
   initialVisibleCount = KANBAN_COLUMN_INITIAL_VISIBLE_LIMIT,
   revealIncrement = KANBAN_COLUMN_REVEAL_INCREMENT,
   onUpdateIssue,
 }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [visibleCountByStatus, setVisibleCountByStatus] = useState<Record<string, number>>({});
+  const visibleCountSource = `${initialVisibleCount}:${revealIncrement}`;
+  const [visibleCountOverride, setVisibleCountOverride] = useState<{
+    source: string;
+    counts: Record<string, number>;
+  } | null>(null);
+  const visibleCountByStatus =
+    visibleCountOverride?.source === visibleCountSource ? visibleCountOverride.counts : {};
   const collapsedStatusSet = useMemo(() => new Set(collapsedStatuses), [collapsedStatuses]);
-
-  useEffect(() => {
-    setVisibleCountByStatus({});
-  }, [initialVisibleCount, revealIncrement]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -366,10 +354,16 @@ export function KanbanBoard({
             visibleCount={visibleCountByStatus[status] ?? initialVisibleCount}
             revealIncrement={revealIncrement}
             onShowMore={() => {
-              setVisibleCountByStatus((current) => ({
-                ...current,
-                [status]: (current[status] ?? initialVisibleCount) + revealIncrement,
-              }));
+              setVisibleCountOverride((current) => {
+                const counts = current?.source === visibleCountSource ? current.counts : {};
+                return {
+                  source: visibleCountSource,
+                  counts: {
+                    ...counts,
+                    [status]: (counts[status] ?? initialVisibleCount) + revealIncrement,
+                  },
+                };
+              });
             }}
           />
         ))}

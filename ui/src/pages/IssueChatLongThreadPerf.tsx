@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useLayoutEffect, useMemo, useRef, useState, type ProfilerOnRenderCallback } from "react";
+import { Profiler, useEffect, useLayoutEffect, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { IssueChatThread } from "../components/IssueChatThread";
@@ -58,10 +58,7 @@ export function IssueChatLongThreadPerf() {
   const publishTimerRef = useRef<number | null>(null);
   const publishedRef = useRef(false);
   const fixture = issueChatLongThreadFixtureContext;
-  const rowTarget = useMemo(
-    () => LONG_THREAD_COMMENT_COUNT + issueChatLongThreadEvents.length + issueChatLongThreadLinkedRuns.length,
-    [],
-  );
+  const rowTarget = LONG_THREAD_COMMENT_COUNT + issueChatLongThreadEvents.length + issueChatLongThreadLinkedRuns.length;
 
   useEffect(() => () => {
     if (publishTimerRef.current !== null) {

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useParams } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { goalsApi } from "../api/goals";
 import { projectsApi } from "../api/projects";
 import { assetsApi } from "../api/assets";
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, SlidersHorizontal } from "lucide-react";
 import type { Goal, Project } from "@paperclipai/shared";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 interface GoalPropertiesToggleButtonProps {
   panelVisible: boolean;
@@ -41,7 +42,7 @@ export function GoalPropertiesToggleButton({
       onClick={onShowProperties}
       title="Show properties"
     >
-      <SlidersHorizontal className="h-4 w-4" />
+      <SlidersHorizontal className="size-4" />
     </Button>
   );
 }
@@ -82,7 +83,7 @@ export function GoalDetail() {
     setSelectedCompanyId(goal.companyId, { source: "route_sync" });
   }, [goal?.companyId, selectedCompanyId, setSelectedCompanyId]);
 
-  const updateGoal = useMutation({
+  const updateGoal = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       goalsApi.update(goalId!, data),
     onSuccess: () => {
@@ -97,7 +98,7 @@ export function GoalDetail() {
     }
   });
 
-  const uploadImage = useMutation({
+  const uploadImage = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!resolvedCompanyId) throw new Error("No company selected");
       return assetsApi.uploadImage(
@@ -193,7 +194,7 @@ export function GoalDetail() {
               variant="outline"
               onClick={() => openNewGoal({ parentId: goalId })}
             >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              <Plus className="size-3.5 mr-1.5" />
               Sub Goal
             </Button>
           </div>
@@ -215,7 +216,7 @@ export function GoalDetail() {
                   title={project.name}
                   subtitle={project.description ?? undefined}
                   to={projectUrl(project)}
-                  trailing={<StatusBadge status={project.status} />}
+                  trailingSlot={() => <StatusBadge status={project.status} />}
                 />
               ))}
             </div>

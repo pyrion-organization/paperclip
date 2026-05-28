@@ -25,7 +25,7 @@ function AccountMenuFallbackButton({
   const { isCollapsed, isMobile } = useSidebar();
 
   return (
-    <div className="w-full shrink-0 border-t border-border bg-background px-2 py-2">
+    <div className="w-full shrink-0 border-t border-border bg-background p-2">
       <button
         type="button"
         className={cn(

@@ -25,10 +25,9 @@ function RunCardRecoveryChip({ action }: { action: IssueRecoveryAction }) {
   const tone = RECOVERY_CHIP_DEFAULT_TONE[state];
   const Icon = tone.icon;
   return (
-    <span
+    <output
       data-testid="active-agent-run-recovery-indicator"
       data-recovery-state={state}
-      role="status"
       aria-label={tone.label}
       title={`${tone.label} — open the source issue to act.`}
       className={cn(
@@ -36,9 +35,9 @@ function RunCardRecoveryChip({ action }: { action: IssueRecoveryAction }) {
         tone.className,
       )}
     >
-      <Icon className="h-2.5 w-2.5" aria-hidden />
+      <Icon className="size-2.5" aria-hidden />
       {tone.label}
-    </span>
+    </output>
   );
 }
 
@@ -179,17 +178,17 @@ const AgentRunCard = memo(function AgentRunCard({
         : "border-border bg-background/70",
       className,
     )}>
-      <div className="border-b border-border/60 px-3 py-3">
+      <div className="border-b border-border/60 p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {isActive ? (
-                <span className="relative flex h-2.5 w-2.5 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-70" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-500" />
+                <span className="relative flex size-2.5 shrink-0">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-cyan-400 opacity-70" />
+                  <span className="relative inline-flex size-2.5 rounded-full bg-cyan-500" />
                 </span>
               ) : (
-                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-muted-foreground/35" />
+                <span className="inline-flex size-2.5 rounded-full bg-muted-foreground/35" />
               )}
               <Identity name={run.agentName} size="sm" className="[&>span:last-child]:!text-[11px]" />
             </div>
@@ -202,7 +201,7 @@ const AgentRunCard = memo(function AgentRunCard({
             to={`/agents/${run.agentId}/runs/${run.id}`}
             className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ExternalLink className="h-2.5 w-2.5" />
+            <ExternalLink className="size-2.5" />
           </Link>
         </div>
 
@@ -229,7 +228,7 @@ const AgentRunCard = memo(function AgentRunCard({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <Suspense fallback={<div className="text-xs text-muted-foreground">Loading transcript...</div>}>
+        <Suspense fallback={<div className="text-xs text-muted-foreground">Loading transcript&hellip;</div>}>
           <RunChatSurface
             run={run}
             transcript={transcript}

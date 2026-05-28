@@ -46,9 +46,8 @@ import {
   InboxIssueMetaLeading,
   InboxIssueTrailingColumns,
   IssueColumnPicker,
-  issueActivityText,
-  issueTrailingColumns,
 } from "./IssueColumns";
+import { issueActivityText, issueTrailingColumns } from "./issue-columns-utils";
 import { StatusIcon } from "./StatusIcon";
 import { EmptyState } from "./EmptyState";
 import { Identity } from "./Identity";
@@ -432,34 +431,28 @@ function IssueSearchInput({
   value: string;
   onDebouncedChange?: (search: string) => void;
 }) {
-  const [draftValue, setDraftValue] = useState(value);
-  const lastCommittedValueRef = useRef(value);
+  const [draftOverride, setDraftOverride] = useState<{ source: string; value: string } | null>(null);
+  const draftValue = draftOverride?.source === value ? draftOverride.value : value;
 
   useEffect(() => {
-    setDraftValue(value);
-    lastCommittedValueRef.current = value;
-  }, [value]);
-
-  useEffect(() => {
-    if (!onDebouncedChange || draftValue === lastCommittedValueRef.current) return;
+    if (!onDebouncedChange || draftValue === value) return;
 
     const timeoutId = window.setTimeout(() => {
-      lastCommittedValueRef.current = draftValue;
       startTransition(() => {
         onDebouncedChange(draftValue);
       });
     }, ISSUE_SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, [draftValue, onDebouncedChange]);
+  }, [draftValue, onDebouncedChange, value]);
 
   return (
     <div className="relative w-48 sm:w-64 md:w-80">
-      <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={draftValue}
         onChange={(e) => {
-          setDraftValue(e.target.value);
+          setDraftOverride({ source: value, value: e.target.value });
         }}
         onKeyDown={(e) => {
           if (shouldBlurPageSearchOnEnter({
@@ -500,9 +493,10 @@ function SubIssueProgressSummaryStrip({
   const targetIssue = target?.issue ?? null;
   const targetPathId = targetIssue?.identifier ?? targetIssue?.id ?? "";
   const targetState = targetIssue ? withIssueDetailHeaderSeed(issueLinkState, targetIssue) : undefined;
-  const statusEntries = ISSUE_STATUSES
-    .map((status) => ({ status, count: summary.countsByStatus[status] ?? 0 }))
-    .filter((entry) => entry.count > 0);
+  const statusEntries = ISSUE_STATUSES.flatMap((status) => {
+    const count = summary.countsByStatus[status] ?? 0;
+    return count > 0 ? [{ status, count }] : [];
+  });
 
   // Refresh fast enough that the runtime ticks up while a sub-issue is still
   // running, but slow enough not to hammer the recursive CTE on idle trees.
@@ -551,14 +545,13 @@ function SubIssueProgressSummaryStrip({
               </>
             )}
           </div>
-          <div
-            role="progressbar"
+          <progress
+            className="sr-only"
             aria-label="Sub-issues completion progress"
-            aria-valuemin={0}
-            aria-valuenow={summary.doneCount}
-            aria-valuemax={summary.totalCount}
-            className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
-          >
+            value={summary.doneCount}
+            max={summary.totalCount}
+          />
+          <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
             {statusEntries.map(({ status, count }) => (
               <span
                 key={status}
@@ -705,7 +698,9 @@ export function IssuesList({
   // Deleted or reassigned issues leave orphan IDs in localStorage; this keeps
   // the stored array bounded to only current parent IDs.
   useEffect(() => {
-    const parentIds = new Set(issues.map((i) => i.parentId).filter(Boolean) as string[]);
+    const parentIds = new Set(
+      issues.flatMap((issue) => (issue.parentId ? [issue.parentId] : [])),
+    );
     const pruned = viewState.collapsedParents.filter((id) => parentIds.has(id));
     if (pruned.length !== viewState.collapsedParents.length) {
       updateView({ collapsedParents: pruned });
@@ -859,8 +854,7 @@ export function IssuesList({
     for (const [workspaceId, workspaceName] of workspaceNameMap) {
       options.set(workspaceId, workspaceName);
     }
-    return [...options.entries()]
-      .sort((a, b) => a[1].localeCompare(b[1]))
+    return Array.from(options.entries()).sort((a, b) => a[1].localeCompare(b[1]))
       .map(([id, name]) => ({ id, name }));
   }, [workspaceNameMap]);
 
@@ -918,7 +912,7 @@ export function IssuesList({
       }
     }
 
-    return [...options.values()].sort((a, b) => {
+    return Array.from(options.values()).sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "user" ? -1 : 1;
       return a.label.localeCompare(b.label);
     });
@@ -1025,14 +1019,13 @@ export function IssuesList({
     const unresolvedVisibleBlockersByIssueId = new Map<string, string[]>();
 
     filtered.forEach((issue) => {
-      const unresolvedVisible = (issue.blockedBy ?? [])
-        .map((blocker) => blocker.id)
-        .filter((blockerId) => {
-          if (!visibleIssueIds.has(blockerId)) return false;
-          const blockerIssue = issueById.get(blockerId);
-          if (!blockerIssue) return false;
-          return blockerIssue.status !== "done" && blockerIssue.status !== "cancelled";
-        });
+      const unresolvedVisible = (issue.blockedBy ?? []).flatMap((blocker) => {
+        const blockerId = blocker.id;
+        if (!visibleIssueIds.has(blockerId)) return [];
+        const blockerIssue = issueById.get(blockerId);
+        if (!blockerIssue) return [];
+        return blockerIssue.status !== "done" && blockerIssue.status !== "cancelled" ? [blockerId] : [];
+      });
       const shouldSuppressChip = shouldSuppressSinglePreviousSiblingBlockerChip(
         issue,
         unresolvedVisible,
@@ -1081,15 +1074,11 @@ export function IssuesList({
     }
     if (viewState.groupBy === "status") {
       const groups = groupBy(filtered, (i) => i.status);
-      return issueStatusOrder
-        .filter((s) => groups[s]?.length)
-        .map((s) => ({ key: s, label: issueFilterLabel(s), items: groups[s]! }));
+      return issueStatusOrder.flatMap((s) => (groups[s]?.length) ? [({ key: s, label: issueFilterLabel(s), items: groups[s]! })] : []);
     }
     if (viewState.groupBy === "priority") {
       const groups = groupBy(filtered, (i) => i.priority);
-      return issuePriorityOrder
-        .filter((p) => groups[p]?.length)
-        .map((p) => ({ key: p, label: issueFilterLabel(p), items: groups[p]! }));
+      return issuePriorityOrder.flatMap((p) => (groups[p]?.length) ? [({ key: p, label: issueFilterLabel(p), items: groups[p]! })] : []);
     }
     if (viewState.groupBy === "workspace") {
       const groups = groupBy(
@@ -1349,7 +1338,7 @@ export function IssuesList({
       <div className="flex items-center justify-between gap-2 sm:gap-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Button size="sm" variant="outline" onClick={() => openCreateIssueDialog()}>
-            <Plus className="h-4 w-4 sm:mr-1" />
+            <Plus className="size-4 sm:mr-1" />
             <span className="hidden sm:inline">{createButtonLabel}</span>
           </Button>
           <IssueSearchInput
@@ -1364,19 +1353,19 @@ export function IssuesList({
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           {/* View mode toggle */}
           <div className="flex items-center border border-border rounded-md overflow-hidden mr-1">
-            <button
+            <button type="button"
               className={`p-1.5 transition-colors ${viewState.viewMode === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => updateView({ viewMode: "list" })}
               title="List view"
             >
-              <List className="h-3.5 w-3.5" />
+              <List className="size-3.5" />
             </button>
-            <button
+            <button type="button"
               className={`p-1.5 transition-colors ${viewState.viewMode === "board" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => updateView({ viewMode: "board" })}
               title="Board view"
             >
-              <Columns3 className="h-3.5 w-3.5" />
+              <Columns3 className="size-3.5" />
             </button>
           </div>
 
@@ -1385,11 +1374,11 @@ export function IssuesList({
               type="button"
               variant="outline"
               size="icon"
-              className={cn("hidden h-8 w-8 shrink-0 sm:inline-flex", viewState.nestingEnabled && "bg-accent")}
+              className={cn("hidden size-8 shrink-0 sm:inline-flex", viewState.nestingEnabled && "bg-accent")}
               onClick={() => updateView({ nestingEnabled: !viewState.nestingEnabled })}
               title={viewState.nestingEnabled ? "Disable parent-child nesting" : "Enable parent-child nesting"}
             >
-              <ListTree className="h-3.5 w-3.5" />
+              <ListTree className="size-3.5" />
             </Button>
           )}
 
@@ -1399,21 +1388,21 @@ export function IssuesList({
                 type="button"
                 variant="outline"
                 size="icon"
-                className={cn("h-8 w-8 shrink-0", boardCompactCards && "bg-accent")}
+                className={cn("size-8 shrink-0", boardCompactCards && "bg-accent")}
                 onClick={() => updateView({ boardCardDensity: boardCompactCards ? "comfortable" : "compact" })}
                 title={boardCompactCards ? "Use comfortable cards" : "Use compact cards"}
               >
-                <ChevronsDownUp className="h-3.5 w-3.5" />
+                <ChevronsDownUp className="size-3.5" />
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className={cn("h-8 w-8 shrink-0", boardCollapsedStatuses.length > 0 && "bg-accent")}
+                className={cn("size-8 shrink-0", boardCollapsedStatuses.length > 0 && "bg-accent")}
                 onClick={() => updateView({ boardColdLaneMode: boardCollapsedStatuses.length > 0 ? "expanded" : "collapsed" })}
                 title={boardCollapsedStatuses.length > 0 ? "Expand cold lanes" : "Collapse cold lanes"}
               >
-                <PanelTopClose className="h-3.5 w-3.5" />
+                <PanelTopClose className="size-3.5" />
               </Button>
               <Popover>
                 <PopoverTrigger asChild>
@@ -1427,7 +1416,7 @@ export function IssuesList({
                     )}
                     title="Cards per column"
                   >
-                    <ListCollapse className="h-3.5 w-3.5" />
+                    <ListCollapse className="size-3.5" />
                     <span className="min-w-4 text-xs tabular-nums">{viewState.boardColumnPageSize}</span>
                   </Button>
                 </PopoverTrigger>
@@ -1446,7 +1435,7 @@ export function IssuesList({
                         onClick={() => updateView({ boardColumnPageSize: pageSize })}
                       >
                         <span>{pageSize} per column</span>
-                        {viewState.boardColumnPageSize === pageSize && <Check className="h-3.5 w-3.5" />}
+                        {viewState.boardColumnPageSize === pageSize && <Check className="size-3.5" />}
                       </button>
                     ))}
                   </div>
@@ -1456,7 +1445,7 @@ export function IssuesList({
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-8 w-8 shrink-0"
+                className="size-8 shrink-0"
                 onClick={() => updateView({
                   boardCardDensity: "auto",
                   boardColdLaneMode: "auto",
@@ -1465,7 +1454,7 @@ export function IssuesList({
                 disabled={!boardDensityCustomized}
                 title="Reset board density"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCcw className="size-3.5" />
               </Button>
             </>
           )}
@@ -1498,7 +1487,7 @@ export function IssuesList({
               type="button"
               variant="outline"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className="size-8 shrink-0"
               onClick={onHideCancelledIssues}
               disabled={hideCancelledIssuesPending || !hasVisibleCancelledIssues}
               title="Hide cancelled issues"
@@ -1506,9 +1495,9 @@ export function IssuesList({
               aria-busy={hideCancelledIssuesPending}
             >
               {hideCancelledIssuesPending ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                <LoaderCircle className="size-3.5 animate-spin" />
               ) : (
-                <EyeOff className="h-3.5 w-3.5" />
+                <EyeOff className="size-3.5" />
               )}
             </Button>
           ) : null}
@@ -1517,8 +1506,8 @@ export function IssuesList({
           {viewState.viewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Sort">
-                  <ArrowUpDown className="h-3.5 w-3.5" />
+                <Button variant="outline" size="icon" className="size-8 shrink-0" title="Sort">
+                  <ArrowUpDown className="size-3.5" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-48 p-0">
@@ -1531,7 +1520,7 @@ export function IssuesList({
                     ["created", "Created"],
                     ["updated", "Updated"],
                   ] as const).map(([field, label]) => (
-                    <button
+                    <button type="button"
                       key={field}
                       className={`flex items-center justify-between w-full px-2 py-1.5 text-sm rounded-sm ${
                         viewState.sortField === field ? "bg-accent/50 text-foreground" : "hover:bg-accent/50 text-muted-foreground"
@@ -1561,8 +1550,8 @@ export function IssuesList({
           {viewState.viewMode === "list" && (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" title="Group">
-                  <Layers className="h-3.5 w-3.5" />
+                <Button variant="outline" size="icon" className="size-8 shrink-0" title="Group">
+                  <Layers className="size-3.5" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-44 p-0">
@@ -1576,7 +1565,7 @@ export function IssuesList({
                     ["parent", "Parent Issue"],
                     ["none", "None"],
                   ] as const).map(([value, label]) => (
-                    <button
+                    <button type="button"
                       key={value}
                       className={`flex items-center justify-between w-full px-2 py-1.5 text-sm rounded-sm ${
                         viewState.groupBy === value ? "bg-accent/50 text-foreground" : "hover:bg-accent/50 text-muted-foreground"
@@ -1584,7 +1573,7 @@ export function IssuesList({
                       onClick={() => updateView({ groupBy: value })}
                     >
                       <span>{label}</span>
-                      {viewState.groupBy === value && <Check className="h-3.5 w-3.5" />}
+                      {viewState.groupBy === value && <Check className="size-3.5" />}
                     </button>
                   ))}
                 </div>
@@ -1656,7 +1645,7 @@ export function IssuesList({
                       : [...viewState.collapsedGroups, group.key],
                   });
                 }}
-                trailing={(
+                trailingSlot={() => (
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -1665,7 +1654,7 @@ export function IssuesList({
                     aria-label={`New issue in ${group.label}`}
                     onClick={() => openCreateIssueDialog(group)}
                   >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="size-3" />
                   </Button>
                 )}
               />
@@ -1777,10 +1766,10 @@ export function IssuesList({
                         issueLinkState={issueLinkState}
                         checklistStepNumber={checklistStepNumber}
                         checklistCurrentStep={checklistMeta?.currentStepIssueId === issue.id}
-                        checklistDependencyChips={checklistDependencyChips}
+                        checklistDependencyChipsSlot={() => checklistDependencyChips}
                         checklistRowId={checklistRowId}
                         titleClassName={doneRowTitleClass}
-                        titleSuffix={(
+                        titleSuffixSlot={() => (
                           <>
                             {hasChildren && !isExpanded ? (
                               <span className="ml-1.5 text-xs text-muted-foreground">
@@ -1794,7 +1783,7 @@ export function IssuesList({
                                   aria-label="Paused"
                                   title="Paused"
                                 >
-                                  <CircleSlash2 className="h-3 w-3" />
+                                  <CircleSlash2 className="size-3" />
                                   Paused
                                 </span>
                               ) : (
@@ -1809,25 +1798,25 @@ export function IssuesList({
                                 aria-label="Needs next step"
                                 title="This issue needs a next step"
                               >
-                                <CircleDot className="h-3 w-3" />
+                                <CircleDot className="size-3" />
                                 Needs next step
                               </span>
                             ) : null}
                           </>
                         )}
                         className={isMutedIssue ? "opacity-70" : undefined}
-                        mobileLeading={
+                        mobileLeadingSlot={() => (
                           hasChildren ? (
                             <button type="button" data-slot="icon-button" onClick={toggleCollapse}>
-                              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-90")} />
+                              <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
                             </button>
                           ) : (
                             <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
                               <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} onChange={(s) => onUpdateIssue(issue.id, { status: s })} />
                             </span>
                           )
-                        }
-                        desktopMetaLeading={(
+                        )}
+                        desktopMetaLeadingSlot={() => (
                           <>
                             {hasChildren ? (
                               <button
@@ -1836,7 +1825,7 @@ export function IssuesList({
                                 className="hidden shrink-0 items-center sm:inline-flex"
                                 onClick={toggleCollapse}
                               >
-                                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-90")} />
+                                <ChevronRight className={cn("size-3.5 transition-transform", isExpanded && "rotate-90")} />
                               </button>
                             ) : (
                               <span className="hidden w-3.5 shrink-0 sm:block" />
@@ -1856,7 +1845,7 @@ export function IssuesList({
                           </>
                         )}
                         mobileMeta={issueActivityText(issue).toLowerCase()}
-                        desktopTrailing={(
+                        desktopTrailingSlot={() => (
                           visibleTrailingIssueColumns.length > 0 ? (
                             <InboxIssueTrailingColumns
                               issue={issue}
@@ -1885,7 +1874,7 @@ export function IssuesList({
                                   }}
                                 >
                                   <PopoverTrigger asChild>
-                                    <button
+                                    <button type="button"
                                       className="flex w-full shrink-0 items-center overflow-hidden rounded-md px-2 py-1 transition-colors hover:bg-accent/50"
                                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                     >
@@ -1900,8 +1889,8 @@ export function IssuesList({
                                         />
                                       ) : (
                                         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
-                                            <User className="h-3.5 w-3.5" />
+                                          <span className="inline-flex size-6 items-center justify-center rounded-full border border-dashed border-muted-foreground/35 bg-muted/30">
+                                            <User className="size-3.5" />
                                           </span>
                                           Assignee
                                         </span>
@@ -1919,10 +1908,9 @@ export function IssuesList({
                                       placeholder="Search assignees..."
                                       value={assigneeSearch}
                                       onChange={(e) => setAssigneeSearch(e.target.value)}
-                                      autoFocus
-                                    />
+                                     aria-label="Assignee Search"/>
                                     <div className="max-h-48 overflow-y-auto overscroll-contain">
-                                      <button
+                                      <button type="button"
                                         className={cn(
                                           "flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50",
                                           !issue.assigneeAgentId && !issue.assigneeUserId && "bg-accent",
@@ -1936,7 +1924,7 @@ export function IssuesList({
                                         No assignee
                                       </button>
                                       {currentUserId && (
-                                        <button
+                                        <button type="button"
                                           className={cn(
                                             "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent/50",
                                             issue.assigneeUserId === currentUserId && "bg-accent",
@@ -1947,17 +1935,19 @@ export function IssuesList({
                                             assignIssue(issue.id, null, currentUserId);
                                           }}
                                         >
-                                          <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                          <User className="size-3.5 shrink-0 text-muted-foreground" />
                                           <span>Me</span>
                                         </button>
                                       )}
-                                      {(agents ?? [])
-                                        .filter((agent) => {
-                                          if (!assigneeSearch.trim()) return true;
-                                          return agent.name.toLowerCase().includes(assigneeSearch.toLowerCase());
-                                        })
-                                        .map((agent) => (
-                                          <button
+                                      {(agents ?? []).flatMap((agent) => {
+                                        if (
+                                          assigneeSearch.trim()
+                                          && !agent.name.toLowerCase().includes(assigneeSearch.toLowerCase())
+                                        ) {
+                                          return [];
+                                        }
+                                        return [(
+                                          <button type="button"
                                             key={agent.id}
                                             className={cn(
                                               "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent/50",
@@ -1971,7 +1961,8 @@ export function IssuesList({
                                           >
                                             <Identity name={agent.name} size="sm" className="min-w-0" />
                                           </button>
-                                        ))}
+                                        )];
+                                      })}
                                     </div>
                                   </PopoverContent>
                                 </Popover>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FeedbackDataSharingPreference, FeedbackVoteValue } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,7 +38,7 @@ export function OutputFeedbackButtons({
   const [isSaving, setIsSaving] = useState(false);
   const [downvoteReason, setDownvoteReason] = useState("");
   const [collectingDownvoteReason, setCollectingDownvoteReason] = useState(false);
-  const [downvoteAllowSharing, setDownvoteAllowSharing] = useState<boolean | undefined>(undefined);
+  const downvoteAllowSharingRef = useRef<boolean | undefined>(undefined);
   const [optimisticVote, setOptimisticVote] = useState<FeedbackVoteValue | null>(null);
   const visibleVote = optimisticVote ?? activeVote ?? null;
 
@@ -60,7 +60,7 @@ export function OutputFeedbackButtons({
       if (!behavior?.keepReasonPromptOpen) {
         setCollectingDownvoteReason(false);
         setDownvoteReason("");
-        setDownvoteAllowSharing(undefined);
+        downvoteAllowSharingRef.current = undefined;
       }
     } catch (error) {
       setOptimisticVote(null);
@@ -85,7 +85,7 @@ export function OutputFeedbackButtons({
     }
     const allowSharing = sharingPreference === "allowed";
     if (vote === "down") {
-      setDownvoteAllowSharing(allowSharing);
+      downvoteAllowSharingRef.current = allowSharing;
     }
     void submitVote(
       vote,
@@ -102,7 +102,7 @@ export function OutputFeedbackButtons({
     if (vote === "down") {
       setCollectingDownvoteReason(true);
       setDownvoteReason("");
-      setDownvoteAllowSharing(undefined);
+      downvoteAllowSharingRef.current = undefined;
       void beginVote("down", undefined, { keepReasonPromptOpen: true });
       return;
     }
@@ -123,7 +123,7 @@ export function OutputFeedbackButtons({
           className={cn(visibleVote === "up" && "border-green-600/50 bg-green-500/10 text-green-700")}
           onClick={() => handleVote("up")}
         >
-          <ThumbsUp className="mr-1.5 h-3.5 w-3.5" />
+          <ThumbsUp className="mr-1.5 size-3.5" />
           Helpful
         </Button>
         <Button
@@ -134,7 +134,7 @@ export function OutputFeedbackButtons({
           className={cn(visibleVote === "down" && "border-amber-600/50 bg-amber-500/10 text-amber-800")}
           onClick={() => handleVote("down")}
         >
-          <ThumbsDown className="mr-1.5 h-3.5 w-3.5" />
+          <ThumbsDown className="mr-1.5 size-3.5" />
           Needs work
         </Button>
         {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
@@ -158,7 +158,7 @@ export function OutputFeedbackButtons({
               onClick={() => {
                 setCollectingDownvoteReason(false);
                 setDownvoteReason("");
-                setDownvoteAllowSharing(undefined);
+                downvoteAllowSharingRef.current = undefined;
               }}
             >
               Dismiss
@@ -169,7 +169,7 @@ export function OutputFeedbackButtons({
               disabled={disabled || isSaving || !downvoteReason.trim()}
               onClick={() => {
                 void submitVote("down", {
-                  ...(downvoteAllowSharing ? { allowSharing: true } : {}),
+                  ...(downvoteAllowSharingRef.current ? { allowSharing: true } : {}),
                   reason: downvoteReason,
                 });
               }}
@@ -229,7 +229,7 @@ export function OutputFeedbackButtons({
               onClick={() => {
                 if (!pendingVote) return;
                 if (pendingVote.vote === "down") {
-                  setDownvoteAllowSharing(false);
+                  downvoteAllowSharingRef.current = false;
                 }
                 void submitVote(
                   pendingVote.vote,
@@ -246,7 +246,7 @@ export function OutputFeedbackButtons({
               onClick={() => {
                 if (!pendingVote) return;
                 if (pendingVote.vote === "down") {
-                  setDownvoteAllowSharing(true);
+                  downvoteAllowSharingRef.current = true;
                 }
                 void submitVote(
                   pendingVote.vote,

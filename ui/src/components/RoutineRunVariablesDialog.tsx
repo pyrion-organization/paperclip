@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   type Agent,
   type ExecutionWorkspace,
@@ -16,6 +16,10 @@ import { AgentIcon } from "./AgentIcon";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "../lib/recent-projects";
+import {
+  routineRunNeedsConfiguration,
+  supportsRoutineRunWorkspaceSelection,
+} from "./routine-run-variables-dialog-utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -153,22 +157,6 @@ function isMissingRequiredValue(value: unknown) {
   return value == null || (typeof value === "string" && value.trim().length === 0);
 }
 
-function supportsRoutineRunWorkspaceSelection(
-  project: Project | null | undefined,
-  isolatedWorkspacesEnabled: boolean,
-) {
-  return isolatedWorkspacesEnabled && Boolean(project?.executionWorkspacePolicy?.enabled);
-}
-
-export function routineRunNeedsConfiguration(input: {
-  variables: RoutineVariable[];
-  project: Project | null | undefined;
-  isolatedWorkspacesEnabled: boolean;
-}) {
-  return input.variables.length > 0
-    || supportsRoutineRunWorkspaceSelection(input.project, input.isolatedWorkspacesEnabled);
-}
-
 export interface RoutineRunDialogSubmitData {
   variables?: Record<string, string | number | boolean>;
   assigneeAgentId?: string | null;
@@ -178,21 +166,7 @@ export interface RoutineRunDialogSubmitData {
   executionWorkspaceSettings?: IssueExecutionWorkspaceSettings | null;
 }
 
-export function RoutineRunVariablesDialog({
-  open,
-  onOpenChange,
-  companyId,
-  routineName,
-  projects,
-  agents,
-  defaultProjectId,
-  defaultAssigneeAgentId,
-  executionMode = "agent",
-  defaultExecutionWorkspace,
-  variables,
-  isPending,
-  onSubmit,
-}: {
+type RoutineRunVariablesDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   companyId: string | null | undefined;
@@ -206,8 +180,62 @@ export function RoutineRunVariablesDialog({
   variables: RoutineVariable[];
   isPending: boolean;
   onSubmit: (data: RoutineRunDialogSubmitData) => void;
-}) {
-  const [values, setValues] = useState<Record<string, unknown>>({});
+};
+
+function routineRunDialogContentKey({
+  defaultAssigneeAgentId,
+  defaultExecutionWorkspace,
+  defaultProjectId,
+  variables,
+}: RoutineRunVariablesDialogProps) {
+  return JSON.stringify({
+    defaultAssigneeAgentId: defaultAssigneeAgentId ?? null,
+    defaultProjectId: defaultProjectId ?? null,
+    defaultExecutionWorkspace: defaultExecutionWorkspace
+      ? {
+        id: defaultExecutionWorkspace.id,
+        branchName: defaultExecutionWorkspace.branchName ?? null,
+        mode: defaultExecutionWorkspace.mode,
+        projectId: defaultExecutionWorkspace.projectId,
+        projectWorkspaceId: defaultExecutionWorkspace.projectWorkspaceId ?? null,
+      }
+      : null,
+    variables: variables.map((variable) => ({
+      name: variable.name,
+      type: variable.type,
+      defaultValue: variable.defaultValue ?? null,
+      required: Boolean(variable.required),
+    })),
+  });
+}
+
+export function RoutineRunVariablesDialog(props: RoutineRunVariablesDialogProps) {
+  if (!props.open) return null;
+  return (
+    <RoutineRunVariablesDialogContent
+      key={routineRunDialogContentKey(props)}
+      {...props}
+      open
+    />
+  );
+}
+
+function RoutineRunVariablesDialogContent({
+  open,
+  onOpenChange,
+  companyId,
+  routineName,
+  projects,
+  agents,
+  defaultProjectId,
+  defaultAssigneeAgentId,
+  executionMode = "agent",
+  defaultExecutionWorkspace,
+  variables,
+  isPending,
+  onSubmit,
+}: RoutineRunVariablesDialogProps) {
+  const [values, setValues] = useState<Record<string, unknown>>(() => buildInitialValues(variables));
   const [selection, setSelection] = useState(() => buildInitialRunSelection({
     defaultAssigneeAgentId,
     defaultProjectId,
@@ -216,8 +244,8 @@ export function RoutineRunVariablesDialog({
     () => projects.find((project) => project.id === selection.projectId) ?? null,
     [projects, selection.projectId],
   );
-  const recentAssigneeIds = useMemo(() => getRecentAssigneeIds(), [open]);
-  const recentProjectIds = useMemo(() => getRecentProjectIds(), [open]);
+  const recentAssigneeIds = useMemo(() => getRecentAssigneeIds(), []);
+  const recentProjectIds = useMemo(() => getRecentProjectIds(), []);
   const assigneeOptions = useMemo<InlineEntityOption[]>(
     () =>
       sortAgentsByRecency(
@@ -244,7 +272,9 @@ export function RoutineRunVariablesDialog({
   const [workspaceConfig, setWorkspaceConfig] = useState(() =>
     buildInitialWorkspaceConfig(selectedProject, defaultExecutionWorkspace));
   const [workspaceConfigValid, setWorkspaceConfigValid] = useState(true);
-  const [workspaceBranchName, setWorkspaceBranchName] = useState<string | null>(null);
+  const [workspaceBranchName, setWorkspaceBranchName] = useState<string | null>(
+    () => defaultExecutionWorkspace?.branchName ?? null,
+  );
 
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
@@ -256,19 +286,6 @@ export function RoutineRunVariablesDialog({
     selectedProject,
     experimentalSettings?.enableIsolatedWorkspaces === true,
   );
-
-  useEffect(() => {
-    if (!open) return;
-    setValues(buildInitialValues(variables));
-    const nextSelection = buildInitialRunSelection({ defaultAssigneeAgentId, defaultProjectId });
-    setSelection(nextSelection);
-    setWorkspaceConfig(buildInitialWorkspaceConfig(
-      projects.find((project) => project.id === nextSelection.projectId) ?? null,
-      defaultExecutionWorkspace,
-    ));
-    setWorkspaceConfigValid(true);
-    setWorkspaceBranchName(defaultExecutionWorkspace?.branchName ?? null);
-  }, [defaultAssigneeAgentId, defaultExecutionWorkspace, defaultProjectId, open, projects, variables]);
 
   const workspaceBranchAutoValue = workspaceSelectionEnabled && workspaceBranchName
     ? workspaceBranchName
@@ -282,11 +299,13 @@ export function RoutineRunVariablesDialog({
 
   const missingRequired = useMemo(
     () =>
-      variables
-        .filter((variable) => variable.required)
-        .filter((variable) => !isAutoWorkspaceBranchVariable(variable))
-        .filter((variable) => isMissingRequiredValue(values[variable.name]))
-        .map((variable) => variable.label || variable.name),
+      variables.flatMap((variable) =>
+        variable.required
+          && !isAutoWorkspaceBranchVariable(variable)
+          && isMissingRequiredValue(values[variable.name])
+          ? [variable.label || variable.name]
+          : [],
+      ),
     [isAutoWorkspaceBranchVariable, values, variables],
   );
 
@@ -373,7 +392,7 @@ export function RoutineRunVariablesDialog({
                   option ? (
                     currentAssignee ? (
                       <>
-                        <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <AgentIcon icon={currentAssignee.icon} className="size-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate">{option.label}</span>
                       </>
                     ) : (
@@ -388,7 +407,7 @@ export function RoutineRunVariablesDialog({
                   const assignee = agents.find((agent) => agent.id === option.id);
                   return (
                       <>
-                        {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                        {assignee ? <AgentIcon icon={assignee.icon} className="size-3.5 shrink-0 text-muted-foreground" /> : null}
                         <span className="truncate">{option.label}</span>
                       </>
                     );
@@ -424,7 +443,7 @@ export function RoutineRunVariablesDialog({
                   option && selectedProject ? (
                     <>
                       <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                        className="size-3.5 shrink-0 rounded-sm"
                         style={{ backgroundColor: selectedProject.color ?? "#64748b" }}
                       />
                       <span className="truncate">{option.label}</span>
@@ -439,7 +458,7 @@ export function RoutineRunVariablesDialog({
                   return (
                     <>
                       <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                        className="size-3.5 shrink-0 rounded-sm"
                         style={{ backgroundColor: project?.color ?? "#64748b" }}
                       />
                       <span className="truncate">{option.label}</span>

@@ -7,15 +7,17 @@ import {
 } from "@/components/ui/popover";
 import { User } from "lucide-react";
 import { cn } from "../lib/classnames";
-import { roleLabels } from "./agent-config-primitives";
+import { roleLabels } from "./agent-config-primitives-data";
 import { AgentIcon } from "./AgentIcon";
+
+const EMPTY_EXCLUDED_AGENT_IDS: string[] = [];
 
 export function ReportsToPicker({
   agents,
   value,
   onChange,
   disabled = false,
-  excludeAgentIds = [],
+  excludeAgentIds = EMPTY_EXCLUDED_AGENT_IDS,
   disabledEmptyLabel = "Reports to: N/A (CEO)",
   chooseLabel = "Reports to...",
 }: {
@@ -50,12 +52,12 @@ export function ReportsToPicker({
         >
           {unknownManager ? (
             <>
-              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <User className="size-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate text-muted-foreground">Unknown manager (stale ID)</span>
             </>
           ) : current ? (
             <>
-              <AgentIcon icon={current.icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <AgentIcon icon={current.icon} className="size-3 shrink-0 text-muted-foreground" />
               <span
                 className={cn(
                   "min-w-0 truncate",
@@ -67,7 +69,7 @@ export function ReportsToPicker({
             </>
           ) : (
             <>
-              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <User className="size-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">
                 {disabled ? disabledEmptyLabel : chooseLabel}
               </span>
@@ -91,7 +93,7 @@ export function ReportsToPicker({
         </button>
         {terminatedManager && (
           <div className="flex min-w-0 items-center gap-2 overflow-hidden px-2 py-1.5 text-xs text-muted-foreground border-b border-border mb-0.5">
-            <AgentIcon icon={current.icon} className="shrink-0 h-3 w-3" />
+            <AgentIcon icon={current.icon} className="shrink-0 size-3" />
             <span className="min-w-0 truncate">
               Current: {current.name} (terminated)
             </span>
@@ -115,7 +117,7 @@ export function ReportsToPicker({
               setOpen(false);
             }}
           >
-            <AgentIcon icon={a.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
+            <AgentIcon icon={a.icon} className="shrink-0 size-3 text-muted-foreground" />
             <span className="min-w-0 truncate">{a.name}</span>
             <span className="text-muted-foreground ml-auto shrink-0">{roleLabels[a.role] ?? a.role}</span>
           </button>

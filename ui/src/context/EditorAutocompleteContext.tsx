@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, use, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { buildRoutineMentionHref, buildSkillMentionHref } from "@paperclipai/shared/project-mentions";
 import { companySkillsApi } from "../api/companySkills";
@@ -92,5 +92,5 @@ export function EditorAutocompleteProvider({ children }: { children: ReactNode }
 }
 
 export function useEditorAutocomplete() {
-  return useContext(EditorAutocompleteContext);
+  return use(EditorAutocompleteContext);
 }

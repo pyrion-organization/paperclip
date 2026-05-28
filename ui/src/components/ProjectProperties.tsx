@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@/lib/router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
 import { StatusBadge } from "./StatusBadge";
 import { cn, formatDate } from "../lib/utils";
@@ -24,6 +24,7 @@ import { InlineEditor } from "./InlineEditor";
 import { EnvVarEditor } from "./EnvVarEditor";
 import { ProjectClientList } from "./ProjectClientList";
 import { ProjectDeploymentSettings } from "./ProjectDeploymentSettings";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const PROJECT_STATUSES = [
   { value: "backlog", label: "Backlog" },
@@ -62,7 +63,7 @@ function SaveIndicator({ state }: { state: ProjectFieldSaveState }) {
   if (state === "saving") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Loader2 className="size-3 animate-spin" />
         Saving
       </span>
     );
@@ -70,7 +71,7 @@ function SaveIndicator({ state }: { state: ProjectFieldSaveState }) {
   if (state === "saved") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
-        <Check className="h-3 w-3" />
+        <Check className="size-3" />
         Saved
       </span>
     );
@@ -78,7 +79,7 @@ function SaveIndicator({ state }: { state: ProjectFieldSaveState }) {
   if (state === "error") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
-        <AlertCircle className="h-3 w-3" />
+        <AlertCircle className="size-3" />
         Failed
       </span>
     );
@@ -129,7 +130,7 @@ function ProjectStatusPicker({ status, onChange }: { status: string; onChange: (
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <button type="button"
           className={cn(
             "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer hover:opacity-80 transition-opacity",
             colorClass,
@@ -172,7 +173,7 @@ function ArchiveDangerZone({
   const action = isArchive ? "Archive" : "Unarchive";
 
   return (
-    <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
+    <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-4">
       <p className="text-sm text-muted-foreground">
         {isArchive
           ? "Archive this project to hide it from the sidebar and project selectors."
@@ -180,7 +181,7 @@ function ArchiveDangerZone({
       </p>
       {archivePending ? (
         <Button size="sm" variant="destructive" disabled>
-          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+          <Loader2 className="size-3 animate-spin mr-1" />
           {isArchive ? "Archiving..." : "Unarchiving..."}
         </Button>
       ) : confirming ? (
@@ -213,9 +214,9 @@ function ArchiveDangerZone({
           onClick={() => setConfirming(true)}
         >
           {isArchive ? (
-            <><Archive className="h-3 w-3 mr-1" />{action} project</>
+            <><Archive className="size-3 mr-1" />{action} project</>
           ) : (
-            <><ArchiveRestore className="h-3 w-3 mr-1" />{action} project</>
+            <><ArchiveRestore className="size-3 mr-1" />{action} project</>
           )}
         </Button>
       )}
@@ -258,7 +259,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
     queryFn: () => secretsApi.list(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
-  const createSecret = useMutation({
+  const createSecret = useInvalidatingMutation({
     mutationFn: (input: { name: string; value: string }) => {
       if (!selectedCompanyId) throw new Error("Select a company to create secrets");
       return secretsApi.create(selectedCompanyId, input);
@@ -321,7 +322,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
     }
   };
 
-  const createWorkspace = useMutation({
+  const createWorkspace = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) => projectsApi.createWorkspace(project.id, data),
     onSuccess: () => {
       setWorkspaceCwd("");
@@ -332,7 +333,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
     },
   });
 
-  const removeWorkspace = useMutation({
+  const removeWorkspace = useInvalidatingMutation({
     mutationFn: (workspaceId: string) => projectsApi.removeWorkspace(project.id, workspaceId),
     onSuccess: () => {
       setWorkspaceCwd("");
@@ -342,7 +343,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
       invalidateProject();
     },
   });
-  const updateWorkspace = useMutation({
+  const updateWorkspace = useInvalidatingMutation({
     mutationFn: ({ workspaceId, data }: { workspaceId: string; data: Record<string, unknown> }) =>
       projectsApi.updateWorkspace(project.id, workspaceId, data),
     onSuccess: () => {
@@ -578,7 +579,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                       onClick={() => removeGoal(goal.id)}
                       aria-label={`Remove goal ${goal.title}`}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="size-3" />
                     </button>
                   )}
                 </span>
@@ -594,7 +595,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                   className={cn("h-6 w-fit px-2", linkedGoals.length > 0 && "ml-1")}
                   disabled={availableGoals.length === 0}
                 >
-                  <Plus className="h-3 w-3 mr-1" />
+                  <Plus className="size-3 mr-1" />
                   Goal
                 </Button>
               </PopoverTrigger>
@@ -605,7 +606,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                   </div>
                 ) : (
                   availableGoals.map((goal) => (
-                    <button
+                    <button type="button"
                       key={goal.id}
                       className="flex items-center w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => addGoal(goal.id)}
@@ -673,7 +674,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border text-[10px] text-muted-foreground hover:text-foreground"
+                  className="inline-flex size-4 items-center justify-center rounded-full border border-border text-[10px] text-muted-foreground hover:text-foreground"
                   aria-label="Codebase help"
                 >
                   ?
@@ -696,13 +697,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                       rel="noreferrer"
                       className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
                     >
-                      <Github className="h-3 w-3 shrink-0" />
+                      <Github className="size-3 shrink-0" />
                       <span className="break-all min-w-0">{formatRepoUrl(codebase.repoUrl)}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <ExternalLink className="size-3 shrink-0" />
                     </a>
                   ) : (
                     <div className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                      <Github className="h-3 w-3 shrink-0" />
+                      <Github className="size-3 shrink-0" />
                       <span className="break-all min-w-0">{codebase.repoUrl}</span>
                     </div>
                   )}
@@ -725,7 +726,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                       onClick={clearRepoWorkspace}
                       aria-label="Clear repo"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="size-3" />
                     </Button>
                   </div>
                 </div>
@@ -779,7 +780,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                       onClick={clearLocalWorkspace}
                       aria-label="Clear local folder"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="size-3" />
                     </Button>
                   ) : null}
                 </div>
@@ -846,7 +847,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                   value={workspaceCwd}
                   onChange={(e) => setWorkspaceCwd(e.target.value)}
                   placeholder="/absolute/path/to/workspace"
-                />
+                 aria-label="Workspace Cwd"/>
                 <ChoosePathButton />
               </div>
               <div className="flex items-center gap-2">
@@ -881,7 +882,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                 value={workspaceRepoUrl}
                 onChange={(e) => setWorkspaceRepoUrl(e.target.value)}
                 placeholder="https://github.com/org/repo"
-              />
+               aria-label="Workspace Repo Url"/>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -932,7 +933,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border text-[10px] text-muted-foreground hover:text-foreground"
+                      className="inline-flex size-4 items-center justify-center rounded-full border border-border text-[10px] text-muted-foreground hover:text-foreground"
                       aria-label="Execution workspaces help"
                     >
                       ?
@@ -1017,12 +1018,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         {environmentsEnabled ? (
                           <div>
                             <div className="mb-1 flex items-center gap-1.5">
-                              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <label htmlFor="project-execution-workspace-environment" className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <span>Environment</span>
                                 <SaveIndicator state={fieldState("execution_workspace_environment")} />
                               </label>
                             </div>
                             <select
+                              id="project-execution-workspace-environment"
                               className="w-full rounded border border-border bg-transparent px-2 py-1 text-xs outline-none"
                               value={executionWorkspaceEnvironmentId}
                               onChange={(e) =>
@@ -1044,12 +1046,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         ) : null}
                         <div>
                           <div className="mb-1 flex items-center gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <label htmlFor="project-execution-workspace-base-ref" className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Base ref</span>
                               <SaveIndicator state={fieldState("execution_workspace_base_ref")} />
                             </label>
                           </div>
                           <DraftInput
+                            id="project-execution-workspace-base-ref"
                             value={executionWorkspaceStrategy.baseRef ?? ""}
                             onCommit={(value) =>
                               commitField("execution_workspace_base_ref", {
@@ -1068,12 +1071,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         </div>
                         <div>
                           <div className="mb-1 flex items-center gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <label htmlFor="project-execution-workspace-branch-template" className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Branch template</span>
                               <SaveIndicator state={fieldState("execution_workspace_branch_template")} />
                             </label>
                           </div>
                           <DraftInput
+                            id="project-execution-workspace-branch-template"
                             value={executionWorkspaceStrategy.branchTemplate ?? ""}
                             onCommit={(value) =>
                               commitField("execution_workspace_branch_template", {
@@ -1092,12 +1096,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         </div>
                         <div>
                           <div className="mb-1 flex items-center gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <label htmlFor="project-execution-workspace-worktree-parent-dir" className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Worktree parent dir</span>
                               <SaveIndicator state={fieldState("execution_workspace_worktree_parent_dir")} />
                             </label>
                           </div>
                           <DraftInput
+                            id="project-execution-workspace-worktree-parent-dir"
                             value={executionWorkspaceStrategy.worktreeParentDir ?? ""}
                             onCommit={(value) =>
                               commitField("execution_workspace_worktree_parent_dir", {
@@ -1116,12 +1121,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         </div>
                         <div>
                           <div className="mb-1 flex items-center gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <label htmlFor="project-execution-workspace-provision-command" className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Provision command</span>
                               <SaveIndicator state={fieldState("execution_workspace_provision_command")} />
                             </label>
                           </div>
                           <DraftInput
+                            id="project-execution-workspace-provision-command"
                             value={executionWorkspaceStrategy.provisionCommand ?? ""}
                             onCommit={(value) =>
                               commitField("execution_workspace_provision_command", {
@@ -1140,12 +1146,13 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
                         </div>
                         <div>
                           <div className="mb-1 flex items-center gap-1.5">
-                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <label htmlFor="project-execution-workspace-teardown-command" className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span>Teardown command</span>
                               <SaveIndicator state={fieldState("execution_workspace_teardown_command")} />
                             </label>
                           </div>
                           <DraftInput
+                            id="project-execution-workspace-teardown-command"
                             value={executionWorkspaceStrategy.teardownCommand ?? ""}
                             onCommit={(value) =>
                               commitField("execution_workspace_teardown_command", {

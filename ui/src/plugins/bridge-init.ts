@@ -173,8 +173,7 @@ function PluginSdkMarkdownBlock({
     enableWikiLinks,
     wikiLinkRoot,
     resolveWikiLinkHref,
-    children: content,
-  });
+  }, content);
 }
 
 type PluginMarkdownEditorProps = {
@@ -490,7 +489,7 @@ function PluginSdkAssigneePicker({
         return createElement(
           FragmentSafe,
           null,
-          createElement(AgentIcon, { icon: selectedAgent.icon, className: "h-3.5 w-3.5 shrink-0 text-muted-foreground" }),
+          createElement(AgentIcon, { icon: selectedAgent.icon, className: "size-3.5 shrink-0 text-muted-foreground" }),
           createElement("span", { className: "truncate" }, option.label),
         );
       }
@@ -506,8 +505,8 @@ function PluginSdkAssigneePicker({
         FragmentSafe,
         null,
         agent
-          ? createElement(AgentIcon, { icon: agent.icon, className: "h-3.5 w-3.5 shrink-0 text-muted-foreground" })
-          : createElement(User, { className: "h-3.5 w-3.5 shrink-0 text-muted-foreground" }),
+          ? createElement(AgentIcon, { icon: agent.icon, className: "size-3.5 shrink-0 text-muted-foreground" })
+          : createElement(User, { className: "size-3.5 shrink-0 text-muted-foreground" }),
         createElement("span", { className: "truncate" }, option.label),
       );
     },
@@ -580,7 +579,7 @@ function PluginSdkProjectPicker({
         FragmentSafe,
         null,
         createElement("span", {
-          className: "h-3.5 w-3.5 shrink-0 rounded-sm",
+          className: "size-3.5 shrink-0 rounded-sm",
           style: { backgroundColor: selectedProject.color ?? "#6366f1" },
         }),
         createElement("span", { className: "truncate" }, option.label),
@@ -593,7 +592,7 @@ function PluginSdkProjectPicker({
         FragmentSafe,
         null,
         createElement("span", {
-          className: "h-3.5 w-3.5 shrink-0 rounded-sm",
+          className: "size-3.5 shrink-0 rounded-sm",
           style: { backgroundColor: project?.color ?? "#6366f1" },
         }),
         createElement("span", { className: "truncate" }, option.label),
@@ -898,7 +897,7 @@ function PluginSdkJsonTree({ data }: { data: unknown }) {
 
 function PluginSdkSpinner({ label = "Loading" }: { size?: "sm" | "md" | "lg"; label?: string }) {
   return createElement("span", {
-    className: "inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground align-middle",
+    className: "inline-block size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground align-middle",
     role: "status",
     "aria-label": label,
   });

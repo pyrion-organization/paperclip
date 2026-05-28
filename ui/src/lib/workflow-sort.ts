@@ -58,6 +58,7 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
     if (inDegree.get(issue.id) === 0) ready.push(issue);
   }
   ready.sort(tieBreakAsc);
+  const readyById = new Map(ready.map((issue) => [issue.id, issue]));
 
   const emitted = new Set<string>();
   const output: T[] = [];
@@ -80,13 +81,17 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
       inDegree.set(succId, remaining);
       if (remaining === 0) {
         const succ = byId.get(succId);
-        if (succ) insertReady(succ);
+        if (succ) {
+          insertReady(succ);
+          readyById.set(succ.id, succ);
+        }
       }
     }
   };
 
   while (ready.length > 0) {
     let current = ready.shift()!;
+    readyById.delete(current.id);
     while (current && !emitted.has(current.id)) {
       output.push(current);
       emitted.add(current.id);
@@ -97,14 +102,15 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
       const nextId = succIds[0];
       if (emitted.has(nextId)) break;
       if ((inDegree.get(nextId) ?? 0) !== 0) break;
-      const nextIndex = ready.findIndex((issue) => issue.id === nextId);
-      if (nextIndex < 0) break;
-      [current] = ready.splice(nextIndex, 1);
+      const nextIssue = readyById.get(nextId);
+      if (!nextIssue) break;
+      readyById.delete(nextId);
+      current = nextIssue;
     }
   }
 
   if (emitted.size < issues.length) {
-    return [...issues].sort(tieBreakAsc);
+    return issues.toSorted(tieBreakAsc);
   }
 
   return output;

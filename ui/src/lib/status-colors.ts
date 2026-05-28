@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 /** StatusIcon circle: text + border classes */
-export const issueStatusIcon: Record<string, string> = {
+const issueStatusIcon: Record<string, string> = {
   backlog: "text-muted-foreground border-muted-foreground",
   todo: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
   in_progress: "text-yellow-600 border-yellow-600 dark:text-yellow-400 dark:border-yellow-400",
@@ -20,7 +20,7 @@ export const issueStatusIcon: Record<string, string> = {
   blocked: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400",
 };
 
-export const issueStatusIconDefault = "text-muted-foreground border-muted-foreground";
+const issueStatusIconDefault = "text-muted-foreground border-muted-foreground";
 
 /** Text-only color for issue statuses (dropdowns, labels) */
 export const issueStatusText: Record<string, string> = {

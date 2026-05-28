@@ -1,10 +1,10 @@
-import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { accessApi } from "../api/access";
 import { authApi } from "../api/auth";
 import { queryKeys } from "../lib/queryKeys";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 export function CliAuthPage() {
   const queryClient = useQueryClient();
@@ -12,10 +12,7 @@ export function CliAuthPage() {
   const [searchParams] = useSearchParams();
   const challengeId = (params.id ?? "").trim();
   const token = (searchParams.get("token") ?? "").trim();
-  const currentPath = useMemo(
-    () => `/cli-auth/${encodeURIComponent(challengeId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`,
-    [challengeId, token],
-  );
+  const currentPath = `/cli-auth/${encodeURIComponent(challengeId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 
   const sessionQuery = useQuery({
     queryKey: queryKeys.auth.session,
@@ -29,7 +26,7 @@ export function CliAuthPage() {
     retry: false,
   });
 
-  const approveMutation = useMutation({
+  const approveMutation = useInvalidatingMutation({
     mutationFn: () => accessApi.approveCliAuthChallenge(challengeId, token),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
@@ -37,7 +34,7 @@ export function CliAuthPage() {
     },
   });
 
-  const cancelMutation = useMutation({
+  const cancelMutation = useInvalidatingMutation({
     mutationFn: () => accessApi.cancelCliAuthChallenge(challengeId, token),
     onSuccess: async () => {
       await challengeQuery.refetch();
@@ -49,7 +46,7 @@ export function CliAuthPage() {
   }
 
   if (sessionQuery.isLoading || challengeQuery.isLoading) {
-    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading CLI auth challenge...</div>;
+    return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading CLI auth challenge&hellip;</div>;
   }
 
   if (challengeQuery.error) {

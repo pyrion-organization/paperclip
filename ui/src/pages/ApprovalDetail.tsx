@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "@/lib/router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalsApi } from "../api/approvals";
 import { agentsApi } from "../api/agents";
 import { useCompany } from "../context/CompanyContext";
@@ -8,13 +8,15 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { StatusBadge } from "../components/StatusBadge";
 import { Identity } from "../components/Identity";
-import { approvalLabel, typeIcon, defaultTypeIcon, ApprovalPayloadRenderer } from "../components/ApprovalPayload";
+import { ApprovalPayloadRenderer } from "../components/ApprovalPayload";
+import { approvalLabel, defaultTypeIcon, typeIcon } from "../components/approval-payload-utils";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckCircle2, ChevronRight, Sparkles } from "lucide-react";
 import type { ApprovalComment } from "@paperclipai/shared";
 import { MarkdownBody } from "../components/MarkdownBody";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 export function ApprovalDetail() {
   const { approvalId } = useParams<{ approvalId: string }>();
@@ -84,7 +86,7 @@ export function ApprovalDetail() {
     }
   };
 
-  const approveMutation = useMutation({
+  const approveMutation = useInvalidatingMutation({
     mutationFn: () => approvalsApi.approve(approvalId!),
     onSuccess: () => {
       setError(null);
@@ -94,7 +96,7 @@ export function ApprovalDetail() {
     onError: (err) => setError(err instanceof Error ? err.message : "Approve failed"),
   });
 
-  const rejectMutation = useMutation({
+  const rejectMutation = useInvalidatingMutation({
     mutationFn: () => approvalsApi.reject(approvalId!),
     onSuccess: () => {
       setError(null);
@@ -103,7 +105,7 @@ export function ApprovalDetail() {
     onError: (err) => setError(err instanceof Error ? err.message : "Reject failed"),
   });
 
-  const revisionMutation = useMutation({
+  const revisionMutation = useInvalidatingMutation({
     mutationFn: () => approvalsApi.requestRevision(approvalId!),
     onSuccess: () => {
       setError(null);
@@ -112,7 +114,7 @@ export function ApprovalDetail() {
     onError: (err) => setError(err instanceof Error ? err.message : "Revision request failed"),
   });
 
-  const resubmitMutation = useMutation({
+  const resubmitMutation = useInvalidatingMutation({
     mutationFn: () => approvalsApi.resubmit(approvalId!),
     onSuccess: () => {
       setError(null);
@@ -121,7 +123,7 @@ export function ApprovalDetail() {
     onError: (err) => setError(err instanceof Error ? err.message : "Resubmit failed"),
   });
 
-  const addCommentMutation = useMutation({
+  const addCommentMutation = useInvalidatingMutation({
     mutationFn: () => approvalsApi.addComment(approvalId!, commentBody.trim()),
     onSuccess: () => {
       setCommentBody("");
@@ -131,7 +133,7 @@ export function ApprovalDetail() {
     onError: (err) => setError(err instanceof Error ? err.message : "Comment failed"),
   });
 
-  const deleteAgentMutation = useMutation({
+  const deleteAgentMutation = useInvalidatingMutation({
     mutationFn: (agentId: string) => agentsApi.remove(agentId),
     onSuccess: () => {
       setError(null);
@@ -177,8 +179,8 @@ export function ApprovalDetail() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2">
               <div className="relative mt-0.5">
-                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-300" />
-                <Sparkles className="h-3 w-3 text-green-500 dark:text-green-200 absolute -right-2 -top-1 animate-pulse" />
+                <CheckCircle2 className="size-4 text-green-600 dark:text-green-300" />
+                <Sparkles className="size-3 text-green-500 dark:text-green-200 absolute -right-2 -top-1 animate-pulse" />
               </div>
               <div>
                 <p className="text-sm text-green-800 dark:text-green-100 font-medium">Approval confirmed</p>
@@ -201,7 +203,7 @@ export function ApprovalDetail() {
       <div className="border border-border rounded-lg p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <TypeIcon className="h-5 w-5 text-muted-foreground shrink-0" />
+            <TypeIcon className="size-5 text-muted-foreground shrink-0" />
             <div>
               <h2 className="text-lg font-semibold">{approvalLabel(approval.type, approval.payload as Record<string, unknown> | null)}</h2>
               <p className="text-xs text-muted-foreground font-mono">{approval.id}</p>
@@ -225,7 +227,7 @@ export function ApprovalDetail() {
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2"
             onClick={() => setShowRawPayload((v) => !v)}
           >
-            <ChevronRight className={`h-3 w-3 transition-transform ${showRawPayload ? "rotate-90" : ""}`} />
+            <ChevronRight className={`size-3 transition-transform ${showRawPayload ? "rotate-90" : ""}`} />
             See full request
           </button>
           {showRawPayload && (

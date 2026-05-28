@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { useCompany } from "../context/CompanyContext";
@@ -63,17 +63,21 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
     onOpenChange?.(nextOpen);
   }, [controlledOpen, onOpenChange]);
 
+  const handleCommandPaletteShortcut = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setOpen(true);
+      if (isMobile) setSidebarOpen(false);
+    }
+  });
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen(true);
-        if (isMobile) setSidebarOpen(false);
-      }
+      handleCommandPaletteShortcut(e);
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile, setOpen, setSidebarOpen]);
+  }, []);
 
   useEffect(() => {
     if (!open) setQuery("");
@@ -140,10 +144,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
     return agents.find((a) => a.id === id)?.name ?? null;
   };
 
-  const visibleIssues = useMemo(
-    () => (searchQuery.length > 0 ? searchedIssues : issues),
-    [issues, searchedIssues, searchQuery],
-  );
+  const visibleIssues = searchQuery.length > 0 ? searchedIssues : issues;
 
   const showSearchAll = searchQuery.length > 0;
   const showEmptyHint = showSearchAll && visibleIssues.length === 0;
@@ -185,7 +186,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
               className="bg-accent/40 border border-accent data-[selected=true]:bg-accent/60"
               data-testid="command-search-all"
             >
-              <Search className="mr-2 h-4 w-4" />
+              <Search className="mr-2 size-4" />
               <span className="flex-1 truncate">
                 Search all for <span className="font-semibold">&ldquo;{searchQuery}&rdquo;</span>
               </span>
@@ -206,7 +207,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
               openNewIssue();
             }}
           >
-            <SquarePen className="mr-2 h-4 w-4" />
+            <SquarePen className="mr-2 size-4" />
             Create new issue
             <span className="ml-auto text-xs text-muted-foreground">C</span>
           </CommandItem>
@@ -216,11 +217,11 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
               openNewAgent();
             }}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Create new agent
           </CommandItem>
           <CommandItem onSelect={() => go("/projects")}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Create new project
           </CommandItem>
           <CommandItem
@@ -229,7 +230,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
               openNewClient();
             }}
           >
-            <Users className="mr-2 h-4 w-4" />
+            <Users className="mr-2 size-4" />
             Create new client
           </CommandItem>
         </CommandGroup>
@@ -238,39 +239,39 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
 
         <CommandGroup heading="Pages">
           <CommandItem onSelect={() => go("/dashboard")}>
-            <LayoutDashboard className="mr-2 h-4 w-4" />
+            <LayoutDashboard className="mr-2 size-4" />
             Dashboard
           </CommandItem>
           <CommandItem onSelect={() => go("/inbox")}>
-            <Inbox className="mr-2 h-4 w-4" />
+            <Inbox className="mr-2 size-4" />
             Inbox
           </CommandItem>
           <CommandItem onSelect={() => go("/issues")}>
-            <CircleDot className="mr-2 h-4 w-4" />
+            <CircleDot className="mr-2 size-4" />
             Issues
           </CommandItem>
           <CommandItem onSelect={() => go("/projects")}>
-            <Hexagon className="mr-2 h-4 w-4" />
+            <Hexagon className="mr-2 size-4" />
             Projects
           </CommandItem>
           <CommandItem onSelect={() => go("/goals")}>
-            <Target className="mr-2 h-4 w-4" />
+            <Target className="mr-2 size-4" />
             Goals
           </CommandItem>
           <CommandItem onSelect={() => go("/agents")}>
-            <Bot className="mr-2 h-4 w-4" />
+            <Bot className="mr-2 size-4" />
             Agents
           </CommandItem>
           <CommandItem onSelect={() => go("/clients")}>
-            <Users className="mr-2 h-4 w-4" />
+            <Users className="mr-2 size-4" />
             Clients
           </CommandItem>
           <CommandItem onSelect={() => go("/costs")}>
-            <DollarSign className="mr-2 h-4 w-4" />
+            <DollarSign className="mr-2 size-4" />
             Costs
           </CommandItem>
           <CommandItem onSelect={() => go("/activity")}>
-            <History className="mr-2 h-4 w-4" />
+            <History className="mr-2 size-4" />
             Activity
           </CommandItem>
         </CommandGroup>
@@ -289,7 +290,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
                   }
                   onSelect={() => go(`/issues/${issue.identifier ?? issue.id}`)}
                 >
-                  <CircleDot className="mr-2 h-4 w-4" />
+                  <CircleDot className="mr-2 size-4" />
                   <span className="text-muted-foreground mr-2 font-mono text-xs">
                     {issue.identifier ?? issue.id.slice(0, 8)}
                   </span>
@@ -310,7 +311,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
             <CommandGroup heading="Agents">
               {agents.slice(0, 10).map((agent) => (
                 <CommandItem key={agent.id} onSelect={() => go(agentUrl(agent))}>
-                  <Bot className="mr-2 h-4 w-4" />
+                  <Bot className="mr-2 size-4" />
                   {agent.name}
                   <span className="text-xs text-muted-foreground ml-2">{agent.role}</span>
                 </CommandItem>
@@ -325,7 +326,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
             <CommandGroup heading="Clients">
               {clients.slice(0, 10).map((client) => (
                 <CommandItem key={client.id} onSelect={() => go(clientUrl(client))}>
-                  <Users className="mr-2 h-4 w-4" />
+                  <Users className="mr-2 size-4" />
                   <span className="flex-1 truncate">{client.name}</span>
                   {client.contactName ? (
                     <span className="text-xs text-muted-foreground ml-2">{client.contactName}</span>
@@ -342,7 +343,7 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
             <CommandGroup heading="Projects">
               {projects.slice(0, 10).map((project) => (
                 <CommandItem key={project.id} onSelect={() => go(projectUrl(project))}>
-                  <Hexagon className="mr-2 h-4 w-4" />
+                  <Hexagon className="mr-2 size-4" />
                   {project.name}
                 </CommandItem>
               ))}

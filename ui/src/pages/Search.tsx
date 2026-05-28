@@ -26,6 +26,7 @@ import { PageTabBar, type PageTabItem } from "../components/PageTabBar";
 import { IssueGroupHeader } from "../components/IssueGroupHeader";
 import { SearchResultRow } from "../components/search/SearchResultRow";
 import type { Agent } from "@paperclipai/shared";
+import { buildSearchUrl } from "./search-utils";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const IDENTIFIER_PATTERN = /^[A-Z]+-\d+$/;
@@ -69,10 +70,10 @@ function buildSubgroups(results: CompanySearchResult[]): Array<{ key: SubGroupKe
     list.push(result);
     buckets.set(key, list);
   }
-  return SUBGROUP_ORDER.filter((key) => (buckets.get(key)?.length ?? 0) > 0).map((key) => ({
+  return SUBGROUP_ORDER.flatMap((key) => ((buckets.get(key)?.length ?? 0) > 0) ? [({
     key,
     results: buckets.get(key) ?? [],
-  }));
+  })] : []);
 }
 
 function isCompanySearchScope(value: string | null): value is CompanySearchScope {
@@ -82,21 +83,6 @@ function isCompanySearchScope(value: string | null): value is CompanySearchScope
 function describeScope(scope: CompanySearchScope) {
   if (scope === "all") return "All scopes";
   return SCOPE_LABELS[scope];
-}
-
-export function buildSearchUrl(href: string, query: string, scope: CompanySearchScope): string {
-  const url = new URL(href);
-  if (query.length === 0) {
-    url.searchParams.delete("q");
-  } else {
-    url.searchParams.set("q", query);
-  }
-  if (scope === "all") {
-    url.searchParams.delete("scope");
-  } else {
-    url.searchParams.set("scope", scope);
-  }
-  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function shapeError(error: unknown): { message: string; status?: number } {
@@ -326,7 +312,7 @@ export function Search() {
       <div className="border-b border-border px-4 py-3 sm:px-6">
         <h1 className="sr-only">Search</h1>
         <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={inputRef}
             autoFocus
@@ -351,9 +337,9 @@ export function Search() {
               type="button"
               onClick={handleClear}
               aria-label="Clear search"
-              className="absolute right-12 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-accent/50"
+              className="absolute right-12 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-accent/50"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="size-3.5" />
             </button>
           ) : null}
           <kbd
@@ -452,7 +438,7 @@ function SearchTabContent({
         <div>
           <h2 className="text-lg font-semibold">Type to search company memory.</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Issues, comments, plan documents, agents, projects — same surface, ranked by relevance.
+            Issues, comments, plan documents, agents, projects, same surface, ranked by relevance.
           </p>
         </div>
         {recentSearches.length > 0 ? (
@@ -468,7 +454,7 @@ function SearchTabContent({
                     onClick={() => onRecentClick(entry)}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/40"
                   >
-                    <SearchIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <SearchIcon className="size-3.5 text-muted-foreground" />
                     <span className="flex-1 truncate">{entry}</span>
                   </button>
                 </li>
@@ -498,7 +484,7 @@ function SearchTabContent({
     const status = apiError?.status;
     return (
       <div className="mx-auto flex w-full max-w-xl flex-col items-center justify-center gap-3 px-4 py-12 text-center">
-        <AlertTriangle className="h-10 w-10 text-destructive" aria-hidden />
+        <AlertTriangle className="size-10 text-destructive" aria-hidden />
         <div className="text-base font-semibold">Couldn’t run that search</div>
         <p className="text-sm text-muted-foreground">
           {status ? `The server returned ${status}.` : "The request failed."} Your input and filters are still here, so
@@ -528,7 +514,7 @@ function SearchTabContent({
           </div>
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="flex items-start gap-3 px-3 py-2">
-              <Skeleton className="mt-1 h-4 w-4 rounded-full" />
+              <Skeleton className="mt-1 size-4 rounded-full" />
               <div className="flex flex-1 flex-col gap-1.5">
                 <Skeleton className="h-3 w-3/4" />
                 <Skeleton className="h-3 w-1/2" />
@@ -543,7 +529,7 @@ function SearchTabContent({
   if (isEmpty) {
     return (
       <div className="mx-auto flex w-full max-w-xl flex-col items-center justify-center gap-3 px-4 py-12 text-center">
-        <FileQuestion className="h-10 w-10 text-muted-foreground" aria-hidden />
+        <FileQuestion className="size-10 text-muted-foreground" aria-hidden />
         <div className="text-base font-semibold">No results for &ldquo;{trimmedQuery}&rdquo;</div>
         <p className="text-sm text-muted-foreground">
           We couldn’t find a match in {describeScope(scope).toLowerCase()}. Try widening the scope or rephrasing your
@@ -556,7 +542,7 @@ function SearchTabContent({
             </Button>
           ) : null}
           <Button onClick={openNewIssue} size="sm" variant="default">
-            <Plus className="mr-1.5 h-4 w-4" />
+            <Plus className="mr-1.5 size-4" />
             Create issue from this query
           </Button>
           <Button onClick={navigateIssuesFallback} size="sm" variant="ghost">
@@ -594,11 +580,11 @@ function SearchTabContent({
             >
               <IssueGroupHeader
                 label={SUBGROUP_LABELS[group.key]}
-                trailing={
+                trailingSlot={() => (
                   <span className="text-xs font-normal tabular-nums text-muted-foreground">
                     {group.results.length}
                   </span>
-                }
+                )}
                 className="pt-2 pb-1 text-[11px] tracking-wider text-muted-foreground"
               />
               <div className="flex flex-col gap-y-1">
@@ -614,15 +600,15 @@ function SearchTabContent({
           ))
         ) : (
           <div className="flex flex-col gap-y-1">
-            {subgroups
-              .flatMap((group) => group.results)
-              .map((result) => (
+            {subgroups.flatMap((group) =>
+              group.results.map((result) => (
                 <SearchResultRow
                   key={`${result.type}:${result.id}:${result.href}`}
                   result={result}
                   agentsById={agentsById}
                 />
-              ))}
+              )),
+            )}
           </div>
         )}
       </div>

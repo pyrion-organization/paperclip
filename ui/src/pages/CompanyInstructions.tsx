@@ -7,7 +7,8 @@ import { companiesApi } from "../api/companies";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "@/lib/classnames";
 import { MarkdownEditor } from "../components/MarkdownEditor";
-import { PackageFileTree, buildFileTree } from "../components/PackageFileTree";
+import { PackageFileTree } from "../components/PackageFileTree";
+import { buildFileTree } from "../components/file-tree-utils";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,7 @@ export function CompanyInstructions() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [filePanelWidth, setFilePanelWidth] = useState(260);
   const [showFilePanel, setShowFilePanel] = useState(false);
-  const [awaitingRefresh, setAwaitingRefresh] = useState(false);
+  const awaitingRefreshRef = useRef(false);
   const lastFileVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -82,7 +83,9 @@ export function CompanyInstructions() {
   const saveFile = useMutation({
     mutationFn: (data: { path: string; content: string }) =>
       companiesApi.saveInstructionsFile(companyId, data),
-    onMutate: () => setAwaitingRefresh(true),
+    onMutate: () => {
+      awaitingRefreshRef.current = true;
+    },
     onSuccess: (_, variables) => {
       setPendingFiles((prev) => prev.filter((f) => f !== variables.path));
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInstructions.bundle(companyId) });
@@ -90,20 +93,26 @@ export function CompanyInstructions() {
         queryKey: queryKeys.companyInstructions.file(companyId, variables.path),
       });
     },
-    onError: () => setAwaitingRefresh(false),
+    onError: () => {
+      awaitingRefreshRef.current = false;
+    },
   });
 
   const deleteFile = useMutation({
     mutationFn: (relativePath: string) =>
       companiesApi.deleteInstructionsFile(companyId, relativePath),
-    onMutate: () => setAwaitingRefresh(true),
+    onMutate: () => {
+      awaitingRefreshRef.current = true;
+    },
     onSuccess: (_, relativePath) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInstructions.bundle(companyId) });
       queryClient.removeQueries({
         queryKey: queryKeys.companyInstructions.file(companyId, relativePath),
       });
     },
-    onError: () => setAwaitingRefresh(false),
+    onError: () => {
+      awaitingRefreshRef.current = false;
+    },
   });
 
   // Sync selected file when bundle loads
@@ -135,8 +144,8 @@ export function CompanyInstructions() {
     const versionKey = selectedFileExists && selectedFileDetail
       ? `${selectedFileDetail.path}:${selectedFileDetail.content}`
       : `pending:${selectedOrEntryFile}`;
-    if (awaitingRefresh) {
-      setAwaitingRefresh(false);
+    if (awaitingRefreshRef.current) {
+      awaitingRefreshRef.current = false;
       setDraft(null);
       lastFileVersionRef.current = versionKey;
       return;
@@ -145,7 +154,7 @@ export function CompanyInstructions() {
       setDraft(null);
       lastFileVersionRef.current = versionKey;
     }
-  }, [awaitingRefresh, selectedFileDetail, selectedFileExists, selectedOrEntryFile]);
+  }, [selectedFileDetail, selectedFileExists, selectedOrEntryFile]);
 
   // Cmd+S to save
   const currentContent = selectedFileExists ? (selectedFileDetail?.content ?? "") : "";
@@ -247,7 +256,7 @@ export function CompanyInstructions() {
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-7 w-7"
+                  className="size-7"
                   onClick={() => setShowNewFileInput(true)}
                 >
                   +
@@ -258,7 +267,7 @@ export function CompanyInstructions() {
                   type="button"
                   size="icon"
                   variant="ghost"
-                  className="h-7 w-7"
+                  className="size-7"
                   onClick={() => setShowFilePanel(false)}
                 >
                   ✕
@@ -353,6 +362,10 @@ export function CompanyInstructions() {
         {!isMobile && (
           <div
             className="w-1 shrink-0 cursor-col-resize hover:bg-border active:bg-primary/50 rounded transition-colors mx-1"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize instructions pane"
+            tabIndex={0}
             onMouseDown={handleSeparatorDrag}
           />
         )}
@@ -366,10 +379,10 @@ export function CompanyInstructions() {
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="h-7 w-7 shrink-0"
+                  className="size-7 shrink-0"
                   onClick={() => setShowFilePanel(true)}
                 >
-                  <FolderOpen className="h-3.5 w-3.5" />
+                  <FolderOpen className="size-3.5" />
                 </Button>
               )}
               <div className="min-w-0">
@@ -433,7 +446,7 @@ export function CompanyInstructions() {
               onChange={(e) => setDraft(e.target.value)}
               className="min-h-[420px] w-full rounded-md border border-border bg-transparent px-3 py-2 font-mono text-sm outline-none"
               placeholder="File contents"
-            />
+             aria-label="Display Value"/>
           )}
         </div>
       </div>

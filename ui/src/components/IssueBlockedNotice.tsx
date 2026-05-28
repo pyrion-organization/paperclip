@@ -25,17 +25,16 @@ function BlockerRecoveryIndicator({ action }: { action: IssueRecoveryAction }) {
   const tone = RECOVERY_CHIP_DEFAULT_TONE[state];
   const Icon = tone.icon;
   return (
-    <span
+    <output
       data-testid="issue-blocked-notice-recovery-indicator"
       data-recovery-state={state}
-      role="status"
       aria-label={tone.label}
       title={`${tone.label} — open the source issue to act.`}
       className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${tone.className}`}
     >
-      <Icon className="h-2.5 w-2.5" aria-hidden />
+      <Icon className="size-2.5" aria-hidden />
       {tone.label}
-    </span>
+    </output>
   );
 }
 
@@ -76,17 +75,17 @@ function SuccessfulRunRetryNowControl({
         >
           {retryNow.isPending ? (
             <span className="inline-flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              Retrying...
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              Retrying&hellip;
             </span>
           ) : success ? (
             <span className="inline-flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <CheckCircle2 className="size-3.5" aria-hidden="true" />
               {retryNow.data?.outcome === "already_promoted" ? "Already promoted" : "Promoted"}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              <RotateCcw className="size-3.5" aria-hidden="true" />
               Retry now
             </span>
           )}
@@ -131,9 +130,14 @@ export function IssueBlockedNotice({
       : null;
 
   const blockerLabel = blockers.length === 1 ? "the linked issue" : "the linked issues";
-  const terminalBlockers = blockers
-    .flatMap((blocker) => blocker.terminalBlockers ?? [])
-    .filter((blocker, index, all) => all.findIndex((candidate) => candidate.id === blocker.id) === index);
+  const terminalBlockerIds = new Set<string>();
+  const terminalBlockers = blockers.flatMap((blocker) =>
+    (blocker.terminalBlockers ?? []).flatMap((terminalBlocker) => {
+      if (terminalBlockerIds.has(terminalBlocker.id)) return [];
+      terminalBlockerIds.add(terminalBlocker.id);
+      return [terminalBlocker];
+    }),
+  );
 
   const isStalled = blockerAttention?.state === "stalled";
   const parkedBlockers = (() => {
@@ -201,7 +205,7 @@ export function IssueBlockedNotice({
       className="mb-3 rounded-md border border-amber-300/70 bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
     >
       <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
         <div className="min-w-0 space-y-1.5">
           {showSuccessfulRunHandoff ? (
             <>
@@ -289,7 +293,7 @@ export function IssueBlockedNotice({
                   className="flex flex-wrap items-center gap-1.5 pt-0.5"
                 >
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 dark:text-amber-200">
-                    <Flag className="h-3 w-3" aria-hidden />
+                    <Flag className="size-3" aria-hidden />
                     Blocked by parked work
                   </span>
                   {parkedBlockers.map(renderBlockerChip)}

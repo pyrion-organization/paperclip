@@ -3,8 +3,8 @@ import {
   Field,
   ToggleField,
   DraftInput,
-  help,
 } from "../../components/agent-config-primitives";
+import { help } from "../../components/agent-config-primitives-data";
 import { ChoosePathButton } from "../../components/PathInstructionsModal";
 
 const inputClass =

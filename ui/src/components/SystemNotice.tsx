@@ -111,6 +111,20 @@ function formatTimestamp(ts: string) {
   }
 }
 
+function metadataRowKey(row: SystemNoticeMetadataRow) {
+  switch (row.kind) {
+    case "text":
+    case "code":
+      return `${row.kind}:${row.label}:${row.value}`;
+    case "issue":
+      return `${row.kind}:${row.label}:${row.identifier}`;
+    case "agent":
+      return `${row.kind}:${row.label}:${row.name}`;
+    case "run":
+      return `${row.kind}:${row.label}:${row.runId}`;
+  }
+}
+
 function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTokens }) {
   return (
     <div className="grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs">
@@ -133,7 +147,7 @@ function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTo
                 <>
                   <span>{row.identifier}</span>
                   {row.title ? (
-                    <span className="text-muted-foreground">— {row.title}</span>
+                    <span className="text-muted-foreground"> -  {row.title}</span>
                   ) : null}
                 </>
               );
@@ -218,7 +232,8 @@ export function SystemNotice({
 }: SystemNoticeProps) {
   const tokens = TONE_TOKENS[tone];
   const ToneIcon = tokens.icon;
-  const [open, setOpen] = useState(detailsDefaultOpen);
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null);
+  const open = openOverride ?? detailsDefaultOpen;
   const detailsId = useId();
   const hasDetails = Boolean(metadata && metadata.length > 0);
   const resolvedLabel =
@@ -244,12 +259,12 @@ export function SystemNotice({
       <header className="flex items-start gap-3 px-3 py-2.5 sm:px-4">
         <span
           className={cn(
-            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+            "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md",
             tokens.iconWrap,
           )}
           aria-hidden
         >
-          <ToneIcon className={cn("h-4 w-4", tokens.iconClass)} />
+          <ToneIcon className={cn("size-4", tokens.iconClass)} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]">
@@ -285,7 +300,7 @@ export function SystemNotice({
         {hasDetails ? (
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => setOpenOverride((value) => !(value ?? detailsDefaultOpen))}
             aria-expanded={open}
             aria-controls={detailsId}
             className={cn(
@@ -297,7 +312,7 @@ export function SystemNotice({
             <span>{open ? "Hide details" : "Details"}</span>
             <ChevronDown
               className={cn(
-                "h-3.5 w-3.5 transition-transform duration-150",
+                "size-3.5 transition-transform duration-150",
                 open && "rotate-180",
               )}
             />
@@ -312,17 +327,17 @@ export function SystemNotice({
             tokens.divider,
           )}
         >
-          <div className="divide-y divide-border/50 px-1 py-1">
-            {metadata!.map((section, sectionIdx) => (
-              <div key={sectionIdx} className="py-1.5 first:pt-2 last:pb-2">
+          <div className="divide-y divide-border/50 p-1">
+            {metadata!.map((section) => (
+              <div key={section.title ?? section.rows.map(metadataRowKey).join("|")} className="py-1.5 first:pt-2 last:pb-2">
                 {section.title ? (
                   <div className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     {section.title}
                   </div>
                 ) : null}
                 <div>
-                  {section.rows.map((row, rowIdx) => (
-                    <MetadataRow key={rowIdx} row={row} tone={tokens} />
+                  {section.rows.map((row) => (
+                    <MetadataRow key={metadataRowKey(row)} row={row} tone={tokens} />
                   ))}
                 </div>
               </div>
@@ -333,5 +348,3 @@ export function SystemNotice({
     </section>
   );
 }
-
-export default SystemNotice;

@@ -6,16 +6,18 @@ export interface ToggleSwitchProps
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   size?: "default" | "lg";
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
-export const ToggleSwitch = React.forwardRef<
-  HTMLButtonElement,
-  ToggleSwitchProps
->(
-  (
-    { checked, onCheckedChange, size = "default", className, disabled, ...props },
-    ref,
-  ) => {
+export function ToggleSwitch({
+  checked,
+  onCheckedChange,
+  size = "default",
+  className,
+  disabled,
+  ref,
+  ...props
+}: ToggleSwitchProps) {
     const isLg = size === "lg";
 
     return (
@@ -53,7 +55,6 @@ export const ToggleSwitch = React.forwardRef<
         />
       </button>
     );
-  },
-);
+}
 
 ToggleSwitch.displayName = "ToggleSwitch";

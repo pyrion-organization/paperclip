@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-import type { AdapterConfigSchema, ConfigFieldSchema, CreateConfigValues } from "@paperclipai/adapter-utils";
+import type { AdapterConfigSchema, ConfigFieldSchema } from "@paperclipai/adapter-utils";
 
 import type { AdapterConfigFieldsProps } from "./types";
 import {
@@ -12,6 +12,12 @@ import {
 } from "../components/agent-config-primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { ChevronDown } from "lucide-react";
+import {
+  fetchConfigSchema,
+  fieldMatchesVisibleWhen,
+  getDefaultValue,
+  schemaCache,
+} from "./schema-config-fields-utils";
 
 // ── Select field (extracted to keep hooks at component top level) ──────
 function SelectField({
@@ -28,16 +34,16 @@ function SelectField({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
+        <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent/50 transition-colors w-full justify-between">
           <span className={!value ? "text-muted-foreground" : ""}>
             {selectedOpt?.label ?? value ?? "Select..."}
           </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          <ChevronDown className="size-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1" align="start">
         {options.map((opt) => (
-          <button
+          <button type="button"
             key={opt.value}
             className={`flex items-center w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50 ${opt.value === value ? "bg-accent" : ""}`}
             onMouseDown={(e) => {
@@ -151,11 +157,11 @@ function ComboboxField({
             setTimeout(() => setOpen(false), 150);
           }}
           onKeyDown={handleKeyDown}
-        />
+         aria-label="Display Value"/>
         <Popover open={open && filtered.length > 0} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button className="rounded-r-md border border-border px-2 py-1.5 hover:bg-accent/50 transition-colors">
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            <button type="button" className="rounded-r-md border border-border px-2 py-1.5 hover:bg-accent/50 transition-colors">
+              <ChevronDown className="size-3 text-muted-foreground" />
             </button>
           </PopoverTrigger>
           <PopoverContent
@@ -172,7 +178,7 @@ function ComboboxField({
                   </div>
                 )}
                 {opts.map((opt) => (
-                  <button
+                  <button type="button"
                     key={opt.value}
                     className={`flex items-center w-full px-2 py-1.5 text-sm rounded hover:bg-accent/50 ${
                       opt.value === value ? "bg-accent" : ""
@@ -202,45 +208,6 @@ function ComboboxField({
 // ---------------------------------------------------------------------------
 // SchemaConfigFields component
 // ---------------------------------------------------------------------------
-
-const schemaCache = new Map<string, AdapterConfigSchema | null>();
-const schemaFetchInflight = new Map<string, Promise<AdapterConfigSchema | null>>();
-const failedSchemaTypes = new Set<string>();
-
-async function fetchConfigSchema(adapterType: string): Promise<AdapterConfigSchema | null> {
-  const cached = schemaCache.get(adapterType);
-  if (cached !== undefined) return cached;
-  if (failedSchemaTypes.has(adapterType)) return null;
-
-  const inflight = schemaFetchInflight.get(adapterType);
-  if (inflight) return inflight;
-
-  const promise = (async () => {
-    try {
-      const res = await fetch(`/api/adapters/${encodeURIComponent(adapterType)}/config-schema`);
-      if (!res.ok) {
-        failedSchemaTypes.add(adapterType);
-        return null;
-      }
-      const schema = (await res.json()) as AdapterConfigSchema;
-      schemaCache.set(adapterType, schema);
-      return schema;
-    } catch {
-      failedSchemaTypes.add(adapterType);
-      return null;
-    } finally {
-      schemaFetchInflight.delete(adapterType);
-    }
-  })();
-
-  schemaFetchInflight.set(adapterType, promise);
-  return promise;
-}
-
-export function invalidateConfigSchemaCache(adapterType: string): void {
-  schemaCache.delete(adapterType);
-  failedSchemaTypes.delete(adapterType);
-}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -279,53 +246,6 @@ function useConfigSchema(adapterType: string): AdapterConfigSchema | null {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getDefaultValue(field: ConfigFieldSchema): unknown {
-  if (field.default !== undefined) return field.default;
-  switch (field.type) {
-    case "toggle":
-      return false;
-    case "number":
-      return 0;
-    case "text":
-    case "textarea":
-      return "";
-    case "select":
-      return field.options?.[0]?.value ?? "";
-  }
-}
-
-export function fieldMatchesVisibleWhen(
-  field: ConfigFieldSchema,
-  readValue: (field: ConfigFieldSchema) => unknown,
-  schema: AdapterConfigSchema,
-): boolean {
-  const visibleWhen = field.meta?.visibleWhen;
-  if (!visibleWhen || typeof visibleWhen !== "object" || Array.isArray(visibleWhen)) return true;
-
-  const condition = visibleWhen as {
-    key?: unknown;
-    value?: unknown;
-    values?: unknown;
-    notValues?: unknown;
-  };
-  if (typeof condition.key !== "string" || condition.key.length === 0) return true;
-
-  const sourceField = schema.fields.find((candidate) => candidate.key === condition.key);
-  if (!sourceField) return true;
-
-  const actual = String(readValue(sourceField) ?? "");
-  if (typeof condition.value === "string") return actual === condition.value;
-  if (Array.isArray(condition.values)) {
-    const values = condition.values.filter((value): value is string => typeof value === "string");
-    return values.length > 0 && values.includes(actual);
-  }
-  if (Array.isArray(condition.notValues)) {
-    const values = condition.notValues.filter((value): value is string => typeof value === "string");
-    return !values.includes(actual);
-  }
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -341,9 +261,9 @@ export function SchemaConfigFields({
 }: AdapterConfigFieldsProps) {
   const schema = useConfigSchema(adapterType);
 
-  const [defaultsAppliedFor, setDefaultsAppliedFor] = useState<string | null>(null);
+  const defaultsAppliedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!schema || !isCreate || defaultsAppliedFor === adapterType) return;
+    if (!schema || !isCreate || defaultsAppliedForRef.current === adapterType) return;
     const nextValues: Record<string, unknown> = {};
     const existingValues = values?.adapterSchemaValues ?? {};
     for (const field of schema.fields) {
@@ -356,8 +276,8 @@ export function SchemaConfigFields({
       }
     }
     set?.({ adapterSchemaValues: nextValues });
-    setDefaultsAppliedFor(adapterType);
-  }, [adapterType, schema, isCreate, defaultsAppliedFor, set, values?.adapterSchemaValues]);
+    defaultsAppliedForRef.current = adapterType;
+  }, [adapterType, schema, isCreate, set, values?.adapterSchemaValues]);
 
   if (!schema || schema.fields.length === 0) return null;
 
@@ -412,13 +332,13 @@ export function SchemaConfigFields({
 
   return (
     <>
-      {schema.fields
-        .filter((field) => fieldMatchesVisibleWhen(field, readValue, schema))
-        .map((field) => {
+      {schema.fields.flatMap((field) => {
+          if (!fieldMatchesVisibleWhen(field, readValue, schema)) return [];
+
           switch (field.type) {
             case "select": {
               const currentVal = String(readValue(field) ?? "");
-              return (
+              return [(
                 <Field key={field.key} label={field.label} hint={field.hint}>
                   <SelectField
                     value={currentVal}
@@ -426,11 +346,11 @@ export function SchemaConfigFields({
                     onChange={(v) => writeValue(field, v)}
                   />
                 </Field>
-              );
+              )];
             }
 
             case "toggle":
-              return (
+              return [(
                 <ToggleField
                   key={field.key}
                   label={field.label}
@@ -438,10 +358,10 @@ export function SchemaConfigFields({
                   checked={readValue(field) === true}
                   onChange={(v) => writeValue(field, v)}
                 />
-              );
+              )];
 
             case "number":
-              return (
+              return [(
                 <Field key={field.key} label={field.label} hint={field.hint}>
                   <DraftNumberInput
                     value={Number(readValue(field) ?? 0)}
@@ -450,10 +370,10 @@ export function SchemaConfigFields({
                     className={inputClass}
                   />
                 </Field>
-              );
+              )];
 
             case "textarea":
-              return (
+              return [(
                 <Field key={field.key} label={field.label} hint={field.hint}>
                   <DraftTextarea
                     value={String(readValue(field) ?? "")}
@@ -461,7 +381,7 @@ export function SchemaConfigFields({
                     immediate
                   />
                 </Field>
-              );
+              )];
 
             case "combobox": {
               const currentVal = String(readValue(field) ?? "");
@@ -493,7 +413,7 @@ export function SchemaConfigFields({
                   }));
                 }
               }
-              return (
+              return [(
                 <Field key={field.key} label={field.label} hint={field.hint}>
                   <ComboboxField
                     value={currentVal}
@@ -502,12 +422,12 @@ export function SchemaConfigFields({
                     placeholder={field.hint}
                   />
                 </Field>
-              );
+              )];
             }
 
             case "text":
             default:
-              return (
+              return [(
                 <Field key={field.key} label={field.label} hint={field.hint}>
                   <DraftInput
                     value={String(readValue(field) ?? "")}
@@ -516,37 +436,9 @@ export function SchemaConfigFields({
                     className={inputClass}
                   />
                 </Field>
-              );
+              )];
           }
         })}
     </>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Build adapter config from schema values + standard CreateConfigValues fields
-// ---------------------------------------------------------------------------
-
-export function buildSchemaAdapterConfig(
-  values: CreateConfigValues,
-): Record<string, unknown> {
-  const ac: Record<string, unknown> = {};
-
-  if (values.model?.trim()) ac.model = values.model.trim();
-  if (values.cwd) ac.cwd = values.cwd;
-  if (values.command) ac.command = values.command;
-  if (values.instructionsFilePath) ac.instructionsFilePath = values.instructionsFilePath;
-  if (values.thinkingEffort) ac.thinkingEffort = values.thinkingEffort;
-
-  if (values.extraArgs) {
-    ac.extraArgs = values.extraArgs
-      .split(/\s+/)
-      .filter(Boolean);
-  }
-
-  if (values.adapterSchemaValues) {
-    Object.assign(ac, values.adapterSchemaValues);
-  }
-
-  return ac;
 }

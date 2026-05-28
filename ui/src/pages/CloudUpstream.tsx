@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -12,7 +12,6 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import type {
-  CloudUpstreamActivationDecision,
   CloudUpstreamActivationEntityType,
   CloudUpstreamPreview,
   CloudUpstreamRun,
@@ -27,6 +26,8 @@ import { useCompany } from "@/context/CompanyContext";
 import { applyCompanyPrefix, extractCompanyPrefixFromPath } from "@/lib/company-routes";
 import { Link, useLocation } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
+import { buildActivationRows } from "./cloud-upstream-utils";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const PENDING_CONNECTION_KEY = "paperclip-cloud-upstream-pending-connection";
 const STEPS: Array<{ key: CloudUpstreamStep; label: string }> = [
@@ -37,37 +38,11 @@ const STEPS: Array<{ key: CloudUpstreamStep; label: string }> = [
   { key: "verify", label: "Verify" },
   { key: "activate", label: "Activate" },
 ];
-const ACTIVATION_CATEGORIES: Array<{
-  key: CloudUpstreamActivationEntityType;
-  label: string;
-  singular: string;
-  detail: string;
-}> = [
-  {
-    key: "agents",
-    label: "Agents",
-    singular: "agent",
-    detail: "Confirm cloud secrets and adapter credentials before unpausing imported agents.",
-  },
-  {
-    key: "routines",
-    label: "Routines",
-    singular: "routine",
-    detail: "Review schedules and trigger settings before enabling imported routines.",
-  },
-  {
-    key: "monitors",
-    label: "Monitors",
-    singular: "monitor",
-    detail: "Activate after the target stack has been smoke tested.",
-  },
-];
-
 export function CloudUpstream() {
   const { selectedCompany, selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const [remoteUrl, setRemoteUrl] = useState("");
   const [preview, setPreview] = useState<CloudUpstreamPreview | null>(null);
   const [activeRun, setActiveRun] = useState<CloudUpstreamRun | null>(null);
@@ -97,17 +72,17 @@ export function CloudUpstream() {
   const connection = upstreamQuery.data?.connections[0] ?? null;
   const latestRun = activeRun ?? upstreamQuery.data?.runs[0] ?? null;
 
-  const callbackParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const callbackParams = useMemo(() => new URLSearchParams(routerLocation.search), [routerLocation.search]);
   const code = callbackParams.get("code");
   const state = callbackParams.get("state");
   const callbackError = callbackParams.get("error");
 
   const settingsPath = useMemo(() => {
-    const pathPrefix = extractCompanyPrefixFromPath(location.pathname);
+    const pathPrefix = extractCompanyPrefixFromPath(routerLocation.pathname);
     return applyCompanyPrefix("/company/settings/cloud-upstream", pathPrefix ?? selectedCompany?.issuePrefix ?? null);
-  }, [location.pathname, selectedCompany?.issuePrefix]);
+  }, [routerLocation.pathname, selectedCompany?.issuePrefix]);
 
-  const finishMutation = useMutation({
+  const finishMutation = useInvalidatingMutation({
     mutationFn: (input: { pendingConnectionId: string; code: string; state: string }) =>
       cloudUpstreamsApi.finishConnect(input),
     onSuccess: async () => {
@@ -142,7 +117,7 @@ export function CloudUpstream() {
     }
   }, [callbackError]);
 
-  const startMutation = useMutation({
+  const startMutation = useInvalidatingMutation({
     mutationFn: () =>
       cloudUpstreamsApi.startConnect({
         companyId: selectedCompanyId!,
@@ -157,7 +132,7 @@ export function CloudUpstream() {
     onError: (error) => setActionError(error instanceof Error ? error.message : "Failed to start connection."),
   });
 
-  const previewMutation = useMutation({
+  const previewMutation = useInvalidatingMutation({
     mutationFn: (input: { connectionId: string; companyId: string }) =>
       cloudUpstreamsApi.preview(input.connectionId, { companyId: input.companyId }),
     onSuccess: (nextPreview) => {
@@ -167,7 +142,7 @@ export function CloudUpstream() {
     onError: (error) => setActionError(previewErrorMessage(error)),
   });
 
-  const runMutation = useMutation({
+  const runMutation = useInvalidatingMutation({
     mutationFn: (input: { connectionId: string; companyId: string; retryOfRunId?: string | null }) =>
       cloudUpstreamsApi.createRun(input.connectionId, {
         companyId: input.companyId,
@@ -183,7 +158,7 @@ export function CloudUpstream() {
     },
     onError: (error) => setActionError(error instanceof Error ? error.message : "Failed to run push."),
   });
-  const activationMutation = useMutation({
+  const activationMutation = useInvalidatingMutation({
     mutationFn: (input: { run: CloudUpstreamRun; entityType: CloudUpstreamActivationEntityType }) =>
       cloudUpstreamsApi.activateEntities(input.run.connectionId, input.run.id, {
         companyId: input.run.companyId,
@@ -208,17 +183,17 @@ export function CloudUpstream() {
   }
 
   if (experimentalQuery.isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading experimental settings...</div>;
+    return <div className="text-sm text-muted-foreground">Loading experimental settings&hellip;</div>;
   }
 
   if (!cloudSyncEnabled) {
     return (
       <div className="max-w-2xl space-y-4">
         <div className="flex items-center gap-2">
-          <CloudUpload className="h-5 w-5 text-muted-foreground" />
+          <CloudUpload className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Cloud upstream</h1>
         </div>
-        <div className="rounded-md border border-border px-4 py-4 text-sm text-muted-foreground">
+        <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
           Cloud sync is disabled. Enable it in{" "}
           <Link className="text-primary underline-offset-2 hover:underline" to="/instance/settings/experimental">
             Instance Settings
@@ -234,7 +209,7 @@ export function CloudUpstream() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <CloudUpload className="h-5 w-5 text-muted-foreground" />
+            <CloudUpload className="size-5 text-muted-foreground" />
             <h1 className="text-lg font-semibold">Cloud upstream</h1>
           </div>
           <p className="max-w-2xl text-sm text-muted-foreground">
@@ -244,7 +219,7 @@ export function CloudUpstream() {
         {connection?.target.origin ? (
           <Button variant="outline" size="sm" asChild>
             <a href={connection.target.origin} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="size-4" />
               Open cloud
             </a>
           </Button>
@@ -266,7 +241,7 @@ export function CloudUpstream() {
 
       <section className="space-y-3">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Connection</div>
-        <div className="rounded-md border border-border px-4 py-4">
+        <div className="rounded-md border border-border p-4">
           {connection ? (
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
               <div>
@@ -287,7 +262,7 @@ export function CloudUpstream() {
                   onClick={() => previewMutation.mutate({ connectionId: connection.id, companyId: connection.companyId })}
                   disabled={previewMutation.isPending || connection.tokenStatus !== "connected"}
                 >
-                  {previewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                  {previewMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />}
                   Preview push
                 </Button>
                 {previewMutation.isPending ? <PreviewProgressHint /> : null}
@@ -302,7 +277,7 @@ export function CloudUpstream() {
                 aria-label="Paperclip Cloud stack URL"
               />
               <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending || !remoteUrl.trim()}>
-                {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
                 Connect
               </Button>
             </div>
@@ -318,7 +293,7 @@ export function CloudUpstream() {
               onClick={() => runMutation.mutate({ connectionId: preview.connectionId, companyId: preview.sourceCompanyId })}
               disabled={runMutation.isPending || !preview.schemaCompatible}
             >
-              {runMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+              {runMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
               Push to cloud
             </Button>
           </div>
@@ -334,7 +309,7 @@ export function CloudUpstream() {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress and finish</div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => downloadRunReport(latestRun)}>
-                <FileJson className="h-4 w-4" />
+                <FileJson className="size-4" />
                 Download report
               </Button>
               {latestRun.status === "failed" || latestRun.status === "cancelled" ? (
@@ -348,7 +323,7 @@ export function CloudUpstream() {
                   })}
                   disabled={runMutation.isPending}
                 >
-                  <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw className="size-4" />
                   Retry
                 </Button>
               ) : latestRun.status === "succeeded" ? (
@@ -358,13 +333,13 @@ export function CloudUpstream() {
                   onClick={() => runMutation.mutate({ connectionId: latestRun.connectionId, companyId: latestRun.companyId })}
                   disabled={runMutation.isPending}
                 >
-                  <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw className="size-4" />
                   Re-run
                 </Button>
               ) : null}
             </div>
           </div>
-          <div className="rounded-md border border-border px-4 py-4">
+          <div className="rounded-md border border-border p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium capitalize">{latestRun.status}</div>
@@ -402,7 +377,7 @@ export function CloudUpstream() {
       {upstreamQuery.data?.runs.length ? (
         <section className="space-y-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <History className="h-3.5 w-3.5" />
+            <History className="size-3.5" />
             History
           </div>
           <div className="divide-y divide-border rounded-md border border-border">
@@ -442,16 +417,16 @@ function PreviewProgressHint() {
 function Stepper({ activeStep }: { activeStep: CloudUpstreamStep }) {
   const activeIndex = STEPS.findIndex((step) => step.key === activeStep);
   return (
-    <div className="grid gap-2 rounded-md border border-border px-3 py-3 sm:grid-cols-6">
+    <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-6">
       {STEPS.map((step, index) => {
         const complete = index < activeIndex;
         const active = index === activeIndex;
         return (
           <div key={step.key} className="flex items-center gap-2 text-xs">
             {complete ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 className="size-4 text-emerald-600" />
             ) : (
-              <span className={active ? "h-4 w-4 rounded-full border-2 border-primary" : "h-4 w-4 rounded-full border border-border"} />
+              <span className={active ? "size-4 rounded-full border-2 border-primary" : "size-4 rounded-full border border-border"} />
             )}
             <span className={active ? "font-medium text-foreground" : "text-muted-foreground"}>{step.label}</span>
           </div>
@@ -478,13 +453,13 @@ function WarningsPanel({ warnings }: { warnings: CloudUpstreamPreview["warnings"
   return (
     <div className="rounded-md border border-border px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+        <ShieldAlert className="size-4 text-muted-foreground" />
         Warnings
       </div>
       <div className="divide-y divide-border">
         {warnings.map((warning) => (
           <div key={warning.code} className="grid gap-2 py-2 sm:grid-cols-[1.25rem_12rem_1fr]">
-            <AlertTriangle className={warning.severity === "blocker" ? "h-4 w-4 text-destructive" : "h-4 w-4 text-amber-600"} />
+            <AlertTriangle className={warning.severity === "blocker" ? "size-4 text-destructive" : "size-4 text-amber-600"} />
             <div className="text-sm font-medium">{warning.title}</div>
             <div className="text-sm text-muted-foreground">{warning.detail}</div>
           </div>
@@ -551,7 +526,7 @@ function ActivationChecklist({
                   onClick={() => onActivate(row.key)}
                   disabled={row.count === 0 || activated || isPending}
                 >
-                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {pending ? <Loader2 className="size-4 animate-spin" /> : null}
                   {activated ? "Activated" : "Activate"}
                 </Button>
                 <Button variant="ghost" size="sm" disabled={activated || isPending}>
@@ -564,52 +539,6 @@ function ActivationChecklist({
       </div>
     </div>
   );
-}
-
-export function buildActivationRows(run: CloudUpstreamRun) {
-  const activationChecklist = activationChecklistFromReport(run.report);
-  return ACTIVATION_CATEGORIES.map((category) => {
-    const decision = activationChecklist[category.key];
-    const count = summaryCount(run.summary, category.key);
-    const status = decision?.status === "activated" ? "activated" : "paused";
-    const pluralLabel = `${category.singular}${count === 1 ? "" : "s"}`;
-    return {
-      ...category,
-      count,
-      pluralLabel,
-      status,
-      detail: `${count} imported ${pluralLabel} are paused by default. ${category.detail}`,
-      statusLabel: status === "activated"
-        ? `${count} activated`
-        : count === 0
-          ? "0 imported"
-          : `${count} paused`,
-    };
-  });
-}
-
-function summaryCount(summary: CloudUpstreamRun["summary"], key: CloudUpstreamActivationEntityType): number {
-  return summary.find((item) => item.key === key)?.count ?? 0;
-}
-
-function activationChecklistFromReport(report: CloudUpstreamRun["report"]): Partial<Record<CloudUpstreamActivationEntityType, CloudUpstreamActivationDecision>> {
-  const value = optionalRecord(report.activationChecklist);
-  const decisions: Partial<Record<CloudUpstreamActivationEntityType, CloudUpstreamActivationDecision>> = {};
-  for (const key of ["agents", "routines", "monitors"] as const) {
-    const item = optionalRecord(value[key]);
-    if (!item) continue;
-    decisions[key] = {
-      entityType: key,
-      count: typeof item.count === "number" ? item.count : 0,
-      status: item.status === "activated" ? "activated" : "paused",
-      activatedAt: typeof item.activatedAt === "string" ? item.activatedAt : null,
-    };
-  }
-  return decisions;
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function downloadRunReport(run: CloudUpstreamRun) {

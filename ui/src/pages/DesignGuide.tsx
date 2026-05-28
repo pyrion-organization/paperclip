@@ -125,6 +125,37 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { Identity } from "@/components/Identity";
 import { IssueReferencePill } from "@/components/IssueReferencePill";
 
+const designGuidePap001Leading = (
+  <>
+    <StatusIcon status="in_progress" />
+    <PriorityIcon priority="high" />
+  </>
+);
+const designGuidePap002Leading = (
+  <>
+    <StatusIcon status="done" />
+    <PriorityIcon priority="medium" />
+  </>
+);
+const designGuidePap003Leading = (
+  <>
+    <StatusIcon status="todo" />
+    <PriorityIcon priority="low" />
+  </>
+);
+const designGuidePap004Leading = (
+  <>
+    <StatusIcon status="blocked" />
+    <PriorityIcon priority="critical" />
+  </>
+);
+const designGuidePap001Trailing = <StatusBadge status="in_progress" />;
+const designGuidePap002Trailing = <StatusBadge status="done" />;
+const designGuidePap003Trailing = <StatusBadge status="todo" />;
+const designGuidePap004Trailing = <StatusBadge status="blocked" />;
+const designGuidePap101Leading = <PriorityIcon priority="high" />;
+const designGuidePap102Leading = <PriorityIcon priority="medium" />;
+
 /* ------------------------------------------------------------------ */
 /*  Section wrapper                                                    */
 /* ------------------------------------------------------------------ */
@@ -158,7 +189,7 @@ function Swatch({ name, cssVar }: { name: string; cssVar: string }) {
   return (
     <div className="flex items-center gap-3">
       <div
-        className="h-8 w-8 rounded-md border border-border shrink-0"
+        className="size-8 rounded-md border border-border shrink-0"
         style={{ backgroundColor: `var(${cssVar})` }}
       />
       <div>
@@ -280,25 +311,25 @@ export function DesignGuide() {
       {/* ============================================================ */}
       <Section title="Typography">
         <div className="space-y-3">
-          <h2 className="text-xl font-bold">Page Title — text-xl font-bold</h2>
-          <h2 className="text-lg font-semibold">Section Title — text-lg font-semibold</h2>
+          <h2 className="text-xl font-bold">Page Title, text-xl font-bold</h2>
+          <h2 className="text-lg font-semibold">Section Title, text-lg font-semibold</h2>
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Section Heading — text-sm font-semibold uppercase tracking-wide
+            Section Heading, text-sm font-semibold uppercase tracking-wide
           </h3>
-          <p className="text-sm font-medium">Card Title — text-sm font-medium</p>
-          <p className="text-sm font-semibold">Card Title Alt — text-sm font-semibold</p>
-          <p className="text-sm">Body text — text-sm</p>
+          <p className="text-sm font-medium">Card Title, text-sm font-medium</p>
+          <p className="text-sm font-semibold">Card Title Alt, text-sm font-semibold</p>
+          <p className="text-sm">Body text, text-sm</p>
           <p className="text-sm text-muted-foreground">
-            Muted description — text-sm text-muted-foreground
+            Muted description, text-sm text-muted-foreground
           </p>
           <p className="text-xs text-muted-foreground">
-            Tiny label — text-xs text-muted-foreground
+            Tiny label, text-xs text-muted-foreground
           </p>
           <p className="text-sm font-mono text-muted-foreground">
-            Mono identifier — text-sm font-mono text-muted-foreground
+            Mono identifier, text-sm font-mono text-muted-foreground
           </p>
-          <p className="text-2xl font-bold">Large stat — text-2xl font-bold</p>
-          <p className="font-mono text-xs">Log/code text — font-mono text-xs</p>
+          <p className="text-2xl font-bold">Large stat, text-2xl font-bold</p>
+          <p className="font-mono text-xs">Log/code text, font-mono text-xs</p>
         </div>
       </Section>
 
@@ -316,7 +347,7 @@ export function DesignGuide() {
           ].map(([label, radius]) => (
             <div key={label} className="flex flex-col items-center gap-1">
               <div
-                className="h-12 w-12 bg-primary"
+                className="size-12 bg-primary"
                 style={{ borderRadius: radius }}
               />
               <span className="text-xs text-muted-foreground">{label}</span>
@@ -444,8 +475,8 @@ export function DesignGuide() {
           <div className="flex items-center gap-4 flex-wrap">
             {(["running", "active", "paused", "error", "archived"] as const).map((label) => (
               <div key={label} className="flex items-center gap-2">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className={`inline-flex h-full w-full rounded-full ${agentStatusDot[label] ?? agentStatusDotDefault}`} />
+                <span className="relative flex size-2.5">
+                  <span className={`inline-flex size-full rounded-full ${agentStatusDot[label] ?? agentStatusDotDefault}`} />
                 </span>
                 <span className="text-xs text-muted-foreground">{label}</span>
               </div>
@@ -470,7 +501,7 @@ export function DesignGuide() {
 
         <SubSection title="IssueReferencePill">
           <p className="text-xs text-muted-foreground">
-            Used wherever a task is referenced — in markdown, the Related Work tab, and activity summaries.
+            Used wherever a task is referenced, in markdown, the Related Work tab, and activity summaries.
             Pass <code className="font-mono">status</code> to show the target issue&apos;s state at a glance.
             Use <code className="font-mono">strikethrough</code> for &quot;removed&quot; contexts.
           </p>
@@ -595,17 +626,17 @@ export function DesignGuide() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">
               Quick Actions
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
             <DropdownMenuItem>
-              <Check className="h-4 w-4" />
+              <Check className="size-4" />
               Mark as done
               <DropdownMenuShortcut>⌘D</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem>
-              <BookOpen className="h-4 w-4" />
+              <BookOpen className="size-4" />
               Open docs
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -616,7 +647,7 @@ export function DesignGuide() {
               Watch issue
             </DropdownMenuCheckboxItem>
             <DropdownMenuItem variant="destructive">
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
               Delete issue
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -717,22 +748,22 @@ export function DesignGuide() {
               <CommandEmpty>No results found.</CommandEmpty>
               <CommandGroup heading="Pages">
                 <CommandItem>
-                  <LayoutDashboard className="h-4 w-4" />
+                  <LayoutDashboard className="size-4" />
                   Dashboard
                 </CommandItem>
                 <CommandItem>
-                  <CircleDot className="h-4 w-4" />
+                  <CircleDot className="size-4" />
                   Issues
                 </CommandItem>
               </CommandGroup>
               <CommandSeparator />
               <CommandGroup heading="Actions">
                 <CommandItem>
-                  <CommandIcon className="h-4 w-4" />
+                  <CommandIcon className="size-4" />
                   Open command palette
                 </CommandItem>
                 <CommandItem>
-                  <Plus className="h-4 w-4" />
+                  <Plus className="size-4" />
                   Create new issue
                 </CommandItem>
               </CommandGroup>
@@ -845,54 +876,34 @@ export function DesignGuide() {
       <Section title="Entity Rows">
         <div className="border border-border rounded-md">
           <EntityRow
-            leading={
-              <>
-                <StatusIcon status="in_progress" />
-                <PriorityIcon priority="high" />
-              </>
-            }
+            leading={designGuidePap001Leading}
             identifier="PAP-001"
             title="Implement authentication flow"
             subtitle="Assigned to Agent Alpha"
-            trailing={<StatusBadge status="in_progress" />}
+            trailing={designGuidePap001Trailing}
             onClick={() => {}}
           />
           <EntityRow
-            leading={
-              <>
-                <StatusIcon status="done" />
-                <PriorityIcon priority="medium" />
-              </>
-            }
+            leading={designGuidePap002Leading}
             identifier="PAP-002"
             title="Set up CI/CD pipeline"
             subtitle="Completed 2 days ago"
-            trailing={<StatusBadge status="done" />}
+            trailing={designGuidePap002Trailing}
             onClick={() => {}}
           />
           <EntityRow
-            leading={
-              <>
-                <StatusIcon status="todo" />
-                <PriorityIcon priority="low" />
-              </>
-            }
+            leading={designGuidePap003Leading}
             identifier="PAP-003"
             title="Write API documentation"
-            trailing={<StatusBadge status="todo" />}
+            trailing={designGuidePap003Trailing}
             onClick={() => {}}
           />
           <EntityRow
-            leading={
-              <>
-                <StatusIcon status="blocked" />
-                <PriorityIcon priority="critical" />
-              </>
-            }
+            leading={designGuidePap004Leading}
             identifier="PAP-004"
             title="Deploy to production"
             subtitle="Blocked by PAP-001"
-            trailing={<StatusBadge status="blocked" />}
+            trailing={designGuidePap004Trailing}
             selected
           />
         </div>
@@ -1073,12 +1084,12 @@ export function DesignGuide() {
           <div className="text-yellow-400">[12:00:05] WARN  Rate limit approaching (80%)</div>
           <div className="text-foreground">[12:00:08] INFO  Task PAP-001 completed</div>
           <div className="text-red-400">[12:00:12] ERROR Connection timeout to upstream service</div>
-          <div className="text-blue-300">[12:00:12] SYS   Retrying connection in 5s...</div>
+          <div className="text-blue-300">[12:00:12] SYS   Retrying connection in 5s&hellip;</div>
           <div className="text-foreground">[12:00:17] INFO  Reconnected successfully</div>
           <div className="flex items-center gap-1.5">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 animate-pulse" />
-              <span className="inline-flex h-full w-full rounded-full bg-cyan-400" />
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full rounded-full bg-cyan-400 animate-pulse" />
+              <span className="inline-flex size-full rounded-full bg-cyan-400" />
             </span>
             <span className="text-cyan-400">Live</span>
           </div>
@@ -1119,22 +1130,22 @@ export function DesignGuide() {
         <SubSection title="Sidebar nav items">
           <div className="w-60 border border-border rounded-md p-3 space-y-0.5 bg-card">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-accent text-accent-foreground">
-              <LayoutDashboard className="h-4 w-4" />
+              <LayoutDashboard className="size-4" />
               Dashboard
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground cursor-pointer">
-              <CircleDot className="h-4 w-4" />
+              <CircleDot className="size-4" />
               Issues
               <span className="ml-auto text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
                 12
               </span>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground cursor-pointer">
-              <Bot className="h-4 w-4" />
+              <Bot className="size-4" />
               Agents
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground cursor-pointer">
-              <Hexagon className="h-4 w-4" />
+              <Hexagon className="size-4" />
               Projects
             </div>
           </div>
@@ -1142,12 +1153,12 @@ export function DesignGuide() {
 
         <SubSection title="View toggle">
           <div className="flex items-center border border-border rounded-md w-fit">
-            <button className="px-3 py-1.5 text-xs font-medium bg-accent text-foreground rounded-l-md">
-              <ListTodo className="h-3.5 w-3.5 inline mr-1" />
+            <button type="button" className="px-3 py-1.5 text-xs font-medium bg-accent text-foreground rounded-l-md">
+              <ListTodo className="size-3.5 inline mr-1" />
               List
             </button>
-            <button className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 rounded-r-md">
-              <Target className="h-3.5 w-3.5 inline mr-1" />
+            <button type="button" className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 rounded-r-md">
+              <Target className="size-3.5 inline mr-1" />
               Org
             </button>
           </div>
@@ -1166,13 +1177,13 @@ export function DesignGuide() {
           </div>
           <div className="border border-border rounded-b-md">
             <EntityRow
-              leading={<PriorityIcon priority="high" />}
+              leading={designGuidePap101Leading}
               identifier="PAP-101"
               title="Build agent heartbeat system"
               onClick={() => {}}
             />
             <EntityRow
-              leading={<PriorityIcon priority="medium" />}
+              leading={designGuidePap102Leading}
               identifier="PAP-102"
               title="Add cost tracking dashboard"
               onClick={() => {}}
@@ -1311,7 +1322,7 @@ export function DesignGuide() {
             const LucideIcon = Icon as React.FC<{ className?: string }>;
             return (
               <div key={name as string} className="flex flex-col items-center gap-1.5 p-2">
-                <LucideIcon className="h-4 w-4 text-muted-foreground" />
+                <LucideIcon className="size-4 text-muted-foreground" />
                 <span className="text-[10px] text-muted-foreground font-mono">{name as string}</span>
               </div>
             );

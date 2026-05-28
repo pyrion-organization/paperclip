@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BudgetPolicySummary, ExecutionWorkspace, ProjectClientRef } from "@paperclipai/shared";
 import { isUuidLike } from "@paperclipai/shared/agent-url-key";
 import { PROJECT_COLORS } from "@paperclipai/shared/constants";
@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 /* ── Top-level tab types ── */
 
@@ -136,9 +137,9 @@ function ColorPicker({
 
   return (
     <div className="relative" ref={ref}>
-      <button
+      <button type="button"
         onClick={() => setOpen(!open)}
-        className="shrink-0 h-5 w-5 rounded-md cursor-pointer hover:ring-2 hover:ring-foreground/20 transition-[box-shadow]"
+        className="shrink-0 size-5 rounded-md cursor-pointer hover:ring-2 hover:ring-foreground/20 transition-[box-shadow]"
         style={{ backgroundColor: currentColor }}
         aria-label="Change project color"
       />
@@ -146,13 +147,13 @@ function ColorPicker({
         <div className="absolute top-full left-0 mt-2 p-2 bg-popover border border-border rounded-lg shadow-lg z-50 w-max">
           <div className="grid grid-cols-5 gap-1.5">
             {PROJECT_COLORS.map((color) => (
-              <button
+              <button type="button"
                 key={color}
                 onClick={() => {
                   onSelect(color);
                   setOpen(false);
                 }}
-                className={`h-6 w-6 rounded-md cursor-pointer transition-[transform,box-shadow] duration-150 hover:scale-110 ${
+                className={`size-6 rounded-md cursor-pointer transition-[transform,box-shadow] duration-150 hover:scale-110 ${
                   color === currentColor
                     ? "ring-2 ring-foreground ring-offset-1 ring-offset-background"
                     : "hover:ring-2 hover:ring-foreground/30"
@@ -199,7 +200,7 @@ function ProjectIssuesList({ projectId, companyId }: { projectId: string; compan
     enabled: !!companyId,
   });
 
-  const updateIssue = useMutation({
+  const updateIssue = useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       issuesApi.update(id, data),
     onSuccess: () => {
@@ -259,7 +260,7 @@ function ProjectPluginOperationsList({
     enabled: !!companyId && !!projectId,
   });
 
-  const updateIssue = useMutation({
+  const updateIssue = useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       issuesApi.update(id, data),
     onSuccess: () => {
@@ -298,7 +299,7 @@ export function ProjectDetail() {
   const { pushToast } = useToastActions();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const [fieldSaveStates, setFieldSaveStates] = useState<Partial<Record<ProjectConfigFieldKey, ProjectFieldSaveState>>>({});
   const fieldSaveRequestIds = useRef<Partial<Record<ProjectConfigFieldKey, number>>>({});
   const fieldSaveTimers = useRef<Partial<Record<ProjectConfigFieldKey, ReturnType<typeof setTimeout>>>>({});
@@ -310,11 +311,11 @@ export function ProjectDetail() {
   }, [companies, companyPrefix]);
   const lookupCompanyId = routeCompanyId ?? selectedCompanyId ?? undefined;
   const canFetchProject = routeProjectRef.length > 0 && (isUuidLike(routeProjectRef) || Boolean(lookupCompanyId));
-  const activeRouteTab = routeProjectRef ? resolveProjectTab(location.pathname, routeProjectRef) : null;
+  const activeRouteTab = routeProjectRef ? resolveProjectTab(routerLocation.pathname, routeProjectRef) : null;
   const pluginTabFromSearch = useMemo(() => {
-    const tab = new URLSearchParams(location.search).get("tab");
+    const tab = new URLSearchParams(routerLocation.search).get("tab");
     return isProjectPluginTab(tab) ? tab : null;
-  }, [location.search]);
+  }, [routerLocation.search]);
   const activeTab = activeRouteTab ?? pluginTabFromSearch;
 
   const { data: project, isLoading, error } = useQuery({
@@ -394,13 +395,13 @@ export function ProjectDetail() {
     }
   };
 
-  const updateProject = useMutation({
+  const updateProject = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
       projectsApi.update(projectLookupRef, data, resolvedCompanyId ?? lookupCompanyId),
     onSuccess: invalidateProject,
   });
 
-  const archiveProject = useMutation({
+  const archiveProject = useInvalidatingMutation({
     mutationFn: (archived: boolean) =>
       projectsApi.update(
         projectLookupRef,
@@ -425,7 +426,7 @@ export function ProjectDetail() {
     },
   });
 
-  const uploadImage = useMutation({
+  const uploadImage = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!resolvedCompanyId) throw new Error("No company selected");
       return assetsApi.uploadImage(resolvedCompanyId, file, `projects/${projectLookupRef || "draft"}`);
@@ -566,7 +567,7 @@ export function ProjectDetail() {
     } satisfies BudgetPolicySummary;
   }, [budgetOverview?.policies, project, resolvedCompanyId, routeProjectRef]);
 
-  const budgetMutation = useMutation({
+  const budgetMutation = useInvalidatingMutation({
     mutationFn: (amount: number) =>
       budgetsApi.upsertPolicy(resolvedCompanyId!, {
         scopeType: "project",
@@ -673,13 +674,13 @@ export function ProjectDetail() {
           />
           {project.pauseReason === "budget" ? (
             <div className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-red-200">
-              <span className="h-2 w-2 rounded-full bg-red-400" />
+              <span className="size-2 rounded-full bg-red-400" />
               Paused by budget hard stop
             </div>
           ) : null}
           {project.managedByPlugin ? (
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color ?? "#6366f1" }} />
+              <span className="size-2 rounded-full" style={{ backgroundColor: project.color ?? "#6366f1" }} />
               Managed by {project.managedByPlugin.pluginDisplayName}
             </div>
           ) : null}
@@ -778,7 +779,7 @@ export function ProjectDetail() {
             />
           )
         ) : (
-          <p className="text-sm text-muted-foreground">Loading workspaces...</p>
+          <p className="text-sm text-muted-foreground">Loading workspaces&hellip;</p>
         )
       ) : null}
 

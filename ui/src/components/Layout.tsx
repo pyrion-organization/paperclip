@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { CompanySettingsNav } from "./access/CompanySettingsNav";
@@ -86,13 +86,10 @@ type LayoutIdleWindow = Window & {
 };
 
 function useDeferredCompanySidebarReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as LayoutIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -200,7 +197,7 @@ function SidebarAccountMenuPlaceholder({
   isMobile: boolean;
 }) {
   return (
-    <div className="w-full shrink-0 border-t border-border bg-background px-2 py-2" aria-hidden="true">
+    <div className="w-full shrink-0 border-t border-border bg-background p-2" aria-hidden="true">
       <div
         className={cn(
           "flex w-full items-center gap-2.5 px-3 py-2",
@@ -250,11 +247,11 @@ export function Layout() {
     pluginRoutePath: matchedPluginRoutePath,
   } = useParams<{ companyPrefix: string; pluginRoutePath?: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const navigationType = useNavigationType();
   const companySidebarReady = useDeferredCompanySidebarReady();
-  const isInstanceSettingsRoute = location.pathname.startsWith("/instance/");
-  const isCompanySettingsRoute = location.pathname.includes("/company/settings");
+  const isInstanceSettingsRoute = routerLocation.pathname.startsWith("/instance/");
+  const isCompanySettingsRoute = routerLocation.pathname.includes("/company/settings");
   const onboardingTriggered = useRef(false);
   const lastMainScrollTop = useRef(0);
   const previousPathname = useRef<string | null>(null);
@@ -272,8 +269,8 @@ export function Layout() {
   const hasUnknownCompanyPrefix =
     Boolean(companyPrefix) && !companiesLoading && companies.length > 0 && !matchedCompany;
   const pluginRoutePath = useMemo(
-    () => matchedPluginRoutePath?.toLowerCase() ?? getCompanyRouteSegment(location.pathname, companyPrefix),
-    [companyPrefix, location.pathname, matchedPluginRoutePath],
+    () => matchedPluginRoutePath?.toLowerCase() ?? getCompanyRouteSegment(routerLocation.pathname, companyPrefix),
+    [companyPrefix, routerLocation.pathname, matchedPluginRoutePath],
   );
   const routeSidebarCompanyId = matchedCompany?.id ?? null;
   const routeSidebarCompanyPrefix = matchedCompany?.issuePrefix ?? null;
@@ -361,8 +358,8 @@ export function Layout() {
     }
 
     if (companyPrefix !== matchedCompany.issuePrefix) {
-      const suffix = location.pathname.replace(/^\/[^/]+/, "");
-      navigate(`/${matchedCompany.issuePrefix}${suffix}${location.search}`, { replace: true });
+      const suffix = routerLocation.pathname.replace(/^\/[^/]+/, "");
+      navigate(`/${matchedCompany.issuePrefix}${suffix}${routerLocation.search}`, { replace: true });
       return;
     }
 
@@ -380,8 +377,8 @@ export function Layout() {
     companies,
     companiesLoading,
     matchedCompany,
-    location.pathname,
-    location.search,
+    routerLocation.pathname,
+    routerLocation.search,
     navigate,
     selectionSource,
     selectedCompanyId,
@@ -471,7 +468,7 @@ export function Layout() {
     };
   }, [isMobile, sidebarOpen, setSidebarOpen]);
 
-  const updateMobileNavVisibility = useCallback((currentTop: number) => {
+  const updateMobileNavVisibility = useEffectEvent((currentTop: number) => {
     const delta = currentTop - lastMainScrollTop.current;
 
     if (currentTop <= 24) {
@@ -483,7 +480,7 @@ export function Layout() {
     }
 
     lastMainScrollTop.current = currentTop;
-  }, []);
+  });
 
   useEffect(() => {
     if (!isMobile) {
@@ -502,7 +499,7 @@ export function Layout() {
     return () => {
       window.removeEventListener("scroll", onScroll);
     };
-  }, [isMobile, updateMobileNavVisibility]);
+  }, [isMobile]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -515,10 +512,10 @@ export function Layout() {
   }, [isMobile]);
 
   useEffect(() => {
-    if (!location.pathname.startsWith("/instance/settings/")) return;
+    if (!routerLocation.pathname.startsWith("/instance/settings/")) return;
 
     const nextPath = normalizeRememberedInstanceSettingsPath(
-      `${location.pathname}${location.search}${location.hash}`,
+      `${routerLocation.pathname}${routerLocation.search}${routerLocation.hash}`,
     );
     setInstanceSettingsTarget(nextPath);
 
@@ -527,27 +524,27 @@ export function Layout() {
     } catch {
       // Ignore storage failures in restricted environments.
     }
-  }, [location.hash, location.pathname, location.search]);
+  }, [routerLocation.hash, routerLocation.pathname, routerLocation.search]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
     const mainContent = mainContentRef.current;
     return scheduleMainContentFocus(mainContent);
-  }, [location.pathname]);
+  }, [routerLocation.pathname]);
 
   useEffect(() => {
     const shouldResetScroll = shouldResetScrollOnNavigation({
       previousPathname: previousPathname.current,
-      pathname: location.pathname,
+      pathname: routerLocation.pathname,
       navigationType,
-      state: location.state,
+      state: routerLocation.state,
     });
 
-    previousPathname.current = location.pathname;
+    previousPathname.current = routerLocation.pathname;
 
     if (!shouldResetScroll) return;
     resetNavigationScroll(mainContentRef.current);
-  }, [location.pathname, navigationType]);
+  }, [routerLocation.pathname, navigationType]);
 
   return (
     <GeneralSettingsProvider value={{ keyboardShortcutsEnabled }}>

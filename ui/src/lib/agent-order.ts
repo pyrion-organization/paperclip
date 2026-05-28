@@ -91,7 +91,7 @@ export function writeAgentSortMode(storageKey: string, sortMode: AgentSidebarSor
   }
 }
 
-export function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
+function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
   if (agents.length === 0) return [];
 
   const byId = new Map(agents.map((agent) => [agent.id, agent]));

@@ -1,7 +1,7 @@
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useRef,
@@ -171,7 +171,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export function useToastState() {
-  const context = useContext(ToastStateContext);
+  const context = use(ToastStateContext);
   if (!context) {
     throw new Error("useToastState must be used within a ToastProvider");
   }
@@ -179,7 +179,7 @@ export function useToastState() {
 }
 
 export function useToastActions() {
-  const context = useContext(ToastActionsContext);
+  const context = use(ToastActionsContext);
   if (!context) {
     throw new Error("useToastActions must be used within a ToastProvider");
   }
@@ -187,7 +187,7 @@ export function useToastActions() {
 }
 
 export function useOptionalToastActions() {
-  return useContext(ToastActionsContext);
+  return use(ToastActionsContext);
 }
 
 export function useToast() {

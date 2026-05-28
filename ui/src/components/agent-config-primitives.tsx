@@ -16,66 +16,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../lib/classnames";
-import { AGENT_ROLE_LABELS } from "@paperclipai/shared/constants";
-
-/* ---- Help text for (?) tooltips ---- */
-export const help: Record<string, string> = {
-  name: "Display name for this agent.",
-  title: "Job title shown in the org chart.",
-  role: "Organizational role. Determines position and capabilities.",
-  reportsTo: "The agent this one reports to in the org hierarchy.",
-  capabilities: "Describes what this agent can do. Shown in the org chart and used for task routing.",
-  adapterType: "How this agent runs: local CLI (Claude/Codex/OpenCode), OpenClaw Gateway, spawned process, or generic HTTP webhook.",
-  cwd: "Deprecated legacy working directory fallback for local adapters. Existing agents may still carry this value, but new configurations should use project workspaces instead.",
-  promptTemplate: "Sent on every heartbeat. Keep this small and dynamic. Use it for current-task framing, not large static instructions. Supports {{ agent.id }}, {{ agent.name }}, {{ agent.role }} and other template variables.",
-  model: "Override the default model used by the adapter.",
-  thinkingEffort: "Control model reasoning depth. Supported values vary by adapter/model.",
-  chrome: "Enable Claude's Chrome integration by passing --chrome.",
-  dangerouslySkipPermissions: "Run unattended by auto-approving adapter permission prompts when supported.",
-  dangerouslyBypassSandbox: "Run Codex without sandbox restrictions. Required for filesystem/network access.",
-  search: "Enable Codex web search capability during runs.",
-  fastMode: "Enable Codex Fast mode. This burns credits/tokens much faster and is supported on GPT-5.4 and manual Codex model IDs.",
-  workspaceStrategy: "How Paperclip should realize an execution workspace for this agent. Keep project_primary for normal cwd execution, or use git_worktree for issue-scoped isolated checkouts.",
-  workspaceBaseRef: "Base git ref used when creating a worktree branch. Leave blank to use the resolved workspace ref or HEAD.",
-  workspaceBranchTemplate: "Template for naming derived branches. Supports {{issue.identifier}}, {{issue.title}}, {{agent.name}}, {{project.id}}, {{workspace.repoRef}}, and {{slug}}.",
-  worktreeParentDir: "Directory where derived worktrees should be created. Absolute, ~-prefixed, and repo-relative paths are supported.",
-  runtimeServicesJson: "Optional workspace runtime service definitions. Use this for shared app servers, workers, or other long-lived companion processes attached to the workspace.",
-  maxTurnsPerRun: "Maximum number of agentic turns (tool calls) per heartbeat run.",
-  command: "The command to execute (e.g. node, python).",
-  localCommand: "Override the path to the CLI command you want the adapter to call (e.g. /usr/local/bin/claude, codex, opencode).",
-  args: "Command-line arguments, comma-separated.",
-  extraArgs: "Extra CLI arguments for local adapters, comma-separated.",
-  envVars: "Environment variables injected into the adapter process. Use plain values or secret references.",
-  bootstrapPrompt: "Only sent when Paperclip starts a fresh session. Use this for stable setup guidance that should not be repeated on every heartbeat.",
-  payloadTemplateJson: "Optional JSON merged into remote adapter request payloads before Paperclip adds its standard wake and workspace fields.",
-  webhookUrl: "The URL that receives POST requests when the agent is invoked.",
-  heartbeatInterval: "Run this agent automatically on a timer. Useful for periodic tasks like checking for new work.",
-  intervalSec: "Seconds between automatic heartbeat invocations.",
-  timeoutSec: "Maximum seconds a run can take before being terminated. 0 means no timeout.",
-  graceSec: "Seconds to wait after sending interrupt before force-killing the process.",
-  wakeOnDemand: "Allow this agent to be woken by assignments, API calls, UI actions, or automated systems.",
-  cooldownSec: "Minimum seconds between consecutive heartbeat runs.",
-  maxConcurrentRuns: "Maximum number of heartbeat runs that can execute simultaneously for this agent.",
-  maxTurnContinuationEnabled: "Automatically queue bounded continuation runs when an adapter stops because its per-run turn cap was exhausted.",
-  maxTurnContinuationMaxAttempts: "Maximum automatic continuations after one max-turn stop. This is separate from max turns per run.",
-  maxTurnContinuationDelaySec: "Seconds to wait before starting each max-turn continuation.",
-  budgetMonthlyCents: "Monthly spending limit in cents. 0 means no limit.",
-};
-
-import { getAdapterLabels } from "../adapters/adapter-display-registry";
-
-export const adapterLabels = getAdapterLabels();
-
-export const roleLabels = AGENT_ROLE_LABELS as Record<string, string>;
 
 /* ---- Primitive components ---- */
+
+type DraftOverride<T> = {
+  source: T;
+  value: string;
+};
 
 export function HintIcon({ text }: { text: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button type="button" className="inline-flex text-muted-foreground/50 hover:text-muted-foreground transition-colors">
-          <HelpCircle className="h-3 w-3" />
+          <HelpCircle className="size-3" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs">
@@ -125,10 +79,10 @@ export function ToggleField({
           checked ? "bg-green-600" : "bg-muted"
         )}
         onClick={() => onChange(!checked)}
-      >
+       aria-label="Toggle menu">
         <span
           className={cn(
-            "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+            "inline-block size-3.5 rounded-full bg-white transition-transform",
             checked ? "translate-x-4.5" : "translate-x-0.5"
           )}
         />
@@ -180,7 +134,7 @@ export function ToggleWithNumber({
             className="w-16 rounded-md border border-border px-2 py-0.5 bg-transparent outline-none text-xs font-mono text-center"
             value={number}
             onChange={(e) => onNumberChange(Number(e.target.value))}
-          />
+           aria-label="Number"/>
           <span>{numberLabel}</span>
           {numberHint && <HintIcon text={numberHint} />}
         </div>
@@ -206,11 +160,11 @@ export function CollapsibleSection({
 }) {
   return (
     <div className={cn(bordered && "border-t border-border")}>
-      <button
+      <button type="button"
         className="flex items-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-accent/30 transition-colors"
         onClick={onToggle}
       >
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         {icon}
         {title}
       </button>
@@ -219,7 +173,7 @@ export function CollapsibleSection({
   );
 }
 
-export function AutoExpandTextarea({
+function AutoExpandTextarea({
   value,
   onChange,
   onBlur,
@@ -255,7 +209,7 @@ export function AutoExpandTextarea({
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       style={{ minHeight }}
-    />
+     aria-label="Text content"/>
   );
 }
 
@@ -275,15 +229,15 @@ export function DraftInput({
   immediate?: boolean;
   className?: string;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className">) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride<string> | null>(null);
+  const draft = draftOverride?.source === value ? draftOverride.value : value;
 
   return (
     <input
       className={className}
       value={draft}
       onChange={(e) => {
-        setDraft(e.target.value);
+        setDraftOverride({ source: value, value: e.target.value });
         if (immediate) onCommit(e.target.value);
       }}
       onBlur={() => {
@@ -310,8 +264,8 @@ export function DraftTextarea({
   placeholder?: string;
   minRows?: number;
 }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride<string> | null>(null);
+  const draft = draftOverride?.source === value ? draftOverride.value : value;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rows = minRows ?? 3;
@@ -334,14 +288,14 @@ export function DraftTextarea({
       placeholder={placeholder}
       value={draft}
       onChange={(e) => {
-        setDraft(e.target.value);
+        setDraftOverride({ source: value, value: e.target.value });
         if (immediate) onCommit(e.target.value);
       }}
       onBlur={() => {
         if (draft !== value) onCommit(draft);
       }}
       style={{ minHeight }}
-    />
+     aria-label="Draft"/>
   );
 }
 
@@ -360,8 +314,8 @@ export function DraftNumberInput({
   immediate?: boolean;
   className?: string;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "className" | "type">) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const [draftOverride, setDraftOverride] = useState<DraftOverride<number> | null>(null);
+  const draft = draftOverride?.source === value ? draftOverride.value : String(value);
 
   return (
     <input
@@ -369,7 +323,7 @@ export function DraftNumberInput({
       className={className}
       value={draft}
       onChange={(e) => {
-        setDraft(e.target.value);
+        setDraftOverride({ source: value, value: e.target.value });
         if (immediate) onCommit(Number(e.target.value) || 0);
       }}
       onBlur={() => {
@@ -385,7 +339,7 @@ export function DraftNumberInput({
  * "Choose" button that opens a dialog explaining the user must manually
  * type the path due to browser security limitations.
  */
-export function ChoosePathButton() {
+function ChoosePathButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -441,7 +395,7 @@ export function ChoosePathButton() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              OK
+              Close instructions
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -453,7 +407,7 @@ export function ChoosePathButton() {
 /**
  * Label + input rendered on the same line (inline layout for compact fields).
  */
-export function InlineField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function InlineField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-1.5 shrink-0">

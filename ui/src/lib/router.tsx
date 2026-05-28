@@ -45,38 +45,47 @@ function useActiveCompanyPrefix(): string | null {
   return selectedCompany ? normalizeCompanyPrefix(selectedCompany.issuePrefix) : null;
 }
 
-export * from "react-router-dom";
+export {
+  BrowserRouter,
+  MemoryRouter,
+  Outlet,
+  Route,
+  Routes,
+  useBeforeUnload,
+  useLocation,
+  useNavigationType,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 
 type CompanyLinkProps = React.ComponentProps<typeof RouterDom.Link> & {
   disableIssueQuicklook?: boolean;
   issuePrefetch?: Issue | null;
   issueQuicklookSide?: "top" | "right" | "bottom" | "left";
   issueQuicklookAlign?: "start" | "center" | "end";
+  ref?: React.Ref<HTMLAnchorElement>;
 };
 
 type IssueQuicklookLinkProps = CompanyLinkProps & {
   issuePathId: string;
 };
 
-const IssueQuicklookLink = React.forwardRef<HTMLAnchorElement, IssueQuicklookLinkProps>(
-  function IssueQuicklookLinkImpl(
-    {
-      issuePathId,
-      to,
-      state,
-      disableIssueQuicklook = false,
-      issuePrefetch = null,
-      issueQuicklookSide,
-      issueQuicklookAlign,
-      onMouseEnter,
-      onFocus,
-      onTouchStart,
-      onClickCapture,
-      ...props
-    },
-    ref,
-  ) {
-    const [armed, setArmed] = React.useState(disableIssueQuicklook);
+function IssueQuicklookLink({
+  issuePathId,
+  to,
+  state,
+  disableIssueQuicklook = false,
+  issuePrefetch = null,
+  issueQuicklookSide,
+  issueQuicklookAlign,
+  onMouseEnter,
+  onFocus,
+  onTouchStart,
+  onClickCapture,
+  ref,
+  ...props
+}: IssueQuicklookLinkProps) {
+    const [armed, setArmed] = React.useState(false);
     const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
     const armQuicklook = React.useCallback(() => setArmed(true), []);
     const fallbackLink = (
@@ -126,18 +135,17 @@ const IssueQuicklookLink = React.forwardRef<HTMLAnchorElement, IssueQuicklookLin
         />
       </React.Suspense>
     );
-  },
-);
+}
 
-export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
-  function CompanyLink({
-    to,
-    disableIssueQuicklook = false,
-    issuePrefetch = null,
-    issueQuicklookSide,
-    issueQuicklookAlign,
-    ...props
-  }, ref) {
+export function Link({
+  to,
+  disableIssueQuicklook = false,
+  issuePrefetch = null,
+  issueQuicklookSide,
+  issueQuicklookAlign,
+  ref,
+  ...props
+}: CompanyLinkProps) {
     const companyPrefix = useActiveCompanyPrefix();
     const resolvedTo = resolveTo(to, companyPrefix);
     const issuePathId = parseIssuePathIdFromPath(typeof resolvedTo === "string" ? resolvedTo : resolvedTo.pathname);
@@ -158,15 +166,16 @@ export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
     }
 
     return <RouterDom.Link ref={ref} to={resolvedTo} {...props} />;
-  },
-);
+}
 
-export const NavLink = React.forwardRef<HTMLAnchorElement, React.ComponentProps<typeof RouterDom.NavLink>>(
-  function CompanyNavLink({ to, ...props }, ref) {
-    const companyPrefix = useActiveCompanyPrefix();
-    return <RouterDom.NavLink ref={ref} to={resolveTo(to, companyPrefix)} {...props} />;
-  },
-);
+export function NavLink({
+  to,
+  ref,
+  ...props
+}: React.ComponentProps<typeof RouterDom.NavLink> & { ref?: React.Ref<HTMLAnchorElement> }) {
+  const companyPrefix = useActiveCompanyPrefix();
+  return <RouterDom.NavLink ref={ref} to={resolveTo(to, companyPrefix)} {...props} />;
+}
 
 export function Navigate({ to, ...props }: React.ComponentProps<typeof RouterDom.Navigate>) {
   const companyPrefix = useActiveCompanyPrefix();

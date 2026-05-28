@@ -3,7 +3,7 @@ import { Link } from "@/lib/router";
 import { StatusBadge } from "./StatusBadge";
 import { ChevronRight } from "lucide-react";
 import { cn } from "../lib/classnames";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 interface GoalTreeProps {
   goals: Goal[];
@@ -13,22 +13,25 @@ interface GoalTreeProps {
 
 interface GoalNodeProps {
   goal: Goal;
-  children: Goal[];
   allGoals: Goal[];
   depth: number;
   goalLink?: (goal: Goal) => string;
   onSelect?: (goal: Goal) => void;
 }
 
-function GoalNode({ goal, children, allGoals, depth, goalLink, onSelect }: GoalNodeProps) {
+function GoalNode({ goal, allGoals, depth, goalLink, onSelect }: GoalNodeProps) {
   const [expanded, setExpanded] = useState(true);
-  const hasChildren = children.length > 0;
+  const childGoals = useMemo(
+    () => allGoals.filter((g) => g.parentId === goal.id),
+    [allGoals, goal.id],
+  );
+  const hasChildren = childGoals.length > 0;
   const link = goalLink?.(goal);
 
   const inner = (
     <>
       {hasChildren ? (
-        <button
+        <button type="button"
           className="p-0.5"
           onClick={(e) => {
             e.preventDefault();
@@ -37,7 +40,7 @@ function GoalNode({ goal, children, allGoals, depth, goalLink, onSelect }: GoalN
           }}
         >
           <ChevronRight
-            className={cn("h-3 w-3 transition-transform", expanded && "rotate-90")}
+            className={cn("size-3 transition-transform", expanded && "rotate-90")}
           />
         </button>
       ) : (
@@ -64,21 +67,21 @@ function GoalNode({ goal, children, allGoals, depth, goalLink, onSelect }: GoalN
           {inner}
         </Link>
       ) : (
-        <div
-          className={classes}
+        <button
+          type="button"
+          className={cn(classes, "w-full bg-transparent text-left")}
           style={{ paddingLeft: `${depth * 16 + 12}px` }}
           onClick={() => onSelect?.(goal)}
         >
           {inner}
-        </div>
+        </button>
       )}
       {hasChildren && expanded && (
         <div>
-          {children.map((child) => (
+          {childGoals.map((child) => (
             <GoalNode
               key={child.id}
               goal={child}
-              children={allGoals.filter((g) => g.parentId === child.id)}
               allGoals={allGoals}
               depth={depth + 1}
               goalLink={goalLink}
@@ -105,7 +108,6 @@ export function GoalTree({ goals, goalLink, onSelect }: GoalTreeProps) {
         <GoalNode
           key={goal.id}
           goal={goal}
-          children={goals.filter((g) => g.parentId === goal.id)}
           allGoals={goals}
           depth={0}
           goalLink={goalLink}

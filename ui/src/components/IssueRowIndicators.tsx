@@ -51,13 +51,13 @@ export function IssueRowIndicators({
   const productivityReviewIndicator = productivityReview ? (
     <span
       className={cn(
-        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-300",
+        "inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-300",
         selected ? "border-muted-foreground text-muted-foreground" : null,
       )}
       title={`Productivity review: ${productivityReviewTriggerLabel(productivityReview.trigger)}`}
       aria-label="Productivity review open"
     >
-      <Eye className="h-2.5 w-2.5" aria-hidden />
+      <Eye className="size-2.5" aria-hidden />
     </span>
   ) : null;
   const recoveryAction = issue.activeRecoveryAction ?? null;
@@ -68,7 +68,7 @@ export function IssueRowIndicators({
       className="ml-1.5 inline-flex shrink-0 items-center gap-0.5 rounded-full border border-amber-500/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
       title="Blocked by parked work - at least one assigned blocker is in backlog and will not wake its assignee."
     >
-      <Flag className="h-2.5 w-2.5" aria-hidden />
+      <Flag className="size-2.5" aria-hidden />
       Blocked by parked work
     </span>
   ) : null;
@@ -90,10 +90,9 @@ function renderRecoveryChip(action: IssueRecoveryAction, selected: boolean): Rea
   const tone = RECOVERY_CHIP_DEFAULT_TONE[state];
   const Icon = tone.icon;
   return (
-    <span
+    <output
       data-testid="issue-row-recovery-indicator"
       data-recovery-state={state}
-      role="status"
       aria-label={tone.label}
       className={cn(
         "ml-1.5 inline-flex shrink-0 items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-medium",
@@ -102,9 +101,9 @@ function renderRecoveryChip(action: IssueRecoveryAction, selected: boolean): Rea
       )}
       title={`${tone.label} - open the source issue to act.`}
     >
-      <Icon className="h-2.5 w-2.5" aria-hidden />
+      <Icon className="size-2.5" aria-hidden />
       {tone.label}
-    </span>
+    </output>
   );
 }
 

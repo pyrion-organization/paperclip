@@ -368,7 +368,7 @@ describe("MarkdownBody", () => {
 
     expect(html).toContain('class="paperclip-markdown-table-scroll"');
     expect(html).toContain('aria-label="Scrollable table"');
-    expect(html).toContain('tabindex="0"');
+    expect(html).not.toContain('tabindex="0"');
     expect(html).toContain("<table>");
     expect(html).toContain('style="overflow-wrap:anywhere;word-break:normal"');
   });
@@ -400,7 +400,7 @@ describe("MarkdownBody", () => {
     const html = renderMarkdown("[https://github.com/paperclipai/paperclip/pull/4099](https://github.com/paperclipai/paperclip/pull/4099)");
 
     expect(html).toContain('<a href="https://github.com/paperclipai/paperclip/pull/4099"');
-    expect(html).toContain('class="lucide lucide-github mr-1 inline h-3.5 w-3.5 align-[-0.125em]"');
+    expect(html).toContain('class="lucide lucide-github mr-1 inline size-3.5 align-[-0.125em]"');
     // The icon and first character "h" must sit in a no-wrap span so the
     // icon can never be orphaned on the previous line from the URL text.
     expect(html).toMatch(/<span style="white-space:nowrap">.*lucide-github.*?<\/svg>h<\/span>/);
@@ -412,7 +412,7 @@ describe("MarkdownBody", () => {
     const html = renderMarkdown("See https://github.com/paperclipai/paperclip/issues/1778");
 
     expect(html).toContain('<a href="https://github.com/paperclipai/paperclip/issues/1778"');
-    expect(html).toContain('class="lucide lucide-github mr-1 inline h-3.5 w-3.5 align-[-0.125em]"');
+    expect(html).toContain('class="lucide lucide-github mr-1 inline size-3.5 align-[-0.125em]"');
   });
 
   it("does not prefix non-GitHub markdown links with the GitHub icon", () => {

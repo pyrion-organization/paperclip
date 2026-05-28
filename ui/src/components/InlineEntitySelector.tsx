@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { orderItemsBySelectedAndRecent } from "../lib/recent-selections";
@@ -27,30 +27,28 @@ interface InlineEntitySelectorProps {
   disablePortal?: boolean;
   /** Open the popover when the trigger receives keyboard/programmatic focus. */
   openOnFocus?: boolean;
+  ref?: Ref<HTMLButtonElement>;
 }
 
 const EMPTY_RECENT_OPTION_IDS: string[] = [];
 
-export const InlineEntitySelector = forwardRef<HTMLButtonElement, InlineEntitySelectorProps>(
-  function InlineEntitySelector(
-    {
-      value,
-      options,
-      placeholder,
-      noneLabel,
-      searchPlaceholder,
-      emptyMessage,
-      onChange,
-      onConfirm,
-      className,
-      renderTriggerValue,
-      renderOption,
-      recentOptionIds = EMPTY_RECENT_OPTION_IDS,
-      disablePortal,
-      openOnFocus = true,
-    },
-    ref,
-  ) {
+export function InlineEntitySelector({
+  value,
+  options,
+  placeholder,
+  noneLabel,
+  searchPlaceholder,
+  emptyMessage,
+  onChange,
+  onConfirm,
+  className,
+  renderTriggerValue,
+  renderOption,
+  recentOptionIds = EMPTY_RECENT_OPTION_IDS,
+  disablePortal,
+  openOnFocus = true,
+  ref,
+}: InlineEntitySelectorProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -195,10 +193,10 @@ export const InlineEntitySelector = forwardRef<HTMLButtonElement, InlineEntitySe
                 setOpen(false);
               }
             }}
-          />
+           aria-label="Query"/>
           <div className="max-h-56 overflow-y-auto overscroll-contain py-1 touch-pan-y">
             {filteredOptions.length === 0 ? (
-              <p className="px-2 py-2 text-xs text-muted-foreground">{emptyMessage}</p>
+              <p className="p-2 text-xs text-muted-foreground">{emptyMessage}</p>
             ) : (
               filteredOptions.map((option, index) => {
                 const isSelected = option.id === value;
@@ -215,7 +213,7 @@ export const InlineEntitySelector = forwardRef<HTMLButtonElement, InlineEntitySe
                     onClick={() => commitSelection(index, true)}
                   >
                     {renderOption ? renderOption(option, isSelected) : <span className="truncate">{option.label}</span>}
-                    <Check className={cn("ml-auto h-3.5 w-3.5 text-muted-foreground", isSelected ? "opacity-100" : "opacity-0")} />
+                    <Check className={cn("ml-auto size-3.5 text-muted-foreground", isSelected ? "opacity-100" : "opacity-0")} />
                   </button>
                 );
               })
@@ -224,5 +222,4 @@ export const InlineEntitySelector = forwardRef<HTMLButtonElement, InlineEntitySe
         </PopoverContent>
       </Popover>
     );
-  },
-);
+}

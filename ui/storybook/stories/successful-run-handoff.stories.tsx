@@ -15,6 +15,8 @@ import {
 } from "@/lib/successful-run-handoff";
 import { createIssue, storybookAgents } from "../fixtures/paperclipData";
 
+const STORYBOOK_NOW = Date.parse("2026-01-15T12:00:00.000Z");
+
 function ActivityExample({ action }: { action: string }) {
   const tone = successfulRunHandoffActivityTone(action);
   const isWarning = action !== SUCCESSFUL_RUN_HANDOFF_RESOLVED_ACTION;
@@ -24,7 +26,7 @@ function ActivityExample({ action }: { action: string }) {
         {isWarning ? <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} /> : null}
         <Identity name="System" size="sm" />
         <span>{formatIssueActivityAction(action)}</span>
-        <span className="ml-auto shrink-0">{relativeTime(new Date(Date.now() - 3 * 60_000))}</span>
+        <span className="ml-auto shrink-0">{relativeTime(STORYBOOK_NOW - 3 * 60_000)}</span>
       </div>
     </div>
   );

@@ -42,12 +42,17 @@ vi.mock("@/lib/router", () => ({
 }));
 
 vi.mock("@/plugins/slots", async () => {
-  const actual = await vi.importActual<typeof import("@/plugins/slots")>("@/plugins/slots");
   return {
-    resolveRouteSidebarSlot: actual.resolveRouteSidebarSlot,
     PluginSlotMount: ({ slot }: { slot: { displayName: string } }) => (
       <div data-testid="plugin-slot-mount">{slot.displayName}</div>
     ),
+  };
+});
+
+vi.mock("@/plugins/slots-utils", async () => {
+  const actual = await vi.importActual<typeof import("@/plugins/slots-utils")>("@/plugins/slots-utils");
+  return {
+    resolveRouteSidebarSlot: actual.resolveRouteSidebarSlot,
   };
 });
 

@@ -4,10 +4,12 @@ import { cn } from "../lib/classnames";
 
 interface EntityRowProps {
   leading?: ReactNode;
+  leadingSlot?: () => ReactNode;
   identifier?: string;
   title: string;
   subtitle?: string;
   trailing?: ReactNode;
+  trailingSlot?: () => ReactNode;
   selected?: boolean;
   to?: string;
   onClick?: () => void;
@@ -16,10 +18,12 @@ interface EntityRowProps {
 
 export function EntityRow({
   leading,
+  leadingSlot,
   identifier,
   title,
   subtitle,
   trailing,
+  trailingSlot,
   selected,
   to,
   onClick,
@@ -32,10 +36,12 @@ export function EntityRow({
     selected && "bg-accent/30",
     className
   );
+  const leadingContent = leadingSlot ? leadingSlot() : leading;
+  const trailingContent = trailingSlot ? trailingSlot() : trailing;
 
   const content = (
     <>
-      {leading && <div className="flex items-center gap-2 shrink-0">{leading}</div>}
+      {leadingContent && <div className="flex items-center gap-2 shrink-0">{leadingContent}</div>}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {identifier && (
@@ -49,7 +55,7 @@ export function EntityRow({
           <p className="text-xs text-muted-foreground truncate mt-0.5">{subtitle}</p>
         )}
       </div>
-      {trailing && <div className="flex items-center gap-2 shrink-0">{trailing}</div>}
+      {trailingContent && <div className="flex items-center gap-2 shrink-0">{trailingContent}</div>}
     </>
   );
 
@@ -61,8 +67,20 @@ export function EntityRow({
     );
   }
 
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={cn(classes, "w-full bg-transparent text-left")}
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
-    <div className={classes} onClick={onClick}>
+    <div className={classes}>
       {content}
     </div>
   );

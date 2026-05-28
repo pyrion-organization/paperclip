@@ -94,7 +94,7 @@ export function StatusIcon({ status, blockerAttention, onChange, className, show
   const circle = (
     <span
       className={cn(
-        "relative inline-flex h-4 w-4 rounded-full border-2 shrink-0",
+        "relative inline-flex size-4 rounded-full border-2 shrink-0",
         colorClass,
         onChange && !showLabel && "cursor-pointer",
         className
@@ -104,16 +104,16 @@ export function StatusIcon({ status, blockerAttention, onChange, className, show
       title={ariaLabel}
     >
       {isDone && (
-        <span className="absolute inset-0 m-auto h-2 w-2 rounded-full bg-current" />
+        <span className="absolute inset-0 m-auto size-2 rounded-full bg-current" />
       )}
       {isCoveredBlocked && (
-        <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-background bg-current" />
+        <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full border border-background bg-current" />
       )}
       {hasCoveredBlockedWork && (
-        <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-background bg-cyan-600 dark:bg-cyan-400" />
+        <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full border border-background bg-cyan-600 dark:bg-cyan-400" />
       )}
       {isStalledBlocked && (
-        <span className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full bg-current" />
+        <span className="absolute inset-0 m-auto size-1.5 rounded-full bg-current" />
       )}
     </span>
   );
@@ -121,7 +121,7 @@ export function StatusIcon({ status, blockerAttention, onChange, className, show
   if (!onChange) return showLabel ? <span className="inline-flex items-center gap-1.5">{circle}<span className="text-sm">{statusLabel(status)}</span></span> : circle;
 
   const trigger = showLabel ? (
-    <button className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors">
+    <button type="button" className="inline-flex items-center gap-1.5 cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 py-0.5 transition-colors">
       {circle}
       <span className="text-sm">{statusLabel(status)}</span>
     </button>

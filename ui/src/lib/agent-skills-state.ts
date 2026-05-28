@@ -12,8 +12,7 @@ export interface AgentSkillSnapshotApplyResult extends AgentSkillDraftState {
 
 export function arraysEqual(a: string[], b: string[]): boolean {
   if (a === b) return true;
-  if (a.length !== b.length) return false;
-  return a.every((value, index) => value === b[index]);
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 export function applyAgentSkillSnapshot(

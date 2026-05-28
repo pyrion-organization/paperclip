@@ -18,16 +18,21 @@ interface IssueRowProps {
   issueLinkState?: unknown;
   selected?: boolean;
   mobileLeading?: ReactNode;
+  mobileLeadingSlot?: () => ReactNode;
   desktopMetaLeading?: ReactNode;
+  desktopMetaLeadingSlot?: () => ReactNode;
   desktopLeadingSpacer?: boolean;
   mobileMeta?: ReactNode;
   desktopTrailing?: ReactNode;
+  desktopTrailingSlot?: () => ReactNode;
   trailingMeta?: ReactNode;
   titleSuffix?: ReactNode;
+  titleSuffixSlot?: () => ReactNode;
   titleClassName?: string;
   checklistStepNumber?: number | string | null;
   checklistCurrentStep?: boolean;
   checklistDependencyChips?: ReactNode;
+  checklistDependencyChipsSlot?: () => ReactNode;
   checklistRowId?: string;
   unreadState?: UnreadState | null;
   onMarkRead?: () => void;
@@ -41,16 +46,21 @@ export function IssueRow({
   issueLinkState,
   selected = false,
   mobileLeading,
+  mobileLeadingSlot,
   desktopMetaLeading,
+  desktopMetaLeadingSlot,
   desktopLeadingSpacer = false,
   mobileMeta,
   desktopTrailing,
+  desktopTrailingSlot,
   trailingMeta,
   titleSuffix,
+  titleSuffixSlot,
   titleClassName,
   checklistStepNumber = null,
   checklistCurrentStep = false,
   checklistDependencyChips,
+  checklistDependencyChipsSlot,
   checklistRowId,
   unreadState = null,
   onMarkRead,
@@ -69,7 +79,7 @@ export function IssueRow({
       || issue.activeRecoveryAction
       || (issue.blockedBy?.length ?? 0) > 0,
   );
-  const renderSecondaryIndicators = () => shouldRenderSecondaryIndicators ? (
+  const secondaryIndicators = shouldRenderSecondaryIndicators ? (
     <IssueRowIndicators issue={issue} selected={selected} />
   ) : null;
   const hasChecklistStep = checklistStepNumber !== null;
@@ -78,6 +88,13 @@ export function IssueRow({
       {checklistStepNumber}.
     </span>
   ) : null;
+  const mobileLeadingContent = mobileLeadingSlot ? mobileLeadingSlot() : mobileLeading;
+  const desktopMetaLeadingContent = desktopMetaLeadingSlot ? desktopMetaLeadingSlot() : desktopMetaLeading;
+  const desktopTrailingContent = desktopTrailingSlot ? desktopTrailingSlot() : desktopTrailing;
+  const titleSuffixContent = titleSuffixSlot ? titleSuffixSlot() : titleSuffix;
+  const checklistDependencyChipsContent = checklistDependencyChipsSlot
+    ? checklistDependencyChipsSlot()
+    : checklistDependencyChips;
 
   return (
     <Link
@@ -97,27 +114,27 @@ export function IssueRow({
       )}
     >
       <span className="flex shrink-0 items-center gap-1 pt-px sm:hidden">
-        {mobileLeading ?? <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} className={selectedStatusClass} />}
-        {renderSecondaryIndicators()}
+        {mobileLeadingContent ?? <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} className={selectedStatusClass} />}
+        {secondaryIndicators}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1 sm:contents">
         <span className={cn("line-clamp-2 text-sm sm:order-2 sm:min-w-0 sm:flex-1 sm:truncate sm:line-clamp-none", titleClassName)}>
-          {issue.title}{titleSuffix}
+          {issue.title}{titleSuffixContent}
         </span>
-        {checklistDependencyChips ? (
+        {checklistDependencyChipsContent ? (
           <span className="flex flex-wrap gap-1 sm:order-3 sm:ml-[calc(theme(spacing.3)+theme(spacing.2))]">
-            {checklistDependencyChips}
+            {checklistDependencyChipsContent}
           </span>
         ) : null}
         <span className="flex items-center gap-2 sm:order-1 sm:shrink-0">
           {desktopLeadingSpacer ? (
             <span className="hidden w-3.5 shrink-0 sm:block" />
           ) : null}
-          {desktopMetaLeading ?? (
+          {desktopMetaLeadingContent ?? (
             <>
               <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
                 <StatusIcon status={issue.status} blockerAttention={issue.blockerAttention} className={selectedStatusClass} />
-                {renderSecondaryIndicators()}
+                {secondaryIndicators}
               </span>
               {checklistStep}
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -135,16 +152,16 @@ export function IssueRow({
           ) : null}
         </span>
       </span>
-      {(desktopTrailing || trailingMeta) ? (
+      {(desktopTrailingContent || trailingMeta) ? (
         <span className="ml-auto hidden shrink-0 items-center gap-2 sm:order-3 sm:flex sm:gap-3">
-          {desktopTrailing}
+          {desktopTrailingContent}
           {trailingMeta ? (
             <span className="text-xs text-muted-foreground">{trailingMeta}</span>
           ) : null}
         </span>
       ) : null}
       {showUnreadSlot ? (
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center self-center">
+        <span className="inline-flex size-4 shrink-0 items-center justify-center self-center">
           {showUnreadDot ? (
             <button
               type="button"
@@ -162,14 +179,14 @@ export function IssueRow({
                 }
               }}
               className={cn(
-                "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                "inline-flex size-4 items-center justify-center rounded-full transition-colors",
                 selected ? "hover:bg-muted/80" : "hover:bg-blue-500/20",
               )}
               aria-label="Mark as read"
             >
               <span
                 className={cn(
-                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  "block size-2 rounded-full transition-opacity duration-300",
                   selected ? "bg-muted-foreground/70" : "bg-blue-600 dark:bg-blue-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )}
@@ -191,13 +208,13 @@ export function IssueRow({
                 onArchive();
               }}
               disabled={archiveDisabled}
-              className="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+              className="inline-flex size-4 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
               aria-label="Dismiss from inbox"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="size-3.5" />
             </button>
           ) : (
-            <span className="inline-flex h-4 w-4" aria-hidden="true" />
+            <span className="inline-flex size-4" aria-hidden="true" />
           )}
         </span>
       ) : null}

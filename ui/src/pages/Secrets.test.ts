@@ -7,7 +7,7 @@ import {
   getCreateProviderBlockReason,
   getDefaultProviderConfigId,
   getProviderConfigBlockReason,
-} from "./Secrets";
+} from "./secrets-utils";
 import type { SecretProviderHealthResponse } from "../api/secrets";
 
 const awsProvider: SecretProviderDescriptor = {

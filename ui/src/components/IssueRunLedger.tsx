@@ -272,7 +272,7 @@ function mergeRuns(
     }
   }
 
-  return [...byId.values()].sort((a, b) => {
+  return Array.from(byId.values()).sort((a, b) => {
     const aTime = new Date(a.startedAt ?? a.createdAt).getTime();
     const bTime = new Date(b.startedAt ?? b.createdAt).getTime();
     if (aTime !== bTime) return bTime - aTime;
@@ -639,12 +639,12 @@ export function IssueRunLedgerContent({
               <button
                 type="button"
                 className="rounded-md border border-border bg-background/80 px-2 py-1 text-[11px] text-foreground hover:bg-background"
-                onClick={() =>
+                onClick={(event) =>
                   onWatchdogDecision({
                     runId: latestSilentRun.runId,
                     decision: "snooze",
                     evaluationIssueId: latestSilentRun.outputSilence?.evaluationIssueId ?? null,
-                    snoozedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                    snoozedUntil: new Date(window.performance.timeOrigin + event.timeStamp + 60 * 60 * 1000).toISOString(),
                     reason: "Snoozed from issue run ledger",
                   })}
                 disabled={pendingWatchdogDecision != null}
@@ -676,7 +676,7 @@ export function IssueRunLedgerContent({
       ) : null}
 
       {feedItems.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+        <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
           {renderActivityEvent
             ? "Runs and activity will appear here once this issue has history."
             : "Historical runs without liveness metadata will appear here once linked to this issue."}
@@ -715,7 +715,7 @@ export function IssueRunLedgerContent({
                   </span>
                   {run.isLive ? (
                     <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                      <span className="size-1.5 rounded-full bg-cyan-400" />
                       live
                     </span>
                   ) : null}
@@ -796,7 +796,7 @@ export function IssueRunLedgerContent({
                 </div>
 
                 {retryState ? (
-                  <div className="rounded-md border border-border/70 bg-accent/20 px-2 py-2 text-xs leading-5 text-muted-foreground">
+                  <div className="rounded-md border border-border/70 bg-accent/20 p-2 text-xs leading-5 text-muted-foreground">
                     {retryState.detail ? <p>{retryState.detail}</p> : null}
                     {retryState.secondary ? <p>{retryState.secondary}</p> : null}
                     {retryState.retryOfRunId ? (

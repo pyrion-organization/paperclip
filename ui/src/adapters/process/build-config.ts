@@ -3,8 +3,10 @@ import type { CreateConfigValues } from "../../components/AgentConfigForm";
 function parseCommaArgs(value: string): string[] {
   return value
     .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+    .flatMap((item) => {
+      const trimmed = item.trim();
+      return trimmed ? [trimmed] : [];
+    });
 }
 
 export function buildProcessConfig(v: CreateConfigValues): Record<string, unknown> {

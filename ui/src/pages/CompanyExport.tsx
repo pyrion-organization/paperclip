@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type {
   Agent,
   CompanyPortabilityFileEntry,
@@ -36,13 +36,16 @@ import {
 import {
   type FileTreeNode,
   type FrontmatterData,
-  buildFileTree,
-  countFiles,
-  collectAllPaths,
-  parseFrontmatter,
-  FRONTMATTER_FIELD_LABELS,
   FileTree,
 } from "../components/FileTree";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
+import {
+  buildFileTree,
+  collectAllPaths,
+  countFiles,
+  FRONTMATTER_FIELD_LABELS,
+  parseFrontmatter,
+} from "../components/file-tree-utils";
 
 /**
  * Extract the set of agent/project/task slugs that are "checked" based on
@@ -528,7 +531,7 @@ function ExportPreviewPane({
       <div className="border-b border-border px-5 py-3">
         <div className="truncate font-mono text-sm">{selectedFile}</div>
       </div>
-      <div className="min-h-[560px] px-5 py-5">
+      <div className="min-h-[560px] p-5">
         {parsed ? (
           <>
             <FrontmatterCard data={parsed.data} onSkillClick={onSkillClick} />
@@ -582,7 +585,7 @@ export function CompanyExport() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const { pushToast } = useToastActions();
   const navigate = useNavigate();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const { data: session, isFetched: isSessionFetched } = useQuery({
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
@@ -605,7 +608,7 @@ export function CompanyExport() {
   const [treeSearch, setTreeSearch] = useState("");
   const [taskLimit, setTaskLimit] = useState(TASKS_PAGE_SIZE);
   const savedExpandedRef = useRef<Set<string> | null>(null);
-  const initialFileFromUrl = useRef(filePathFromLocation(location.pathname));
+  const initialFileFromUrl = useRef(filePathFromLocation(routerLocation.pathname));
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const visibleAgents = useMemo(
     () => agents.filter((agent: Agent) => agent.status !== "terminated"),
@@ -656,7 +659,7 @@ export function CompanyExport() {
   // Sync selectedFile from URL on browser back/forward
   useEffect(() => {
     if (!exportData) return;
-    const urlFile = filePathFromLocation(location.pathname);
+    const urlFile = filePathFromLocation(routerLocation.pathname);
     if (urlFile && urlFile in exportData.files && urlFile !== selectedFile) {
       setSelectedFile(urlFile);
       // Expand ancestors so the file is visible in the tree
@@ -668,7 +671,7 @@ export function CompanyExport() {
     } else if (!urlFile && selectedFile) {
       setSelectedFile(null);
     }
-  }, [location.pathname, exportData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [routerLocation.pathname, exportData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setBreadcrumbs([
@@ -677,7 +680,7 @@ export function CompanyExport() {
     ]);
   }, [setBreadcrumbs]);
 
-  const exportPreviewMutation = useMutation({
+  const exportPreviewMutation = useInvalidatingMutation({
     mutationFn: () =>
       companiesApi.exportPreview(selectedCompanyId!, {
         include: { company: true, agents: true, projects: true, issues: true },
@@ -725,7 +728,7 @@ export function CompanyExport() {
     },
   });
 
-  const downloadMutation = useMutation({
+  const downloadMutation = useInvalidatingMutation({
     mutationFn: () =>
       companiesApi.exportBundle(selectedCompanyId!, {
         include: { company: true, agents: true, projects: true, issues: true },
@@ -951,7 +954,7 @@ export function CompanyExport() {
             onClick={handleDownload}
             disabled={selectedCount === 0 || downloadMutation.isPending}
           >
-            <Download className="mr-1.5 h-3.5 w-3.5" />
+            <Download className="mr-1.5 size-3.5" />
             {downloadMutation.isPending
               ? "Building export..."
               : `Export ${selectedCount} file${selectedCount === 1 ? "" : "s"}`}
@@ -976,7 +979,7 @@ export function CompanyExport() {
           </div>
           <div className="border-b border-border px-3 py-2 shrink-0">
             <div className="flex items-center gap-2 rounded-md border border-border px-2 py-1">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Search className="size-3.5 text-muted-foreground shrink-0" />
               <input
                 type="text"
                 value={treeSearch}
@@ -984,7 +987,7 @@ export function CompanyExport() {
                 placeholder="Search files..."
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 data-page-search-target="true"
-              />
+               aria-label="Tree Search"/>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">

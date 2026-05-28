@@ -37,7 +37,7 @@ export const BLOCKED_REASON_VARIANT_ORDER: BlockedReasonVariant[] = [
   "owner_paused",
 ];
 
-export const BLOCKED_VARIANT_LABELS: Record<BlockedReasonVariant, string> = {
+const BLOCKED_VARIANT_LABELS: Record<BlockedReasonVariant, string> = {
   needs_decision: "Needs decision",
   stalled: "Blocked chain stalled",
   needs_attention: "Needs attention",
@@ -192,7 +192,7 @@ export function sortBlockedInboxRows(
   rows: readonly BlockedInboxIssueRow[],
   sort: BlockedInboxSort = "urgency",
 ): BlockedInboxIssueRow[] {
-  return [...rows].sort((a, b) => compareBlockedRows(a, b, sort));
+  return rows.toSorted((a, b) => compareBlockedRows(a, b, sort));
 }
 
 export function groupBlockedInboxRows(

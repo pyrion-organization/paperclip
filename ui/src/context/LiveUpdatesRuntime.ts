@@ -953,9 +953,9 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   const { selectedCompanyId, selectedCompany } = useCompany();
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const gateRef = useRef<ToastGate>({ cooldownHits: new Map(), suppressUntil: 0 });
-  const pathnameRef = useRef(location.pathname);
+  const pathnameRef = useRef(routerLocation.pathname);
   const { data: session, status: sessionStatus } = useQuery({
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
@@ -971,8 +971,8 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    pathnameRef.current = location.pathname;
-  }, [location.pathname]);
+    pathnameRef.current = routerLocation.pathname;
+  }, [routerLocation.pathname]);
 
   useEffect(() => {
     currentActorRef.current = {
@@ -1068,5 +1068,5 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient, liveCompanyId, pushToast, canConnectSocket, socketAuthKey]);
 
-  return <>{children}</>;
+  return children;
 }

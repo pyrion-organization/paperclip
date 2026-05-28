@@ -1,4 +1,4 @@
-import { isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Children, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Github, WrapText } from "lucide-react";
 import Markdown, { defaultUrlTransform, type Components, type Options } from "react-markdown";
@@ -60,7 +60,7 @@ function MarkdownIssueLink({
       aria-label={issueLabel}
     >
       {status ? (
-        <StatusIcon status={status} className="mr-1 h-3 w-3 align-[-0.125em]" />
+        <StatusIcon status={status} className="mr-1 size-3 align-[-0.125em]" />
       ) : null}
       {children}
     </Link>
@@ -305,45 +305,43 @@ function isExternalHttpUrl(href: string | null | undefined): boolean {
   }
 }
 
-function renderLinkBody(
-  children: ReactNode,
-  leadingIcon: ReactNode,
-  trailingIcon: ReactNode,
-): ReactNode {
+function MarkdownLinkBody({
+  children,
+  leadingIcon,
+  trailingIcon,
+}: {
+  children: ReactNode;
+  leadingIcon: ReactNode;
+  trailingIcon: ReactNode;
+}): ReactNode {
   if (!leadingIcon && !trailingIcon) return children;
-
-  // React-markdown can pass arrays/elements for styled link text; the nowrap
-  // splitting below is intentionally limited to plain text links.
-  if (typeof children === "string" && children.length > 0) {
-    if (children.length === 1) {
+  const childParts = Children.toArray(children);
+  if (childParts.length === 1 && typeof childParts[0] === "string") {
+    const text = childParts[0];
+    if (leadingIcon && text.length > 0) {
       return (
-        <span style={{ whiteSpace: "nowrap" }}>
-          {leadingIcon}
-          {children}
-          {trailingIcon}
-        </span>
-      );
-    }
-    const first = children[0];
-    const last = children[children.length - 1];
-    const middle = children.slice(1, -1);
-    return (
-      <>
-        {leadingIcon ? (
+        <>
           <span style={{ whiteSpace: "nowrap" }}>
             {leadingIcon}
-            {first}
+            {text.slice(0, 1)}
           </span>
-        ) : first}
-        {middle}
-        {trailingIcon ? (
+          {text.slice(1)}
+          {trailingIcon}
+        </>
+      );
+    }
+    if (trailingIcon && text.length > 0) {
+      return (
+        <>
+          {leadingIcon}
+          {text.slice(0, -1)}
           <span style={{ whiteSpace: "nowrap" }}>
-            {last}
+            {text.slice(-1)}
             {trailingIcon}
           </span>
-        ) : last}
-      </>
-    );
+        </>
+      );
+    }
   }
 
   return (
@@ -437,7 +435,7 @@ function CodeBlock({
           aria-pressed={wrapLines}
           data-active={wrapLines || undefined}
         >
-          <WrapText aria-hidden="true" className="h-3.5 w-3.5" />
+          <WrapText aria-hidden="true" className="size-3.5" />
           <span className="paperclip-markdown-codeblock-action-label">{wrapLabel}</span>
         </button>
         <button
@@ -450,9 +448,9 @@ function CodeBlock({
           data-failed={failed || undefined}
         >
           {copied && !failed ? (
-            <Check aria-hidden="true" className="h-3.5 w-3.5" />
+            <Check aria-hidden="true" className="size-3.5" />
           ) : (
-            <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+            <Copy aria-hidden="true" className="size-3.5" />
           )}
           <span className="paperclip-markdown-codeblock-action-label">{copyLabel}</span>
         </button>
@@ -501,7 +499,10 @@ function MermaidDiagramBlock({ source, darkMode }: { source: string; darkMode: b
   return (
     <div className="paperclip-mermaid">
       {svg ? (
-        <div dangerouslySetInnerHTML={{ __html: svg }} />
+        <img
+          src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
+          alt="Rendered Mermaid diagram"
+        />
       ) : (
         <>
           <p className={cn("paperclip-mermaid-status", error && "paperclip-mermaid-status-error")}>
@@ -556,11 +557,11 @@ export function MarkdownBody({
       </blockquote>
     ),
     table: ({ node: _node, style: tableStyle, children: tableChildren, ...tableProps }) => (
-      <div className="paperclip-markdown-table-scroll" role="region" aria-label="Scrollable table" tabIndex={0}>
+      <section className="paperclip-markdown-table-scroll" aria-label="Scrollable table">
         <table {...tableProps} style={tableStyle as React.CSSProperties | undefined}>
           {tableChildren}
         </table>
-      </div>
+      </section>
     ),
     td: ({ node: _node, style: tableCellStyle, children: tableCellChildren, ...tableCellProps }) => (
       <td {...tableCellProps} style={mergeTableCellStyle(tableCellStyle as React.CSSProperties | undefined)}>
@@ -640,10 +641,10 @@ export function MarkdownBody({
       const isGitHubLink = isGitHubUrl(href);
       const isExternal = isExternalHttpUrl(href);
       const leadingIcon = isGitHubLink ? (
-        <Github aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-0.125em]" />
+        <Github aria-hidden="true" className="mr-1 inline size-3.5 align-[-0.125em]" />
       ) : null;
       const trailingIcon = isExternal && !isGitHubLink ? (
-        <ExternalLink aria-hidden="true" className="ml-1 inline h-3 w-3 align-[-0.125em]" />
+        <ExternalLink aria-hidden="true" className="ml-1 inline size-3 align-[-0.125em]" />
       ) : null;
       return (
         <a
@@ -653,7 +654,9 @@ export function MarkdownBody({
             : { rel: "noreferrer" })}
           style={mergeWrapStyle(linkStyle as React.CSSProperties | undefined)}
         >
-          {renderLinkBody(linkChildren, leadingIcon, trailingIcon)}
+          <MarkdownLinkBody leadingIcon={leadingIcon} trailingIcon={trailingIcon}>
+            {linkChildren}
+          </MarkdownLinkBody>
         </a>
       );
     },
@@ -662,14 +665,31 @@ export function MarkdownBody({
     components.img = ({ node: _node, src, alt, ...imgProps }) => {
       const resolved = resolveImageSrc && src ? resolveImageSrc(src) : null;
       const finalSrc = resolved ?? src;
-      return (
+      const image = (
         <img
           {...imgProps}
           src={finalSrc}
           alt={alt ?? ""}
-          onClick={onImageClick && finalSrc ? (e) => { e.preventDefault(); onImageClick(finalSrc); } : undefined}
-          style={onImageClick ? { cursor: "pointer", ...(imgProps.style as React.CSSProperties | undefined) } : imgProps.style as React.CSSProperties | undefined}
+          style={imgProps.style as React.CSSProperties | undefined}
         />
+      );
+      if (onImageClick && finalSrc) {
+        return (
+          <button
+            type="button"
+            className="inline-block border-0 bg-transparent p-0 text-left"
+            onClick={(e) => {
+              e.preventDefault();
+              onImageClick(finalSrc);
+            }}
+            style={{ cursor: "pointer" }}
+          >
+            {image}
+          </button>
+        );
+      }
+      return (
+        image
       );
     };
   }

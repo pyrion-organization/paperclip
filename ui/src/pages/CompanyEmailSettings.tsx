@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   InboundEmailClassificationCategory,
   InboundEmailMailbox,
@@ -15,6 +15,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { Field } from "../components/agent-config-primitives";
 import { queryKeys } from "../lib/queryKeys";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 type RuleDraft = {
   id: string | null;
@@ -232,7 +233,7 @@ export function CompanyEmailSettings() {
       smtpFrom !== (selectedCompany.smtpFrom ?? "") ||
       smtpPasswordTouched);
 
-  const smtpMutation = useMutation({
+  const smtpMutation = useInvalidatingMutation({
     mutationFn: () => {
       const payload: Parameters<typeof companiesApi.update>[1] = {
         smtpHost: smtpHost.trim() || null,
@@ -256,7 +257,7 @@ export function CompanyEmailSettings() {
   const testEmailValid =
     testEmailTrimmed === "" ||
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmailTrimmed);
-  const testEmailMutation = useMutation({
+  const testEmailMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.testEmail(selectedCompanyId!, testEmailTrimmed),
   });
 
@@ -264,7 +265,7 @@ export function CompanyEmailSettings() {
     !!selectedCompany &&
     emailSignatureHtml !== (selectedCompany.emailSignatureHtml ?? "");
 
-  const emailSignatureMutation = useMutation({
+  const emailSignatureMutation = useInvalidatingMutation({
     mutationFn: () =>
       companiesApi.update(selectedCompanyId!, {
         emailSignatureHtml: emailSignatureHtml.trim() || null,
@@ -339,7 +340,7 @@ export function CompanyEmailSettings() {
     );
   };
 
-  const inboundSaveMutation = useMutation({
+  const inboundSaveMutation = useInvalidatingMutation({
     mutationFn: () => {
       const payload = {
         name: inboundName.trim(),
@@ -366,22 +367,22 @@ export function CompanyEmailSettings() {
       invalidateInboundEmailState(["mailboxes", "ops"]);
     },
   });
-  const inboundTestMutation = useMutation({
+  const inboundTestMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.testInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
   });
-  const inboundPollMutation = useMutation({
+  const inboundPollMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: () => {
       invalidateInboundEmailState(["messages", "jobs", "ops"]);
     },
   });
-  const inboundDeleteMutation = useMutation({
+  const inboundDeleteMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.deleteInboundEmailMailbox(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: () => {
       invalidateInboundEmailState(["mailboxes", "messages", "jobs", "ops", "rules"]);
     },
   });
-  const rotateExternalIntakeTokenMutation = useMutation({
+  const rotateExternalIntakeTokenMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.rotateInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: (result) => {
       replaceInboundMailboxInCache(result.mailbox);
@@ -390,7 +391,7 @@ export function CompanyEmailSettings() {
       invalidateInboundEmailState(["mailboxes", "ops"]);
     },
   });
-  const revokeExternalIntakeTokenMutation = useMutation({
+  const revokeExternalIntakeTokenMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.revokeInboundEmailExternalIntakeToken(selectedCompanyId!, primaryInboundMailbox!.id),
     onSuccess: (mailbox) => {
       replaceInboundMailboxInCache(mailbox);
@@ -404,7 +405,7 @@ export function CompanyEmailSettings() {
     ruleDraft.priority !== "medium" ||
     ruleDraft.labelIds.length > 0 ||
     Boolean(ruleDraft.projectFallbackMode);
-  const ruleSaveMutation = useMutation({
+  const ruleSaveMutation = useInvalidatingMutation({
     mutationFn: () => {
       const basePayload = {
         mailboxId: ruleDraft.mailboxId || null,
@@ -425,14 +426,14 @@ export function CompanyEmailSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
     },
   });
-  const toggleRuleMutation = useMutation({
+  const toggleRuleMutation = useInvalidatingMutation({
     mutationFn: (rule: InboundEmailRule) =>
       companiesApi.saveInboundEmailRule(selectedCompanyId!, rule.id, { enabled: !rule.enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.inboundEmail.rules(selectedCompanyId!) });
     },
   });
-  const deleteRuleMutation = useMutation({
+  const deleteRuleMutation = useInvalidatingMutation({
     mutationFn: (ruleId: string) => companiesApi.deleteInboundEmailRule(selectedCompanyId!, ruleId),
     onSuccess: (_result, ruleId) => {
       if (ruleDraft.id === ruleId) {
@@ -465,7 +466,7 @@ export function CompanyEmailSettings() {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-2">
-        <Mail className="h-5 w-5 text-muted-foreground" />
+        <Mail className="size-5 text-muted-foreground" />
         <h1 className="text-lg font-semibold">Email Settings</h1>
       </div>
 
@@ -474,24 +475,24 @@ export function CompanyEmailSettings() {
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Email Notifications
           </div>
-          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+          <Mail className="size-3.5 text-muted-foreground" />
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <p className="text-xs text-muted-foreground">
             Per-company SMTP credentials used for Paperclip notification emails. Leave host empty to fall back to the server environment.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="SMTP host" hint="Hostname of your SMTP server.">
-              <input data-testid="company-settings-smtp-host" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpHost} placeholder="smtp.example.com" onChange={(e) => setSmtpHost(e.target.value)} />
+              <input data-testid="company-settings-smtp-host" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpHost} placeholder="smtp.example.com" onChange={(e) => setSmtpHost(e.target.value)}  aria-label="Smtp Host"/>
             </Field>
             <Field label="Port" hint="Typically 587 or 465.">
-              <input data-testid="company-settings-smtp-port" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={1} max={65535} value={smtpPort} placeholder="587" onChange={(e) => setSmtpPort(e.target.value)} />
+              <input data-testid="company-settings-smtp-port" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={1} max={65535} value={smtpPort} placeholder="587" onChange={(e) => setSmtpPort(e.target.value)}  aria-label="Smtp Port"/>
             </Field>
             <Field label="From address" hint="The address notification emails are sent from.">
-              <input data-testid="company-settings-smtp-from" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpFrom} placeholder="noreply@example.com" onChange={(e) => setSmtpFrom(e.target.value)} />
+              <input data-testid="company-settings-smtp-from" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpFrom} placeholder="noreply@example.com" onChange={(e) => setSmtpFrom(e.target.value)}  aria-label="Smtp From"/>
             </Field>
             <Field label="Username" hint="SMTP auth username.">
-              <input data-testid="company-settings-smtp-user" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpUser} autoComplete="off" onChange={(e) => setSmtpUser(e.target.value)} />
+              <input data-testid="company-settings-smtp-user" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={smtpUser} autoComplete="off" onChange={(e) => setSmtpUser(e.target.value)}  aria-label="Smtp User"/>
             </Field>
             <Field
               label="Password"
@@ -508,7 +509,7 @@ export function CompanyEmailSettings() {
                   setSmtpPassword(e.target.value);
                   setSmtpPasswordTouched(true);
                 }}
-              />
+               aria-label="Smtp Password"/>
             </Field>
           </div>
           {!smtpPortValid && <span className="text-xs text-destructive">Port must be a whole number between 1 and 65535.</span>}
@@ -533,7 +534,7 @@ export function CompanyEmailSettings() {
                   setTestEmailTo(e.target.value);
                   testEmailMutation.reset();
                 }}
-              />
+               aria-label="Test Email To"/>
               <Button data-testid="company-settings-smtp-test-send" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => testEmailMutation.mutate()} disabled={testEmailMutation.isPending || !testEmailTrimmed || !testEmailValid}>
                 {testEmailMutation.isPending ? "Sending..." : "Send test email"}
               </Button>
@@ -548,51 +549,51 @@ export function CompanyEmailSettings() {
       <div className="space-y-4" data-testid="company-settings-inbound-email-section">
         <div className="flex items-center gap-2">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Inbound Mailbox</div>
-          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+          <Mail className="size-3.5 text-muted-foreground" />
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Mailbox name" hint="Local label for this inbound mailbox.">
-              <input data-testid="company-settings-inbound-name" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundName} onChange={(e) => setInboundName(e.target.value)} />
+              <input data-testid="company-settings-inbound-name" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundName} onChange={(e) => setInboundName(e.target.value)}  aria-label="Inbound Name"/>
             </Field>
             <Field label="IMAP host" hint="Mailbox server used for inbound polling.">
-              <input data-testid="company-settings-inbound-host" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundHost} placeholder="imap.example.com" onChange={(e) => setInboundHost(e.target.value)} />
+              <input data-testid="company-settings-inbound-host" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundHost} placeholder="imap.example.com" onChange={(e) => setInboundHost(e.target.value)}  aria-label="Inbound Host"/>
             </Field>
             <Field label="Port" hint="Usually 993 for TLS IMAP.">
-              <input data-testid="company-settings-inbound-port" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={1} max={65535} value={inboundPort} onChange={(e) => setInboundPort(e.target.value)} />
+              <input data-testid="company-settings-inbound-port" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={1} max={65535} value={inboundPort} onChange={(e) => setInboundPort(e.target.value)}  aria-label="Inbound Port"/>
             </Field>
             <Field label="Username" hint="Mailbox username or email address.">
-              <input data-testid="company-settings-inbound-username" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundUsername} autoComplete="off" onChange={(e) => setInboundUsername(e.target.value)} />
+              <input data-testid="company-settings-inbound-username" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundUsername} autoComplete="off" onChange={(e) => setInboundUsername(e.target.value)}  aria-label="Inbound Username"/>
             </Field>
             <Field label="Password" hint={primaryInboundMailbox?.passwordSet ? "A password is configured. Type to replace it; leave blank to keep unchanged." : "Mailbox password or app password. Stored encrypted."}>
               <input data-testid="company-settings-inbound-password" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="password" value={inboundPassword} autoComplete="new-password" placeholder={primaryInboundMailbox?.passwordSet ? "Configured" : ""} onChange={(e) => {
                 setInboundPassword(e.target.value);
                 setInboundPasswordTouched(true);
-              }} />
+              }}  aria-label="Inbound Password"/>
             </Field>
             <Field label="Folder" hint="Mailbox folder to poll.">
-              <input data-testid="company-settings-inbound-folder" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundFolder} onChange={(e) => setInboundFolder(e.target.value)} />
+              <input data-testid="company-settings-inbound-folder" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={inboundFolder} onChange={(e) => setInboundFolder(e.target.value)}  aria-label="Inbound Folder"/>
             </Field>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              <input data-testid="company-settings-inbound-enabled" type="checkbox" checked={inboundEnabled} onChange={(e) => setInboundEnabled(e.target.checked)} />
+              <input data-testid="company-settings-inbound-enabled" type="checkbox" checked={inboundEnabled} onChange={(e) => setInboundEnabled(e.target.checked)}  aria-label="Inbound Enabled"/>
               Poll mailbox
             </label>
             <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              <input data-testid="company-settings-inbound-tls" type="checkbox" checked={inboundTls} onChange={(e) => setInboundTls(e.target.checked)} />
+              <input data-testid="company-settings-inbound-tls" type="checkbox" checked={inboundTls} onChange={(e) => setInboundTls(e.target.checked)}  aria-label="Inbound Tls"/>
               Use TLS
             </label>
             <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              <input data-testid="company-settings-inbound-support-replies" type="checkbox" checked={inboundSupportRepliesEnabled} onChange={(e) => setInboundSupportRepliesEnabled(e.target.checked)} />
+              <input data-testid="company-settings-inbound-support-replies" type="checkbox" checked={inboundSupportRepliesEnabled} onChange={(e) => setInboundSupportRepliesEnabled(e.target.checked)}  aria-label="Inbound Support Replies Enabled"/>
               Auto-reply to support emails
             </label>
             <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-              <input data-testid="company-settings-inbound-allow-projectless-triage" type="checkbox" checked={inboundAllowProjectlessTriage} onChange={(e) => setInboundAllowProjectlessTriage(e.target.checked)} />
+              <input data-testid="company-settings-inbound-allow-projectless-triage" type="checkbox" checked={inboundAllowProjectlessTriage} onChange={(e) => setInboundAllowProjectlessTriage(e.target.checked)}  aria-label="Inbound Allow Projectless Triage"/>
               Allow projectless triage
             </label>
             <Field label="Poll interval" hint="Seconds between mailbox polls.">
-              <input data-testid="company-settings-inbound-poll-interval" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={30} max={3600} value={inboundPollIntervalSeconds} onChange={(e) => setInboundPollIntervalSeconds(e.target.value)} />
+              <input data-testid="company-settings-inbound-poll-interval" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="number" min={30} max={3600} value={inboundPollIntervalSeconds} onChange={(e) => setInboundPollIntervalSeconds(e.target.value)}  aria-label="Inbound Poll Interval Seconds"/>
             </Field>
             <Field label="Missing project" hint="Default handling when a trusted sender does not name a project.">
               <select
@@ -619,7 +620,7 @@ export function CompanyEmailSettings() {
                   type="checkbox"
                   checked={inboundAgentAutomationEnabled}
                   onChange={(e) => setInboundAgentAutomationEnabled(e.target.checked)}
-                />
+                 aria-label="Inbound Agent Automation Enabled"/>
                 Auto-assign code bugs
               </label>
               <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
@@ -629,7 +630,7 @@ export function CompanyEmailSettings() {
                   checked={inboundAgentAutomationWakeEnabled}
                   onChange={(e) => setInboundAgentAutomationWakeEnabled(e.target.checked)}
                   disabled={!inboundAgentAutomationEnabled}
-                />
+                 aria-label="Inbound Agent Automation Wake Enabled"/>
                 Wake assigned agent
               </label>
               <Field label="Assignee agent" hint="Agent that receives eligible code bug tasks.">
@@ -654,7 +655,7 @@ export function CompanyEmailSettings() {
                   value={inboundAgentAutomationMinConfidence}
                   onChange={(e) => setInboundAgentAutomationMinConfidence(e.target.value)}
                   disabled={!inboundAgentAutomationEnabled}
-                />
+                 aria-label="Inbound Agent Automation Min Confidence"/>
               </Field>
             </div>
           </div>
@@ -674,7 +675,7 @@ export function CompanyEmailSettings() {
                   readOnly
                   value={externalIntakeEndpoint}
                   placeholder="Save an inbound mailbox to create an endpoint"
-                />
+                 aria-label="External Intake Endpoint"/>
                 <Button
                   data-testid="company-settings-inbound-external-intake-rotate"
                   size="sm"
@@ -712,7 +713,7 @@ export function CompanyEmailSettings() {
                     type="text"
                     readOnly
                     value={externalIntakeToken}
-                  />
+                   aria-label="External Intake Token"/>
                 </Field>
               ) : null}
               {rotateExternalIntakeTokenMutation.isError || revokeExternalIntakeTokenMutation.isError ? (
@@ -775,7 +776,7 @@ export function CompanyEmailSettings() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Inbound Rules</div>
-            <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+            <Mail className="size-3.5 text-muted-foreground" />
           </div>
           <Button
             data-testid="company-settings-inbound-rule-new"
@@ -786,11 +787,11 @@ export function CompanyEmailSettings() {
               setRuleFormOpen(true);
             }}
           >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            <Plus className="mr-1.5 size-3.5" />
             New rule
           </Button>
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           {ruleFormOpen && (
             <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3" data-testid="company-settings-inbound-rule-form">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -809,13 +810,13 @@ export function CompanyEmailSettings() {
                   </select>
                 </Field>
                 <Field label="Sender contains" hint="Case-insensitive text match against the sender address.">
-                  <input data-testid="company-settings-inbound-rule-sender" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.senderPattern} placeholder="customer.com" onChange={(e) => setRuleDraft((current) => ({ ...current, senderPattern: e.target.value }))} />
+                  <input data-testid="company-settings-inbound-rule-sender" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.senderPattern} placeholder="customer.com" onChange={(e) => setRuleDraft((current) => ({ ...current, senderPattern: e.target.value }))}  aria-label="Sender Pattern"/>
                 </Field>
                 <Field label="Subject contains" hint="Case-insensitive text match against the subject.">
-                  <input data-testid="company-settings-inbound-rule-subject" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.subjectPattern} placeholder="urgent" onChange={(e) => setRuleDraft((current) => ({ ...current, subjectPattern: e.target.value }))} />
+                  <input data-testid="company-settings-inbound-rule-subject" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.subjectPattern} placeholder="urgent" onChange={(e) => setRuleDraft((current) => ({ ...current, subjectPattern: e.target.value }))}  aria-label="Subject Pattern"/>
                 </Field>
                 <Field label="Body contains" hint="Case-insensitive text match against plain message body.">
-                  <input data-testid="company-settings-inbound-rule-body" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.bodyPattern} placeholder="error 500" onChange={(e) => setRuleDraft((current) => ({ ...current, bodyPattern: e.target.value }))} />
+                  <input data-testid="company-settings-inbound-rule-body" className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none" type="text" value={ruleDraft.bodyPattern} placeholder="error 500" onChange={(e) => setRuleDraft((current) => ({ ...current, bodyPattern: e.target.value }))}  aria-label="Body Pattern"/>
                 </Field>
                 <Field label="Classification" hint="Limit this rule to one support classification.">
                   <select data-testid="company-settings-inbound-rule-classification" className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none" value={ruleDraft.classificationCategory} onChange={(e) => setRuleDraft((current) => ({ ...current, classificationCategory: e.target.value as RuleDraft["classificationCategory"] }))}>
@@ -830,7 +831,7 @@ export function CompanyEmailSettings() {
                   </select>
                 </Field>
                 <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                  <input data-testid="company-settings-inbound-rule-enabled" type="checkbox" checked={ruleDraft.enabled} onChange={(e) => setRuleDraft((current) => ({ ...current, enabled: e.target.checked }))} />
+                  <input data-testid="company-settings-inbound-rule-enabled" type="checkbox" checked={ruleDraft.enabled} onChange={(e) => setRuleDraft((current) => ({ ...current, enabled: e.target.checked }))}  aria-label="Enabled"/>
                   Enabled
                 </label>
               </div>
@@ -851,7 +852,7 @@ export function CompanyEmailSettings() {
                                 ? current.labelIds.filter((id) => id !== label.id)
                                 : [...current.labelIds, label.id],
                             }))}
-                          />
+                           aria-label="Selected"/>
                           {label.name}
                         </label>
                       );
@@ -929,7 +930,7 @@ export function CompanyEmailSettings() {
                         }}
                         disabled={deleteRuleMutation.isPending}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="size-3.5" />
                         Delete
                       </Button>
                     </div>
@@ -944,11 +945,11 @@ export function CompanyEmailSettings() {
       <div className="space-y-4" data-testid="company-settings-email-signature-section">
         <div className="flex items-center gap-2">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email Signature</div>
-          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+          <Mail className="size-3.5 text-muted-foreground" />
         </div>
-        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+        <div className="space-y-3 rounded-md border border-border p-4">
           <Field label="Signature HTML" hint="HTML appended to the bottom of every notification email for this company.">
-            <textarea data-testid="company-settings-email-signature-html" className="h-48 w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none" value={emailSignatureHtml} placeholder="<table>...</table>" onChange={(e) => setEmailSignatureHtml(e.target.value)} />
+            <textarea data-testid="company-settings-email-signature-html" className="h-48 w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none" value={emailSignatureHtml} placeholder="<table>...</table>" onChange={(e) => setEmailSignatureHtml(e.target.value)}  aria-label="Email Signature Html"/>
           </Field>
           {emailSignatureDirty && (
             <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">

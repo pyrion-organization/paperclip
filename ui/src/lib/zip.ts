@@ -80,9 +80,10 @@ function concatChunks(chunks: Uint8Array[]) {
 
 function sharedArchiveRoot(paths: string[]) {
   if (paths.length === 0) return null;
-  const firstSegments = paths
-    .map((entry) => normalizeArchivePath(entry).split("/").filter(Boolean))
-    .filter((parts) => parts.length > 0);
+  const firstSegments = paths.flatMap((entry) => {
+    const parts = normalizeArchivePath(entry).split("/").filter(Boolean);
+    return parts.length > 0 ? [parts] : [];
+  });
   if (firstSegments.length === 0) return null;
   const candidate = firstSegments[0]![0]!;
   return firstSegments.every((parts) => parts.length > 1 && parts[0] === candidate)

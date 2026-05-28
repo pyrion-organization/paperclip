@@ -28,7 +28,7 @@ export function MetricCard({ icon: Icon, value, label, description, to, onClick 
             <div className="text-xs text-muted-foreground/70 mt-1.5 hidden sm:block">{description}</div>
           )}
         </div>
-        <Icon className="h-4 w-4 text-muted-foreground/50 shrink-0 mt-1.5" />
+        <Icon className="size-4 text-muted-foreground/50 shrink-0 mt-1.5" />
       </div>
     </div>
   );
@@ -43,9 +43,13 @@ export function MetricCard({ icon: Icon, value, label, description, to, onClick 
 
   if (onClick) {
     return (
-      <div className="h-full" onClick={onClick}>
+      <button
+        type="button"
+        className="h-full w-full bg-transparent text-left"
+        onClick={onClick}
+      >
         {inner}
-      </div>
+      </button>
     );
   }
 

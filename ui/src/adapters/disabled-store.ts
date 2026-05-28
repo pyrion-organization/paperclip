@@ -20,7 +20,7 @@ export function isAdapterTypeHidden(type: string): boolean {
 }
 
 /** Get all hidden adapter types (sync read). */
-export function getHiddenAdapterTypes(): Set<string> {
+function getHiddenAdapterTypes(): Set<string> {
   return disabledTypes;
 }
 

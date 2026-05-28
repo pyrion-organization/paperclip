@@ -31,7 +31,7 @@ function createOptimisticCommentId() {
 }
 
 export function sortIssueComments<T extends { createdAt: Date | string; id: string }>(comments: T[]) {
-  return [...comments].sort((a, b) => {
+  return comments.toSorted((a, b) => {
     const createdAtDiff = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
     if (createdAtDiff !== 0) return createdAtDiff;
     return a.id.localeCompare(b.id);
@@ -353,7 +353,13 @@ export function upsertIssueCommentInPages(
 
   const nextPages = pages.map((page) => [...page]);
   for (let pageIndex = 0; pageIndex < nextPages.length; pageIndex += 1) {
-    const existingIndex = nextPages[pageIndex]!.findIndex((comment) => comment.id === nextComment.id);
+    let existingIndex = -1;
+    for (let commentIndex = 0; commentIndex < nextPages[pageIndex]!.length; commentIndex += 1) {
+      if (nextPages[pageIndex]![commentIndex]!.id === nextComment.id) {
+        existingIndex = commentIndex;
+        break;
+      }
+    }
     if (existingIndex === -1) continue;
     nextPages[pageIndex]![existingIndex] = nextComment;
     nextPages[pageIndex] = sortIssueCommentsDesc(nextPages[pageIndex]!);
@@ -372,7 +378,8 @@ export function removeIssueCommentFromPages(
     return [];
   }
 
-  return pages
-    .map((page) => page.filter((comment) => comment.id !== commentId))
-    .filter((page) => page.length > 0);
+  return pages.flatMap((page) => {
+    const filteredPage = page.filter((comment) => comment.id !== commentId);
+    return filteredPage.length > 0 ? [filteredPage] : [];
+  });
 }

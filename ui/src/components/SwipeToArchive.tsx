@@ -145,7 +145,7 @@ export function SwipeToArchive({
         style={{ opacity: Math.max(archiveReveal, 0.2) }}
       >
         <span className="inline-flex items-center gap-2 text-sm font-medium">
-          <Archive className="h-4 w-4" />
+          <Archive className="size-4" />
           Archive
         </span>
       </div>

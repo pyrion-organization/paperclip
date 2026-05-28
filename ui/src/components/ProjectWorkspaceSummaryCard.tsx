@@ -76,7 +76,7 @@ export function ProjectWorkspaceSummaryCard({
                 >
                   <span
                     className={cn(
-                      "h-1.5 w-1.5 rounded-full",
+                      "size-1.5 rounded-full",
                       hasRunningServices ? "bg-emerald-500" : "bg-muted-foreground/40",
                     )}
                   />
@@ -117,11 +117,11 @@ export function ProjectWorkspaceSummaryCard({
                 }
               >
                 {runtimeActionKey === actionKey ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
                 ) : hasRunningServices ? (
-                  <Square className="mr-2 h-3.5 w-3.5" />
+                  <Square className="mr-2 size-3.5" />
                 ) : (
-                  <Play className="mr-2 h-3.5 w-3.5" />
+                  <Play className="mr-2 size-3.5" />
                 )}
                 {hasRunningServices ? "Stop services" : "Start services"}
               </Button>
@@ -143,11 +143,11 @@ export function ProjectWorkspaceSummaryCard({
           </div>
         </div>
 
-        <div className="rounded-lg border border-border/70 bg-background px-3 py-3">
+        <div className="rounded-lg border border-border/70 bg-background p-3">
           <div className="space-y-2 text-sm">
             {summary.branchName ? (
               <div className="flex items-start gap-2">
-                <GitBranch className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Branch</div>
                   <div className="flex items-start gap-2">
@@ -165,7 +165,7 @@ export function ProjectWorkspaceSummaryCard({
                       className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
                       copiedLabel="Branch copied"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     </CopyText>
                   </div>
                 </div>
@@ -174,7 +174,7 @@ export function ProjectWorkspaceSummaryCard({
 
             {summary.cwd ? (
               <div className="flex items-start gap-2">
-                <FolderOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <FolderOpen className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Path</div>
                   <div className="flex items-start gap-2">
@@ -193,7 +193,7 @@ export function ProjectWorkspaceSummaryCard({
                       className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
                       copiedLabel="Path copied"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     </CopyText>
                   </div>
                 </div>
@@ -202,7 +202,7 @@ export function ProjectWorkspaceSummaryCard({
 
             {summary.primaryServiceUrl ? (
               <div className="flex items-start gap-2">
-                <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Service</div>
                   <a

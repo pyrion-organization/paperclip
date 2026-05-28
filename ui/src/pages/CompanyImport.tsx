@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CompanyPortabilityCollisionStrategy,
   CompanyPortabilityFileEntry,
@@ -30,23 +30,27 @@ import {
   Package,
   Upload,
 } from "lucide-react";
-import { Field, adapterLabels } from "../components/agent-config-primitives";
+import { Field } from "../components/agent-config-primitives";
+import { adapterLabels } from "../components/agent-config-primitives-data";
 import { getAdapterLabel } from "../adapters/adapter-display-registry";
 import { defaultCreateValues } from "../components/agent-config-defaults";
-import { getUIAdapter, listUIAdapters } from "../adapters";
+import { getUIAdapter, listUIAdapters } from "../adapters/registry";
 import type { CreateConfigValues } from "@paperclipai/adapter-utils";
 import {
   type FileTreeNode,
   type FrontmatterData,
-  buildFileTree,
-  countFiles,
-  collectAllPaths,
-  parseFrontmatter,
-  FRONTMATTER_FIELD_LABELS,
   FileTree,
 } from "../components/FileTree";
+import {
+  buildFileTree,
+  collectAllPaths,
+  countFiles,
+  FRONTMATTER_FIELD_LABELS,
+  parseFrontmatter,
+} from "../components/file-tree-utils";
 import { readZipArchive } from "../lib/zip";
 import { getPortableFileDataUrl, getPortableFileText, isPortableImageFile } from "../lib/portable-files";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 // ── Import-specific helpers ───────────────────────────────────────────
 
@@ -54,9 +58,12 @@ import { getPortableFileDataUrl, getPortableFileText, isPortableImageFile } from
 function buildActionMap(preview: CompanyPortabilityPreviewResult): Map<string, string> {
   const map = new Map<string, string>();
   const manifest = preview.manifest;
+  const agentsBySlug = new Map(manifest.agents.map((agent) => [agent.slug, agent]));
+  const projectsBySlug = new Map(manifest.projects.map((project) => [project.slug, project]));
+  const issuesBySlug = new Map(manifest.issues.map((issue) => [issue.slug, issue]));
 
   for (const ap of preview.plan.agentPlans) {
-    const agent = manifest.agents.find((a) => a.slug === ap.slug);
+    const agent = agentsBySlug.get(ap.slug);
     if (agent) {
       const path = ensureMarkdownPath(agent.path);
       map.set(path, ap.action);
@@ -64,7 +71,7 @@ function buildActionMap(preview: CompanyPortabilityPreviewResult): Map<string, s
   }
 
   for (const pp of preview.plan.projectPlans) {
-    const project = manifest.projects.find((p) => p.slug === pp.slug);
+    const project = projectsBySlug.get(pp.slug);
     if (project) {
       const path = ensureMarkdownPath(project.path);
       map.set(path, pp.action);
@@ -72,7 +79,7 @@ function buildActionMap(preview: CompanyPortabilityPreviewResult): Map<string, s
   }
 
   for (const ip of preview.plan.issuePlans) {
-    const issue = manifest.issues.find((i) => i.slug === ip.slug);
+    const issue = issuesBySlug.get(ip.slug);
     if (issue) {
       const path = ensureMarkdownPath(issue.path);
       map.set(path, ip.action);
@@ -237,7 +244,7 @@ function ImportPreviewPane({
           )}
         </div>
       </div>
-      <div className="min-h-[560px] px-5 py-5">
+      <div className="min-h-[560px] p-5">
         {parsed ? (
           <>
             <FrontmatterCard data={parsed.data} />
@@ -279,11 +286,13 @@ function buildConflictList(
 ): ConflictItem[] {
   const conflicts: ConflictItem[] = [];
   const manifest = preview.manifest;
+  const agentsBySlug = new Map(manifest.agents.map((agent) => [agent.slug, agent]));
+  const projectsBySlug = new Map(manifest.projects.map((project) => [project.slug, project]));
 
   // Agents with collisions
   for (const ap of preview.plan.agentPlans) {
     if (ap.existingAgentId) {
-      const agent = manifest.agents.find((a) => a.slug === ap.slug);
+      const agent = agentsBySlug.get(ap.slug);
       conflicts.push({
         slug: ap.slug,
         kind: "agent",
@@ -298,7 +307,7 @@ function buildConflictList(
   // Projects with collisions
   for (const pp of preview.plan.projectPlans) {
     if (pp.existingProjectId) {
-      const project = manifest.projects.find((p) => p.slug === pp.slug);
+      const project = projectsBySlug.get(pp.slug);
       conflicts.push({
         slug: pp.slug,
         kind: "project",
@@ -465,7 +474,7 @@ function ConflictResolutionList({
 
                 {!isSkipped && (
                   <>
-                    <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
                     {isConfirmed ? (
                       <span className="min-w-0 flex-1 font-mono text-xs text-emerald-500">
                         {currentName}
@@ -475,7 +484,7 @@ function ConflictResolutionList({
                         className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 py-1 font-mono text-xs outline-none focus:border-foreground"
                         value={currentName}
                         onChange={(e) => onRename(item.slug, e.target.value)}
-                      />
+                       aria-label="Current Name"/>
                     )}
                   </>
                 )}
@@ -494,7 +503,7 @@ function ConflictResolutionList({
                   >
                     {isConfirmed ? (
                       <>
-                        <Check className="h-3 w-3" />
+                        <Check className="size-3" />
                         confirmed
                       </>
                     ) : (
@@ -572,7 +581,7 @@ function AdapterPickerList({
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {agent.name}
                   </span>
-                  <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
                   <select
                     className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 py-1 text-xs outline-none focus:border-foreground"
                     value={selectedType}
@@ -594,7 +603,7 @@ function AdapterPickerList({
                     )}
                     onClick={() => onToggleExpand(agent.slug)}
                   >
-                    <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
+                    <ChevronRight className={cn("size-3 transition-transform", isExpanded && "rotate-90")} />
                     configure adapter
                   </button>
                 </div>
@@ -724,7 +733,7 @@ export function CompanyImport() {
   }
 
   // Preview mutation
-  const previewMutation = useMutation({
+  const previewMutation = useInvalidatingMutation({
     mutationFn: () => {
       const source = buildSource();
       if (!source) throw new Error("No source configured.");
@@ -828,7 +837,7 @@ export function CompanyImport() {
   }
 
   // Apply mutation
-  const importMutation = useMutation({
+  const importMutation = useInvalidatingMutation({
     mutationFn: () => {
       const source = buildSource();
       if (!source) throw new Error("No source configured.");
@@ -1092,7 +1101,7 @@ export function CompanyImport() {
   return (
     <div>
       {/* Source form section */}
-      <div className="border-b border-border px-5 py-5 space-y-4">
+      <div className="border-b border-border p-5 space-y-4">
         <div>
           <h2 className="text-base font-semibold">Import source</h2>
           <p className="text-xs text-muted-foreground mt-1">
@@ -1122,7 +1131,7 @@ export function CompanyImport() {
               }}
             >
               <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4" />
+                <Icon className="size-4" />
                 {label}
               </div>
             </button>
@@ -1130,14 +1139,14 @@ export function CompanyImport() {
         </div>
 
         {sourceMode === "local" ? (
-          <div className="rounded-md border border-dashed border-border px-3 py-3">
+          <div className="rounded-md border border-dashed border-border p-3">
             <input
               ref={packageInputRef}
               type="file"
               accept=".zip,application/zip"
               className="hidden"
               onChange={handleChooseLocalPackage}
-            />
+             aria-label="Select file"/>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
@@ -1174,7 +1183,7 @@ export function CompanyImport() {
                 setImportUrl(e.target.value);
                 setImportPreview(null);
               }}
-            />
+             aria-label="Import Url"/>
           </Field>
         )}
 
@@ -1205,7 +1214,7 @@ export function CompanyImport() {
               value={newCompanyName}
               onChange={(e) => setNewCompanyName(e.target.value)}
               placeholder="Imported Company"
-            />
+             aria-label="New Company Name"/>
           </Field>
         )}
 
@@ -1293,7 +1302,7 @@ export function CompanyImport() {
               onClick={() => importMutation.mutate()}
               disabled={importMutation.isPending || hasErrors || selectedCount === 0}
             >
-              <Download className="mr-1.5 h-3.5 w-3.5" />
+              <Download className="mr-1.5 size-3.5" />
               {importMutation.isPending
                 ? "Importing..."
                 : `Import ${selectedCount} file${selectedCount === 1 ? "" : "s"}`}

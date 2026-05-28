@@ -50,6 +50,7 @@ import {
 } from "../fixtures/paperclipData";
 
 const companyId = "company-storybook";
+const STORYBOOK_NOW = Date.parse("2026-01-15T12:00:00.000Z");
 const issueListViewKey = "storybook:issue-management:list";
 const scopedIssueListViewKey = `${issueListViewKey}:${companyId}`;
 const visibleColumns: InboxIssueColumn[] = ["status", "id", "assignee", "project", "workspace", "labels", "updated"];
@@ -465,7 +466,7 @@ function RunLedgerWithCostColumns() {
         </div>
         {storybookIssueRuns.map((run) => {
           const start = run.startedAt ? new Date(run.startedAt).getTime() : null;
-          const end = run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now();
+          const end = run.finishedAt ? new Date(run.finishedAt).getTime() : STORYBOOK_NOW;
           const minutes = start ? Math.max(1, Math.round((end - start) / 60_000)) : null;
           const costCents = typeof run.usageJson?.costCents === "number" ? run.usageJson.costCents : 0;
           return (

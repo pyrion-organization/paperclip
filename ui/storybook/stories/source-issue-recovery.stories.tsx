@@ -208,14 +208,13 @@ function ActiveRunRecoveryChip({ state }: { state: RunCardRecoveryState }) {
   const tone = RUN_CARD_RECOVERY_TONE[state];
   const Icon = tone.icon;
   return (
-    <span
+    <output
       className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${tone.className}`}
-      role="status"
       aria-label={tone.label}
     >
       <Icon className="h-2.5 w-2.5" aria-hidden />
       {tone.label}
-    </span>
+    </output>
   );
 }
 

@@ -71,7 +71,7 @@ function parseCleanup(value: unknown): SourceResolvedFoldCleanup {
   };
 }
 
-export function parseSourceResolvedWatchdogFold(value: unknown): SourceResolvedWatchdogFold | null {
+function parseSourceResolvedWatchdogFold(value: unknown): SourceResolvedWatchdogFold | null {
   const record = asRecord(value);
   if (!record) return null;
   const sourceIssueId = asString(record.sourceIssueId);

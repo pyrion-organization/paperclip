@@ -32,7 +32,7 @@ function activeUniqueMembers(members: CompanyUserRecord[] | null | undefined) {
       byId.set(member.principalId, member);
     }
   }
-  return [...byId.values()].sort((left, right) => baseMemberLabel(left).localeCompare(baseMemberLabel(right)));
+  return Array.from(byId.values()).sort((left, right) => baseMemberLabel(left).localeCompare(baseMemberLabel(right)));
 }
 
 export function buildCompanyUserLabelMap(members: CompanyUserRecord[] | null | undefined): Map<string, string> {
@@ -64,16 +64,14 @@ export function buildCompanyUserInlineOptions(
     [...(options?.excludeUserIds ?? [])].filter((value): value is string => Boolean(value)),
   );
 
-  return activeUniqueMembers(members)
-    .filter((member) => !exclude.has(member.principalId))
-    .map((member) => ({
+  return activeUniqueMembers(members).flatMap((member) => (!exclude.has(member.principalId)) ? [({
       id: `user:${member.principalId}`,
       label: baseMemberLabel(member),
       searchText: [member.user?.name, member.user?.email, member.principalId].filter(Boolean).join(" "),
-    }));
+    })] : []);
 }
 
-export function buildCompanyUserMentionOptions(
+function buildCompanyUserMentionOptions(
   members: CompanyUserRecord[] | null | undefined,
 ): MentionOption[] {
   return activeUniqueMembers(members).map((member) => ({
@@ -101,8 +99,7 @@ export function buildMarkdownMentionOptions(args: {
         agentId: agent.id,
         agentIcon: agent.icon,
       })),
-    ...[...(args.projects ?? [])]
-      .sort((left, right) => left.name.localeCompare(right.name))
+    ...(args.projects ?? []).toSorted((left, right) => left.name.localeCompare(right.name))
       .map((project) => ({
         id: `project:${project.id}`,
         name: project.name,

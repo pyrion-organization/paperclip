@@ -1,14 +1,14 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
 import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
-import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { issuesApi } from "../api/issues";
 import { approvalsApi } from "../api/approvals";
 import { activityApi, type RunForIssue } from "../api/activity";
 import { heartbeatsApi, type ActiveRunForIssue, type LiveRunForIssue } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
-import { accessApi, type CurrentBoardAccess } from "../api/access";
+import { accessApi } from "../api/access";
 import { agentsApi } from "../api/agents";
 import { authApi } from "../api/auth";
 import { projectsApi } from "../api/projects";
@@ -33,6 +33,7 @@ import {
   rememberIssueDetailLocationState,
 } from "../lib/issueDetailBreadcrumb";
 import { resolveIssueActiveRun, shouldTrackIssueActiveRun } from "../lib/issueActiveRun";
+import { canBoardResolveRecoveryAction } from "./issue-detail-utils";
 import { getIssueDetailQueryOptions } from "../lib/issueDetailCache";
 import {
   hasBlockingShortcutDialog,
@@ -131,6 +132,7 @@ import type {
   IssueTreeControlMode,
 } from "@paperclipai/shared";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared/constants";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 import {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
@@ -152,6 +154,12 @@ const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "h
 const ISSUE_COMMENT_PAGE_SIZE = 50;
 const ISSUE_COMMENT_AUTOLOAD_LIMIT = ISSUE_COMMENT_PAGE_SIZE * 3;
 const JUMP_TO_LATEST_MAX_COMMENT_PAGES = 10;
+const EMPTY_ACTIVITY_EVENTS: ActivityEvent[] = [];
+const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
+const EMPTY_RUNS_FOR_ISSUE: RunForIssue[] = [];
+const EMPTY_ISSUE_ATTACHMENTS: IssueAttachment[] = [];
+const EMPTY_ISSUE_INTERACTIONS: IssueThreadInteraction[] = [];
+const EMPTY_BLOCKED_BY: NonNullable<Issue["blockedBy"]> = [];
 const IssueChatThread = lazy(() =>
   import("../components/IssueChatThread").then(({ IssueChatThread }) => ({ default: IssueChatThread })),
 );
@@ -239,13 +247,10 @@ function treeControlPreviewErrorCopy(error: unknown): string {
 }
 
 function useIssueDetailPluginsReady() {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => typeof window === "undefined");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setReady(true);
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as IssueDetailIdleWindow;
     if (idleWindow.requestIdleCallback) {
@@ -258,23 +263,6 @@ function useIssueDetailPluginsReady() {
   }, []);
 
   return ready;
-}
-
-export function canBoardResolveRecoveryAction(
-  companyId: string | null | undefined,
-  boardAccess: CurrentBoardAccess | undefined,
-) {
-  if (!companyId || !boardAccess) return false;
-  if (boardAccess.source === "local_implicit" || boardAccess.isInstanceAdmin) return true;
-  if (!boardAccess.memberships || boardAccess.memberships.length === 0) {
-    return boardAccess.companyIds.includes(companyId);
-  }
-
-  const membership = boardAccess.memberships.find(
-    (item) => item.companyId === companyId && item.status === "active",
-  );
-  if (!membership) return false;
-  return membership.membershipRole !== "viewer" && membership.membershipRole !== null;
 }
 
 function resolveRunningIssueRun(
@@ -425,7 +413,7 @@ function IssueChatSkeleton() {
     <div className="space-y-3 rounded-lg border border-border p-3">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="size-8 rounded-full" />
           <div className="space-y-2">
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-3 w-16" />
@@ -439,7 +427,7 @@ function IssueChatSkeleton() {
             <Skeleton className="ml-auto h-3 w-20" />
             <Skeleton className="ml-auto h-3 w-14" />
           </div>
-          <Skeleton className="h-8 w-8 rounded-full" />
+          <Skeleton className="size-8 rounded-full" />
         </div>
         <Skeleton className="ml-auto h-16 w-[85%] rounded-xl" />
       </div>
@@ -473,28 +461,28 @@ function IssueDetailLoadingState({
               ) : null}
               {headerSeed.originKind === "routine_execution" && headerSeed.originId ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0">
-                  <Repeat className="h-3 w-3" />
+                  <Repeat className="size-3" />
                   Routine
                 </span>
               ) : null}
               {headerSeed.projectId ? (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground rounded px-1 -mx-1 py-0.5 min-w-0">
-                  <Hexagon className="h-3 w-3 shrink-0" />
+                  <Hexagon className="size-3 shrink-0" />
                   <span className="truncate">
                     {headerSeed.projectName ?? headerSeed.projectId.slice(0, 8)}
                   </span>
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground opacity-50 px-1 -mx-1 py-0.5">
-                  <Hexagon className="h-3 w-3 shrink-0" />
+                  <Hexagon className="size-3 shrink-0" />
                   No project
                 </span>
               )}
             </>
           ) : (
             <>
-              <Skeleton className="h-6 w-6" />
-              <Skeleton className="h-6 w-6" />
+              <Skeleton className="size-6" />
+              <Skeleton className="size-6" />
               <Skeleton className="h-4 w-20" />
               <Skeleton className="h-4 w-28" />
             </>
@@ -573,7 +561,7 @@ function InboxMobileToolbar({
         }}
         aria-label="Back to inbox"
       >
-        <ArrowLeft className="h-5 w-5" />
+        <ArrowLeft className="size-5" />
       </Button>
 
       <div className="ml-auto flex items-center gap-0.5">
@@ -585,37 +573,37 @@ function InboxMobileToolbar({
             disabled={archivePending}
             aria-label="Archive from inbox"
           >
-            <Archive className="h-5 w-5" />
+            <Archive className="size-5" />
           </Button>
         )}
 
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="More actions">
-              <MoreVertical className="h-5 w-5" />
+              <MoreVertical className="size-5" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-44 p-1" align="end">
-            <button
+            <button type="button"
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onCopy(); setMenuOpen(false); }}
             >
-              <Copy className="h-3 w-3" />
+              <Copy className="size-3" />
               Copy as markdown
             </button>
-            <button
+            <button type="button"
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onProperties(); setMenuOpen(false); }}
             >
-              <SlidersHorizontal className="h-3 w-3" />
+              <SlidersHorizontal className="size-3" />
               Properties
             </button>
             {issueIdProp && (
-              <button
+              <button type="button"
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                 onClick={() => { onHide(); setMenuOpen(false); }}
               >
-                <EyeOff className="h-3 w-3" />
+                <EyeOff className="size-3" />
                 Hide this issue
               </button>
             )}
@@ -768,7 +756,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     refetchInterval: 3000,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
-  const resolvedLiveRuns = liveRuns ?? [];
+  const resolvedLiveRuns = liveRuns ?? EMPTY_LIVE_RUNS;
   const liveRunCount = resolvedLiveRuns.length;
   const { data: activeRun = null } = useQuery({
     queryKey: queryKeys.issues.activeRun(issueId),
@@ -788,8 +776,8 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     refetchInterval: hasLiveRuns ? 5000 : false,
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
-  const resolvedActivity = activity ?? [];
-  const resolvedLinkedRuns = linkedRuns ?? [];
+  const resolvedActivity = activity ?? EMPTY_ACTIVITY_EVENTS;
+  const resolvedLinkedRuns = linkedRuns ?? EMPTY_RUNS_FOR_ISSUE;
 
   const runningIssueRun = useMemo(
     () => resolveRunningIssueRun(resolvedActiveRun, resolvedLiveRuns),
@@ -989,7 +977,7 @@ export function IssueDetail() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const { pushToast } = useToastActions();
   const { isMobile } = useSidebar();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1013,18 +1001,18 @@ export function IssueDetail() {
   const [treeControlCancelConfirmed, setTreeControlCancelConfirmed] = useState(false);
   const [optimisticComments, setOptimisticComments] = useState<OptimisticIssueComment[]>([]);
   const [locallyQueuedCommentRunIds, setLocallyQueuedCommentRunIds] = useState<Map<string, string>>(() => new Map());
-  const [pendingCommentComposerFocusKey, setPendingCommentComposerFocusKey] = useState(0);
+  const pendingCommentComposerFocusRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
   const cancelledQueuedOptimisticCommentIdsRef = useRef(new Set<string>());
   const resolvedIssueDetailState = useMemo(
-    () => readIssueDetailLocationState(issueId, location.state, location.search),
-    [issueId, location.state, location.search],
+    () => readIssueDetailLocationState(issueId, routerLocation.state, routerLocation.search),
+    [issueId, routerLocation.state, routerLocation.search],
   );
   const issueHeaderSeed = useMemo(
-    () => readIssueDetailHeaderSeed(location.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
-    [location.state, resolvedIssueDetailState],
+    () => readIssueDetailHeaderSeed(routerLocation.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
+    [routerLocation.state, resolvedIssueDetailState],
   );
 
   const { data: issue, isLoading, error } = useQuery({
@@ -1081,12 +1069,13 @@ export function IssueDetail() {
       }),
     [comments.length, commentsLoading, commentsLoadingOlder, detailTab, hasOlderComments],
   );
-  const { data: interactions = [] } = useQuery({
+  const { data: interactionsData } = useQuery({
     queryKey: queryKeys.issues.interactions(issueId!),
     queryFn: () => issuesApi.listInteractions(issueId!),
     enabled: !!issueId,
     placeholderData: keepPreviousDataForSameQueryTail<IssueThreadInteraction[]>(issueId ?? "pending"),
   });
+  const interactions = interactionsData ?? EMPTY_ISSUE_INTERACTIONS;
 
   const { data: attachments, isLoading: attachmentsLoading } = useQuery({
     queryKey: queryKeys.issues.attachments(issueId!),
@@ -1120,8 +1109,8 @@ export function IssueDetail() {
     }
   }, [hasLiveRuns, locallyQueuedCommentRunIds.size]);
   const sourceBreadcrumb = useMemo(
-    () => readIssueDetailBreadcrumb(issueId, location.state, location.search) ?? { label: "Issues", href: "/issues" },
-    [issueId, location.state, location.search],
+    () => readIssueDetailBreadcrumb(issueId, routerLocation.state, routerLocation.search) ?? { label: "Issues", href: "/issues" },
+    [issueId, routerLocation.state, routerLocation.search],
   );
 
   const { data: rawChildIssues = [], isLoading: childIssuesLoading } = useQuery({
@@ -1282,7 +1271,7 @@ export function IssueDetail() {
   const childIssues = useMemo(
     () => {
       const descendants = issue?.id ? filterIssueDescendants(issue.id, rawChildIssues) : rawChildIssues;
-      return [...descendants].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      return descendants.toSorted((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     },
     [issue?.id, rawChildIssues],
   );
@@ -1293,11 +1282,11 @@ export function IssueDetail() {
   );
   const panelIssue = useMemo(
     () => issue ?? null,
-    [issue?.id, issuePanelKey],
+    [issue, issuePanelKey],
   );
   const panelChildIssues = useMemo(
     () => childIssues,
-    [issuePanelKey],
+    [childIssues, issuePanelKey],
   );
   const showRichSubIssuesSection = shouldRenderRichSubIssuesSection(childIssuesLoading, childIssues.length);
   const siblingNavigation = useMemo(
@@ -1450,7 +1439,7 @@ export function IssueDetail() {
     );
   }, [queryClient, selectedCompanyId]);
 
-  const markIssueRead = useMutation({
+  const markIssueRead = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.markRead(id),
     onSuccess: () => {
       if (selectedCompanyId) {
@@ -1462,7 +1451,7 @@ export function IssueDetail() {
     },
   });
 
-  const updateIssue = useMutation({
+  const updateIssue = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) => issuesApi.update(issueId!, data),
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
@@ -1513,7 +1502,7 @@ export function IssueDetail() {
       }
     },
   });
-  const resolveRecoveryAction = useMutation({
+  const resolveRecoveryAction = useInvalidatingMutation({
     mutationFn: (data: {
       actionId?: string;
       outcome: ResolveRecoveryActionOutcome;
@@ -1541,7 +1530,7 @@ export function IssueDetail() {
       }
     },
   });
-  const executeTreeControl = useMutation({
+  const executeTreeControl = useInvalidatingMutation({
     mutationFn: async () => {
       if (treeControlMode === "resume") {
         const pauseHoldId = treeControlState?.activePauseHold?.holdId;
@@ -1622,7 +1611,7 @@ export function IssueDetail() {
       });
     },
   });
-  const pauseIssueWorkRun = useMutation({
+  const pauseIssueWorkRun = useInvalidatingMutation({
     mutationFn: async ({ runId, scope }: { runId: string; scope: "leaf" | "subtree" }) => {
       const created = await issuesApi.createTreeHold(issueId!, {
         mode: "pause",
@@ -1665,7 +1654,7 @@ export function IssueDetail() {
     updateIssue.mutate(data);
   }, [updateIssue.mutate]);
 
-  const updateChildIssue = useMutation({
+  const updateChildIssue = useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => issuesApi.update(id, data),
     onSuccess: () => {
       if (resolvedCompanyId) {
@@ -1685,7 +1674,7 @@ export function IssueDetail() {
     updateChildIssue.mutate({ id, data });
   }, [updateChildIssue]);
 
-  const checkIssueMonitorNow = useMutation({
+  const checkIssueMonitorNow = useInvalidatingMutation({
     mutationFn: () => issuesApi.checkMonitorNow(issueId!),
     onSuccess: () => {
       invalidateIssueDetail();
@@ -1705,7 +1694,7 @@ export function IssueDetail() {
     },
   });
 
-  const approvalDecision = useMutation({
+  const approvalDecision = useInvalidatingMutation({
     mutationFn: async ({ approvalId, action }: { approvalId: string; action: "approve" | "reject" }) => {
       if (action === "approve") {
         return approvalsApi.approve(approvalId);
@@ -1740,7 +1729,7 @@ export function IssueDetail() {
     },
   });
 
-  const addComment = useMutation({
+  const addComment = useInvalidatingMutation({
     mutationFn: ({ body, reopen, interrupt }: { body: string; reopen?: boolean; interrupt?: boolean }) =>
       issuesApi.addComment(issueId!, body, reopen, interrupt),
     onMutate: async ({ body, reopen, interrupt }) => {
@@ -1841,7 +1830,7 @@ export function IssueDetail() {
       }
     },
   });
-  const acceptInteraction = useMutation({
+  const acceptInteraction = useInvalidatingMutation({
     mutationFn: ({
       interaction,
       selectedClientKeys,
@@ -1879,7 +1868,7 @@ export function IssueDetail() {
       });
     },
   });
-  const rejectInteraction = useMutation({
+  const rejectInteraction = useInvalidatingMutation({
     mutationFn: ({ interaction, reason }: { interaction: ActionableIssueThreadInteraction; reason?: string }) =>
       issuesApi.rejectInteraction(issueId!, interaction.id, reason),
     onSuccess: (interaction) => {
@@ -1899,7 +1888,7 @@ export function IssueDetail() {
       });
     },
   });
-  const answerInteraction = useMutation({
+  const answerInteraction = useInvalidatingMutation({
     mutationFn: ({
       interaction,
       answers,
@@ -1925,7 +1914,7 @@ export function IssueDetail() {
     },
   });
 
-  const cancelInteraction = useMutation({
+  const cancelInteraction = useInvalidatingMutation({
     mutationFn: ({ interaction }: { interaction: AskUserQuestionsInteraction }) =>
       issuesApi.cancelInteraction(issueId!, interaction.id),
     onSuccess: (interaction) => {
@@ -1946,7 +1935,7 @@ export function IssueDetail() {
     },
   });
 
-  const addCommentAndReassign = useMutation({
+  const addCommentAndReassign = useInvalidatingMutation({
     mutationFn: ({
       body,
       reopen,
@@ -2067,7 +2056,7 @@ export function IssueDetail() {
     },
   });
 
-  const interruptQueuedComment = useMutation({
+  const interruptQueuedComment = useInvalidatingMutation({
     mutationFn: (runId: string) => heartbeatsApi.cancel(runId),
     onMutate: async (runId) => {
       await Promise.all(issueCacheRefs.flatMap((ref) => [
@@ -2157,7 +2146,7 @@ export function IssueDetail() {
     },
   });
 
-  const cancelQueuedComment = useMutation({
+  const cancelQueuedComment = useInvalidatingMutation({
     mutationFn: async ({ commentId }: { commentId: string }) => issuesApi.cancelComment(issueId!, commentId),
     onSuccess: (comment) => {
       setLocallyQueuedCommentRunIds((current) => {
@@ -2209,7 +2198,7 @@ export function IssueDetail() {
     void cancelQueuedComment.mutateAsync({ commentId });
   }, [cancelQueuedComment, restoreQueuedCommentDraft, pushToast]);
 
-  const feedbackVoteMutation = useMutation({
+  const feedbackVoteMutation = useInvalidatingMutation({
     mutationFn: (variables: {
       targetType: "issue_comment" | "issue_document_revision";
       targetId: string;
@@ -2274,7 +2263,7 @@ export function IssueDetail() {
     },
   });
 
-  const uploadAttachment = useMutation({
+  const uploadAttachment = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) throw new Error("No company selected");
       return issuesApi.uploadAttachment(selectedCompanyId, issueId!, file);
@@ -2289,7 +2278,7 @@ export function IssueDetail() {
     },
   });
 
-  const importMarkdownDocument = useMutation({
+  const importMarkdownDocument = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       const baseName = fileBaseName(file.name);
       const key = slugifyDocumentKey(baseName);
@@ -2314,7 +2303,7 @@ export function IssueDetail() {
     },
   });
 
-  const deleteAttachment = useMutation({
+  const deleteAttachment = useInvalidatingMutation({
     mutationFn: (attachmentId: string) => issuesApi.deleteAttachment(attachmentId),
     onSuccess: () => {
       setAttachmentError(null);
@@ -2326,7 +2315,7 @@ export function IssueDetail() {
     },
   });
 
-  const archiveFromInbox = useMutation({
+  const archiveFromInbox = useInvalidatingMutation({
     mutationFn: (id: string) => issuesApi.archiveFromInbox(id),
     onSuccess: () => {
       invalidateIssueCollections();
@@ -2368,9 +2357,9 @@ export function IssueDetail() {
 
   // Redirect to identifier-based URL if navigated via UUID
   useEffect(() => {
-    const nextState = resolvedIssueDetailState ?? location.state;
+    const nextState = resolvedIssueDetailState ?? routerLocation.state;
     if (issue?.identifier && issueId !== issue.identifier) {
-      rememberIssueDetailLocationState(issue.identifier, nextState, location.search);
+      rememberIssueDetailLocationState(issue.identifier, nextState, routerLocation.search);
       navigate(createIssueDetailPath(issue.identifier), {
         replace: true,
         state: nextState,
@@ -2378,14 +2367,14 @@ export function IssueDetail() {
       return;
     }
 
-    if (issueId && hasLegacyIssueDetailQuery(location.search)) {
-      rememberIssueDetailLocationState(issueId, nextState, location.search);
+    if (issueId && hasLegacyIssueDetailQuery(routerLocation.search)) {
+      rememberIssueDetailLocationState(issueId, nextState, routerLocation.search);
       navigate(createIssueDetailPath(issueId), {
         replace: true,
         state: nextState,
       });
     }
-  }, [issue, issueId, navigate, location.state, location.search, resolvedIssueDetailState]);
+  }, [issue, issueId, navigate, routerLocation.state, routerLocation.search, resolvedIssueDetailState]);
 
   useEffect(() => {
     if (!issue?.id) return;
@@ -2523,8 +2512,15 @@ export function IssueDetail() {
       if (action === "focus_comment") {
         event.preventDefault();
         event.stopPropagation();
+        pendingCommentComposerFocusRef.current = true;
         setDetailTab("chat");
-        setPendingCommentComposerFocusKey((current) => current + 1);
+        if (detailTab === "chat") {
+          requestAnimationFrame(() => {
+            if (!pendingCommentComposerFocusRef.current) return;
+            pendingCommentComposerFocusRef.current = false;
+            commentComposerRef.current?.focus();
+          });
+        }
       }
     };
 
@@ -2537,27 +2533,33 @@ export function IssueDetail() {
       document.removeEventListener("focusin", handleFocusIn, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [keyboardShortcutsEnabled, navigate, sourceBreadcrumb.href]);
+  }, [detailTab, keyboardShortcutsEnabled, navigate, sourceBreadcrumb.href]);
 
   useEffect(() => {
-    const hash = location.hash;
+    const hash = routerLocation.hash;
     if (!hash.startsWith("#document-")) return;
     const documentKey = decodeURIComponent(hash.slice("#document-".length));
     if (documentKey !== ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY) return;
     setDetailTab("activity");
     setHandoffFocusSignal((current) => current + 1);
-  }, [location.hash]);
+  }, [routerLocation.hash]);
 
   useEffect(() => {
-    if (pendingCommentComposerFocusKey === 0) return;
+    if (!pendingCommentComposerFocusRef.current) return;
     if (detailTab !== "chat") return;
+    pendingCommentComposerFocusRef.current = false;
     commentComposerRef.current?.focus();
-  }, [detailTab, pendingCommentComposerFocusKey]);
+  }, [detailTab]);
 
-  const isImageAttachment = (attachment: IssueAttachment) => attachment.contentType.startsWith("image/");
-  const attachmentList = attachments ?? [];
-  const imageAttachments = attachmentList.filter(isImageAttachment);
-  const nonImageAttachments = attachmentList.filter((a) => !isImageAttachment(a));
+  const attachmentList = attachments ?? EMPTY_ISSUE_ATTACHMENTS;
+  const imageAttachments = useMemo(
+    () => attachmentList.filter((attachment) => attachment.contentType.startsWith("image/")),
+    [attachmentList],
+  );
+  const nonImageAttachments = useMemo(
+    () => attachmentList.filter((attachment) => !attachment.contentType.startsWith("image/")),
+    [attachmentList],
+  );
 
   const handleChatImageClick = useCallback(
     (src: string) => {
@@ -2718,9 +2720,40 @@ export function IssueDetail() {
   const handleCommentAttachImage = useCallback(async (file: File) => {
     return uploadAttachment.mutateAsync(file);
   }, [uploadAttachment]);
+  const handleDocumentImageUpload = useCallback(async (file: File) => {
+    const attachment = await uploadAttachment.mutateAsync(file);
+    return attachment.contentPath;
+  }, [uploadAttachment]);
+  const handleDocumentVote = useCallback(async (revisionId: string, vote: "up" | "down", options?: { allowSharing?: boolean; reason?: string }) => {
+    await feedbackVoteMutation.mutateAsync({
+      targetType: "issue_document_revision",
+      targetId: revisionId,
+      vote,
+      reason: options?.reason,
+      allowSharing: options?.allowSharing,
+      sharingPreferenceAtSubmit: feedbackDataSharingPreference,
+    });
+  }, [feedbackDataSharingPreference, feedbackVoteMutation]);
   const handleInterruptQueuedRun = useCallback(async (runId: string) => {
     await interruptQueuedComment.mutateAsync(runId);
   }, [interruptQueuedComment]);
+  const handlePauseWorkRun = useCallback(
+    async (runId: string) => {
+      await pauseIssueWorkRun.mutateAsync({
+        runId,
+        scope: childIssues.length === 0 ? "leaf" : "subtree",
+      });
+    },
+    [childIssues.length, pauseIssueWorkRun],
+  );
+  const handleIssueWorkModeChange = useCallback(
+    async (nextMode: IssueWorkMode) => {
+      const currentMode: IssueWorkMode = issue?.workMode ?? "standard";
+      if (currentMode === nextMode) return;
+      await updateIssue.mutateAsync({ workMode: nextMode });
+    },
+    [issue?.workMode, updateIssue],
+  );
   const handleAcceptInteraction = useCallback(async (
     interaction: ActionableIssueThreadInteraction,
     selectedClientKeys?: string[],
@@ -2813,6 +2846,14 @@ export function IssueDetail() {
     }
     return badges;
   }, [childIssues, heldIssueIds]);
+  const subIssueSearchFilters = useMemo(
+    () => ({ descendantOf: issue?.id ?? "", includeBlockedBy: true }),
+    [issue?.id],
+  );
+  const subIssueCreateDefaults = useMemo(
+    () => (issue ? buildSubIssueDefaultsForViewer(issue, currentUserId) : undefined),
+    [currentUserId, issue],
+  );
   const activePauseHoldRoot = useMemo(() => {
     if (!activePauseHold) return null;
     if (activePauseHold.rootIssueId === issue?.id) return issue ?? null;
@@ -2941,7 +2982,7 @@ export function IssueDetail() {
         className="hidden"
         onChange={handleFilePicked}
         multiple
-      />
+       aria-label="Select file"/>
       <Button
         variant="outline"
         size="sm"
@@ -2952,7 +2993,7 @@ export function IssueDetail() {
           attachmentDragActive && "border-primary bg-primary/5",
         )}
       >
-        <Paperclip className="h-3.5 w-3.5 mr-1.5" />
+        <Paperclip className="size-3.5 mr-1.5" />
         {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : (
           <>
             <span className="hidden sm:inline">Upload attachment</span>
@@ -2970,15 +3011,15 @@ export function IssueDetail() {
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
           {[...ancestors].reverse().map((ancestor, i) => (
             <span key={ancestor.id} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
+              {i > 0 && <ChevronRight className="size-3 shrink-0" />}
               <Link
                 to={createIssueDetailPath(ancestor.identifier ?? ancestor.id)}
-                state={resolvedIssueDetailState ?? location.state}
+                state={resolvedIssueDetailState ?? routerLocation.state}
                 onClickCapture={() =>
                   rememberIssueDetailLocationState(
                     ancestor.identifier ?? ancestor.id,
-                    resolvedIssueDetailState ?? location.state,
-                    location.search,
+                    resolvedIssueDetailState ?? routerLocation.state,
+                    routerLocation.search,
                   )}
                 className="hover:text-foreground transition-colors truncate max-w-[200px]"
                 title={ancestor.title}
@@ -2987,14 +3028,14 @@ export function IssueDetail() {
               </Link>
             </span>
           ))}
-          <ChevronRight className="h-3 w-3 shrink-0" />
+          <ChevronRight className="size-3 shrink-0" />
           <span className="text-foreground/60 truncate max-w-[200px]">{issue.title}</span>
         </nav>
       )}
 
       {issue.hiddenAt && (
         <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <EyeOff className="h-4 w-4 shrink-0" />
+          <EyeOff className="size-4 shrink-0" />
           This issue is hidden
         </div>
       )}
@@ -3052,7 +3093,7 @@ export function IssueDetail() {
                         setTreeControlOpen(true);
                       }}
                     >
-                      Cancel subtree...
+                      Cancel subtree&hellip;
                     </Button>
                   ) : null}
                 </div>
@@ -3089,9 +3130,9 @@ export function IssueDetail() {
 
           {hasLiveRuns && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-medium text-cyan-600 dark:text-cyan-400 shrink-0">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-400" />
+              <span className="relative flex size-1.5">
+                <span className="animate-pulse absolute inline-flex size-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full size-1.5 bg-cyan-400" />
               </span>
               Live
             </span>
@@ -3102,7 +3143,7 @@ export function IssueDetail() {
               to={`/routines/${issue.originId}`}
               className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors"
             >
-              <Repeat className="h-3 w-3" />
+              <Repeat className="size-3" />
               Routine
             </Link>
           )}
@@ -3116,7 +3157,7 @@ export function IssueDetail() {
               className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 shrink-0"
               title="This task is a productivity review."
             >
-              <Eye className="h-3 w-3" />
+              <Eye className="size-3" />
               Productivity review
             </span>
           ) : null}
@@ -3136,7 +3177,7 @@ export function IssueDetail() {
               className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 shrink-0"
               title="Blocked by parked work — at least one assigned blocker is in backlog and will not wake its assignee."
             >
-              <Flag className="h-3 w-3" />
+              <Flag className="size-3" />
               Blocked by parked work
             </span>
           ) : null}
@@ -3146,12 +3187,12 @@ export function IssueDetail() {
               to={`/projects/${issue.projectId}`}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded px-1 -mx-1 py-0.5 min-w-0"
             >
-              <Hexagon className="h-3 w-3 shrink-0" />
+              <Hexagon className="size-3 shrink-0" />
               <span className="truncate">{resolvedProject?.name ?? issue.project?.name ?? issue.projectId.slice(0, 8)}</span>
             </Link>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground opacity-50 px-1 -mx-1 py-0.5">
-              <Hexagon className="h-3 w-3 shrink-0" />
+              <Hexagon className="size-3 shrink-0" />
               No project
             </span>
           )}
@@ -3185,7 +3226,7 @@ export function IssueDetail() {
                 onClick={copyIssueToClipboard}
                 title="Copy issue as markdown"
               >
-                {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
               </Button>
               <Button
                 variant="ghost"
@@ -3193,7 +3234,7 @@ export function IssueDetail() {
                 onClick={() => setMobilePropsOpen(true)}
                 title="Properties"
               >
-                <SlidersHorizontal className="h-4 w-4" />
+                <SlidersHorizontal className="size-4" />
               </Button>
             </div>
           )}
@@ -3210,7 +3251,7 @@ export function IssueDetail() {
                 title="Archive from inbox"
                 aria-label="Archive from inbox"
               >
-                <Archive className="h-4 w-4" />
+                <Archive className="size-4" />
               </Button>
             )}
             <Button
@@ -3219,7 +3260,7 @@ export function IssueDetail() {
               onClick={copyIssueToClipboard}
               title="Copy issue as markdown"
             >
-              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+              {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
             </Button>
             <Button
               variant="ghost"
@@ -3231,7 +3272,7 @@ export function IssueDetail() {
               onClick={() => setPanelVisible(true)}
               title="Show properties"
             >
-              <SlidersHorizontal className="h-4 w-4" />
+              <SlidersHorizontal className="size-4" />
             </Button>
 
             <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -3249,12 +3290,12 @@ export function IssueDetail() {
                     }
                   }}
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreHorizontal className="size-4" />
                 </Button>
               </PopoverTrigger>
             <PopoverContent className="w-52 p-1" align="end">
               {canPauseLeafWork ? (
-                <button
+                <button type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("pause");
@@ -3263,12 +3304,12 @@ export function IssueDetail() {
                     setMoreOpen(false);
                   }}
                 >
-                  <PauseCircle className="h-3 w-3" />
-                  Pause work...
+                  <PauseCircle className="size-3" />
+                  Pause work&hellip;
                 </button>
               ) : null}
               {canResumeLeafWork ? (
-                <button
+                <button type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("resume");
@@ -3277,13 +3318,13 @@ export function IssueDetail() {
                     setMoreOpen(false);
                   }}
                 >
-                  <PlayCircle className="h-3 w-3" />
+                  <PlayCircle className="size-3" />
                   Resume work
                 </button>
               ) : null}
               {canShowSubtreeControls ? (
                 <>
-                  <button
+                  <button type="button"
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                     onClick={() => {
                       setTreeControlMode("pause");
@@ -3292,11 +3333,11 @@ export function IssueDetail() {
                       setMoreOpen(false);
                     }}
                   >
-                    <PauseCircle className="h-3 w-3" />
-                    Pause subtree...
+                    <PauseCircle className="size-3" />
+                    Pause subtree&hellip;
                   </button>
                   {canResumeSubtree ? (
-                    <button
+                    <button type="button"
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("resume");
@@ -3305,11 +3346,11 @@ export function IssueDetail() {
                         setMoreOpen(false);
                       }}
                     >
-                      <PlayCircle className="h-3 w-3" />
+                      <PlayCircle className="size-3" />
                       Resume subtree
                     </button>
                   ) : null}
-                  <button
+                  <button type="button"
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                     onClick={() => {
                       setTreeControlMode("cancel");
@@ -3318,11 +3359,11 @@ export function IssueDetail() {
                       setMoreOpen(false);
                     }}
                   >
-                    <XCircle className="h-3 w-3" />
-                    Cancel subtree...
+                    <XCircle className="size-3" />
+                    Cancel subtree&hellip;
                   </button>
                   {canRestoreSubtree ? (
-                    <button
+                    <button type="button"
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("restore");
@@ -3332,23 +3373,23 @@ export function IssueDetail() {
                         setMoreOpen(false);
                       }}
                     >
-                      <Repeat className="h-3 w-3" />
-                      Restore subtree...
+                      <Repeat className="size-3" />
+                      Restore subtree&hellip;
                     </button>
                   ) : null}
                 </>
               ) : null}
-              <button
+              <button type="button"
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
-                onClick={() => {
+                onClick={(event) => {
                   updateIssue.mutate(
-                    { hiddenAt: new Date().toISOString() },
+                    { hiddenAt: new Date(window.performance.timeOrigin + event.timeStamp).toISOString() },
                     { onSuccess: () => navigate("/issues/all") },
                   );
                   setMoreOpen(false);
                 }}
               >
-                <EyeOff className="h-3 w-3" />
+                <EyeOff className="size-3" />
                 Hide this Issue
               </button>
             </PopoverContent>
@@ -3404,10 +3445,10 @@ export function IssueDetail() {
               issueBadgeById={childPauseBadgeById}
               projectId={issue.projectId ?? undefined}
               viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
-              issueLinkState={resolvedIssueDetailState ?? location.state}
-              searchFilters={{ descendantOf: issue.id, includeBlockedBy: true }}
+              issueLinkState={resolvedIssueDetailState ?? routerLocation.state}
+              searchFilters={subIssueSearchFilters}
               searchWithinLoadedIssues
-              baseCreateIssueDefaults={buildSubIssueDefaultsForViewer(issue, currentUserId)}
+              baseCreateIssueDefaults={subIssueCreateDefaults}
               createIssueLabel="Sub-issue"
               defaultSortField="workflow"
               showProgressSummary
@@ -3419,7 +3460,7 @@ export function IssueDetail() {
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
           <Button variant="outline" size="sm" onClick={openNewSubIssue} className="shrink-0 shadow-none">
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            <Plus className="mr-1.5 size-3.5" />
             New Sub-issue
           </Button>
         </div>
@@ -3434,20 +3475,8 @@ export function IssueDetail() {
           feedbackDataSharingPreference={feedbackDataSharingPreference}
           feedbackTermsUrl={FEEDBACK_TERMS_URL}
           mentions={mentionOptions}
-          imageUploadHandler={async (file) => {
-            const attachment = await uploadAttachment.mutateAsync(file);
-            return attachment.contentPath;
-          }}
-          onVote={async (revisionId, vote, options) => {
-            await feedbackVoteMutation.mutateAsync({
-              targetType: "issue_document_revision",
-              targetId: revisionId,
-              vote,
-              reason: options?.reason,
-              allowSharing: options?.allowSharing,
-              sharingPreferenceAtSubmit: feedbackDataSharingPreference,
-            });
-          }}
+          imageUploadHandler={handleDocumentImageUpload}
+          onVote={handleDocumentVote}
           extraActions={!hasAttachments ? attachmentUploadButton : null}
         />
       </Suspense>
@@ -3487,48 +3516,48 @@ export function IssueDetail() {
             {imageAttachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-accent/10 cursor-pointer"
-                onClick={() => {
-                  const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
-                  setGalleryIndex(idx >= 0 ? idx : 0);
-                  setGalleryOpen(true);
-                }}
+                className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-accent/10"
               >
-                <img
-                  src={attachment.contentPath}
-                  alt={attachment.originalFilename ?? "attachment"}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
+                <button
+                  type="button"
+                  className="absolute inset-0 size-full cursor-pointer overflow-hidden bg-transparent p-0 text-left"
+                  onClick={() => {
+                    const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
+                    setGalleryIndex(idx >= 0 ? idx : 0);
+                    setGalleryOpen(true);
+                  }}
+                >
+                  <img
+                    src={attachment.contentPath}
+                    alt={attachment.originalFilename ?? "attachment"}
+                    className="size-full object-cover"
+                    loading="lazy"
+                  />
+                  <span className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/30" />
+                </button>
                 {confirmDeleteId === attachment.id ? (
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60">
                     <p className="text-xs text-white font-medium">Delete?</p>
                     <div className="flex gap-1.5">
                       <button
                         type="button"
                         className="rounded bg-destructive px-2 py-0.5 text-xs text-white hover:bg-destructive/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           deleteAttachment.mutate(attachment.id);
                           setConfirmDeleteId(null);
                         }}
                         disabled={deleteAttachment.isPending}
                       >
-                        Yes
+                        Delete
                       </button>
                       <button
                         type="button"
                         className="rounded bg-muted px-2 py-0.5 text-xs hover:bg-muted/80"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setConfirmDeleteId(null);
                         }}
                       >
-                        No
+                        Cancel
                       </button>
                     </div>
                   </div>
@@ -3536,13 +3565,12 @@ export function IssueDetail() {
                   <button
                     type="button"
                     className="absolute top-1.5 right-1.5 rounded-md bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    onClick={() => {
                       setConfirmDeleteId(attachment.id);
                     }}
                     title="Delete attachment"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="size-3.5" />
                   </button>
                 )}
               </div>
@@ -3571,7 +3599,7 @@ export function IssueDetail() {
                     disabled={deleteAttachment.isPending}
                     title="Delete attachment"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="size-3.5" />
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
@@ -3587,6 +3615,7 @@ export function IssueDetail() {
       {galleryOpen ? (
         <Suspense fallback={null}>
           <ImageGalleryModal
+            key={`${galleryIndex}:${imageAttachments.map((image) => image.id).join(",")}`}
             images={imageAttachments}
             initialIndex={galleryIndex}
             open={galleryOpen}
@@ -3608,15 +3637,15 @@ export function IssueDetail() {
       <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-3">
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="chat" className="gap-1.5">
-            <MessageSquare className="h-3.5 w-3.5" />
+            <MessageSquare className="size-3.5" />
             Chat
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
-            <ActivityIcon className="h-3.5 w-3.5" />
+            <ActivityIcon className="size-3.5" />
             Activity
           </TabsTrigger>
           <TabsTrigger value="related-work" className="gap-1.5">
-            <ListTree className="h-3.5 w-3.5" />
+            <ListTree className="size-3.5" />
             Related work
           </TabsTrigger>
           {issueDetailPluginsReady ? (
@@ -3635,7 +3664,7 @@ export function IssueDetail() {
               issueStatus={issue.status}
               issueWorkMode={issue.workMode ?? "standard"}
               executionRunId={issue.executionRunId ?? null}
-              blockedBy={issue.blockedBy ?? []}
+              blockedBy={issue.blockedBy ?? EMPTY_BLOCKED_BY}
               blockerAttention={issue.blockerAttention ?? null}
               successfulRunHandoff={issue.successfulRunHandoff ?? null}
               scheduledRetry={issue.scheduledRetry ?? null}
@@ -3655,7 +3684,7 @@ export function IssueDetail() {
                 siblingNavigation ? (
                   <IssueSiblingNavigation
                     navigation={siblingNavigation}
-                    linkState={resolvedIssueDetailState ?? location.state}
+                    linkState={resolvedIssueDetailState ?? routerLocation.state}
                   />
                 ) : null
               }
@@ -3679,14 +3708,8 @@ export function IssueDetail() {
               onImageUpload={handleCommentImageUpload}
               onAttachImage={handleCommentAttachImage}
               onInterruptQueued={handleInterruptQueuedRun}
-              onPauseWorkRun={canManageTreeControl
-                ? (runId) => pauseIssueWorkRun.mutateAsync({ runId, scope: treeControlScope }).then(() => undefined)
-                : undefined}
-              onWorkModeChange={(nextMode) => {
-                const currentMode: IssueWorkMode = issue.workMode ?? "standard";
-                if (currentMode === nextMode) return;
-                return updateIssue.mutateAsync({ workMode: nextMode }).then(() => undefined);
-              }}
+              onPauseWorkRun={canManageTreeControl ? handlePauseWorkRun : undefined}
+              onWorkModeChange={handleIssueWorkModeChange}
               onCancelQueued={handleCancelQueuedComment}
               interruptingQueuedRunId={interruptQueuedComment.isPending ? interruptQueuedComment.variables ?? null : null}
               pausingWorkRunId={pauseIssueWorkRun.isPending ? pauseIssueWorkRun.variables?.runId ?? null : null}
@@ -3760,10 +3783,11 @@ export function IssueDetail() {
             ) : null}
 
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">
+              <label htmlFor="issue-tree-control-reason" className="text-xs text-muted-foreground">
                 Reason (optional)
               </label>
               <Textarea
+                id="issue-tree-control-reason"
                 value={treeControlReason}
                 onChange={(event) => setTreeControlReason(event.target.value)}
                 placeholder="Explain why this subtree control is being applied..."
@@ -3780,7 +3804,7 @@ export function IssueDetail() {
                     disabled={previewAffectedAgentCount === 0}
                     checked={treeControlWakeAgentsOnResume}
                     onChange={(event) => setTreeControlWakeAgentsOnResume(event.target.checked)}
-                  />
+                   aria-label="Tree Control Wake Agents On Resume"/>
                   <span>
                     <span className="block font-medium">Wake affected agents ({previewAffectedAgentCount})</span>
                     <span className="text-xs text-muted-foreground">
@@ -3793,9 +3817,9 @@ export function IssueDetail() {
                 {treeControlWakeAgentsOnResume && treePreviewAffectedAgentRows.length > 0 ? (
                   <div className="max-h-32 space-y-1 overflow-y-auto overscroll-contain">
                     {treePreviewAffectedAgentRows.map(({ agentId, agent }) => (
-                      <div key={agentId} className="flex items-center gap-2 rounded-sm px-1 py-1 text-sm hover:bg-accent/50">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-                          <AgentIcon icon={agent?.icon} className="h-3.5 w-3.5 text-muted-foreground" />
+                      <div key={agentId} className="flex items-center gap-2 rounded-sm p-1 text-sm hover:bg-accent/50">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+                          <AgentIcon icon={agent?.icon} className="size-3.5 text-muted-foreground" />
                         </span>
                         <span className="min-w-0 flex-1 truncate">{agent?.name ?? agentId.slice(0, 8)}</span>
                       </div>
@@ -3812,7 +3836,7 @@ export function IssueDetail() {
                   className="mt-0.5"
                   checked={treeControlCancelConfirmed}
                   onChange={(event) => setTreeControlCancelConfirmed(event.target.checked)}
-                />
+                 aria-label="Tree Control Cancel Confirmed"/>
                 <span>I understand this will cancel {previewAffectedIssueCount} issues.</span>
               </label>
             ) : null}

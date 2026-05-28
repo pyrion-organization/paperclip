@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Environment, EnvironmentProbeResult, JsonSchema } from "@paperclipai/shared";
 import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared/constants";
 import { getAdapterEnvironmentSupport } from "@paperclipai/shared/environment-support";
@@ -8,7 +8,8 @@ import { environmentsApi } from "@/api/environments";
 import { instanceSettingsApi } from "@/api/instanceSettings";
 import { secretsApi } from "@/api/secrets";
 import { Button } from "@/components/ui/button";
-import { JsonSchemaForm, getDefaultValues, validateJsonSchemaForm } from "@/components/JsonSchemaForm";
+import { JsonSchemaForm } from "@/components/JsonSchemaForm";
+import { getDefaultValues, validateJsonSchemaForm } from "@/components/json-schema-form-utils";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useCompany } from "@/context/CompanyContext";
 import { useToast } from "@/context/ToastContext";
@@ -16,8 +17,9 @@ import { queryKeys } from "@/lib/queryKeys";
 import {
   Field,
   ToggleField,
-  adapterLabels,
 } from "../components/agent-config-primitives";
+import { adapterLabels } from "../components/agent-config-primitives-data";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 type EnvironmentFormState = {
   name: string;
@@ -146,7 +148,7 @@ function summarizeSandboxConfig(config: Record<string, unknown>): string | null 
 function SupportMark({ supported }: { supported: boolean }) {
   return supported ? (
     <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
-      <Check className="h-3 w-3" />
+      <Check className="size-3" />
       Yes
     </span>
   ) : (
@@ -195,7 +197,7 @@ export function CompanyEnvironments() {
     enabled: Boolean(selectedCompanyId),
   });
 
-  const environmentMutation = useMutation({
+  const environmentMutation = useInvalidatingMutation({
     mutationFn: async (form: EnvironmentFormState) => {
       const body = buildEnvironmentPayload(form);
 
@@ -226,7 +228,7 @@ export function CompanyEnvironments() {
     },
   });
 
-  const environmentProbeMutation = useMutation({
+  const environmentProbeMutation = useInvalidatingMutation({
     mutationFn: async (environmentId: string) => await environmentsApi.probe(environmentId),
     onSuccess: (probe, environmentId) => {
       setProbeResults((current) => ({
@@ -258,7 +260,7 @@ export function CompanyEnvironments() {
     },
   });
 
-  const draftEnvironmentProbeMutation = useMutation({
+  const draftEnvironmentProbeMutation = useInvalidatingMutation({
     mutationFn: async (form: EnvironmentFormState) => {
       const body = buildEnvironmentPayload(form);
       return await environmentsApi.probeConfig(selectedCompanyId!, body);
@@ -332,14 +334,12 @@ export function CompanyEnvironments() {
     setEnvironmentForm(createEmptyEnvironmentForm());
   }
 
-  const discoveredPluginSandboxProviders = Object.entries(environmentCapabilities?.sandboxProviders ?? {})
-    .filter(([provider, capability]) => provider !== "fake" && capability.supportsRunExecution)
-    .map(([provider, capability]) => ({
+  const discoveredPluginSandboxProviders = Object.entries(environmentCapabilities?.sandboxProviders ?? {}).flatMap(([provider, capability]) => (provider !== "fake" && capability.supportsRunExecution) ? [({
       provider,
       displayName: capability.displayName || provider,
       description: capability.description,
       configSchema: normalizeJsonSchema(capability.configSchema),
-    }))
+    })] : [])
     .sort((left, right) => left.displayName.localeCompare(right.displayName));
   const sandboxCreationEnabled = discoveredPluginSandboxProviders.length > 0;
   const sandboxSupportVisible = sandboxCreationEnabled;
@@ -400,10 +400,10 @@ export function CompanyEnvironments() {
     return (
       <div className="max-w-3xl space-y-4">
         <div className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-muted-foreground" />
+          <Settings className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Company Environments</h1>
         </div>
-        <div className="rounded-md border border-border px-4 py-4 text-sm text-muted-foreground">
+        <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
           Enable Environments in instance experimental settings to manage company execution targets.
         </div>
       </div>
@@ -414,7 +414,7 @@ export function CompanyEnvironments() {
     <div className="max-w-5xl space-y-6" data-testid="company-settings-environments-section">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-muted-foreground" />
+          <Settings className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Company Environments</h1>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -422,7 +422,7 @@ export function CompanyEnvironments() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-md border border-border px-4 py-4">
+      <div className="space-y-4 rounded-md border border-border p-4">
         <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           Environment choices use the same adapter support matrix as agent defaults. SSH is always available for
           remote-managed adapters, and sandbox environments appear only when a run-capable sandbox provider plugin is
@@ -490,7 +490,7 @@ export function CompanyEnvironments() {
               return (
                 <div
                   key={environment.id}
-                  className="rounded-md border border-border/70 px-3 py-3"
+                  className="rounded-md border border-border/70 p-3"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -575,7 +575,7 @@ export function CompanyEnvironments() {
                 type="text"
                 value={environmentForm.name}
                 onChange={(e) => setEnvironmentForm((current) => ({ ...current, name: e.target.value }))}
-              />
+               aria-label="Name"/>
             </Field>
             <Field label="Description" hint="Optional note about what this machine is for.">
               <input
@@ -583,7 +583,7 @@ export function CompanyEnvironments() {
                 type="text"
                 value={environmentForm.description}
                 onChange={(e) => setEnvironmentForm((current) => ({ ...current, description: e.target.value }))}
-              />
+               aria-label="Description"/>
             </Field>
             <Field label="Driver" hint="Local runs on this host. SSH stores a remote machine target. Sandbox stores plugin-backed provider config on the shared environment seam.">
               <select
@@ -630,7 +630,7 @@ export function CompanyEnvironments() {
                     type="text"
                     value={environmentForm.sshHost}
                     onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshHost: e.target.value }))}
-                  />
+                   aria-label="Ssh Host"/>
                 </Field>
                 <Field label="Port" hint="Defaults to 22.">
                   <input
@@ -640,7 +640,7 @@ export function CompanyEnvironments() {
                     max={65535}
                     value={environmentForm.sshPort}
                     onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshPort: e.target.value }))}
-                  />
+                   aria-label="Ssh Port"/>
                 </Field>
                 <Field label="Username" hint="SSH login user.">
                   <input
@@ -648,7 +648,7 @@ export function CompanyEnvironments() {
                     type="text"
                     value={environmentForm.sshUsername}
                     onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshUsername: e.target.value }))}
-                  />
+                   aria-label="Ssh Username"/>
                 </Field>
                 <Field label="Remote workspace path" hint="Absolute path that Paperclip will verify during SSH connection tests.">
                   <input
@@ -658,7 +658,7 @@ export function CompanyEnvironments() {
                     value={environmentForm.sshRemoteWorkspacePath}
                     onChange={(e) =>
                       setEnvironmentForm((current) => ({ ...current, sshRemoteWorkspacePath: e.target.value }))}
-                  />
+                   aria-label="Ssh Remote Workspace Path"/>
                 </Field>
                 <Field label="Private key" hint="Optional PEM private key. Leave blank to rely on the server's SSH agent or default keychain.">
                   <div className="space-y-2">
@@ -682,7 +682,7 @@ export function CompanyEnvironments() {
                       value={environmentForm.sshPrivateKey}
                       disabled={!!environmentForm.sshPrivateKeySecretId}
                       onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshPrivateKey: e.target.value }))}
-                    />
+                     aria-label="Ssh Private Key"/>
                   </div>
                 </Field>
                 <Field label="Known hosts" hint="Optional known_hosts block used when strict host key checking is enabled.">
@@ -690,7 +690,7 @@ export function CompanyEnvironments() {
                     className="h-32 w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-xs font-mono outline-none"
                     value={environmentForm.sshKnownHosts}
                     onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshKnownHosts: e.target.value }))}
-                  />
+                   aria-label="Ssh Known Hosts"/>
                 </Field>
                 <div className="md:col-span-2">
                   <ToggleField

@@ -26,11 +26,11 @@ import {
   type RoutineRunDialogSubmitData,
 } from "../components/RoutineRunVariablesDialog";
 import {
-  buildWorkspaceRuntimeControlSections,
   WorkspaceRuntimeQuickControls,
   WorkspaceRuntimeControls,
   type WorkspaceRuntimeControlRequest,
 } from "../components/WorkspaceRuntimeControls";
+import { buildWorkspaceRuntimeControlSections } from "../components/workspace-runtime-controls-utils";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { useToastActions } from "../context/ToastContext";
@@ -281,7 +281,7 @@ function MonoValue({ value, copy }: { value: string; copy?: boolean }) {
       <span className="break-all font-mono text-xs">{value}</span>
       {copy ? (
         <CopyText text={value} className="shrink-0 text-muted-foreground hover:text-foreground" copiedLabel="Copied">
-          <Copy className="h-3.5 w-3.5" />
+          <Copy className="size-3.5" />
         </CopyText>
       ) : null}
     </div>
@@ -386,7 +386,7 @@ function WorkspaceRoutineRow({
   const isRunning = runningRoutineId === routine.id;
 
   return (
-    <div className="flex flex-col gap-3 border-b border-border px-3 py-3 last:border-b-0 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <Link to={`/routines/${routine.id}`} className="truncate text-sm font-medium hover:underline">
@@ -415,7 +415,7 @@ function WorkspaceRoutineRow({
         disabled={isArchived || isRunning}
         onClick={() => onRunNow(routine)}
       >
-        {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+        {isRunning ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Play className="mr-2 size-4" />}
         {isRunning ? "Running..." : "Run now"}
       </Button>
     </div>
@@ -502,14 +502,14 @@ function ExecutionWorkspaceRoutinesList({
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading routines...</p>
+            <p className="text-sm text-muted-foreground">Loading routines&hellip;</p>
           ) : error ? (
             <p className="text-sm text-destructive">
               {error instanceof Error ? error.message : "Failed to load routines."}
             </p>
           ) : workspaceRoutines.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
-              <Repeat className="h-5 w-5 text-muted-foreground" />
+              <Repeat className="size-5 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
                 No routines use workspace-specific variables yet.
               </p>
@@ -555,7 +555,7 @@ function ExecutionWorkspaceRoutinesList({
 
 export function ExecutionWorkspaceDetail() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const location = useLocation();
+  const routerLocation = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -565,11 +565,11 @@ export function ExecutionWorkspaceDetail() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [runtimeActionErrorMessage, setRuntimeActionErrorMessage] = useState<string | null>(null);
   const [runtimeActionMessage, setRuntimeActionMessage] = useState<string | null>(null);
-  const activeRouteTab = workspaceId ? resolveExecutionWorkspaceTab(location.pathname, workspaceId) : null;
+  const activeRouteTab = workspaceId ? resolveExecutionWorkspaceTab(routerLocation.pathname, workspaceId) : null;
   const pluginTabFromSearch = useMemo(() => {
-    const tab = new URLSearchParams(location.search).get("tab");
+    const tab = new URLSearchParams(routerLocation.search).get("tab");
     return isExecutionWorkspacePluginTab(tab) ? tab : null;
-  }, [location.search]);
+  }, [routerLocation.search]);
   const activeTab: ExecutionWorkspaceTab | null = activeRouteTab ?? pluginTabFromSearch;
 
   const workspaceQuery = useQuery({
@@ -1019,7 +1019,7 @@ export function ExecutionWorkspaceDetail() {
                                 return { ...current, inheritRuntime: checked };
                               });
                             }}
-                          />
+                           aria-label="Inherit Runtime"/>
                           <label htmlFor="inherit-runtime-config">Inherit project workspace runtime config</label>
                         </div>
                         <Textarea
@@ -1037,7 +1037,7 @@ export function ExecutionWorkspaceDetail() {
 
               <div className="mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <Button className="w-full sm:w-auto" disabled={!isDirty || updateWorkspace.isPending} onClick={saveChanges}>
-                  {updateWorkspace.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {updateWorkspace.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                   Save changes
                 </Button>
                 <Button
@@ -1122,10 +1122,10 @@ export function ExecutionWorkspaceDetail() {
                   <div className="inline-flex max-w-full items-start gap-2">
                     <a href={workspace.repoUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 break-all hover:underline">
                       {workspace.repoUrl}
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                      <ExternalLink className="size-3.5 shrink-0" />
                     </a>
                     <CopyText text={workspace.repoUrl} className="shrink-0 text-muted-foreground hover:text-foreground" copiedLabel="Copied">
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     </CopyText>
                   </div>
                 ) : workspace.repoUrl ? (
@@ -1209,7 +1209,7 @@ export function ExecutionWorkspaceDetail() {
           />
         ) : isExecutionWorkspacePluginTab(activeTab) && workspacePluginDetailSlotsLoading ? (
           <Card>
-            <CardContent className="py-6 text-sm text-muted-foreground">Loading workspace plugin...</CardContent>
+            <CardContent className="py-6 text-sm text-muted-foreground">Loading workspace plugin&hellip;</CardContent>
           </Card>
         ) : isExecutionWorkspacePluginTab(activeTab) && workspacePluginDetailSlotsError ? (
           <Card>

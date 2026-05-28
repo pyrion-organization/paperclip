@@ -17,8 +17,8 @@ import {
   DraftTextarea,
   Field,
   ToggleField,
-  help,
 } from "@/components/agent-config-primitives";
+import { help } from "@/components/agent-config-primitives-data";
 import { AgentIcon, AgentIconPicker } from "@/components/AgentIconPicker";
 import { AgentProperties } from "@/components/AgentProperties";
 import { RunButton, PauseResumeButton } from "@/components/AgentActionButtons";

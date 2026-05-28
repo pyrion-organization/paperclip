@@ -1,6 +1,6 @@
 import type { Goal } from "@paperclipai/shared";
 
-export const ONBOARDING_PROJECT_NAME = "Onboarding";
+const ONBOARDING_PROJECT_NAME = "Onboarding";
 
 function goalCreatedAt(goal: Goal) {
   const createdAt = goal.createdAt instanceof Date ? goal.createdAt : new Date(goal.createdAt);
@@ -8,7 +8,16 @@ function goalCreatedAt(goal: Goal) {
 }
 
 function pickEarliestGoal(goals: Goal[]) {
-  return [...goals].sort((a, b) => goalCreatedAt(a) - goalCreatedAt(b))[0] ?? null;
+  let earliest: Goal | null = null;
+  let earliestCreatedAt = Number.POSITIVE_INFINITY;
+  for (const goal of goals) {
+    const createdAt = goalCreatedAt(goal);
+    if (createdAt < earliestCreatedAt) {
+      earliest = goal;
+      earliestCreatedAt = createdAt;
+    }
+  }
+  return earliest;
 }
 
 export function selectDefaultCompanyGoalId(goals: Goal[]): string | null {

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { describeSchedule } from "./schedule-editor-utils";
 
 type SchedulePreset = "every_minute" | "every_hour" | "every_day" | "weekdays" | "weekly" | "monthly" | "custom";
 
@@ -40,6 +41,15 @@ const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, i) => ({
   value: String(i + 1),
   label: String(i + 1),
 }));
+
+type ScheduleEditorState = {
+  preset: SchedulePreset;
+  hour: string;
+  minute: string;
+  dayOfWeek: string;
+  dayOfMonth: string;
+  customCron: string;
+};
 
 function parseCronToPreset(cron: string): {
   preset: SchedulePreset;
@@ -94,6 +104,14 @@ function parseCronToPreset(cron: string): {
   return { preset: "custom", ...defaults };
 }
 
+function scheduleStateFromValue(value: string): ScheduleEditorState {
+  const parsed = parseCronToPreset(value);
+  return {
+    ...parsed,
+    customCron: parsed.preset === "custom" ? value : "",
+  };
+}
+
 function buildCron(preset: SchedulePreset, hour: string, minute: string, dayOfWeek: string, dayOfMonth: string): string {
   switch (preset) {
     case "every_minute":
@@ -113,39 +131,6 @@ function buildCron(preset: SchedulePreset, hour: string, minute: string, dayOfWe
   }
 }
 
-function describeSchedule(cron: string): string {
-  const { preset, hour, minute, dayOfWeek, dayOfMonth } = parseCronToPreset(cron);
-  const hourLabel = HOURS.find((h) => h.value === hour)?.label ?? `${hour}`;
-  const timeStr = `${hourLabel.replace(/ (AM|PM)$/, "")}:${minute.padStart(2, "0")} ${hourLabel.match(/(AM|PM)$/)?.[0] ?? ""}`;
-
-  switch (preset) {
-    case "every_minute":
-      return "Every minute";
-    case "every_hour":
-      return `Every hour at :${minute.padStart(2, "0")}`;
-    case "every_day":
-      return `Every day at ${timeStr}`;
-    case "weekdays":
-      return `Weekdays at ${timeStr}`;
-    case "weekly": {
-      const day = DAYS_OF_WEEK.find((d) => d.value === dayOfWeek)?.label ?? dayOfWeek;
-      return `Every ${day} at ${timeStr}`;
-    }
-    case "monthly":
-      return `Monthly on the ${dayOfMonth}${ordinalSuffix(Number(dayOfMonth))} at ${timeStr}`;
-    case "custom":
-      return cron || "No schedule set";
-  }
-}
-
-function ordinalSuffix(n: number): string {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
-}
-
-export { describeSchedule };
-
 export function ScheduleEditor({
   value,
   onChange,
@@ -153,23 +138,21 @@ export function ScheduleEditor({
   value: string;
   onChange: (cron: string) => void;
 }) {
-  const parsed = useMemo(() => parseCronToPreset(value), [value]);
-  const [preset, setPreset] = useState<SchedulePreset>(parsed.preset);
-  const [hour, setHour] = useState(parsed.hour);
-  const [minute, setMinute] = useState(parsed.minute);
-  const [dayOfWeek, setDayOfWeek] = useState(parsed.dayOfWeek);
-  const [dayOfMonth, setDayOfMonth] = useState(parsed.dayOfMonth);
-  const [customCron, setCustomCron] = useState(preset === "custom" ? value : "");
-
-  // Sync from external value changes
-  useEffect(() => {
-    const p = parseCronToPreset(value);
-    setPreset(p.preset);
-    setHour(p.hour);
-    setMinute(p.minute);
-    setDayOfWeek(p.dayOfWeek);
-    setDayOfMonth(p.dayOfMonth);
-    if (p.preset === "custom") setCustomCron(value);
+  const parsedState = useMemo(() => scheduleStateFromValue(value), [value]);
+  const [draft, setDraft] = useState<{
+    sourceValue: string;
+    state: ScheduleEditorState;
+  } | null>(null);
+  const state = draft?.sourceValue === value ? draft.state : parsedState;
+  const { preset, hour, minute, dayOfWeek, dayOfMonth, customCron } = state;
+  const updateState = useCallback((updater: (current: ScheduleEditorState) => ScheduleEditorState) => {
+    setDraft((currentDraft) => {
+      const current = currentDraft?.sourceValue === value ? currentDraft.state : scheduleStateFromValue(value);
+      return {
+        sourceValue: value,
+        state: updater(current),
+      };
+    });
   }, [value]);
 
   const emitChange = useCallback(
@@ -184,9 +167,13 @@ export function ScheduleEditor({
   );
 
   const handlePresetChange = (newPreset: SchedulePreset) => {
-    setPreset(newPreset);
+    updateState((current) => ({
+      ...current,
+      preset: newPreset,
+      customCron: newPreset === "custom" ? value : current.customCron,
+    }));
     if (newPreset === "custom") {
-      setCustomCron(value);
+      onChange(value);
     } else {
       emitChange(newPreset, hour, minute, dayOfWeek, dayOfMonth, customCron);
     }
@@ -212,7 +199,7 @@ export function ScheduleEditor({
           <Input
             value={customCron}
             onChange={(e) => {
-              setCustomCron(e.target.value);
+              updateState((current) => ({ ...current, customCron: e.target.value }));
               emitChange("custom", hour, minute, dayOfWeek, dayOfMonth, e.target.value);
             }}
             placeholder="0 10 * * *"
@@ -230,7 +217,7 @@ export function ScheduleEditor({
               <Select
                 value={hour}
                 onValueChange={(h) => {
-                  setHour(h);
+                  updateState((current) => ({ ...current, hour: h }));
                   emitChange(preset, h, minute, dayOfWeek, dayOfMonth, customCron);
                 }}
               >
@@ -249,7 +236,7 @@ export function ScheduleEditor({
               <Select
                 value={minute}
                 onValueChange={(m) => {
-                  setMinute(m);
+                  updateState((current) => ({ ...current, minute: m }));
                   emitChange(preset, hour, m, dayOfWeek, dayOfMonth, customCron);
                 }}
               >
@@ -273,7 +260,7 @@ export function ScheduleEditor({
               <Select
                 value={minute}
                 onValueChange={(m) => {
-                  setMinute(m);
+                  updateState((current) => ({ ...current, minute: m }));
                   emitChange(preset, hour, m, dayOfWeek, dayOfMonth, customCron);
                 }}
               >
@@ -303,7 +290,7 @@ export function ScheduleEditor({
                     size="sm"
                     className="h-7 px-2 text-xs"
                     onClick={() => {
-                      setDayOfWeek(d.value);
+                      updateState((current) => ({ ...current, dayOfWeek: d.value }));
                       emitChange(preset, hour, minute, d.value, dayOfMonth, customCron);
                     }}
                   >
@@ -320,7 +307,7 @@ export function ScheduleEditor({
               <Select
                 value={dayOfMonth}
                 onValueChange={(dom) => {
-                  setDayOfMonth(dom);
+                  updateState((current) => ({ ...current, dayOfMonth: dom }));
                   emitChange(preset, hour, minute, dayOfWeek, dom, customCron);
                 }}
               >

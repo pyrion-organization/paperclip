@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { nextRoutineStatus } from "./routine-list-utils";
 
 export type RoutineListProjectSummary = {
   name: string;
@@ -34,19 +35,14 @@ export type RoutineListRowItem = {
   } | null;
 };
 
-export function formatLastRunTimestamp(value: Date | string | null | undefined) {
+function formatLastRunTimestamp(value: Date | string | null | undefined) {
   if (!value) return "Never";
   return new Date(value).toLocaleString();
 }
 
-export function formatRoutineRunStatus(value: string | null | undefined) {
+function formatRoutineRunStatus(value: string | null | undefined) {
   if (!value) return null;
   return value.replaceAll("_", " ");
-}
-
-export function nextRoutineStatus(currentStatus: string, enabled: boolean) {
-  if (currentStatus === "archived" && enabled) return "active";
-  return enabled ? "active" : "paused";
 }
 
 export function RoutineListRow<TRoutine extends RoutineListRowItem>({
@@ -97,7 +93,7 @@ export function RoutineListRow<TRoutine extends RoutineListRowItem>({
   return (
     <Link
       to={href}
-      className="group flex flex-col gap-3 border-b border-border px-3 py-3 transition-colors hover:bg-accent/50 last:border-b-0 sm:flex-row sm:items-center no-underline text-inherit"
+      className="group flex flex-col gap-3 border-b border-border p-3 transition-colors hover:bg-accent/50 last:border-b-0 sm:flex-row sm:items-center no-underline text-inherit"
     >
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
@@ -114,13 +110,13 @@ export function RoutineListRow<TRoutine extends RoutineListRowItem>({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-2">
             <span
-              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              className="size-2.5 shrink-0 rounded-sm"
               style={{ backgroundColor: project?.color ?? "#64748b" }}
             />
             <span>{routine.projectId ? (project?.name ?? "Unknown project") : "No project"}</span>
           </span>
           <span className="flex items-center gap-2">
-            {agent?.icon ? <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0" /> : null}
+            {agent?.icon ? <AgentIcon icon={agent.icon} className="size-3.5 shrink-0" /> : null}
             <span>{routine.assigneeAgentId ? (agent?.name ?? "Unknown agent") : "No default agent"}</span>
           </span>
           <span>
@@ -141,7 +137,7 @@ export function RoutineListRow<TRoutine extends RoutineListRowItem>({
             disabled={runDisabled}
             onClick={() => onRunNow(routine)}
           >
-            <Play className="h-3.5 w-3.5" />
+            <Play className="size-3.5" />
             {runningRoutineId === routine.id ? "Running..." : "Run now"}
           </Button>
         ) : null}
@@ -162,7 +158,7 @@ export function RoutineListRow<TRoutine extends RoutineListRowItem>({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${routine.title}`}>
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

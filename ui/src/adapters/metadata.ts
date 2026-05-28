@@ -18,7 +18,7 @@ export interface AdapterOptionMetadata {
   experimental: boolean;
 }
 
-export function listKnownAdapterTypes(): string[] {
+function listKnownAdapterTypes(): string[] {
   return listUIAdapters().map((adapter) => adapter.type);
 }
 
@@ -74,7 +74,7 @@ export function listAdapterOptions(
 /**
  * List UI adapters excluding those hidden via the Adapters settings page.
  */
-export function listVisibleUIAdapters(): UIAdapterModule[] {
+function listVisibleUIAdapters(): UIAdapterModule[] {
   return listUIAdapters().filter((a) => !isAdapterTypeHidden(a.type));
 }
 

@@ -87,7 +87,7 @@ function SecretsTabSurface({
           secrets={storybookSecrets as CompanySecret[]}
           onCreateSecret={async (name) => ({
             ...storybookSecrets[0]!,
-            id: `secret-${Math.random().toString(36).slice(2, 8)}`,
+            id: `secret-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
             name,
             key: name.toLowerCase(),
             description: `New routine secret ${name}`,

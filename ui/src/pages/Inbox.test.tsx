@@ -121,11 +121,10 @@ vi.mock("../hooks/useInboxBadge", () => ({
 import {
   FailedRunInboxRow,
   Inbox,
-  InboxGroupHeader,
-  InboxIssueMetaLeading,
-  InboxIssueTrailingColumns,
-  formatJoinRequestInboxLabel,
 } from "./Inbox";
+import { formatJoinRequestInboxLabel } from "./inbox-utils";
+import { IssueGroupHeader as InboxGroupHeader } from "../components/IssueGroupHeader";
+import { InboxIssueMetaLeading, InboxIssueTrailingColumns } from "../components/IssueColumns";
 
 vi.mock("@/lib/router", () => ({
   Link: ({ children, className, ...props }: ComponentProps<"a">) => (

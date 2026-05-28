@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Agent } from "@paperclipai/shared";
 import { HUMAN_COMPANY_MEMBERSHIP_ROLE_LABELS } from "@paperclipai/shared/constants";
 import { Shield, ShieldCheck, Trash2, Users } from "lucide-react";
@@ -23,6 +23,7 @@ import { useToast } from "@/context/ToastContext";
 import { Link, Navigate } from "@/lib/router";
 import { queryKeys } from "@/lib/queryKeys";
 import { usePluginSlots } from "@/plugins/slots";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const reassignmentIssueStatuses = "backlog,todo,in_progress,in_review,blocked,failed,timed_out";
 type EditableMemberStatus = "pending" | "active" | "suspended";
@@ -35,8 +36,14 @@ export function CompanyAccess() {
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [reassignmentTarget, setReassignmentTarget] = useState<string>("__unassigned");
-  const [draftRole, setDraftRole] = useState<CompanyMember["membershipRole"]>(null);
-  const [draftStatus, setDraftStatus] = useState<EditableMemberStatus>("active");
+  const [draftRoleOverride, setDraftRoleOverride] = useState<{
+    source: string;
+    value: CompanyMember["membershipRole"];
+  } | null>(null);
+  const [draftStatusOverride, setDraftStatusOverride] = useState<{
+    source: string;
+    value: EditableMemberStatus;
+  } | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -66,12 +73,14 @@ export function CompanyAccess() {
 
   const refreshAccessData = async () => {
     if (!selectedCompanyId) return;
-    await queryClient.invalidateQueries({ queryKey: queryKeys.access.companyMembers(selectedCompanyId) });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId) });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(selectedCompanyId, "pending_approval") });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.access.companyMembers(selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.access.companyUserDirectory(selectedCompanyId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(selectedCompanyId, "pending_approval") }),
+    ]);
   };
 
-  const updateMemberMutation = useMutation({
+  const updateMemberMutation = useInvalidatingMutation({
     mutationFn: async (input: { memberId: string; membershipRole: CompanyMember["membershipRole"]; status: EditableMemberStatus }) => {
       return accessApi.updateMember(selectedCompanyId!, input.memberId, {
         membershipRole: input.membershipRole,
@@ -95,7 +104,7 @@ export function CompanyAccess() {
     },
   });
 
-  const approveJoinRequestMutation = useMutation({
+  const approveJoinRequestMutation = useInvalidatingMutation({
     mutationFn: (requestId: string) => accessApi.approveJoinRequest(selectedCompanyId!, requestId),
     onSuccess: async () => {
       await refreshAccessData();
@@ -113,7 +122,7 @@ export function CompanyAccess() {
     },
   });
 
-  const rejectJoinRequestMutation = useMutation({
+  const rejectJoinRequestMutation = useInvalidatingMutation({
     mutationFn: (requestId: string) => accessApi.rejectJoinRequest(selectedCompanyId!, requestId),
     onSuccess: async () => {
       await refreshAccessData();
@@ -139,6 +148,17 @@ export function CompanyAccess() {
     () => membersQuery.data?.members.find((member) => member.id === removingMemberId) ?? null,
     [removingMemberId, membersQuery.data?.members],
   );
+  const editingMemberDraftSource = editingMember
+    ? `${editingMember.id}:${editingMember.membershipRole ?? ""}:${editingMember.status}`
+    : "";
+  const draftRole =
+    draftRoleOverride?.source === editingMemberDraftSource
+      ? draftRoleOverride.value
+      : editingMember?.membershipRole ?? null;
+  const draftStatus =
+    draftStatusOverride?.source === editingMemberDraftSource
+      ? draftStatusOverride.value
+      : editingMember && isEditableMemberStatus(editingMember.status) ? editingMember.status : "suspended";
 
   const assignedIssuesQuery = useQuery({
     queryKey: ["access", "member-assigned-issues", selectedCompanyId ?? "", removingMember?.principalId ?? ""],
@@ -150,7 +170,7 @@ export function CompanyAccess() {
     enabled: !!selectedCompanyId && !!removingMember,
   });
 
-  const archiveMemberMutation = useMutation({
+  const archiveMemberMutation = useInvalidatingMutation({
     mutationFn: async (input: { memberId: string; target: string }) => {
       const reassignment =
         input.target.startsWith("agent:")
@@ -165,9 +185,11 @@ export function CompanyAccess() {
       setReassignmentTarget("__unassigned");
       await refreshAccessData();
       if (selectedCompanyId) {
-        await queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.issues.listAssignedToMe(selectedCompanyId) });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.issues.listTouchedByMe(selectedCompanyId) });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.issues.listAssignedToMe(selectedCompanyId) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.issues.listTouchedByMe(selectedCompanyId) }),
+        ]);
       }
       pushToast({
         title: "Member removed",
@@ -186,17 +208,6 @@ export function CompanyAccess() {
       });
     },
   });
-
-  useEffect(() => {
-    if (!editingMember) return;
-    setDraftRole(editingMember.membershipRole);
-    setDraftStatus(isEditableMemberStatus(editingMember.status) ? editingMember.status : "suspended");
-  }, [editingMember]);
-
-  useEffect(() => {
-    if (!removingMember) return;
-    setReassignmentTarget("__unassigned");
-  }, [removingMember]);
 
   if (!selectedCompanyId) {
     return <div className="text-sm text-muted-foreground">Select a company to manage access.</div>;
@@ -235,7 +246,7 @@ export function CompanyAccess() {
     <div className="max-w-6xl space-y-8">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+          <ShieldCheck className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Company Members</h1>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -255,7 +266,7 @@ export function CompanyAccess() {
       <section className="space-y-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="size-4 text-muted-foreground" />
             <h2 className="text-base font-semibold">Humans</h2>
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -264,7 +275,7 @@ export function CompanyAccess() {
         </div>
 
         {access?.canApproveJoinRequests && pendingHumanJoinRequests.length > 0 ? (
-          <div className="space-y-3 rounded-xl border border-border px-4 py-4">
+          <div className="space-y-3 rounded-xl border border-border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-semibold">Pending human joins</h3>
@@ -341,17 +352,28 @@ export function CompanyAccess() {
                   </div>
                   <div className="space-y-1 text-right">
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setEditingMemberId(member.id)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDraftRoleOverride(null);
+                          setDraftStatusOverride(null);
+                          setEditingMemberId(member.id);
+                        }}
+                      >
                         Edit
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setRemovingMemberId(member.id)}
+                        onClick={() => {
+                          setReassignmentTarget("__unassigned");
+                          setRemovingMemberId(member.id);
+                        }}
                         disabled={!canArchive}
                         title={removalReason ?? undefined}
                       >
-                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                        <Trash2 className="mr-1 size-3.5" />
                         Remove
                       </Button>
                     </div>
@@ -383,7 +405,10 @@ export function CompanyAccess() {
                     className="w-full rounded-md border border-border bg-background px-3 py-2"
                     value={draftRole ?? ""}
                     onChange={(event) =>
-                      setDraftRole((event.target.value || null) as CompanyMember["membershipRole"])
+                      setDraftRoleOverride({
+                        source: editingMemberDraftSource,
+                        value: (event.target.value || null) as CompanyMember["membershipRole"],
+                      })
                     }
                   >
                     <option value="">Unset</option>
@@ -400,7 +425,10 @@ export function CompanyAccess() {
                     className="w-full rounded-md border border-border bg-background px-3 py-2"
                     value={draftStatus}
                     onChange={(event) =>
-                      setDraftStatus(event.target.value as EditableMemberStatus)
+                      setDraftStatusOverride({
+                        source: editingMemberDraftSource,
+                        value: event.target.value as EditableMemberStatus,
+                      })
                     }
                   >
                     <option value="active">Active</option>
@@ -442,7 +470,7 @@ export function CompanyAccess() {
           </DialogHeader>
           {removingMember && (
             <div className="space-y-5">
-              <div className="rounded-lg border border-border px-3 py-3">
+              <div className="rounded-lg border border-border p-3">
                 <div className="text-sm font-medium">{memberDisplayName(removingMember)}</div>
                 <div className="text-sm text-muted-foreground">{removingMember.user?.email || removingMember.principalId}</div>
                 <div className="mt-2 text-sm text-muted-foreground">
@@ -543,14 +571,14 @@ export function CompanyAccessLegacyRoute() {
   }
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Checking for advanced permission extensions...</div>;
+    return <div className="text-sm text-muted-foreground">Checking for advanced permission extensions&hellip;</div>;
   }
 
   return (
     <div className="max-w-2xl space-y-5">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-muted-foreground" />
+          <Shield className="size-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">Advanced Permissions</h1>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -558,7 +586,7 @@ export function CompanyAccessLegacyRoute() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-xl border border-border px-5 py-5">
+      <div className="space-y-4 rounded-xl border border-border p-5">
         <div className="space-y-2">
           <h2 className="text-sm font-semibold">Advanced permissions unavailable</h2>
           <p className="text-sm text-muted-foreground">
@@ -618,7 +646,7 @@ function PendingJoinRequestCard({
   onReject: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-border px-4 py-4">
+    <div className="rounded-xl border border-border p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div>

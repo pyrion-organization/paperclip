@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CALENDAR_ITEM_CATEGORIES,
   CALENDAR_RECURRENCE_TYPES,
@@ -58,6 +58,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const NO_COMPANY = "__none__";
 const NONE = "__none_value__";
@@ -355,8 +356,8 @@ function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | und
           {hasFailures ? (
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-auto px-0 py-0 font-medium tabular-nums text-destructive hover:bg-transparent">
-                  <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                <Button variant="ghost" size="sm" className="h-auto p-0 font-medium tabular-nums text-destructive hover:bg-transparent">
+                  <AlertTriangle className="mr-1 size-3.5" />
                   {status?.failedEmails ?? 0}
                 </Button>
               </PopoverTrigger>
@@ -453,7 +454,7 @@ export function Calendar() {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
   };
 
-  const saveMutation = useMutation({
+  const saveMutation = useInvalidatingMutation({
     mutationFn: async () => {
       if (!selectedCompanyId) throw new Error("No company selected");
       const payload = payloadFromForm(form);
@@ -480,7 +481,7 @@ export function Calendar() {
     onError: (err) => setOperationError(err instanceof Error ? err.message : "Save failed"),
   });
 
-  const completeMutation = useMutation({
+  const completeMutation = useInvalidatingMutation({
     mutationFn: (itemId: string) => {
       const approvalConfirmed = selectedItem && ["high", "critical"].includes(selectedItem.riskLevel)
         ? confirmGovernedChange("Completing this high-risk calendar item requires operator approval. Continue?")
@@ -497,7 +498,7 @@ export function Calendar() {
     },
     onError: (err) => setOperationError(err instanceof Error ? err.message : "Complete failed"),
   });
-  const statusMutation = useMutation({
+  const statusMutation = useInvalidatingMutation({
     mutationFn: ({ itemId, action }: { itemId: string; action: "pause" | "activate" | "archive" | "cancel" }) => {
       if (action === "pause") return calendarApi.pause(companyId, itemId);
       if (action === "activate") return calendarApi.activate(companyId, itemId);
@@ -574,7 +575,7 @@ export function Calendar() {
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={openCreateDialog}>
-            <CalendarDays className="mr-2 h-4 w-4" />
+            <CalendarDays className="mr-2 size-4" />
             New Item
           </Button>
         </div>
@@ -630,7 +631,7 @@ export function Calendar() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-base">Items</CardTitle>
               <div className="relative w-full sm:w-96">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
                 <Input
                   className="h-9 pl-8"
                   placeholder="Search calendar items"
@@ -683,7 +684,7 @@ export function Calendar() {
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <span>{dueLabel(item)}</span>
                           <span title={item.reminderPolicy.summary} aria-label="Reminder policy">
-                            <Info className="h-3.5 w-3.5" />
+                            <Info className="size-3.5" />
                           </span>
                         </div>
                       </td>
@@ -703,7 +704,7 @@ export function Calendar() {
                       <td className="px-3 py-2 align-top">{item.providerName ?? "Not set"}</td>
                       <td className="px-3 py-2 align-top">
                         <span className={cn("inline-flex items-center gap-1 text-xs font-medium", item.riskLevel === "critical" && "text-destructive")}>
-                          {item.riskLevel === "critical" ? <ShieldAlert className="h-3.5 w-3.5" /> : null}
+                          {item.riskLevel === "critical" ? <ShieldAlert className="size-3.5" /> : null}
                           {titleCase(item.riskLevel)}
                         </span>
                       </td>
@@ -854,7 +855,7 @@ export function Calendar() {
                       type="checkbox"
                       checked={form.autoRenew}
                       onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
-                    />
+                     aria-label="Auto Renew"/>
                     Auto-renew
                   </label>
                   <label className="flex items-center gap-2 text-sm">
@@ -862,7 +863,7 @@ export function Calendar() {
                       type="checkbox"
                       checked={form.manualActionRequired}
                       onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
-                    />
+                     aria-label="Manual Action Required"/>
                     Manual action required
                   </label>
                 </TabsContent>
@@ -930,19 +931,19 @@ export function Calendar() {
                 {selectedItem ? (
                   <>
                     <Button variant="outline" onClick={() => completeMutation.mutate(selectedItem.id)} disabled={completeMutation.isPending}>
-                      <CheckCircle2 className="mr-2 h-4 w-4" /> Complete
+                      <CheckCircle2 className="mr-2 size-4" /> Complete
                     </Button>
                     {selectedItem.status === "paused" || selectedItem.status === "pending_review" ? (
                       <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "activate" })}>
-                        <Play className="mr-2 h-4 w-4" /> Activate
+                        <Play className="mr-2 size-4" /> Activate
                       </Button>
                     ) : (
                       <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "pause" })}>
-                        <Pause className="mr-2 h-4 w-4" /> Pause
+                        <Pause className="mr-2 size-4" /> Pause
                       </Button>
                     )}
                     <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "archive" })}>
-                      <Archive className="mr-2 h-4 w-4" /> Archive
+                      <Archive className="mr-2 size-4" /> Archive
                     </Button>
                   </>
                 ) : null}

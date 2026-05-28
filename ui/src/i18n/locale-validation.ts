@@ -35,9 +35,9 @@ function hasBlockedData(value: string, englishValue: string) {
     [hasRawHtml(value), hasRawHtml(englishValue), "raw HTML tag"],
   ];
 
-  const blocked = checks
-    .filter(([candidateHas, englishHas]) => candidateHas && !englishHas)
-    .map(([, , blockedPayload]) => blockedPayload);
+  const blocked = checks.flatMap(([candidateHas, englishHas, blockedPayload]) =>
+    candidateHas && !englishHas ? [blockedPayload] : [],
+  );
 
   const englishUrls = new Set(urlsIn(englishValue));
   const unexpectedUrl = urlsIn(value).find((url) => !englishUrls.has(url));

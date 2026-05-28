@@ -108,14 +108,14 @@ export function IssueFiltersPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant={buttonVariant} size={iconOnly ? "icon" : "sm"} className={`text-xs ${iconOnly ? "relative h-8 w-8 shrink-0" : ""} ${activeFilterCount > 0 ? "text-blue-600 dark:text-blue-400" : ""}`} title={iconOnly ? (activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter") : undefined}>
-          <Filter className={iconOnly ? "h-3.5 w-3.5" : "h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1"} />
+        <Button variant={buttonVariant} size={iconOnly ? "icon" : "sm"} className={`text-xs ${iconOnly ? "relative size-8 shrink-0" : ""} ${activeFilterCount > 0 ? "text-blue-600 dark:text-blue-400" : ""}`} title={iconOnly ? (activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter") : undefined}>
+          <Filter className={iconOnly ? "size-3.5" : "size-3.5 sm:size-3 sm:mr-1"} />
           {!iconOnly && <span className="hidden sm:inline">{activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}</span>}
           {!iconOnly && activeFilterCount > 0 ? <span className="ml-0.5 text-[10px] font-medium sm:hidden">{activeFilterCount}</span> : null}
-          {iconOnly && activeFilterCount > 0 ? <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">{activeFilterCount}</span> : null}
+          {iconOnly && activeFilterCount > 0 ? <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">{activeFilterCount}</span> : null}
           {!iconOnly && activeFilterCount > 0 ? (
             <X
-              className="ml-1 hidden h-3 w-3 sm:block"
+              className="ml-1 hidden size-3 sm:block"
               onClick={(event) => {
                 event.stopPropagation();
                 onChange(defaultIssueFilterState);
@@ -206,20 +206,22 @@ export function IssueFiltersPopover({
               <div className="space-y-1">
                 <span className="text-xs text-muted-foreground">Assignee</span>
                 <div className="max-h-32 space-y-0.5 overflow-y-auto">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                  <label htmlFor="issue-filter-assignee-unassigned" className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                     <Checkbox
+                      id="issue-filter-assignee-unassigned"
                       checked={state.assignees.includes("__unassigned")}
                       onCheckedChange={() => onChange({ assignees: toggleIssueFilterValue(state.assignees, "__unassigned") })}
                     />
                     <span className="text-sm">No assignee</span>
                   </label>
                   {currentUserId ? (
-                    <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                    <label htmlFor="issue-filter-assignee-me" className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                       <Checkbox
+                        id="issue-filter-assignee-me"
                         checked={state.assignees.includes("__me")}
                         onCheckedChange={() => onChange({ assignees: toggleIssueFilterValue(state.assignees, "__me") })}
                       />
-                      <User className="h-3.5 w-3.5 text-muted-foreground" />
+                      <User className="size-3.5 text-muted-foreground" />
                       <span className="text-sm">Me</span>
                     </label>
                   ) : null}
@@ -242,7 +244,7 @@ export function IssueFiltersPopover({
                     <div className="flex flex-wrap gap-1">
                       {selectedCreatorOptions.map((creator) => (
                         <Badge key={creator.id} variant="secondary" className="gap-1 pr-1">
-                          {creator.kind === "agent" ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                          {creator.kind === "agent" ? <Bot className="size-3" /> : <User className="size-3" />}
                           <span>{creator.label}</span>
                           <button
                             type="button"
@@ -250,14 +252,14 @@ export function IssueFiltersPopover({
                             onClick={() => onChange({ creators: state.creators.filter((value) => value !== creator.id) })}
                             aria-label={`Remove creator ${creator.label}`}
                           >
-                            <X className="h-3 w-3" />
+                            <X className="size-3" />
                           </button>
                         </Badge>
                       ))}
                     </div>
                   ) : null}
                   <div className="relative">
-                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                    <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={creatorSearch}
                       onChange={(event) => setCreatorSearch(event.target.value)}
@@ -277,9 +279,9 @@ export function IssueFiltersPopover({
                           }`}
                           onClick={() => onChange({ creators: toggleIssueFilterValue(state.creators, creator.id) })}
                         >
-                          {creator.kind === "agent" ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+                          {creator.kind === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
                           <span className="min-w-0 flex-1 truncate">{creator.label}</span>
-                          {selected ? <X className="h-3 w-3" /> : null}
+                          {selected ? <X className="size-3" /> : null}
                         </button>
                       );
                     }) : (
@@ -318,7 +320,7 @@ export function IssueFiltersPopover({
                           checked={state.labels.includes(label.id)}
                           onCheckedChange={() => onChange({ labels: toggleIssueFilterValue(state.labels, label.id) })}
                         />
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label.color }} />
+                        <span className="size-2.5 rounded-full" style={{ backgroundColor: label.color }} />
                         <span className="text-sm">{label.name}</span>
                       </label>
                     ))}
@@ -336,7 +338,7 @@ export function IssueFiltersPopover({
                           checked={state.workspaces.includes(workspace.id)}
                           onCheckedChange={() => onChange({ workspaces: toggleIssueFilterValue(state.workspaces, workspace.id) })}
                         />
-                        <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
+                        <HardDrive className="size-3.5 text-muted-foreground" />
                         <span className="text-sm">{workspace.name}</span>
                       </label>
                     ))}
@@ -346,16 +348,18 @@ export function IssueFiltersPopover({
 
               <div className="space-y-1">
                 <span className="text-xs text-muted-foreground">Visibility</span>
-                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                <label htmlFor="issue-filter-live-only" className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                   <Checkbox
+                    id="issue-filter-live-only"
                     checked={state.liveOnly}
                     onCheckedChange={(checked) => onChange({ liveOnly: checked === true })}
                   />
                   <span className="text-sm">Live runs only</span>
                 </label>
                 {enableRoutineVisibilityFilter ? (
-                  <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
+                  <label htmlFor="issue-filter-hide-routine-executions" className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                     <Checkbox
+                      id="issue-filter-hide-routine-executions"
                       checked={state.hideRoutineExecutions}
                       onCheckedChange={(checked) => onChange({ hideRoutineExecutions: checked === true })}
                     />

@@ -20,15 +20,15 @@ type RenderProjectState = {
 type SidebarProjectReorderListProps = {
   projects: Project[];
   onReorder: (projectIds: string[]) => void;
-  renderProject: (project: Project, state: RenderProjectState) => ReactNode;
+  projectContent: (project: Project, state: RenderProjectState) => ReactNode;
 };
 
 function SortableProjectItem({
   project,
-  renderProject,
+  projectContent,
 }: {
   project: Project;
-  renderProject: SidebarProjectReorderListProps["renderProject"];
+  projectContent: SidebarProjectReorderListProps["projectContent"];
 }) {
   const {
     attributes,
@@ -51,7 +51,7 @@ function SortableProjectItem({
       {...attributes}
       {...listeners}
     >
-      {renderProject(project, { isDragging })}
+      {projectContent(project, { isDragging })}
     </div>
   );
 }
@@ -59,7 +59,7 @@ function SortableProjectItem({
 export function SidebarProjectReorderList({
   projects,
   onReorder,
-  renderProject,
+  projectContent,
 }: SidebarProjectReorderListProps) {
   const sensors = useSensors(
     // Project reordering is intentionally desktop-only; touch should remain tap/scroll behavior.
@@ -95,11 +95,11 @@ export function SidebarProjectReorderList({
       >
         <div className="flex flex-col gap-0.5">
           {projects.map((project) => (
-            <SortableProjectItem
-              key={project.id}
-              project={project}
-              renderProject={renderProject}
-            />
+          <SortableProjectItem
+            key={project.id}
+            project={project}
+            projectContent={projectContent}
+          />
           ))}
         </div>
       </SortableContext>

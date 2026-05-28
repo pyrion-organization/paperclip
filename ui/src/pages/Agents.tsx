@@ -174,25 +174,25 @@ export function Agents() {
         <div className="flex flex-wrap items-center justify-end gap-2">
           {/* Filters */}
           <div className="relative">
-            <button
+            <button type="button"
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1.5 text-xs transition-colors border border-border",
                 filtersOpen || showTerminated ? "text-foreground bg-accent" : "text-muted-foreground hover:bg-accent/50"
               )}
               onClick={() => setFiltersOpen(!filtersOpen)}
             >
-              <SlidersHorizontal className="h-3 w-3" />
+              <SlidersHorizontal className="size-3" />
               Filters
               {showTerminated && <span className="ml-0.5 px-1 bg-foreground/10 rounded text-[10px]">1</span>}
             </button>
             {filtersOpen && (
               <div className="absolute right-0 top-full mt-1 z-50 w-48 border border-border bg-popover shadow-md p-1">
-                <button
+                <button type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left hover:bg-accent/50 transition-colors"
                   onClick={() => setShowTerminated(!showTerminated)}
                 >
                   <span className={cn(
-                    "flex items-center justify-center h-3.5 w-3.5 border border-border rounded-sm",
+                    "flex items-center justify-center size-3.5 border border-border rounded-sm",
                     showTerminated && "bg-foreground"
                   )}>
                     {showTerminated && <span className="text-background text-[10px] leading-none">&#10003;</span>}
@@ -205,23 +205,23 @@ export function Agents() {
           {/* View toggle */}
           {!forceListView && (
             <div className="flex items-center border border-border">
-              <button
+              <button type="button"
                 className={cn(
                   "p-1.5 transition-colors",
                   effectiveView === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
                 )}
                 onClick={() => setView("list")}
               >
-                <List className="h-3.5 w-3.5" />
+                <List className="size-3.5" />
               </button>
-              <button
+              <button type="button"
                 className={cn(
                   "p-1.5 transition-colors",
                   effectiveView === "org" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
                 )}
                 onClick={() => setView("org")}
               >
-                <GitBranch className="h-3.5 w-3.5" />
+                <GitBranch className="size-3.5" />
               </button>
             </div>
           )}
@@ -235,7 +235,7 @@ export function Agents() {
             }}
             disabled={bulkPause.isPending || pauseableCount === 0}
           >
-            <Pause className="h-3.5 w-3.5 mr-1.5" />
+            <Pause className="size-3.5 mr-1.5" />
             {bulkPause.isPending ? "Stopping..." : "Pause All"}
           </Button>
           <Button
@@ -248,11 +248,11 @@ export function Agents() {
             }}
             disabled={bulkResume.isPending || resumableCount === 0}
           >
-            <Play className="h-3.5 w-3.5 mr-1.5" />
+            <Play className="size-3.5 mr-1.5" />
             {bulkResume.isPending ? "Resuming..." : "Resume All"}
           </Button>
           <Button size="sm" variant="outline" onClick={openNewAgent}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            <Plus className="size-3.5 mr-1.5" />
             New Agent
           </Button>
         </div>
@@ -284,14 +284,14 @@ export function Agents() {
                 subtitle={`${roleLabels[agent.role] ?? agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
                 to={agentUrl(agent)}
                 className={agent.pausedAt && tab !== "paused" ? "opacity-50" : ""}
-                leading={
-                  <span className="relative flex h-2.5 w-2.5">
+                leadingSlot={() => (
+                  <span className="relative flex size-2.5">
                     <span
-                      className={`absolute inline-flex h-full w-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
+                      className={`absolute inline-flex size-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
                     />
                   </span>
-                }
-                trailing={
+                )}
+                trailingSlot={() => (
                   <div className="flex items-center gap-3">
                     <span className="sm:hidden">
                       {liveRunByAgent.has(agent.id) ? (
@@ -329,7 +329,7 @@ export function Agents() {
                       </span>
                     </div>
                   </div>
-                }
+                )}
               />
             );
           })}
@@ -389,8 +389,8 @@ function OrgTreeNode({
         to={agent ? agentUrl(agent) : `/agents/${node.id}`}
         className={cn("flex items-center gap-3 px-3 py-2 hover:bg-accent/30 transition-colors w-full text-left no-underline text-inherit", agent?.pausedAt && tab !== "paused" && "opacity-50")}
       >
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
-          <span className={`absolute inline-flex h-full w-full rounded-full ${statusColor}`} />
+        <span className="relative flex size-2.5 shrink-0">
+          <span className={`absolute inline-flex size-full rounded-full ${statusColor}`} />
         </span>
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium">{node.name}</span>
@@ -467,9 +467,9 @@ function LiveRunIndicator({
       className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 transition-colors no-underline"
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="relative flex h-2 w-2">
-        <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+      <span className="relative flex size-2">
+        <span className="animate-pulse absolute inline-flex size-full rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex rounded-full size-2 bg-blue-500" />
       </span>
       <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
         Live{liveCount > 1 ? ` (${liveCount})` : ""}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Puzzle, ArrowLeft, ShieldAlert, ActivitySquare, CheckCircle, XCircle, Loader2, Clock, Cpu, Webhook, CalendarClock, AlertTriangle, FolderOpen, Save } from "lucide-react";
 import type { PluginLocalFolderDeclaration } from "@paperclipai/shared";
 import { useCompany } from "@/context/CompanyContext";
@@ -23,10 +23,13 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PageTabBar } from "@/components/PageTabBar";
 import {
   JsonSchemaForm,
-  validateJsonSchemaForm,
-  getDefaultValues,
-  type JsonSchemaNode,
 } from "@/components/JsonSchemaForm";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
+import {
+  getDefaultValues,
+  validateJsonSchemaForm,
+  type JsonSchemaNode,
+} from "@/components/json-schema-form-utils";
 
 /**
  * PluginSettings page component.
@@ -128,7 +131,7 @@ export function PluginSettings() {
   }, [pluginId]);
 
   if (pluginLoading) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading plugin details...</div>;
+    return <div className="p-4 text-sm text-muted-foreground">Loading plugin details&hellip;</div>;
   }
 
   if (!plugin) {
@@ -147,21 +150,24 @@ export function PluginSettings() {
   const environmentDrivers = plugin.manifestJson.environmentDrivers ?? [];
   const localFolderDeclarations = plugin.manifestJson.localFolders ?? [];
   const hasLocalFolders = localFolderDeclarations.length > 0;
-  const environmentDriverNames = environmentDrivers
-    .map((driver) => driver.displayName?.trim() || driver.driverKey)
-    .filter((name, index, values) => values.indexOf(name) === index);
+  const environmentDriverNames = environmentDrivers.flatMap((driver, index, values) => {
+    const name = driver.displayName?.trim() || driver.driverKey;
+    return values.findIndex((candidate) => (candidate.displayName?.trim() || candidate.driverKey) === name) === index
+      ? [name]
+      : [];
+  });
   const driverLabel = environmentDriverNames.join(", ");
 
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center gap-4">
         <Link to="/instance/settings/plugins">
-          <Button variant="outline" size="icon" className="h-8 w-8">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="outline" size="icon" className="size-8">
+            <ArrowLeft className="size-4" />
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          <Puzzle className="h-6 w-6 text-muted-foreground" />
+          <Puzzle className="size-6 text-muted-foreground" />
           <h1 className="text-xl font-semibold">{plugin.manifestJson.displayName ?? plugin.packageName}</h1>
           <Badge variant={statusVariant} className="ml-2">
             {displayStatus}
@@ -279,7 +285,7 @@ export function PluginSettings() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-1.5">
-                    <Cpu className="h-4 w-4" />
+                    <Cpu className="size-4" />
                     Runtime Dashboard
                   </CardTitle>
                   <CardDescription>
@@ -291,7 +297,7 @@ export function PluginSettings() {
                     <>
                       <div>
                         <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
-                          <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
+                          <Cpu className="size-3.5 text-muted-foreground" />
                           Worker Process
                         </h3>
                         {dashboardData.worker ? (
@@ -318,7 +324,7 @@ export function PluginSettings() {
                               <>
                                 <div className="flex justify-between col-span-2">
                                   <span className="text-muted-foreground flex items-center gap-1">
-                                    <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                    <AlertTriangle className="size-3 text-amber-500" />
                                     Crashes
                                   </span>
                                   <span className="text-xs">
@@ -343,7 +349,7 @@ export function PluginSettings() {
 
                       <div>
                         <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
-                          <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                          <CalendarClock className="size-3.5 text-muted-foreground" />
                           Recent Job Runs
                         </h3>
                         {dashboardData.recentJobRuns.length > 0 ? (
@@ -378,7 +384,7 @@ export function PluginSettings() {
 
                       <div>
                         <h3 className="text-sm font-medium mb-3 flex items-center gap-1.5">
-                          <Webhook className="h-3.5 w-3.5 text-muted-foreground" />
+                          <Webhook className="size-3.5 text-muted-foreground" />
                           Recent Webhook Deliveries
                         </h3>
                         {dashboardData.recentWebhookDeliveries.length > 0 ? (
@@ -407,7 +413,7 @@ export function PluginSettings() {
                       </div>
 
                       <div className="flex items-center gap-1.5 border-t border-border/50 pt-2 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
+                        <Clock className="size-3" />
                         Last checked: {new Date(dashboardData.checkedAt).toLocaleTimeString()}
                       </div>
                     </>
@@ -423,7 +429,7 @@ export function PluginSettings() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-1.5">
-                      <ActivitySquare className="h-4 w-4" />
+                      <ActivitySquare className="size-4" />
                       Recent Logs
                     </CardTitle>
                     <CardDescription>Last {recentLogs.length} log entries</CardDescription>
@@ -458,13 +464,13 @@ export function PluginSettings() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-1.5">
-                    <ActivitySquare className="h-4 w-4" />
+                    <ActivitySquare className="size-4" />
                     Health Status
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {healthLoading ? (
-                    <p className="text-sm text-muted-foreground">Checking health...</p>
+                    <p className="text-sm text-muted-foreground">Checking health&hellip;</p>
                   ) : healthData ? (
                     <div className="space-y-4 text-sm">
                       <div className="flex items-center justify-between">
@@ -476,15 +482,15 @@ export function PluginSettings() {
 
                       {healthData.checks.length > 0 ? (
                         <div className="space-y-2 border-t border-border/50 pt-2">
-                          {healthData.checks.map((check, i) => (
-                            <div key={i} className="flex items-start justify-between gap-2">
+                          {healthData.checks.map((check) => (
+                            <div key={check.name} className="flex items-start justify-between gap-2">
                               <span className="truncate text-muted-foreground" title={check.name}>
                                 {check.name}
                               </span>
                               {check.passed ? (
-                                <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
+                                <CheckCircle className="size-4 shrink-0 text-green-500" />
                               ) : (
-                                <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+                                <XCircle className="size-4 shrink-0 text-destructive" />
                               )}
                             </div>
                           ))}
@@ -543,7 +549,7 @@ export function PluginSettings() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-1.5">
-                    <ShieldAlert className="h-4 w-4" />
+                    <ShieldAlert className="size-4" />
                     Permissions
                   </CardTitle>
                 </CardHeader>
@@ -601,7 +607,7 @@ function PluginLocalFoldersSettings({ pluginId, companyId, declarations }: Plugi
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <FolderOpen className="h-4 w-4 text-muted-foreground" />
+        <FolderOpen className="size-4 text-muted-foreground" />
         <h3 className="text-sm font-medium">Local folders</h3>
       </div>
       {error ? (
@@ -611,20 +617,23 @@ function PluginLocalFoldersSettings({ pluginId, companyId, declarations }: Plugi
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading local folders...
+          <Loader2 className="size-4 animate-spin" />
+          Loading local folders&hellip;
         </div>
       ) : (
         <div className="space-y-3">
-          {declarations.map((declaration) => (
-            <PluginLocalFolderRow
-              key={declaration.folderKey}
-              pluginId={pluginId}
-              companyId={companyId}
-              declaration={declaration}
-              status={statusByKey.get(declaration.folderKey)}
-            />
-          ))}
+          {declarations.map((declaration) => {
+            const status = statusByKey.get(declaration.folderKey);
+            return (
+              <PluginLocalFolderRow
+                key={`${declaration.folderKey}:${status?.path ?? ""}`}
+                pluginId={pluginId}
+                companyId={companyId}
+                declaration={declaration}
+                status={status}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -644,12 +653,7 @@ function PluginLocalFolderRow({ pluginId, companyId, declaration, status }: Plug
   const [pathValue, setPathValue] = useState(serverPath);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  useEffect(() => {
-    setPathValue(serverPath);
-    setMessage(null);
-  }, [serverPath, declaration.folderKey]);
-
-  const saveMutation = useMutation({
+  const saveMutation = useInvalidatingMutation({
     mutationFn: (path: string) =>
       pluginsApi.configureLocalFolder(pluginId, companyId, declaration.folderKey, {
         path,
@@ -689,7 +693,7 @@ function PluginLocalFolderRow({ pluginId, companyId, declaration, status }: Plug
   }, [saveMutation, trimmedPath]);
 
   return (
-    <div className="space-y-4 rounded-md border border-border/70 bg-background px-4 py-4">
+    <div className="space-y-4 rounded-md border border-border/70 bg-background p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -745,7 +749,7 @@ function PluginLocalFolderRow({ pluginId, companyId, declaration, status }: Plug
               setMessage(null);
             }}
             placeholder="/absolute/path/to/folder"
-          />
+           aria-label="Path Value"/>
           <ChoosePathButton className="h-8" />
           <Button
             size="sm"
@@ -753,9 +757,9 @@ function PluginLocalFolderRow({ pluginId, companyId, declaration, status }: Plug
             disabled={saveMutation.isPending || !isDirty}
           >
             {saveMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="size-3.5 animate-spin" />
             ) : (
-              <Save className="h-3.5 w-3.5" />
+              <Save className="size-3.5" />
             )}
             Save
           </Button>
@@ -969,7 +973,7 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
   });
 
   // Save mutation
-  const saveMutation = useMutation({
+  const saveMutation = useInvalidatingMutation({
     mutationFn: (configJson: Record<string, unknown>) =>
       pluginsApi.saveConfig(pluginId, configJson),
     onSuccess: () => {
@@ -985,7 +989,7 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
   });
 
   // Test configuration mutation
-  const testMutation = useMutation({
+  const testMutation = useInvalidatingMutation({
     mutationFn: (configJson: Record<string, unknown>) =>
       pluginsApi.testConfig(pluginId, configJson),
     onSuccess: (result) => {
@@ -1000,7 +1004,7 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
     },
   });
 
-  const handleChange = useCallback((newValues: Record<string, unknown>) => {
+  const updatePluginSettings = useCallback((newValues: Record<string, unknown>) => {
     setValues(newValues);
     // Clear field-level errors as the user types
     setErrors({});
@@ -1033,8 +1037,8 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading configuration...
+        <Loader2 className="size-4 animate-spin" />
+        Loading configuration&hellip;
       </div>
     );
   }
@@ -1044,7 +1048,7 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
       <JsonSchemaForm
         schema={schema}
         values={values}
-        onChange={handleChange}
+        onChange={updatePluginSettings}
         errors={errors}
         disabled={saveMutation.isPending}
       />
@@ -1083,8 +1087,8 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
         >
           {saveMutation.isPending ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Saving...
+              <Loader2 className="size-3.5 animate-spin" />
+              Saving&hellip;
             </>
           ) : (
             "Save Configuration"
@@ -1099,8 +1103,8 @@ function PluginConfigForm({ pluginId, schema, initialValues, isLoading, pluginSt
           >
             {testMutation.isPending ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Testing...
+                <Loader2 className="size-3.5 animate-spin" />
+                Testing&hellip;
               </>
             ) : (
               "Test Configuration"
@@ -1182,7 +1186,7 @@ function JobStatusDot({ status }: { status: string }) {
             : "bg-amber-500"; // queued, pending
   return (
     <span
-      className={`inline-block h-2 w-2 rounded-full shrink-0 ${colorClass}`}
+      className={`inline-block size-2 rounded-full shrink-0 ${colorClass}`}
       title={status}
     />
   );
@@ -1202,7 +1206,7 @@ function DeliveryStatusDot({ status }: { status: string }) {
           : "bg-amber-500"; // pending
   return (
     <span
-      className={`inline-block h-2 w-2 rounded-full shrink-0 ${colorClass}`}
+      className={`inline-block size-2 rounded-full shrink-0 ${colorClass}`}
       title={status}
     />
   );

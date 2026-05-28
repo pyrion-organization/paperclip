@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   AlertTriangle,
@@ -130,7 +130,7 @@ function StatusBadge({
         : CheckCircle2;
   return (
     <Badge variant="outline" className={cn("gap-1 px-1.5 py-0 font-normal", statusToneClasses(status))}>
-      <Icon className="h-3 w-3" />
+      <Icon className="size-3" />
       {statusBadgeLabel(status)}
     </Badge>
   );
@@ -144,7 +144,7 @@ function RowResultBadge({ status }: { status: RemoteSecretImportRowResult["statu
           variant="outline"
           className="gap-1 px-1.5 py-0 font-normal text-emerald-600 border-emerald-500/40 dark:text-emerald-400"
         >
-          <CheckCircle2 className="h-3 w-3" /> Created
+          <CheckCircle2 className="size-3" /> Created
         </Badge>
       );
     case "skipped":
@@ -153,7 +153,7 @@ function RowResultBadge({ status }: { status: RemoteSecretImportRowResult["statu
           variant="outline"
           className="gap-1 px-1.5 py-0 font-normal text-muted-foreground border-border/60"
         >
-          <Link2 className="h-3 w-3" /> Skipped
+          <Link2 className="size-3" /> Skipped
         </Badge>
       );
     case "error":
@@ -163,7 +163,7 @@ function RowResultBadge({ status }: { status: RemoteSecretImportRowResult["statu
           variant="outline"
           className="gap-1 px-1.5 py-0 font-normal text-destructive border-destructive/40"
         >
-          <XCircle className="h-3 w-3" /> Failed
+          <XCircle className="size-3" /> Failed
         </Badge>
       );
   }
@@ -323,6 +323,14 @@ const EMPTY_PREVIEW: PreviewState = { candidates: [], nextToken: null };
 
 export function ImportFromVaultDialog({
   open,
+  ...props
+}: ImportFromVaultDialogProps) {
+  if (!open) return null;
+  return <ImportFromVaultDialogContent open={open} {...props} />;
+}
+
+function ImportFromVaultDialogContent({
+  open,
   onOpenChange,
   companyId,
   providerConfigs,
@@ -337,78 +345,61 @@ export function ImportFromVaultDialog({
   const noEligibleVaults = eligible.length === 0;
 
   const [step, setStep] = useState<Step>("select");
-  const [vaultId, setVaultId] = useState<string | null>(null);
+  const [vaultId, setVaultId] = useState<string | null>(() => pickDefaultVault(providerConfigs));
   const [searchInput, setSearchInput] = useState("");
   const debouncedQuery = useDebounced(searchInput.trim(), 250);
 
-  const [preview, setPreview] = useState<PreviewState>(EMPTY_PREVIEW);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewSource = JSON.stringify({
+    companyId,
+    vaultId,
+    query: debouncedQuery || null,
+  });
+  const [extraPreviewPages, setExtraPreviewPages] = useState<{
+    source: string;
+    pages: RemoteSecretImportPreviewResult[];
+  } | null>(null);
+  const currentExtraPreviewPages =
+    extraPreviewPages?.source === previewSource ? extraPreviewPages.pages : [];
   const [pageLoading, setPageLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<unknown>(null);
   const [showOnlySelected, setShowOnlySelected] = useState(false);
 
   const [selection, setSelection] = useState<Map<string, DraftSelection>>(new Map());
   const [importResult, setImportResult] = useState<RemoteSecretImportResult | null>(null);
 
-  // Reset state on open transition.
-  useEffect(() => {
-    if (!open) return;
-    setStep("select");
-    setSearchInput("");
-    setPreview(EMPTY_PREVIEW);
-    setPreviewError(null);
-    setSelection(new Map());
-    setImportResult(null);
-    setShowOnlySelected(false);
-    const next = pickDefaultVault(providerConfigs);
-    setVaultId(next);
-    // We deliberately depend only on open so that re-opens reset the dialog;
-    // providerConfigs changes during a session are handled by next preview fetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const requestIdRef = useRef(0);
-
-  // Run preview when vault or query changes (only on step "select").
-  useEffect(() => {
-    if (!open || step !== "select" || !vaultId) return;
-    let cancelled = false;
-    const requestId = ++requestIdRef.current;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    setPreview(EMPTY_PREVIEW);
-    secretsApi
-      .remoteImportPreview(companyId, {
+  const previewQuery = useQuery({
+    queryKey: ["secrets", "remote-import-preview", companyId, vaultId, debouncedQuery || null],
+    queryFn: () => {
+      if (!vaultId) return EMPTY_PREVIEW;
+      return secretsApi.remoteImportPreview(companyId, {
         providerConfigId: vaultId,
         query: debouncedQuery || null,
         nextToken: null,
         pageSize: PAGE_SIZE,
-      })
-      .then((result: RemoteSecretImportPreviewResult) => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreview({
-          candidates: result.candidates,
-          nextToken: result.nextToken,
-        });
-      })
-      .catch((error) => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreviewError(error);
-      })
-      .finally(() => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreviewLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, step, vaultId, debouncedQuery, companyId]);
+    },
+    enabled: open && step === "select" && Boolean(vaultId),
+  });
 
-  // When the vault changes, drop any selection (they're scoped to a vault).
-  useEffect(() => {
-    setSelection(new Map());
-    setShowOnlySelected(false);
-  }, [vaultId]);
+  const preview = useMemo<PreviewState>(() => {
+    const base = previewQuery.data ?? EMPTY_PREVIEW;
+    if (currentExtraPreviewPages.length === 0) return base;
+    const seen = new Set(base.candidates.map((candidate) => candidate.externalRef));
+    const candidates = [...base.candidates];
+    for (const page of currentExtraPreviewPages) {
+      for (const candidate of page.candidates) {
+        if (seen.has(candidate.externalRef)) continue;
+        seen.add(candidate.externalRef);
+        candidates.push(candidate);
+      }
+    }
+    return {
+      candidates,
+      nextToken: currentExtraPreviewPages[currentExtraPreviewPages.length - 1]?.nextToken ?? base.nextToken,
+    };
+  }, [currentExtraPreviewPages, previewQuery.data]);
+
+  const previewLoading = previewQuery.isFetching;
+  const previewError = previewQuery.error;
 
   const visibleCandidates = useMemo<RemoteSecretImportCandidate[]>(() => {
     if (!showOnlySelected) return preview.candidates;
@@ -493,63 +484,39 @@ export function ImportFromVaultDialog({
   function handleVaultChange(nextId: string) {
     setVaultId(nextId);
     setSearchInput("");
+    setSelection(new Map());
+    setShowOnlySelected(false);
   }
 
   function handleRefresh() {
     if (!vaultId || step !== "select") return;
-    let cancelled = false;
-    const requestId = ++requestIdRef.current;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    secretsApi
-      .remoteImportPreview(companyId, {
-        providerConfigId: vaultId,
-        query: debouncedQuery || null,
-        nextToken: null,
-        pageSize: PAGE_SIZE,
-      })
-      .then((result) => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreview({ candidates: result.candidates, nextToken: result.nextToken });
-      })
-      .catch((error) => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreviewError(error);
-      })
-      .finally(() => {
-        if (cancelled || requestId !== requestIdRef.current) return;
-        setPreviewLoading(false);
-      });
+    setExtraPreviewPages({ source: previewSource, pages: [] });
+    void previewQuery.refetch();
   }
 
-  function handleLoadMore() {
+  async function handleLoadMore() {
     if (!vaultId || !preview.nextToken || pageLoading) return;
     setPageLoading(true);
-    secretsApi
-      .remoteImportPreview(companyId, {
+    try {
+      const result = await secretsApi.remoteImportPreview(companyId, {
         providerConfigId: vaultId,
         query: debouncedQuery || null,
         nextToken: preview.nextToken,
         pageSize: PAGE_SIZE,
-      })
-      .then((result) => {
-        setPreview((prev) => {
-          const seen = new Set(prev.candidates.map((c) => c.externalRef));
-          const merged = [...prev.candidates];
-          for (const candidate of result.candidates) {
-            if (!seen.has(candidate.externalRef)) merged.push(candidate);
-          }
-          return { candidates: merged, nextToken: result.nextToken };
-        });
-      })
-      .catch((error) => {
-        toast.pushToast({
-          title: "Could not load more results",
-          body: readableErrorMessage(error),
-          tone: "error",
-        });
-      })
-      .finally(() => setPageLoading(false));
+      });
+      setExtraPreviewPages((current) => ({
+        source: previewSource,
+        pages: current?.source === previewSource ? [...current.pages, result] : [result],
+      }));
+    } catch (error) {
+      toast.pushToast({
+        title: "Could not load more results",
+        body: readableErrorMessage(error),
+        tone: "error",
+      });
+    } finally {
+      setPageLoading(false);
+    }
   }
 
   function toggleRow(candidate: RemoteSecretImportCandidate) {
@@ -660,7 +627,7 @@ export function ImportFromVaultDialog({
             onClick={() => handleClose()}
             aria-label="Close import dialog"
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </button>
         </header>
 
@@ -756,7 +723,7 @@ export function ImportFromVaultDialog({
               >
                 {importMutation.isPending ? (
                   <>
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Importing…
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" /> Importing…
                   </>
                 ) : (
                   `Import ${draftList.length}`
@@ -765,7 +732,7 @@ export function ImportFromVaultDialog({
             )}
             {step === "result" && (
               <Button size="sm" onClick={() => handleClose(true)}>
-                Done
+                Close import
               </Button>
             )}
           </div>
@@ -788,7 +755,7 @@ function Stepper({ step }: { step: Step }) {
         <span key={s.id} className="flex items-center gap-2">
           <span
             className={cn(
-              "inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px]",
+              "inline-flex size-4 items-center justify-center rounded-full border text-[10px]",
               index === activeIndex
                 ? "border-primary bg-primary text-primary-foreground"
                 : index < activeIndex
@@ -889,7 +856,7 @@ function SelectStep(props: SelectStepProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-5 py-3">
-        <label className="text-xs uppercase tracking-wide text-muted-foreground">Vault</label>
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">Vault</span>
         {awsVaults.length === 1 && eligible.length === 1 ? (
           <span className="text-xs font-medium" data-testid="vault-static-label">
             {eligible[0].displayName}
@@ -934,7 +901,7 @@ function SelectStep(props: SelectStepProps) {
         )}
 
         <div className="relative ml-auto w-64">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchInput}
             onChange={(event) => onSearchInput(event.target.value)}
@@ -944,7 +911,7 @@ function SelectStep(props: SelectStepProps) {
             data-testid="vault-search"
           />
           {showSearchSpinner && (
-            <Loader2 className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+            <Loader2 className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
 
@@ -955,7 +922,7 @@ function SelectStep(props: SelectStepProps) {
           disabled={previewLoading || !vaultId}
           aria-label="Refresh remote secrets"
         >
-          <RefreshCw className={cn("h-3.5 w-3.5", previewLoading && "animate-spin")} />
+          <RefreshCw className={cn("size-3.5", previewLoading && "animate-spin")} />
         </Button>
       </div>
 
@@ -994,11 +961,11 @@ function SelectStep(props: SelectStepProps) {
                     disabled={selectableInLoaded.length === 0}
                   />
                 </th>
-                <th className="px-2 py-2 text-left font-medium">Remote name</th>
-                <th className="px-2 py-2 text-left font-medium">Reference</th>
-                <th className="px-2 py-2 text-left font-medium">Last changed</th>
-                <th className="px-2 py-2 text-left font-medium">Suggested name</th>
-                <th className="px-2 py-2 text-left font-medium">State</th>
+                <th className="p-2 text-left font-medium">Remote name</th>
+                <th className="p-2 text-left font-medium">Reference</th>
+                <th className="p-2 text-left font-medium">Last changed</th>
+                <th className="p-2 text-left font-medium">Suggested name</th>
+                <th className="p-2 text-left font-medium">State</th>
               </tr>
             </thead>
             <tbody data-testid="vault-table-body">
@@ -1095,7 +1062,7 @@ function SelectStep(props: SelectStepProps) {
             >
               {pageLoading ? (
                 <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Loading…
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" /> Loading…
                 </>
               ) : (
                 `Load ${PAGE_SIZE} more`
@@ -1118,7 +1085,7 @@ function PreviewErrorBanner({ error, onRetry }: { error: unknown; onRetry: () =>
       role="alert"
       data-testid="preview-error-banner"
     >
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <AlertCircle className="mt-0.5 size-4 shrink-0" />
       <div className="flex-1">
         <div className="font-medium">
           {isPermission
@@ -1134,7 +1101,7 @@ function PreviewErrorBanner({ error, onRetry }: { error: unknown; onRetry: () =>
         </div>
         <div className="mt-2 flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onRetry}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Retry
+            <RefreshCw className="mr-1.5 size-3.5" /> Retry
           </Button>
           {isPermission && (
             <a
@@ -1143,7 +1110,7 @@ function PreviewErrorBanner({ error, onRetry }: { error: unknown; onRetry: () =>
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-xs font-medium underline"
             >
-              IAM reference <ExternalLink className="h-3 w-3" />
+              IAM reference <ExternalLink className="size-3" />
             </a>
           )}
         </div>
@@ -1215,6 +1182,7 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid="review-list">
         {drafts.map((draft) => {
           const error = reviewErrors.get(draft.candidate.externalRef);
+          const controlIdBase = `vault-review-${draft.candidate.externalRef.replace(/[^A-Za-z0-9_-]/g, "-")}`;
           return (
             <div
               key={draft.candidate.externalRef}
@@ -1236,9 +1204,10 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
                     </span>
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <label className="flex flex-col gap-1 text-xs">
+                    <label htmlFor={`${controlIdBase}-name`} className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Paperclip name</span>
                       <Input
+                        id={`${controlIdBase}-name`}
                         value={draft.name}
                         onChange={(e) =>
                           updateDraft(draft.candidate.externalRef, { name: e.target.value })
@@ -1249,9 +1218,10 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
                         data-testid={`review-name-${draft.candidate.externalRef}`}
                       />
                     </label>
-                    <label className="flex flex-col gap-1 text-xs">
+                    <label htmlFor={`${controlIdBase}-key`} className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Key</span>
                       <Input
+                        id={`${controlIdBase}-key`}
                         value={draft.key}
                         onChange={(e) =>
                           updateDraft(draft.candidate.externalRef, { key: e.target.value })
@@ -1267,9 +1237,10 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
                         data-testid={`review-key-${draft.candidate.externalRef}`}
                       />
                     </label>
-                    <label className="flex flex-col gap-1 text-xs">
+                    <label htmlFor={`${controlIdBase}-description`} className="flex flex-col gap-1 text-xs">
                       <span className="text-muted-foreground">Description (optional)</span>
                       <Input
+                        id={`${controlIdBase}-description`}
                         value={draft.description}
                         onChange={(e) =>
                           updateDraft(draft.candidate.externalRef, {
@@ -1288,7 +1259,7 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
                       role="alert"
                       data-testid={`review-error-${draft.candidate.externalRef}`}
                     >
-                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <AlertTriangle className="size-3.5" />
                       {error}
                     </div>
                   )}
@@ -1298,10 +1269,10 @@ function ReviewStep({ drafts, reviewErrors, updateDraft, removeDraft, importing 
                   size="icon"
                   onClick={() => removeDraft(draft.candidate.externalRef)}
                   aria-label={`Remove ${draft.candidate.remoteName}`}
-                  className="h-7 w-7"
+                  className="size-7"
                   disabled={importing}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="size-3.5" />
                 </Button>
               </div>
             </div>

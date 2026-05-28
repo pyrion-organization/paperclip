@@ -36,7 +36,7 @@ export function BudgetIncidentCard({
   onKeepPaused: () => void;
   isMutating?: boolean;
 }) {
-  const [draftAmount, setDraftAmount] = useState(
+  const [draftAmount, setDraftAmount] = useState(() =>
     centsInputValue(Math.max(incident.amountObserved + 1000, incident.amountLimit)),
   );
   const parsed = parseDollarInput(draftAmount);
@@ -61,13 +61,13 @@ export function BudgetIncidentCard({
             </CardDescription>
           </div>
           <div className="rounded-full border border-red-400/30 bg-red-500/10 p-2 text-red-200">
-            <AlertOctagon className="h-4 w-4" />
+            <AlertOctagon className="size-4" />
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-5 pt-0">
         <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-50/90">
-          <PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <PauseCircle className="mt-0.5 size-4 shrink-0" />
           <div>
             {incident.scopeType === "project"
               ? "Project execution is paused. New work in this project will not start until you resolve the budget incident."
@@ -76,11 +76,12 @@ export function BudgetIncidentCard({
         </div>
 
         <div className="rounded-xl border border-border/60 bg-background/60 p-3">
-          <label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          <label htmlFor="budget-incident-new-budget" className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             New budget (USD)
           </label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
             <Input
+              id="budget-incident-new-budget"
               value={draftAmount}
               onChange={(event) => setDraftAmount(event.target.value)}
               inputMode="decimal"
@@ -93,7 +94,7 @@ export function BudgetIncidentCard({
                 if (typeof parsed === "number") onRaiseAndResume(parsed);
               }}
             >
-              <ArrowUpRight className="h-4 w-4" />
+              <ArrowUpRight className="size-4" />
               {isMutating ? "Applying..." : "Raise budget & resume"}
             </Button>
           </div>

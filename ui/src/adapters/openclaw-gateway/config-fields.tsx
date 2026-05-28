@@ -4,8 +4,8 @@ import type { AdapterConfigFieldsProps } from "../types";
 import {
   Field,
   DraftInput,
-  help,
 } from "../../components/agent-config-primitives";
+import { help } from "../../components/agent-config-primitives-data";
 import {
   PayloadTemplateJsonField,
   RuntimeServicesJsonField,
@@ -34,7 +34,7 @@ function SecretField({
           onClick={() => setVisible((v) => !v)}
           className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
         >
-          {visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+          {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
         </button>
         <DraftInput
           value={value}
@@ -207,8 +207,10 @@ export function OpenClawGatewayConfigFields({
               onCommit={(v) => {
                 const parsed = v
                   .split(",")
-                  .map((entry) => entry.trim())
-                  .filter(Boolean);
+                  .flatMap((entry) => {
+                    const trimmed = entry.trim();
+                    return trimmed ? [trimmed] : [];
+                  });
                 mark("adapterConfig", "scopes", parsed.length > 0 ? parsed : undefined);
               }}
               immediate

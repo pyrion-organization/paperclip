@@ -93,15 +93,15 @@ const PARSE_ORDER: FixtureStateKey[] = [
 ];
 
 export function CloudUpstreamUxLab() {
-  const location = useLocation();
+  const routerLocation = useLocation();
   const { state, showChrome } = useMemo(() => {
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(routerLocation.search);
     const raw = (params.get("state") ?? "settings-pane") as FixtureStateKey;
     return {
       state: PARSE_ORDER.includes(raw) ? raw : "settings-pane",
       showChrome: params.get("chrome") === "on",
     };
-  }, [location.search]);
+  }, [routerLocation.search]);
 
   const fixture = useMemo(() => buildFixture(state), [state]);
 
@@ -155,7 +155,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <CloudUpload className="h-5 w-5 text-muted-foreground" />
+            <CloudUpload className="size-5 text-muted-foreground" />
             <h1 className="text-lg font-semibold">Cloud upstream</h1>
           </div>
           <p className="max-w-2xl text-sm text-muted-foreground">
@@ -165,7 +165,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
         {connection?.target.origin ? (
           <Button variant="outline" size="sm" asChild>
             <a href={connection.target.origin} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="size-4" />
               Open cloud
             </a>
           </Button>
@@ -187,7 +187,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
 
       <section className="space-y-3">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Connection</div>
-        <div className="rounded-md border border-border px-4 py-4">
+        <div className="rounded-md border border-border p-4">
           {connection ? (
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
               <div>
@@ -202,7 +202,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
                 </div>
               </div>
               <Button variant="outline" size="sm">
-                <RefreshCcw className="h-4 w-4" />
+                <RefreshCcw className="size-4" />
                 Preview push
               </Button>
             </div>
@@ -215,7 +215,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
                 autoFocus
               />
               <Button disabled>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
                 Discovering
               </Button>
             </div>
@@ -228,7 +228,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Preview</div>
             <Button disabled={!preview.schemaCompatible}>
-              <CloudUpload className="h-4 w-4" />
+              <CloudUpload className="size-4" />
               Push to cloud
             </Button>
           </div>
@@ -244,23 +244,23 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Progress and finish</div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm">
-                <FileJson className="h-4 w-4" />
+                <FileJson className="size-4" />
                 Download report
               </Button>
               {latestRun.status === "failed" || latestRun.status === "cancelled" ? (
                 <Button variant="outline" size="sm">
-                  <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw className="size-4" />
                   Retry
                 </Button>
               ) : latestRun.status === "succeeded" ? (
                 <Button variant="outline" size="sm">
-                  <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw className="size-4" />
                   Re-run
                 </Button>
               ) : null}
             </div>
           </div>
-          <div className="rounded-md border border-border px-4 py-4">
+          <div className="rounded-md border border-border p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium capitalize">{latestRun.status}</div>
@@ -295,7 +295,7 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
       {history.length ? (
         <section className="space-y-3">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <History className="h-3.5 w-3.5" />
+            <History className="size-3.5" />
             History
           </div>
           <div className="divide-y divide-border rounded-md border border-border">
@@ -318,16 +318,16 @@ function CloudUpstreamRender({ fixture }: { fixture: Fixture }) {
 function Stepper({ activeStep }: { activeStep: CloudUpstreamStep }) {
   const activeIndex = STEPS.findIndex((step) => step.key === activeStep);
   return (
-    <div className="grid gap-2 rounded-md border border-border px-3 py-3 sm:grid-cols-6">
+    <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-6">
       {STEPS.map((step, index) => {
         const complete = index < activeIndex;
         const active = index === activeIndex;
         return (
           <div key={step.key} className="flex items-center gap-2 text-xs">
             {complete ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 className="size-4 text-emerald-600" />
             ) : (
-              <span className={active ? "h-4 w-4 rounded-full border-2 border-primary" : "h-4 w-4 rounded-full border border-border"} />
+              <span className={active ? "size-4 rounded-full border-2 border-primary" : "size-4 rounded-full border border-border"} />
             )}
             <span className={active ? "font-medium text-foreground" : "text-muted-foreground"}>{step.label}</span>
           </div>
@@ -354,13 +354,13 @@ function WarningsPanel({ warnings }: { warnings: CloudUpstreamWarning[] }) {
   return (
     <div className="rounded-md border border-border px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+        <ShieldAlert className="size-4 text-muted-foreground" />
         Warnings
       </div>
       <div className="divide-y divide-border">
         {warnings.map((warning) => (
           <div key={warning.code} className="grid gap-2 py-2 sm:grid-cols-[1.25rem_12rem_1fr]">
-            <AlertTriangle className={warning.severity === "blocker" ? "h-4 w-4 text-destructive" : "h-4 w-4 text-amber-600"} />
+            <AlertTriangle className={warning.severity === "blocker" ? "size-4 text-destructive" : "size-4 text-amber-600"} />
             <div className="text-sm font-medium">{warning.title}</div>
             <div className="text-sm text-muted-foreground">{warning.detail}</div>
           </div>

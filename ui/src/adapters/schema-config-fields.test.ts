@@ -7,6 +7,8 @@ import type { AdapterConfigSchema, ConfigFieldSchema, CreateConfigValues } from 
 import {
   fieldMatchesVisibleWhen,
   invalidateConfigSchemaCache,
+} from "./schema-config-fields-utils";
+import {
   SchemaConfigFields,
 } from "./schema-config-fields";
 import type { AdapterConfigFieldsProps } from "./types";

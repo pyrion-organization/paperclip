@@ -57,7 +57,7 @@ export function IssueActivityEventCard({
     <div className={cn("space-y-1.5 rounded-lg border px-3 py-2 text-xs", tone.className)}>
       <div className="flex items-center gap-1.5">
         {isHandoffWarning ? (
-          <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} />
+          <AlertTriangle className={cn("size-3.5 shrink-0", tone.iconClassName)} />
         ) : null}
         <ActorIdentity event={event} agentMap={agentMap} userProfileMap={userProfileMap} />
         <span>{formatIssueActivityAction(event.action, event.details, { agentMap, userProfileMap, currentUserId })}</span>

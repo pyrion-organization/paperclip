@@ -5,7 +5,7 @@
  * They just register a ServerAdapterModule that provides model discovery and execution.
  */
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Cpu, Plus, Power, Trash2, FolderOpen, Package, RefreshCw, Download } from "lucide-react";
 import { useCompany } from "@/context/CompanyContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
@@ -31,7 +31,8 @@ import { useToastActions } from "@/context/ToastContext";
 import { cn } from "@/lib/classnames";
 import { ChoosePathButton } from "@/components/PathInstructionsModal";
 import { invalidateDynamicParser } from "@/adapters/dynamic-loader";
-import { invalidateConfigSchemaCache } from "@/adapters/schema-config-fields";
+import { invalidateConfigSchemaCache } from "@/adapters/schema-config-fields-utils";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 function AdapterRow({
   adapter,
@@ -77,8 +78,8 @@ function AdapterRow({
             <Badge variant="outline">{adapter.source === "external" ? "External" : "Built-in"}</Badge>
             {adapter.source === "external" && (
               adapter.isLocalPath
-                ? <span title="Installed from local path"><FolderOpen className="h-4 w-4 text-amber-500" /></span>
-                : <span title="Installed from npm"><Package className="h-4 w-4 text-red-500" /></span>
+                ? <span title="Installed from local path"><FolderOpen className="size-4 text-amber-500" /></span>
+                : <span title="Installed from npm"><Package className="size-4 text-red-500" /></span>
             )}
             {adapter.version && (
               <Badge variant="secondary" className="font-mono text-[10px]">
@@ -114,47 +115,47 @@ function AdapterRow({
             <Button
               variant="outline"
               size="icon-sm"
-              className="h-8 w-8"
+              className="size-8"
               title="Reinstall adapter (pull latest from npm)"
               disabled={isReinstalling}
               onClick={() => onReinstall(adapter.type)}
             >
-              <Download className={cn("h-4 w-4", isReinstalling && "animate-bounce")} />
+              <Download className={cn("size-4", isReinstalling && "animate-bounce")} />
             </Button>
           )}
           {onReload && (
             <Button
               variant="outline"
               size="icon-sm"
-              className="h-8 w-8"
+              className="size-8"
               title="Reload adapter (hot-swap)"
               disabled={isReloading}
               onClick={() => onReload(adapter.type)}
             >
-              <RefreshCw className={cn("h-4 w-4", isReloading && "animate-spin")} />
+              <RefreshCw className={cn("size-4", isReloading && "animate-spin")} />
             </Button>
           )}
           <Button
             variant="outline"
             size="icon-sm"
-            className="h-8 w-8"
+            className="size-8"
             title={adapter.disabled
               ? (toggleTitleEnabled ?? "Show in agent menus")
               : (toggleTitleDisabled ?? "Hide from agent menus")}
             disabled={isToggling}
             onClick={() => onToggle(adapter.type, !adapter.disabled)}
           >
-            <Power className={cn("h-4 w-4", !adapter.disabled ? "text-green-600" : "text-muted-foreground")} />
+            <Power className={cn("size-4", !adapter.disabled ? "text-green-600" : "text-muted-foreground")} />
           </Button>
           {canRemove && (
             <Button
               variant="outline"
               size="icon-sm"
-              className="h-8 w-8 text-destructive hover:text-destructive"
+              className="size-8 text-destructive hover:text-destructive"
               title="Remove adapter"
               onClick={() => onRemove(adapter.type)}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="size-4" />
             </Button>
           )}
         </div>
@@ -281,7 +282,7 @@ export function AdapterManager() {
     queryClient.invalidateQueries({ queryKey: queryKeys.adapters.all });
   };
 
-  const installMutation = useMutation({
+  const installMutation = useInvalidatingMutation({
     mutationFn: (params: { packageName: string; version?: string; isLocalPath?: boolean }) =>
       adaptersApi.install(params),
     onSuccess: (result) => {
@@ -301,7 +302,7 @@ export function AdapterManager() {
     },
   });
 
-  const removeMutation = useMutation({
+  const removeMutation = useInvalidatingMutation({
     mutationFn: (type: string) => adaptersApi.remove(type),
     onSuccess: () => {
       invalidate();
@@ -312,7 +313,7 @@ export function AdapterManager() {
     },
   });
 
-  const toggleMutation = useMutation({
+  const toggleMutation = useInvalidatingMutation({
     mutationFn: ({ type, disabled }: { type: string; disabled: boolean }) =>
       adaptersApi.setDisabled(type, disabled),
     onSuccess: () => {
@@ -323,7 +324,7 @@ export function AdapterManager() {
     },
   });
 
-  const overrideMutation = useMutation({
+  const overrideMutation = useInvalidatingMutation({
     mutationFn: ({ type, paused }: { type: string; paused: boolean }) =>
       adaptersApi.setOverridePaused(type, paused),
     onSuccess: () => {
@@ -334,7 +335,7 @@ export function AdapterManager() {
     },
   });
 
-  const reloadMutation = useMutation({
+  const reloadMutation = useInvalidatingMutation({
     mutationFn: (type: string) => adaptersApi.reload(type),
     onSuccess: (result) => {
       invalidate();
@@ -351,7 +352,7 @@ export function AdapterManager() {
     },
   });
 
-  const reinstallMutation = useMutation({
+  const reinstallMutation = useInvalidatingMutation({
     mutationFn: (type: string) => adaptersApi.reinstall(type),
     onSuccess: (result) => {
       invalidate();
@@ -374,10 +375,9 @@ export function AdapterManager() {
   // External adapters that override a builtin type.  The server only returns
   // one entry per type (the external), so we synthesize a builtin row for
   // the builtins section so users can see which builtins are affected.
-  const overriddenBuiltins = (adapters ?? [])
-    .filter((a) => a.source === "external" && a.overriddenBuiltin)
-    .filter((a) => !builtinAdapters.some((b) => b.type === a.type))
-    .map((a) => ({
+  const overriddenBuiltins = (adapters ?? []).flatMap((a) =>
+    a.source === "external" && a.overriddenBuiltin && !builtinAdapters.some((b) => b.type === a.type)
+      ? [({
       type: a.type,
       label: getAdapterLabel(a.type),
       overriddenBy: [
@@ -386,9 +386,11 @@ export function AdapterManager() {
       ].filter(Boolean).join(" "),
       overridePaused: !!a.overridePaused,
       menuDisabled: !!a.disabled,
-    }));
+    })]
+      : [],
+  );
 
-  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading adapters...</div>;
+  if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading adapters&hellip;</div>;
 
   const isMutating = installMutation.isPending || removeMutation.isPending || toggleMutation.isPending || overrideMutation.isPending || reloadMutation.isPending || reinstallMutation.isPending;
 
@@ -397,7 +399,7 @@ export function AdapterManager() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Cpu className="h-6 w-6 text-muted-foreground" />
+          <Cpu className="size-6 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Adapters</h1>
           <Badge variant="outline" className="text-amber-600 border-amber-400">
             Alpha
@@ -407,7 +409,7 @@ export function AdapterManager() {
         <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-2">
-              <Plus className="h-4 w-4" />
+              <Plus className="size-4" />
               Install Adapter
             </Button>
           </DialogTrigger>
@@ -431,7 +433,7 @@ export function AdapterManager() {
                   )}
                   onClick={() => setIsLocalPath(false)}
                 >
-                  <Package className="h-3.5 w-3.5" />
+                  <Package className="size-3.5" />
                   npm package
                 </button>
                 <button
@@ -444,7 +446,7 @@ export function AdapterManager() {
                   )}
                   onClick={() => setIsLocalPath(true)}
                 >
-                  <FolderOpen className="h-3.5 w-3.5" />
+                  <FolderOpen className="size-3.5" />
                   Local path
                 </button>
               </div>
@@ -513,7 +515,7 @@ export function AdapterManager() {
       {/* Alpha notice */}
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
           <div className="space-y-1 text-sm">
             <p className="font-medium text-foreground">External adapters are alpha.</p>
             <p className="text-muted-foreground">
@@ -527,14 +529,14 @@ export function AdapterManager() {
       {/* External adapters */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <Cpu className="h-5 w-5 text-muted-foreground" />
+          <Cpu className="size-5 text-muted-foreground" />
           <h2 className="text-base font-semibold">External Adapters</h2>
         </div>
 
         {externalAdapters.length === 0 ? (
           <Card className="bg-muted/30">
             <CardContent className="flex flex-col items-center justify-center py-10">
-              <Cpu className="h-10 w-10 text-muted-foreground mb-4" />
+              <Cpu className="size-10 text-muted-foreground mb-4" />
               <p className="text-sm font-medium">No external adapters installed</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Install an adapter package to extend model support.
@@ -582,7 +584,7 @@ export function AdapterManager() {
       {/* Built-in adapters */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <Cpu className="h-5 w-5 text-muted-foreground" />
+          <Cpu className="size-5 text-muted-foreground" />
           <h2 className="text-base font-semibold">Built-in Adapters</h2>
         </div>
 

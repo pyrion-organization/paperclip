@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   InboundEmailClassificationCategory,
   InboundEmailExternalIntakeRecord,
@@ -40,6 +40,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { Link } from "@/lib/router";
 import { queryKeys } from "../lib/queryKeys";
+import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const healthMeta: Record<InboundEmailOpsMailboxHealth, {
   label: string;
@@ -199,15 +200,17 @@ function asDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const shortDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatTime(value: Date | string | null | undefined) {
   const date = asDate(value);
   if (!date) return "Never";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return shortDateTimeFormatter.format(date);
 }
 
 function formatRelative(value: Date | string | null | undefined) {
@@ -291,7 +294,7 @@ function HealthBadge({ health }: { health: InboundEmailOpsMailboxHealth }) {
   const Icon = meta.icon;
   return (
     <Badge variant="outline" className={`gap-1 ${meta.className}`}>
-      <Icon className="h-3 w-3" />
+      <Icon className="size-3" />
       {meta.label}
     </Badge>
   );
@@ -330,7 +333,7 @@ function MailboxRow({
             onClick={() => onPollNow(item.mailbox.id)}
             title={canPoll ? "Queue an immediate poll for this mailbox" : "Enable the mailbox and configure a password before polling"}
           >
-            {polling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            {polling ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
             Poll now
           </Button>
         </div>
@@ -379,7 +382,7 @@ function MailboxRow({
         </div>
         {item.lastFailedMessage?.createdIssueId ? (
           <Link className="mt-2 inline-flex items-center gap-1 text-primary hover:underline" to={`/issues/${item.lastFailedMessage.createdIssueId}`}>
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="size-3" />
             Issue
           </Link>
         ) : item.lastFailedMessage ? (
@@ -501,7 +504,7 @@ function FailureList({
               disabled={pending}
               onClick={() => (failure.source === "message" ? onRetryMessage(failure.refId) : onRetryJob(failure.refId))}
             >
-              {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              {pending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
               Retry
             </Button>
           </div>
@@ -533,7 +536,7 @@ function OpsPanel({
           className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <span className="flex min-w-0 items-start gap-2">
-            {open ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+            {open ? <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
             <span className="min-w-0">
               <span className="flex items-center gap-2">
                 <span className="text-sm font-semibold">{title}</span>
@@ -701,7 +704,7 @@ function ExternalIntakeRecovery({
     enabled: Boolean(companyId),
   });
 
-  const importMutation = useMutation({
+  const importMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.importExternalInboundEmailMessage(companyId, {
       mailboxId,
       sourceKind,
@@ -717,7 +720,7 @@ function ExternalIntakeRecovery({
     },
   });
 
-  const batchImportMutation = useMutation({
+  const batchImportMutation = useInvalidatingMutation({
     mutationFn: () => companiesApi.importExternalInboundEmailMessagesBatch(companyId, {
       messages: parseExternalIntakeBatchJson(batchJson, { mailboxId, sourceKind }),
     }),
@@ -823,7 +826,7 @@ function ExternalIntakeRecovery({
           </div>
           {importMutation.isError ? (
             <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <div>
                 <span className="font-medium">External import failed.</span>{" "}
                 {errorMessage(importMutation.error, "The preserved message could not be imported.")}
@@ -832,12 +835,12 @@ function ExternalIntakeRecovery({
           ) : null}
           {importMutation.isSuccess ? (
             <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
               External intake recorded as {importMutation.data.status}.
             </div>
           ) : null}
           <Button type="submit" size="sm" disabled={!canSubmit}>
-            {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {importMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             Import preserved email
           </Button>
         </form>
@@ -858,7 +861,7 @@ function ExternalIntakeRecovery({
           />
           {batchImportMutation.isError ? (
             <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <div>
                 <span className="font-medium">Batch import failed.</span>{" "}
                 {errorMessage(batchImportMutation.error, "The preserved message batch could not be imported.")}
@@ -867,7 +870,7 @@ function ExternalIntakeRecovery({
           ) : null}
           {batchImportMutation.isSuccess ? (
             <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
               Batch recorded: {batchImportMutation.data.importedCount} imported, {batchImportMutation.data.duplicateCount} duplicate, {batchImportMutation.data.failedCount} failed.
             </div>
           ) : null}
@@ -908,7 +911,7 @@ function ExternalIntakeRecovery({
             </div>
           ) : null}
           <Button type="submit" size="sm" variant="outline" disabled={!canBatchSubmit}>
-            {batchImportMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {batchImportMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             Import batch
           </Button>
         </form>
@@ -918,7 +921,7 @@ function ExternalIntakeRecovery({
         <div className="space-y-2 border-b border-border px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recent external intake</div>
-            {externalIntakeQuery.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+            {externalIntakeQuery.isFetching ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex flex-wrap gap-1">
@@ -954,13 +957,13 @@ function ExternalIntakeRecovery({
         </div>
         {externalIntakeQuery.isError ? (
           <div className="flex items-start gap-2 px-3 py-5 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             {errorMessage(externalIntakeQuery.error, "External intake records could not be loaded.")}
           </div>
         ) : externalIntakeQuery.isLoading ? (
           <div className="flex items-center gap-2 px-3 py-5 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading external intake...
+            <Loader2 className="size-4 animate-spin" />
+            Loading external intake&hellip;
           </div>
         ) : rows.length === 0 ? (
           <div className="px-3 py-5 text-xs text-muted-foreground">
@@ -992,7 +995,7 @@ function ExternalIntakeRecovery({
                       className="h-7 px-2 text-xs"
                       onClick={() => prepareRetry(record)}
                     >
-                      <RefreshCw className="h-3.5 w-3.5" />
+                      <RefreshCw className="size-3.5" />
                       Retry source
                     </Button>
                   ) : null}
@@ -1075,7 +1078,7 @@ function ProcessedEmailList({
     setQuery(queryInput.trim());
   };
 
-  const rows = [...(messagesQuery.data?.items ?? [])].sort((a, b) => {
+  const rows = (messagesQuery.data?.items ?? []).toSorted((a, b) => {
     const aTime = asDate(a.receivedAt ?? a.createdAt)?.getTime() ?? 0;
     const bTime = asDate(b.receivedAt ?? b.createdAt)?.getTime() ?? 0;
     return bTime - aTime;
@@ -1112,7 +1115,7 @@ function ProcessedEmailList({
           </SelectContent>
         </Select>
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-xs"
             value={queryInput}
@@ -1128,7 +1131,7 @@ function ProcessedEmailList({
 
       {messagesQuery.isError ? (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <div>
             <span className="font-medium">Email list failed.</span>{" "}
             {errorMessage(messagesQuery.error, "The processed email list could not be loaded.")}
@@ -1139,12 +1142,12 @@ function ProcessedEmailList({
       <div className="overflow-hidden rounded-md border border-border bg-card/60">
         {messagesQuery.isLoading ? (
           <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading emails...
+            <Loader2 className="size-4 animate-spin" />
+            Loading emails&hellip;
           </div>
         ) : rows.length === 0 ? (
           <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
-            <Inbox className="mt-0.5 h-4 w-4 shrink-0" />
+            <Inbox className="mt-0.5 size-4 shrink-0" />
             No emails match the current filters.
           </div>
         ) : (
@@ -1170,7 +1173,7 @@ function ProcessedEmailList({
               <div className="flex items-start justify-start lg:justify-end">
                 {message.createdIssueId ? (
                   <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/issues/${message.createdIssueId}`}>
-                    <ExternalLink className="h-3 w-3" />
+                    <ExternalLink className="size-3" />
                     Issue
                   </Link>
                 ) : (
@@ -1249,7 +1252,7 @@ function QuarantineEmailList({ companyId }: { companyId: string }) {
   if (error) {
     return (
       <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
         <div>
           <span className="font-medium">Quarantine failed.</span>{" "}
           {errorMessage(error, "The quarantined email list could not be loaded.")}
@@ -1262,12 +1265,12 @@ function QuarantineEmailList({ companyId }: { companyId: string }) {
     <div className="overflow-hidden rounded-md border border-border bg-card/60">
       {isLoading ? (
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading quarantined emails...
+          <Loader2 className="size-4 animate-spin" />
+          Loading quarantined emails&hellip;
         </div>
       ) : rows.length === 0 ? (
         <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
-          <MailWarning className="mt-0.5 h-4 w-4 shrink-0" />
+          <MailWarning className="mt-0.5 size-4 shrink-0" />
           No unsafe or spam support emails are currently quarantined.
         </div>
       ) : (
@@ -1325,7 +1328,7 @@ function ClassificationReviewList({ companyId }: { companyId: string }) {
   if (reviewQuery.isError) {
     return (
       <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
         <div>
           <span className="font-medium">Classification review failed.</span>{" "}
           {errorMessage(reviewQuery.error, "The low-confidence email list could not be loaded.")}
@@ -1338,12 +1341,12 @@ function ClassificationReviewList({ companyId }: { companyId: string }) {
     <div className="overflow-hidden rounded-md border border-border bg-card/60">
       {reviewQuery.isLoading ? (
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading classification review...
+          <Loader2 className="size-4 animate-spin" />
+          Loading classification review&hellip;
         </div>
       ) : rows.length === 0 ? (
         <div className="flex items-start gap-2 px-4 py-6 text-sm text-muted-foreground">
-          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <Info className="mt-0.5 size-4 shrink-0" />
           No low-confidence or unclear classified emails need review.
         </div>
       ) : (
@@ -1366,7 +1369,7 @@ function ClassificationReviewList({ companyId }: { companyId: string }) {
             <div className="flex items-start justify-start lg:justify-end">
               {message.createdIssueId ? (
                 <Link className="inline-flex items-center gap-1 text-xs text-primary hover:underline" to={`/issues/${message.createdIssueId}`}>
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="size-3" />
                   Issue
                 </Link>
               ) : (
@@ -1420,7 +1423,7 @@ function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) 
   if (items.length === 0) {
     return (
       <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
         No active email polling warnings or failures. The worker dashboard has no operator action to report.
       </div>
     );
@@ -1437,7 +1440,7 @@ function OpsDiagnostics({ dashboard }: { dashboard: InboundEmailOpsDashboard }) 
             : "border-border bg-muted/30 text-muted-foreground";
         return (
           <div key={`${item.title}-${item.detail}`} className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${className}`}>
-            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+            <Icon className="mt-0.5 size-4 shrink-0" />
             <div className="min-w-0">
               <div className="font-medium">{item.title}</div>
               <div className="mt-1 break-words text-muted-foreground">{item.detail}</div>
@@ -1475,19 +1478,19 @@ export function InboundEmailOps() {
     }
   };
 
-  const retryMessageMutation = useMutation({
+  const retryMessageMutation = useInvalidatingMutation({
     mutationFn: (messageId: string) => companiesApi.retryInboundEmailMessage(selectedCompanyId!, messageId),
     onSuccess: () => {
       invalidateInboundEmailState(["ops", "messages", "jobs"]);
     },
   });
-  const retryJobMutation = useMutation({
+  const retryJobMutation = useInvalidatingMutation({
     mutationFn: (jobId: string) => companiesApi.retryInboundEmailJob(selectedCompanyId!, jobId),
     onSuccess: () => {
       invalidateInboundEmailState(["ops", "messages", "jobs"]);
     },
   });
-  const pollMailboxMutation = useMutation({
+  const pollMailboxMutation = useInvalidatingMutation({
     mutationFn: (mailboxId: string) => companiesApi.pollInboundEmailMailbox(selectedCompanyId!, mailboxId),
     onSuccess: () => {
       invalidateInboundEmailState(["ops", "messages", "jobs"]);
@@ -1516,8 +1519,8 @@ export function InboundEmailOps() {
   if (dashboardQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading inbound email operations...
+        <Loader2 className="size-4 animate-spin" />
+        Loading inbound email operations&hellip;
       </div>
     );
   }
@@ -1550,7 +1553,7 @@ export function InboundEmailOps() {
             Updated {formatRelative(dashboard.generatedAt)}
           </div>
           <Button size="sm" variant="outline" onClick={() => dashboardQuery.refetch()} disabled={dashboardQuery.isFetching}>
-            {dashboardQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {dashboardQuery.isFetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Refresh
           </Button>
         </div>
@@ -1569,7 +1572,7 @@ export function InboundEmailOps() {
 
       {!dashboard.sourceDelete.supported ? (
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          <MailWarning className="mt-0.5 h-4 w-4 shrink-0" />
+          <MailWarning className="mt-0.5 size-4 shrink-0" />
           Source-delete telemetry is not supported by this branch; the dashboard only reports mailbox, queue, and message processing errors.
         </div>
       ) : null}
@@ -1580,11 +1583,11 @@ export function InboundEmailOps() {
         if (total === 0) return null;
         return (
           <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <div>
               <span className="font-medium">{total} background job{total === 1 ? "" : "s"}</span> are not associated with any mailbox
               ({orphan.failed + orphan.dead} failed, {orphan.pending + orphan.running + orphan.retrying} active).
-              These usually point to a deleted mailbox or a malformed payload — retry from the failures list below.
+              These usually point to a deleted mailbox or a malformed payload, retry from the failures list below.
             </div>
           </div>
         );
@@ -1598,14 +1601,14 @@ export function InboundEmailOps() {
           </div>
           <Button size="sm" variant="outline" asChild>
             <Link to="/company/settings/email">
-              <Settings className="h-4 w-4" />
+              <Settings className="size-4" />
               Configure
             </Link>
           </Button>
         </div>
         {pollError ? (
           <div className="mx-4 mb-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <div>
               <span className="font-medium">Poll request failed.</span>{" "}
               {errorMessage(pollError, "The selected mailbox could not be queued for polling. Refresh and try again.")}
@@ -1668,7 +1671,7 @@ export function InboundEmailOps() {
       >
         {retryError ? (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <div>
               <span className="font-medium">Retry failed.</span>{" "}
               {errorMessage(retryError, "The selected failure could not be retried. Refresh and try again.")}

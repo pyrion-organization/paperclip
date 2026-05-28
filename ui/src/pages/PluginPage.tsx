@@ -7,9 +7,9 @@ import { pluginsApi } from "@/api/plugins";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   PluginSlotMount,
-  resolveRouteSidebarSlot,
   type ResolvedPluginSlot,
 } from "@/plugins/slots";
+import { resolveRouteSidebarSlot } from "@/plugins/slots-utils";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { NotFoundPage } from "./NotFound";
@@ -167,7 +167,7 @@ export function PluginPage() {
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" asChild>
             <Link to={companyPrefix ? `/${companyPrefix}/dashboard` : "/dashboard"}>
-              <ArrowLeft className="h-4 w-4 mr-1" />
+              <ArrowLeft className="size-4 mr-1" />
               Back
             </Link>
           </Button>

@@ -77,7 +77,7 @@ export function Clients() {
         {hasClients && (
           <>
             <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 className="pl-9"
                 placeholder="Search clients..."
@@ -99,7 +99,7 @@ export function Clients() {
           </>
         )}
         <Button size="sm" variant="outline" onClick={openNewClient} className="shrink-0 ml-auto">
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="size-4 mr-1" />
           Add Client
         </Button>
       </div>
@@ -138,7 +138,7 @@ export function Clients() {
                   .join(" · ") || undefined
               }
               to={clientUrl(client)}
-              trailing={
+              trailingSlot={() => (
                 <div className="flex items-center gap-3">
                   {client.activeProjectCount != null ? (
                     <span className="text-xs text-muted-foreground">
@@ -147,7 +147,7 @@ export function Clients() {
                   ) : null}
                   <StatusBadge status={client.status} />
                 </div>
-              }
+              )}
             />
           ))}
         </div>

@@ -49,6 +49,17 @@ const entityScopedZones = new Set<PluginLauncherPlacementZone>([
 
 const PLUGIN_LAUNCHER_QUERY_DEFER_MS = 1_000;
 
+function hasEntityType(
+  entityTypes: readonly PluginUiSlotEntityType[] | undefined,
+  entityType: PluginUiSlotEntityType,
+): boolean {
+  if (!entityTypes) return false;
+  for (const candidate of entityTypes) {
+    if (candidate === entityType) return true;
+  }
+  return false;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return "Unknown error";
@@ -125,7 +136,7 @@ export function usePluginLaunchers(
   });
 
   const placementZonesKey = useMemo(
-    () => [...filters.placementZones].sort().join("|"),
+    () => filters.placementZones.toSorted().join("|"),
     [filters.placementZones],
   );
 
@@ -147,7 +158,7 @@ export function usePluginLaunchers(
         if (!placementZones.has(launcher.placementZone)) continue;
         if (entityScopedZones.has(launcher.placementZone)) {
           if (!filters.entityType) continue;
-          if (!launcher.entityTypes?.includes(filters.entityType)) continue;
+          if (!hasEntityType(launcher.entityTypes, filters.entityType)) continue;
         }
         rows.push({
           ...launcher,

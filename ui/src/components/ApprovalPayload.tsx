@@ -1,12 +1,5 @@
-import { UserPlus, Lightbulb, ShieldAlert, ShieldCheck } from "lucide-react";
 import { formatCents } from "../lib/utils";
-
-export const typeLabel: Record<string, string> = {
-  hire_agent: "Hire Agent",
-  approve_ceo_strategy: "CEO Strategy",
-  budget_override_required: "Budget Override",
-  request_board_approval: "Board Approval",
-};
+import { approvalLabel, typeLabel } from "./approval-payload-utils";
 
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
@@ -16,34 +9,6 @@ function firstNonEmptyString(...values: unknown[]): string | null {
   }
   return null;
 }
-
-export function approvalSubject(payload?: Record<string, unknown> | null): string | null {
-  return firstNonEmptyString(
-    payload?.title,
-    payload?.name,
-    payload?.summary,
-    payload?.recommendedAction,
-  );
-}
-
-/** Build a contextual label for an approval, e.g. "Hire Agent: Designer" */
-export function approvalLabel(type: string, payload?: Record<string, unknown> | null): string {
-  const base = typeLabel[type] ?? type;
-  const subject = approvalSubject(payload);
-  if (subject) {
-    return `${base}: ${subject}`;
-  }
-  return base;
-}
-
-export const typeIcon: Record<string, typeof UserPlus> = {
-  hire_agent: UserPlus,
-  approve_ceo_strategy: Lightbulb,
-  budget_override_required: ShieldAlert,
-  request_board_approval: ShieldCheck,
-};
-
-export const defaultTypeIcon = ShieldCheck;
 
 function PayloadField({ label, value }: { label: string; value: unknown }) {
   if (!value) return null;
@@ -57,10 +22,11 @@ function PayloadField({ label, value }: { label: string; value: unknown }) {
 
 function SkillList({ values }: { values: unknown }) {
   if (!Array.isArray(values)) return null;
-  const items = values
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const items = values.flatMap((value) => {
+    if (typeof value !== "string") return [];
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  });
   if (items.length === 0) return null;
 
   return (
@@ -80,7 +46,7 @@ function SkillList({ values }: { values: unknown }) {
   );
 }
 
-export function HireAgentPayload({ payload }: { payload: Record<string, unknown> }) {
+function HireAgentPayload({ payload }: { payload: Record<string, unknown> }) {
   return (
     <div className="mt-3 space-y-1.5 text-sm">
       <div className="flex items-center gap-2">
@@ -109,7 +75,7 @@ export function HireAgentPayload({ payload }: { payload: Record<string, unknown>
   );
 }
 
-export function CeoStrategyPayload({ payload }: { payload: Record<string, unknown> }) {
+function CeoStrategyPayload({ payload }: { payload: Record<string, unknown> }) {
   const plan = payload.plan ?? payload.description ?? payload.strategy ?? payload.text;
   return (
     <div className="mt-3 space-y-1.5 text-sm">
@@ -128,7 +94,7 @@ export function CeoStrategyPayload({ payload }: { payload: Record<string, unknow
   );
 }
 
-export function BudgetOverridePayload({ payload }: { payload: Record<string, unknown> }) {
+function BudgetOverridePayload({ payload }: { payload: Record<string, unknown> }) {
   const budgetAmount = typeof payload.budgetAmount === "number" ? payload.budgetAmount : null;
   const observedAmount = typeof payload.observedAmount === "number" ? payload.observedAmount : null;
   return (
@@ -148,7 +114,7 @@ export function BudgetOverridePayload({ payload }: { payload: Record<string, unk
   );
 }
 
-export function BoardApprovalPayload({
+function BoardApprovalPayload({
   payload,
   hideTitle = false,
 }: {
@@ -164,9 +130,11 @@ export function BoardApprovalPayload({
 function BoardApprovalPayloadContent({ payload }: { payload: Record<string, unknown> }) {
   const risks = Array.isArray(payload.risks)
     ? payload.risks
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim())
-        .filter(Boolean)
+        .flatMap((value) => {
+          if (typeof value !== "string") return [];
+          const trimmed = value.trim();
+          return trimmed ? [trimmed] : [];
+        })
     : [];
   const title = firstNonEmptyString(payload.title);
   const summary = firstNonEmptyString(payload.summary);
@@ -208,7 +176,7 @@ function BoardApprovalPayloadContent({ payload }: { payload: Record<string, unkn
           <ul className="space-y-1 text-sm text-muted-foreground">
             {risks.map((risk) => (
               <li key={risk} className="flex items-start gap-2">
-                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+                <span className="mt-2 size-1.5 rounded-full bg-muted-foreground/60" />
                 <span className="leading-6">{risk}</span>
               </li>
             ))}

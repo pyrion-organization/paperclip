@@ -10,9 +10,9 @@ import { ProjectWorkspacesContent } from "@/components/ProjectWorkspacesContent"
 import { ProjectWorkspaceSummaryCard } from "@/components/ProjectWorkspaceSummaryCard";
 import {
   WorkspaceRuntimeControls,
-  buildWorkspaceRuntimeControlSections,
   type WorkspaceRuntimeControlRequest,
 } from "@/components/WorkspaceRuntimeControls";
+import { buildWorkspaceRuntimeControlSections } from "@/components/workspace-runtime-controls-utils";
 import { WorktreeBanner } from "@/components/WorktreeBanner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
