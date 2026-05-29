@@ -631,10 +631,39 @@ export function calendarService(db: Db) {
       ))
       .orderBy(desc(activityLog.createdAt))
       .limit(1);
-    const emailRows = await db
+    const [emailStatus] = await db
+      .select({
+        pendingEmails: sql<number>`
+          count(*) filter (
+            where ${emailNotifications.status} in ('pending', 'sending')
+          )::int
+        `,
+        sentEmails: sql<number>`count(*) filter (where ${emailNotifications.status} = 'sent')::int`,
+        failedEmails: sql<number>`count(*) filter (where ${emailNotifications.status} = 'failed')::int`,
+        skippedDeliveryEmails: sql<number>`count(*) filter (where ${emailNotifications.status} = 'skipped')::int`,
+        latestEmailFailureAt: sql<Date | null>`max(${emailNotifications.failedAt})`,
+      })
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+    const [latestFailure] = await db
+      .select({
+        failedAt: emailNotifications.failedAt,
+        lastError: emailNotifications.lastError,
+      })
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+        eq(emailNotifications.status, "failed"),
+      ))
+      .orderBy(desc(emailNotifications.failedAt), desc(emailNotifications.createdAt))
+      .limit(1);
+    const failedEmailRows = await db
       .select({
         id: emailNotifications.id,
-        status: emailNotifications.status,
         recipientEmail: emailNotifications.recipientEmail,
         payload: emailNotifications.payload,
         attempts: emailNotifications.attempts,
@@ -645,33 +674,23 @@ export function calendarService(db: Db) {
       .where(and(
         eq(emailNotifications.companyId, companyId),
         eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
-      ));
-    const failedEmailDetails = emailRows
-      .filter((row) => row.status === "failed")
-      .sort((a, b) => (b.failedAt?.getTime() ?? 0) - (a.failedAt?.getTime() ?? 0))
-      .slice(0, 5)
-      .map((row) => {
-        const payload = row.payload && "calendarItemId" in row.payload ? row.payload : null;
-        return {
-          id: row.id,
-          calendarItemId: payload?.calendarItemId ?? null,
-          title: payload?.title ?? null,
-          recipientEmail: row.recipientEmail ?? null,
-          dueDate: payload?.dueDate ?? null,
-          failedAt: toIso(row.failedAt),
-          attempts: row.attempts,
-          lastError: row.lastError ?? null,
-        };
-      });
-    let latestFailureAt: Date | null = null;
-    let latestEmailFailureError: string | null = null;
-    for (const row of emailRows) {
-      if (!row.failedAt) continue;
-      if (!latestFailureAt || row.failedAt > latestFailureAt) {
-        latestFailureAt = row.failedAt;
-        latestEmailFailureError = row.lastError ?? null;
-      }
-    }
+        eq(emailNotifications.status, "failed"),
+      ))
+      .orderBy(desc(emailNotifications.failedAt), desc(emailNotifications.createdAt))
+      .limit(5);
+    const failedEmailDetails = failedEmailRows.map((row) => {
+      const payload = row.payload && "calendarItemId" in row.payload ? row.payload : null;
+      return {
+        id: row.id,
+        calendarItemId: payload?.calendarItemId ?? null,
+        title: payload?.title ?? null,
+        recipientEmail: row.recipientEmail ?? null,
+        dueDate: payload?.dueDate ?? null,
+        failedAt: toIso(row.failedAt),
+        attempts: row.attempts,
+        lastError: row.lastError ?? null,
+      };
+    });
     return {
       lastScanAt: readDetailString(latestScan?.details, "scannedAt") ?? toIso(latestScan?.createdAt),
       scannedItems: readDetailNumber(latestScan?.details, "scannedItems"),
@@ -679,12 +698,12 @@ export function calendarService(db: Db) {
       updatedIssues: readDetailNumber(latestScan?.details, "updatedIssues"),
       queuedEmails: readDetailNumber(latestScan?.details, "queuedEmails"),
       skippedEmails: readDetailNumber(latestScan?.details, "skippedEmails"),
-      pendingEmails: emailRows.filter((row) => row.status === "pending" || row.status === "sending").length,
-      sentEmails: emailRows.filter((row) => row.status === "sent").length,
-      failedEmails: emailRows.filter((row) => row.status === "failed").length,
-      skippedDeliveryEmails: emailRows.filter((row) => row.status === "skipped").length,
-      latestEmailFailureAt: toIso(latestFailureAt),
-      latestEmailFailureError,
+      pendingEmails: emailStatus?.pendingEmails ?? 0,
+      sentEmails: emailStatus?.sentEmails ?? 0,
+      failedEmails: emailStatus?.failedEmails ?? 0,
+      skippedDeliveryEmails: emailStatus?.skippedDeliveryEmails ?? 0,
+      latestEmailFailureAt: toIso(emailStatus?.latestEmailFailureAt),
+      latestEmailFailureError: latestFailure?.lastError ?? null,
       failedEmailDetails,
     };
   }
