@@ -23,6 +23,10 @@ vi.mock("./pages/DashboardLive", () => ({
   DashboardLive: () => <div>Dashboard live page</div>,
 }));
 
+vi.mock("./pages/NotFound", () => ({
+  NotFoundPage: ({ scope }: { scope?: string }) => <div>Not found: {scope}</div>,
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -81,6 +85,30 @@ describe("BoardDashboardRoutes", () => {
 
     expect(container.textContent).toContain("Layout shell");
     expect(container.textContent).toContain("Dashboard live page");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("renders the board not found page for unknown dashboard subroutes", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/PER/dashboard/missing"]}>
+          <Routes>
+            <Route path=":companyPrefix/dashboard/*" element={<BoardDashboardRoutes />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushReact();
+
+    expect(container.textContent).toContain("Layout shell");
+    expect(container.textContent).toContain("Not found: board");
 
     await act(async () => {
       root.unmount();
