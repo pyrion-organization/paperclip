@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CalendarDashboard, CalendarItem, CalendarItemDetail } from "@paperclipai/shared";
-import { Calendar } from "./Calendar";
+import { Calendar, requiresActivePayablePaymentDetails, requiresGovernedSaveApproval } from "./Calendar";
 
 const mockCalendarApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -49,12 +49,13 @@ function makeItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
     relatedProjectId: null,
     dueDate: null,
     dueTime: null,
-    timezone: "UTC",
+    timezone: "America/Sao_Paulo",
     recurrenceType: "yearly",
     recurrenceRule: null,
     nextDueDate: "2026-06-30",
     amountCents: 12000,
-    currency: "USD",
+    currency: "BRL",
+    paymentProfileId: null,
     autoRenew: true,
     manualActionRequired: true,
     paymentMethodLabel: "Company card",
@@ -143,7 +144,7 @@ function makeDashboard(items: CalendarItem[]): CalendarDashboard {
       monthlyRecurringCents: 0,
       annualRenewalCents: 12000,
       upcoming30DaysCents: 12000,
-      currency: "USD",
+      currency: "BRL",
     },
   };
 }
@@ -270,6 +271,31 @@ describe("Calendar", () => {
     await flushReact();
   }
 
+  it("requires governed save approval for payment profile changes", () => {
+    expect(requiresGovernedSaveApproval(makeItem({ paymentProfileId: null }), {
+      title: "Domain renewal",
+      category: "domain",
+      paymentProfileId: "11111111-1111-4111-8111-111111111111",
+    })).toBe(true);
+  });
+
+  it("only requires payment details for active payable items", () => {
+    expect(requiresActivePayablePaymentDetails({
+      category: "payment_payable",
+      status: "pending_review",
+      paymentProfileId: null,
+      amountCents: null,
+      nextDueDate: null,
+    })).toBe(false);
+    expect(requiresActivePayablePaymentDetails({
+      category: "payment_payable",
+      status: "active",
+      paymentProfileId: null,
+      amountCents: null,
+      nextDueDate: null,
+    })).toBe(true);
+  });
+
   it("opens the create dialog from New Item", async () => {
     await renderPage();
 
@@ -280,6 +306,14 @@ describe("Calendar", () => {
 
     expect(document.body.textContent).toContain("New Item");
     expect(document.body.textContent).toContain("Create");
+    expect(document.body.textContent).toContain("Sao Paulo");
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-payment']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect((document.body.querySelector("input[value='BRL']") as HTMLInputElement | null)).not.toBeNull();
   });
 
   it("opens the edit dialog from row click and keyboard activation", async () => {
@@ -429,11 +463,16 @@ describe("Calendar", () => {
   it("organizes item editing into tabs", async () => {
     await renderPage();
 
+    expect(container.firstElementChild?.className).toContain("overflow-y-auto");
+
     await act(async () => {
       (container.querySelector("[data-testid='calendar-item-row-item-1']") as HTMLTableRowElement).click();
     });
     await flushReact();
 
+    const dialog = document.body.querySelector("[data-testid='calendar-item-dialog']") as HTMLElement;
+    expect(dialog.className).toContain("h-[calc(100dvh-2rem)]");
+    expect(dialog.className).toContain("overflow-hidden");
     expect(document.body.textContent).toContain("Overview");
     expect(document.body.textContent).toContain("Payment");
     expect(document.body.textContent).toContain("Contacts");
@@ -451,7 +490,8 @@ describe("Calendar", () => {
     });
     await flushReact();
 
-    expect(document.body.textContent).toContain("Payment Method");
+    expect(dialog.className).toContain("h-[calc(100dvh-2rem)]");
+    expect(document.body.textContent).toContain("Payment Profile");
     expect(document.body.textContent).toContain("Cost Center");
   });
 

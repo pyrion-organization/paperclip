@@ -15,6 +15,7 @@ import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
 import { clientRoutes } from "./routes/clients.js";
 import { calendarRoutes } from "./routes/calendar.js";
+import { paymentRoutes } from "./routes/payments.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
 import { issueTreeControlRoutes } from "./routes/issue-tree-control.js";
@@ -216,6 +217,7 @@ export async function createApp(
   api.use(assetRoutes(db, opts.storageService));
   api.use(clientRoutes(db));
   api.use(calendarRoutes(db));
+  api.use(paymentRoutes(db));
   api.use(projectRoutes(db));
   api.use(issueRoutes(db, opts.storageService, {
     feedbackExportService: opts.feedbackExportService,

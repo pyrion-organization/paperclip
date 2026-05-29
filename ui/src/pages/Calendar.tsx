@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { calendarApi } from "../api/calendar";
 import { clientsApi } from "../api/clients";
+import { paymentsApi } from "../api/payments";
 import { projectsApi } from "../api/projects";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -62,6 +63,13 @@ import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const NO_COMPANY = "__none__";
 const NONE = "__none_value__";
+const CALENDAR_TIMEZONE_OPTIONS = [
+  { value: "America/Sao_Paulo", label: "Sao Paulo" },
+  { value: "UTC", label: "UTC" },
+  { value: "America/New_York", label: "New York" },
+  { value: "Europe/London", label: "London" },
+  { value: "Asia/Tokyo", label: "Japan" },
+] as const;
 
 type ItemFormState = {
   title: string;
@@ -77,6 +85,7 @@ type ItemFormState = {
   recurrenceRule: string;
   amount: string;
   currency: string;
+  paymentProfileId: string;
   autoRenew: boolean;
   manualActionRequired: boolean;
   paymentMethodLabel: string;
@@ -107,11 +116,12 @@ function emptyForm(): ItemFormState {
     providerName: "",
     nextDueDate: "",
     dueTime: "",
-    timezone: "UTC",
+    timezone: "America/Sao_Paulo",
     recurrenceType: "none",
     recurrenceRule: "",
     amount: "",
-    currency: "USD",
+    currency: "BRL",
+    paymentProfileId: "",
     autoRenew: false,
     manualActionRequired: true,
     paymentMethodLabel: "",
@@ -148,6 +158,7 @@ function formFromItem(item: CalendarItem): ItemFormState {
     recurrenceRule: item.recurrenceRule ?? "",
     amount: item.amountCents == null ? "" : String(item.amountCents / 100),
     currency: item.currency,
+    paymentProfileId: item.paymentProfileId ?? "",
     autoRenew: item.autoRenew,
     manualActionRequired: item.manualActionRequired,
     paymentMethodLabel: item.paymentMethodLabel ?? "",
@@ -192,11 +203,12 @@ function payloadFromForm(form: ItemFormState): CreateCalendarItemInput {
     providerName: nullable(form.providerName),
     nextDueDate: nullable(form.nextDueDate),
     dueTime: nullable(form.dueTime),
-    timezone: form.timezone.trim() || "UTC",
+    timezone: form.timezone.trim() || "America/Sao_Paulo",
     recurrenceType: form.recurrenceType,
     recurrenceRule: nullable(form.recurrenceRule),
     amountCents: amountToCents(form.amount),
-    currency: form.currency.trim().toUpperCase() || "USD",
+    currency: form.currency.trim().toUpperCase() || "BRL",
+    paymentProfileId: nullable(form.paymentProfileId),
     autoRenew: form.autoRenew,
     manualActionRequired: form.manualActionRequired,
     paymentMethodLabel: nullable(form.paymentMethodLabel),
@@ -218,8 +230,18 @@ function payloadFromForm(form: ItemFormState): CreateCalendarItemInput {
   };
 }
 
+export function requiresActivePayablePaymentDetails(payload: Pick<CreateCalendarItemInput, "category" | "status" | "paymentProfileId" | "amountCents" | "nextDueDate">) {
+  return payload.category === "payment_payable"
+    && (payload.status === "active" || payload.status === "overdue")
+    && (!payload.paymentProfileId || payload.amountCents == null || !payload.nextDueDate);
+}
+
 function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function money(cents: number, currency = "BRL") {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
 }
 
 function dueLabel(item: CalendarItem) {
@@ -232,7 +254,7 @@ function dueLabel(item: CalendarItem) {
   return `${diff}d`;
 }
 
-function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
+export function requiresGovernedSaveApproval(item: CalendarItem | null, payload: CreateCalendarItemInput) {
   if (!item) return false;
   const highRisk = item.riskLevel === "high" || item.riskLevel === "critical";
   const governedCategory = ["fiscal", "legal", "domain", "certificate", "hosting"].includes(item.category);
@@ -243,6 +265,7 @@ function requiresGovernedSaveApproval(item: CalendarItem | null, payload: Create
   if (payload.recoveryEmail !== undefined && payload.recoveryEmail !== item.recoveryEmail) return true;
   if (payload.billingEmail !== undefined && payload.billingEmail !== item.billingEmail) return true;
   if (payload.paymentMethodLabel !== undefined && payload.paymentMethodLabel !== item.paymentMethodLabel) return true;
+  if (payload.paymentProfileId !== undefined && payload.paymentProfileId !== item.paymentProfileId) return true;
   return false;
 }
 
@@ -447,6 +470,11 @@ export function Calendar() {
     queryFn: () => projectsApi.list(companyId),
     enabled: !!selectedCompanyId && itemDialogOpen,
   });
+  const paymentProfilesQuery = useQuery({
+    queryKey: queryKeys.payments.profiles(companyId),
+    queryFn: () => paymentsApi.profiles(companyId),
+    enabled: !!selectedCompanyId && itemDialogOpen,
+  });
 
   const invalidateCalendar = () => {
     if (!selectedCompanyId) return;
@@ -459,7 +487,11 @@ export function Calendar() {
       if (!selectedCompanyId) throw new Error("No company selected");
       const payload = payloadFromForm(form);
       if (!payload.title) throw new Error("Title is required");
+      if (requiresActivePayablePaymentDetails(payload)) {
+        throw new Error("Payment payables require due date, amount, and payment profile");
+      }
       if (isEditing && selectedItemId) {
+        if (!selectedItem) throw new Error("Calendar item is still loading");
         const requiresApproval = requiresGovernedSaveApproval(selectedItem, payload);
         const approvalConfirmed = requiresApproval
           ? confirmGovernedChange("This governed calendar change requires operator approval. Continue?")
@@ -543,9 +575,7 @@ export function Calendar() {
   const openItemById = (itemId: string) => {
     const item = items.find((candidate) => candidate.id === itemId);
     setSelectedItemId(itemId);
-    if (item) {
-      setForm(formFromItem(item));
-    }
+    setForm(item ? formFromItem(item) : emptyForm());
     setItemDialogTab("overview");
     setOperationError(null);
     setItemDialogOpen(true);
@@ -573,7 +603,7 @@ export function Calendar() {
   const dashboard = dashboardQuery.data;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-4">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Calendar</h1>
@@ -631,8 +661,8 @@ export function Calendar() {
         </Card>
       ) : null}
 
-      <div className="min-h-0 flex-1">
-        <Card className="min-h-0">
+      <div>
+        <Card>
           <CardHeader className="gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-base">Items</CardTitle>
@@ -647,7 +677,7 @@ export function Calendar() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="min-h-0 overflow-auto p-0">
+          <CardContent className="overflow-x-auto p-0">
             {items.length === 0 ? (
               <div className="p-6">
                 <EmptyState icon={CalendarDays} message={searchQuery.trim() ? "No calendar items match this search." : "Create an item to start tracking obligations."} />
@@ -714,10 +744,10 @@ export function Calendar() {
                           {titleCase(item.riskLevel)}
                         </span>
                       </td>
-                      <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : formatCents(item.amountCents)}</td>
+                      <td className="px-3 py-2 align-top">{item.amountCents == null ? "-" : money(item.amountCents, item.currency)}</td>
                       <td className="px-3 py-2 align-top">{item.autoRenew ? "Yes" : "No"}</td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground">
-                        <div>{item.paymentMethodLabel ?? "-"}</div>
+                        <div>{item.paymentProfileId ? "Registered profile" : item.paymentMethodLabel ?? "-"}</div>
                         <div>{item.costCenter ?? ""}</div>
                       </td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground">{item.purchaseEmail ?? "-"}</td>
@@ -733,8 +763,11 @@ export function Calendar() {
         </Card>
 
         <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-          <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
-            <DialogHeader className="border-b border-border px-6 py-4 pr-12">
+          <DialogContent
+            data-testid="calendar-item-dialog"
+            className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(820px,calc(100dvh-2rem))] sm:max-w-4xl"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-5 py-3 pr-12">
               <div className="flex items-center justify-between gap-3">
                 <DialogTitle>{isEditing ? "Item Detail" : "New Item"}</DialogTitle>
                 {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
@@ -743,9 +776,9 @@ export function Calendar() {
                 Track the due date, owner, payment, account, and proof details for this obligation.
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 overflow-y-auto px-6 py-4">
-              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="gap-4">
-                <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+            <div className="min-h-0 flex-1 px-5 py-3">
+              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
+                <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto">
                   <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
                   <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
                   <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
@@ -754,7 +787,8 @@ export function Calendar() {
                   {selectedItem ? <TabsTrigger value="documents" data-testid="calendar-tab-documents" onClick={() => setItemDialogTab("documents")}>Documents</TabsTrigger> : null}
                   {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
                 </TabsList>
-                <TabsContent value="overview" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Title">
                     <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
                   </Field>
@@ -775,17 +809,23 @@ export function Calendar() {
                       </Select>
                     </Field>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 border border-border bg-muted/20 p-3 md:col-span-2 md:max-w-md">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">Schedule</div>
                     <Field label="Due Date">
                       <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
                     </Field>
                     <Field label="Due Time">
                       <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
                     </Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <Field label="Timezone">
-                      <Input value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
+                      <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {CALENDAR_TIMEZONE_OPTIONS.map((timezone) => (
+                            <SelectItem key={timezone.value} value={timezone.value}>{timezone.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <Field label="Recurrence">
                       <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
@@ -793,13 +833,11 @@ export function Calendar() {
                         <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
                       </Select>
                     </Field>
-                  </div>
-                  {form.recurrenceType === "custom_rrule" ? (
-                    <Field label="Recurrence Rule">
-                      <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
-                    </Field>
-                  ) : null}
-                  <div className="border border-border bg-muted/20 p-3 text-sm md:col-span-2">
+                    {form.recurrenceType === "custom_rrule" ? (
+                      <Field label="Recurrence Rule">
+                        <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
+                      </Field>
+                    ) : null}
                     <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
                     <div className="mt-1">{nextDuePreview(form)}</div>
                   </div>
@@ -843,8 +881,10 @@ export function Calendar() {
                       </Select>
                     </Field>
                   </div>
+                  </div>
                 </TabsContent>
-                <TabsContent value="payment" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="payment" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <div className="grid grid-cols-[1fr_90px] gap-3">
                     <Field label="Amount">
                       <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
@@ -853,6 +893,19 @@ export function Calendar() {
                       <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
                     </Field>
                   </div>
+                  <Field label="Payment Profile">
+                    <Select value={form.paymentProfileId || NONE} onValueChange={(paymentProfileId) => setForm((current) => ({ ...current, paymentProfileId: paymentProfileId === NONE ? "" : paymentProfileId }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>None</SelectItem>
+                        {(paymentProfilesQuery.data ?? []).map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                   <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
                   <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
                   <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
@@ -872,29 +925,37 @@ export function Calendar() {
                      aria-label="Manual Action Required"/>
                     Manual action required
                   </label>
+                  </div>
                 </TabsContent>
-                <TabsContent value="contacts" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="contacts" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
                   <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
                   <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
                   <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
                   <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="links" className="grid gap-3 md:grid-cols-2">
+                <TabsContent value="links" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3 md:grid-cols-2">
                   <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
                   <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
                   <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
                   <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="notes" className="grid gap-3">
+                <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-3">
                   <Field label="Notes">
                     <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
                   </Field>
                   <Field label="Internal Notes">
                     <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
                   </Field>
+                  </div>
                 </TabsContent>
-                <TabsContent value="documents" className="grid gap-2">
+                <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-2">
                   {selectedDocuments.length === 0 ? (
                     <div className="border border-border p-3 text-sm text-muted-foreground">No documents linked.</div>
                   ) : selectedDocuments.map((document) => (
@@ -911,8 +972,10 @@ export function Calendar() {
                       {document.notes ? <div className="mt-2 text-xs text-muted-foreground">{document.notes}</div> : null}
                     </div>
                   ))}
+                  </div>
                 </TabsContent>
-                <TabsContent value="history" className="grid gap-2">
+                <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <div className="grid content-start gap-2">
                   {selectedActivity.length === 0 ? (
                     <div className="border border-border p-3 text-sm text-muted-foreground">No activity recorded.</div>
                   ) : selectedActivity.map((entry) => (
@@ -926,12 +989,13 @@ export function Calendar() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </TabsContent>
               </Tabs>
             </div>
-            <DialogFooter className="border-t border-border px-6 py-4">
+            <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
               <div className="flex flex-1 flex-wrap gap-2">
-                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || (isEditing && !selectedItem)}>
                   {isEditing ? "Save" : "Create"}
                 </Button>
                 {selectedItem ? (

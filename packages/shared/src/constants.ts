@@ -525,6 +525,9 @@ export const CLIENT_EMPLOYEE_PROJECT_SCOPES = ["all_linked_projects", "selected_
 export type ClientEmployeeProjectScope = (typeof CLIENT_EMPLOYEE_PROJECT_SCOPES)[number];
 
 export const CALENDAR_ITEM_CATEGORIES = [
+  "project",
+  "account",
+  "insurance",
   "fiscal",
   "domain",
   "hosting",
@@ -535,9 +538,6 @@ export const CALENDAR_ITEM_CATEGORIES = [
   "payment_receivable",
   "payment_payable",
   "legal",
-  "project",
-  "account",
-  "insurance",
   "other",
 ] as const;
 export type CalendarItemCategory = (typeof CALENDAR_ITEM_CATEGORIES)[number];
@@ -796,6 +796,25 @@ export const FINANCE_UNITS = [
   "unknown",
 ] as const;
 export type FinanceUnit = (typeof FINANCE_UNITS)[number];
+
+export const PAYMENT_METHODS = [
+  "credit_card",
+  "debit_card",
+  "pix",
+  "bank_transfer",
+  "boleto",
+  "cash",
+  "other",
+] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export const PAYMENT_ENTRY_STATUSES = [
+  "open",
+  "partially_paid",
+  "paid",
+  "cancelled",
+] as const;
+export type PaymentEntryStatus = (typeof PAYMENT_ENTRY_STATUSES)[number];
 
 export const BUDGET_SCOPE_TYPES = ["company", "agent", "project"] as const;
 export type BudgetScopeType = (typeof BUDGET_SCOPE_TYPES)[number];
@@ -1159,6 +1178,7 @@ export const PLUGIN_RESERVED_COMPANY_ROUTE_SEGMENTS = [
   "goals",
   "approvals",
   "costs",
+  "payments",
   "activity",
   "inbox",
   "design-guide",

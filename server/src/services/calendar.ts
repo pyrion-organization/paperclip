@@ -14,6 +14,7 @@ import {
   inboundEmailAttachments,
   inboundEmailMessages,
   issues,
+  paymentProfiles,
   projects,
 } from "@paperclipai/db";
 import {
@@ -35,6 +36,7 @@ import {
 import { badRequest, notFound, unprocessable } from "../errors.js";
 import { logActivity, type LogActivityInput } from "./activity-log.js";
 import { issueService } from "./issues.js";
+import { paymentService } from "./payments.js";
 
 type Actor = {
   actorType: LogActivityInput["actorType"];
@@ -364,6 +366,7 @@ function requiresApprovalForPatch(existing: CalendarItemRow, patch: UpdateCalend
   if (patch.recoveryEmail !== undefined && patch.recoveryEmail !== existing.recoveryEmail) return "Changing recovery email requires approval";
   if (patch.billingEmail !== undefined && patch.billingEmail !== existing.billingEmail) return "Changing billing email requires approval";
   if (patch.paymentMethodLabel !== undefined && patch.paymentMethodLabel !== existing.paymentMethodLabel) return "Changing payment method requires approval";
+  if (patch.paymentProfileId !== undefined && patch.paymentProfileId !== existing.paymentProfileId) return "Changing payment profile requires approval";
   return null;
 }
 
@@ -392,6 +395,19 @@ function normalizePatchInput(input: UpdateCalendarItem, actor?: Actor): Partial<
     patch.nextDueDate = input.dueDate;
   }
   return patch;
+}
+
+function assertPayablePaymentDetails(item: Pick<CalendarItemRow, "category" | "status" | "nextDueDate" | "amountCents" | "paymentProfileId">) {
+  if (item.category !== "payment_payable" || (item.status !== "active" && item.status !== "overdue")) return;
+  if (!dateOnly(item.nextDueDate)) {
+    throw unprocessable("Active payment payable items require a next due date");
+  }
+  if (item.amountCents == null) {
+    throw unprocessable("Active payment payable items require an amount");
+  }
+  if (!item.paymentProfileId) {
+    throw unprocessable("Active payment payable items require a payment profile");
+  }
 }
 
 function reminderDefaultsFor(item: CalendarItemRow, daysUntilDue: number) {
@@ -522,7 +538,7 @@ function missingDetailsForItem(item: CalendarItemRow) {
   }
   if (item.category === "certificate" && !item.nextDueDate) missing.push("certificate expiration date");
   if (item.category === "api_token" && !item.relatedProjectId && !item.technicalContactEmail) missing.push("token owner/project/contact");
-  if (item.autoRenew && !item.paymentMethodLabel) missing.push("payment method");
+  if (item.autoRenew && !item.paymentMethodLabel && !item.paymentProfileId) missing.push("payment method");
   if (item.amountCents != null && !item.costCenter) missing.push("cost center");
   if (item.sourceKind !== "manual" && (item.confidenceScore ?? 100) < LOW_CONFIDENCE_THRESHOLD) missing.push("human review for low-confidence extraction");
   if (missing.length === 0) return null;
@@ -561,6 +577,7 @@ function missingDetailsReportDescription(findings: Array<NonNullable<ReturnType<
 
 export function calendarService(db: Db) {
   const issuesSvc = issueService(db);
+  const payments = paymentService(db);
 
   async function assertCompanyRow(table: any, id: string, companyId: string, label: string) {
     const row = await db.select().from(table).where(eq(table.id, id)).then((rows) => rows[0] ?? null);
@@ -583,6 +600,7 @@ export function calendarService(db: Db) {
     if (data.timezone) assertTimeZone(data.timezone);
     if (data.relatedClientId) await assertCompanyRow(clients, data.relatedClientId, companyId, "Client");
     if (data.relatedProjectId) await assertCompanyRow(projects, data.relatedProjectId, companyId, "Project");
+    if (data.paymentProfileId) await assertCompanyRow(paymentProfiles, data.paymentProfileId, companyId, "Payment profile");
     if (data.sourceEmailMessageId) await assertCompanyRow(inboundEmailMessages, data.sourceEmailMessageId, companyId, "Inbound email message");
   }
 
@@ -819,15 +837,24 @@ export function calendarService(db: Db) {
 
     async create(companyId: string, input: CreateCalendarItem, actor?: Actor) {
       await validateReferences(companyId, input);
+      const values = normalizeCreateInput(input, actor);
+      assertPayablePaymentDetails({
+        category: values.category,
+        status: values.status ?? "active",
+        nextDueDate: values.nextDueDate ?? null,
+        amountCents: values.amountCents ?? null,
+        paymentProfileId: values.paymentProfileId ?? null,
+      });
       const [item] = await db
         .insert(calendarItems)
-        .values({ ...normalizeCreateInput(input, actor), companyId })
+        .values({ ...values, companyId })
         .returning();
       await logCalendarActivity(companyId, actor, "calendar_item.created", item.id, {
         title: item.title,
         category: item.category,
         riskLevel: item.riskLevel,
       });
+      await payments.ensureEntryForCalendarItem(item);
       return rowToItem(item);
     },
 
@@ -906,15 +933,24 @@ export function calendarService(db: Db) {
       if (approvalReason && !opts?.approvalConfirmed) {
         throw unprocessable(approvalReason);
       }
+      const patch = normalizePatchInput(input, actor);
+      assertPayablePaymentDetails({
+        category: patch.category ?? existing.category,
+        status: patch.status ?? existing.status,
+        nextDueDate: patch.nextDueDate === undefined ? existing.nextDueDate : patch.nextDueDate,
+        amountCents: patch.amountCents === undefined ? existing.amountCents : patch.amountCents,
+        paymentProfileId: patch.paymentProfileId === undefined ? existing.paymentProfileId : patch.paymentProfileId,
+      });
       const [updated] = await db
         .update(calendarItems)
-        .set(normalizePatchInput(input, actor))
+        .set(patch)
         .where(and(eq(calendarItems.id, itemId), eq(calendarItems.companyId, companyId)))
         .returning();
       await logCalendarActivity(companyId, actor, "calendar_item.updated", itemId, {
         changedKeys: changedKeys(input),
         approvalConfirmed: Boolean(approvalReason),
       });
+      await payments.ensureEntryForCalendarItem(updated);
       return rowToItem(updated);
     },
 
@@ -944,6 +980,8 @@ export function calendarService(db: Db) {
         nextDueDate,
         status,
       });
+      await payments.completeCurrentEntryForCalendarItem(existing, input.completedAt ?? new Date());
+      await payments.ensureEntryForCalendarItem(updated, { advanceCycle: true });
       return rowToItem(updated);
     },
 
@@ -952,6 +990,13 @@ export function calendarService(db: Db) {
       if (status === "cancelled" && !opts?.approvalConfirmed) {
         throw unprocessable("Cancelling an obligation requires approval confirmation");
       }
+      assertPayablePaymentDetails({
+        category: existing.category,
+        status,
+        nextDueDate: existing.nextDueDate,
+        amountCents: existing.amountCents,
+        paymentProfileId: existing.paymentProfileId,
+      });
       const [updated] = await db
         .update(calendarItems)
         .set({
@@ -963,6 +1008,7 @@ export function calendarService(db: Db) {
         .where(and(eq(calendarItems.id, existing.id), eq(calendarItems.companyId, companyId)))
         .returning();
       await logCalendarActivity(companyId, actor, `calendar_item.${status}`, itemId, { previousStatus: existing.status });
+      await payments.ensureEntryForCalendarItem(updated);
       return rowToItem(updated);
     },
 

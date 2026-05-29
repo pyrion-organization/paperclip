@@ -4,6 +4,7 @@ import {
   Boxes,
   CalendarDays,
   CircleDot,
+  CreditCard,
   DollarSign,
   FileText,
   GitBranch,
@@ -80,6 +81,7 @@ export function SidebarDeferredSections({
       <SidebarSection label="Work">
         <SidebarNavItem to="/issues" label="Issues" icon={CircleDot} />
         <SidebarNavItem to="/calendar" label="Calendar" icon={CalendarDays} />
+        <SidebarNavItem to="/payments" label="Payments" icon={CreditCard} />
         <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
         <SidebarNavItem to="/goals" label="Goals" icon={Target} />
         {showWorkspacesLink ? (

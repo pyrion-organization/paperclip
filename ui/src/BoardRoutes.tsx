@@ -35,6 +35,7 @@ const GoalDetail = lazy(() => import("./pages/GoalDetail").then(({ GoalDetail })
 const Approvals = lazy(() => import("./pages/Approvals").then(({ Approvals }) => ({ default: Approvals })));
 const ApprovalDetail = lazy(() => import("./pages/ApprovalDetail").then(({ ApprovalDetail }) => ({ default: ApprovalDetail })));
 const Costs = lazy(() => import("./pages/Costs").then(({ Costs }) => ({ default: Costs })));
+const Payments = lazy(() => import("./pages/Payments").then(({ Payments }) => ({ default: Payments })));
 const Usage = lazy(() => import("./pages/Usage").then(({ Usage }) => ({ default: Usage })));
 const Activity = lazy(() => import("./pages/Activity").then(({ Activity }) => ({ default: Activity })));
 const Inbox = lazy(() => import("./pages/Inbox").then(({ Inbox }) => ({ default: Inbox })));
@@ -155,6 +156,7 @@ export function BoardRoutes() {
         <Route path="approvals/all" element={<Approvals />} />
         <Route path="approvals/:approvalId" element={<ApprovalDetail />} />
         <Route path="costs" element={<Costs />} />
+        <Route path="payments" element={<Payments />} />
         <Route path="usage" element={<Usage />} />
         <Route path="activity" element={<Activity />} />
         <Route path="email/ops" element={<InboundEmailOps />} />

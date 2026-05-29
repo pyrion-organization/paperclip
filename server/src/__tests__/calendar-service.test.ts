@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   activityLog,
@@ -14,6 +14,9 @@ import {
   inboundEmailMailboxes,
   inboundEmailMessages,
   issues,
+  paymentEntries,
+  paymentProfiles,
+  paymentRecords,
   projects,
 } from "@paperclipai/db";
 import {
@@ -28,6 +31,7 @@ import {
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
 import { calendarService, calculateNextDueDate } from "../services/calendar.ts";
+import { paymentService } from "../services/payments.ts";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -119,6 +123,9 @@ describeEmbeddedPostgres("calendarService", () => {
   afterEach(async () => {
     await db.delete(calendarItemDocuments);
     await db.delete(emailNotifications);
+    await db.delete(paymentRecords);
+    await db.delete(paymentEntries);
+    await db.delete(paymentProfiles);
     await db.delete(activityLog);
     await db.delete(issues);
     await db.delete(calendarItems);
@@ -266,7 +273,690 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(completed.notes).toContain("Paid");
   });
 
+  it("creates and advances linked payment entries for payable calendar items", async () => {
+    const payments = paymentService(db);
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+        ownerName: "Finance",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Monthly hosting payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      recurrenceType: "monthly",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    const firstEntries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+
+    expect(firstEntries).toHaveLength(1);
+    expect(firstEntries[0]).toMatchObject({
+      title: "Monthly hosting payment",
+      providerName: "Hosting Co",
+      dueDate: "2026-06-10",
+      expectedAmountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+      status: "open",
+    });
+
+    const completed = await svc.complete(
+      companyId,
+      created.id,
+      { completedAt: new Date("2026-06-10T12:00:00.000Z"), notes: "Paid" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+    const advancedEntries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)))
+      .orderBy(paymentEntries.dueDate);
+
+    expect(completed.nextDueDate).toBe("2026-07-10");
+    expect(advancedEntries.map((entry) => entry.dueDate)).toEqual(["2026-06-10", "2026-07-10"]);
+    expect(advancedEntries[0]).toMatchObject({
+      paidAmountCents: 12500,
+      status: "paid",
+    });
+    const completionRecords = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, advancedEntries[0]!.id)));
+    expect(completionRecords).toHaveLength(1);
+    expect(completionRecords[0]).toMatchObject({
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+      notes: "Marked paid from calendar completion",
+    });
+    expect(completionRecords[0]!.paidAt.toISOString()).toBe("2026-06-10T12:00:00.000Z");
+    await expect(payments.updateEntry(companyId, advancedEntries[0]!.id, { notes: "Receipt reconciled" }))
+      .resolves.toMatchObject({ paidAmountCents: 12500, status: "paid" });
+    expect(advancedEntries[1]).toMatchObject({
+      expectedAmountCents: 12500,
+      paymentProfileId: profile!.id,
+      status: "open",
+    });
+  });
+
+  it("updates an existing unpaid linked payment when a payable due date changes", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Correctable hosting payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    await svc.update(
+      companyId,
+      created.id,
+      { nextDueDate: "2026-06-12" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+
+    const entries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      dueDate: "2026-06-12",
+      status: "open",
+    });
+  });
+
+  it("reconciles linked payment status when a payable amount changes", async () => {
+    const payments = paymentService(db);
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const created = await svc.create(companyId, item({
+      title: "Correctable amount payment",
+      category: "payment_payable",
+      providerName: "Hosting Co",
+      nextDueDate: "2026-06-10",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const [entry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, created.id)));
+    expect(entry).toBeDefined();
+
+    await payments.recordPayment(companyId, entry!.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-10T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Partial before correction",
+    });
+
+    await svc.update(
+      companyId,
+      created.id,
+      { amountCents: 4000 },
+      undefined,
+      { approvalConfirmed: true },
+    );
+
+    const [updatedEntry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entry!.id)));
+
+    expect(updatedEntry).toMatchObject({
+      expectedAmountCents: 4000,
+      paidAmountCents: 4000,
+      status: "paid",
+    });
+  });
+
+  it("only keeps linked payment entries for active payable calendar items", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    const pending = await svc.create(companyId, item({
+      title: "Pending payable proposal",
+      category: "payment_payable",
+      status: "pending_review",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const active = await svc.create(companyId, item({
+      title: "Active payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-11",
+      amountCents: 15000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const paused = await svc.create(companyId, item({
+      title: "Paused payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-12",
+      amountCents: 16000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+
+    await svc.update(
+      companyId,
+      active.id,
+      { category: "domain" },
+      undefined,
+      { approvalConfirmed: true },
+    );
+    await svc.setStatus(companyId, paused.id, "paused");
+
+    const entries = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), inArray(paymentEntries.calendarItemId, [pending.id, active.id, paused.id])))
+      .orderBy(paymentEntries.dueDate);
+
+    expect(entries.find((entry) => entry.calendarItemId === pending.id)).toBeUndefined();
+    expect(entries.find((entry) => entry.calendarItemId === active.id)).toMatchObject({ status: "cancelled" });
+    expect(entries.find((entry) => entry.calendarItemId === paused.id)).toMatchObject({ status: "cancelled" });
+  });
+
+  it("requires payment details before active payable calendar items can sync payments", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+
+    await expect(svc.create(companyId, item({
+      title: "Missing amount payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-10",
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }))).rejects.toThrow(/amount/i);
+
+    await expect(svc.create(companyId, item({
+      title: "Missing profile payable",
+      category: "payment_payable",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }))).rejects.toThrow(/payment profile/i);
+
+    const pending = await svc.create(companyId, item({
+      title: "Pending missing profile payable",
+      category: "payment_payable",
+      status: "pending_review",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }));
+
+    await expect(svc.update(companyId, pending.id, { status: "active" }))
+      .rejects.toThrow(/payment profile/i);
+
+    const paused = await svc.create(companyId, item({
+      title: "Paused missing profile payable",
+      category: "payment_payable",
+      status: "paused",
+      nextDueDate: "2026-06-10",
+      amountCents: 12500,
+      currency: "BRL",
+      paymentProfileId: null,
+    }));
+
+    await expect(svc.setStatus(companyId, paused.id, "active"))
+      .rejects.toThrow(/payment profile/i);
+  });
+
+  it("records partial and full payments against a payment entry", async () => {
+    const payments = paymentService(db);
+    const profile = await payments.createProfile(companyId, {
+      method: "credit_card",
+      accountLabel: "Corporate card",
+      ownerName: "Finance",
+      notes: null,
+      active: true,
+    });
+    const entry = await payments.createEntry(companyId, {
+      title: "Cloud invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile.id,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const partial = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "First payment",
+    });
+    const full = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 6000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-16T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Remainder",
+    });
+
+    expect(partial.completed).toBe(false);
+    expect(partial.entry).toMatchObject({ paidAmountCents: 4000, status: "partially_paid" });
+    expect(full.completed).toBe(true);
+    expect(full.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)))
+      .orderBy(paymentRecords.paidAt);
+    expect(records.map((record) => record.paymentProfileId)).toEqual([null, null]);
+
+    const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
+    expect(dashboard.paidThisMonth).toEqual([{ currency: "BRL", amountCents: 10000 }]);
+    expect(dashboard.openBalances).toEqual([]);
+  });
+
+  it("keeps payment dashboard money totals grouped by currency", async () => {
+    const payments = paymentService(db);
+    const brlEntry = await payments.createEntry(companyId, {
+      title: "BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+    const usdEntry = await payments.createEntry(companyId, {
+      title: "USD invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-16",
+      expectedAmountCents: 5000,
+      currency: "USD",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+    const futureEntry = await payments.createEntry(companyId, {
+      title: "Future BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-07-05",
+      expectedAmountCents: 7000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, brlEntry.id, {
+      amountCents: 2000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "BRL partial",
+    });
+    await payments.recordPayment(companyId, usdEntry.id, {
+      amountCents: 2000,
+      currency: "USD",
+      paymentProfileId: null,
+      paidAt: "2026-06-16T10:00:00.000Z",
+      proofUrl: null,
+      notes: "USD partial",
+    });
+    await payments.recordPayment(companyId, futureEntry.id, {
+      amountCents: 7000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-07-05T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Future month payment",
+    });
+
+    const dashboard = await payments.dashboard(companyId, new Date("2026-06-20T00:00:00.000Z"));
+
+    expect(dashboard.openBalances).toEqual([
+      { currency: "BRL", amountCents: 8000 },
+      { currency: "USD", amountCents: 3000 },
+    ]);
+    expect(dashboard.paidThisMonth).toEqual([
+      { currency: "BRL", amountCents: 2000 },
+      { currency: "USD", amountCents: 2000 },
+    ]);
+  });
+
+  it("serializes concurrent payment records for the same entry", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Concurrent invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const attempts = await Promise.allSettled([
+      payments.recordPayment(companyId, entry.id, {
+        amountCents: 10000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:00:00.000Z",
+        proofUrl: null,
+        notes: "First concurrent payment",
+      }),
+      payments.recordPayment(companyId, entry.id, {
+        amountCents: 10000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:01:00.000Z",
+        proofUrl: null,
+        notes: "Second concurrent payment",
+      }),
+    ]);
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)));
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(records).toHaveLength(1);
+  });
+
+  it("requires approval from locked state for concurrent high-risk linked payments", async () => {
+    const payments = paymentService(db);
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
+    const itemRow = await svc.create(companyId, item({
+      title: "Critical payable",
+      category: "payment_payable",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-15",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile!.id,
+    }));
+    const [entry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.calendarItemId, itemRow.id)));
+    expect(entry).toBeDefined();
+
+    const attempts = await Promise.allSettled([
+      payments.recordPayment(companyId, entry!.id, {
+        amountCents: 6000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:00:00.000Z",
+        proofUrl: null,
+        notes: "First partial",
+      }),
+      payments.recordPayment(companyId, entry!.id, {
+        amountCents: 4000,
+        currency: "BRL",
+        paymentProfileId: null,
+        paidAt: "2026-06-15T10:01:00.000Z",
+        proofUrl: null,
+        notes: "Second partial",
+      }),
+    ]);
+    const records = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry!.id)));
+    const [updatedEntry] = await db
+      .select()
+      .from(paymentEntries)
+      .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entry!.id)));
+    const [updatedItem] = await db
+      .select()
+      .from(calendarItems)
+      .where(and(eq(calendarItems.companyId, companyId), eq(calendarItems.id, itemRow.id)));
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(records).toHaveLength(1);
+    expect([4000, 6000]).toContain(updatedEntry!.paidAmountCents);
+    expect(updatedEntry).toMatchObject({ status: "partially_paid" });
+    expect(updatedItem).toMatchObject({ status: "active", nextDueDate: "2026-06-15" });
+  });
+
+  it("rejects payment records that do not match the entry currency", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "BRL invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await expect(payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      currency: "USD",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Wrong currency",
+    })).rejects.toThrow(/currency/i);
+  });
+
+  it("defaults omitted payment record currency from the entry", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "USD invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "USD",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    const result = await payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Paid without explicit currency",
+    });
+    const [record] = await db
+      .select()
+      .from(paymentRecords)
+      .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entry.id)));
+
+    expect(result.entry).toMatchObject({ paidAmountCents: 10000, status: "paid" });
+    expect(record).toMatchObject({ amountCents: 10000, currency: "USD" });
+  });
+
+  it("treats payment profiles as auto-renew payment details", async () => {
+    const payments = paymentService(db);
+    const profile = await payments.createProfile(companyId, {
+      method: "credit_card",
+      accountLabel: "Corporate card",
+      ownerName: "Finance",
+      notes: null,
+      active: true,
+    });
+
+    const created = await svc.create(companyId, item({
+      title: "Profile-backed auto renew",
+      category: "software_subscription",
+      nextDueDate: "2026-06-15",
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: profile.id,
+      autoRenew: true,
+      billingEmail: "billing@example.com",
+      costCenter: "ops",
+    }));
+
+    const dashboard = await svc.dashboard(companyId, new Date("2026-06-01T00:00:00.000Z"));
+
+    expect(dashboard.missingDetails.find((finding) => finding.itemId === created.id)).toBeUndefined();
+  });
+
+  it("recomputes payment status when expected amount changes", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Adjustable invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, entry.id, {
+      amountCents: 4000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Partial payment",
+    });
+
+    const fullyCovered = await payments.updateEntry(companyId, entry.id, {
+      expectedAmountCents: 4000,
+    });
+
+    expect(fullyCovered).toMatchObject({ paidAmountCents: 4000, status: "paid" });
+    await expect(payments.updateEntry(companyId, entry.id, { expectedAmountCents: 8000 }))
+      .rejects.toThrow(/cannot be reopened/);
+  });
+
+  it("rejects direct paid status updates without payment records", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Manual invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await expect(payments.updateEntry(companyId, entry.id, { status: "paid" }))
+      .rejects.toThrow(/payment records/i);
+  });
+
+  it("allows metadata-only paid entry edits but rejects explicit reopen attempts", async () => {
+    const payments = paymentService(db);
+    const entry = await payments.createEntry(companyId, {
+      title: "Paid invoice",
+      providerName: "Cloud Co",
+      dueDate: "2026-06-15",
+      expectedAmountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      calendarItemId: null,
+      notes: null,
+    });
+
+    await payments.recordPayment(companyId, entry.id, {
+      amountCents: 10000,
+      currency: "BRL",
+      paymentProfileId: null,
+      paidAt: "2026-06-15T10:00:00.000Z",
+      proofUrl: null,
+      notes: "Paid in full",
+    });
+
+    const updated = await payments.updateEntry(companyId, entry.id, {
+      notes: "Receipt reconciled",
+    });
+
+    expect(updated).toMatchObject({
+      status: "paid",
+      notes: "Receipt reconciled",
+    });
+    await expect(payments.updateEntry(companyId, entry.id, { expectedAmountCents: 20000 }))
+      .rejects.toThrow(/cannot be reopened/);
+    await expect(payments.updateEntry(companyId, entry.id, { status: "open" }))
+      .rejects.toThrow(/cannot be reopened/);
+  });
+
   it("rejects governed mutations unless approval is explicitly confirmed", async () => {
+    const [profile] = await db
+      .insert(paymentProfiles)
+      .values({
+        companyId,
+        method: "pix",
+        accountLabel: "Finance PIX",
+      })
+      .returning();
     const created = await svc.create(companyId, item({
       title: "Critical certificate",
       category: "certificate",
@@ -291,6 +981,9 @@ describeEmbeddedPostgres("calendarService", () => {
     ).rejects.toThrow(/requires approval/);
     await expect(
       svc.update(companyId, created.id, { paymentMethodLabel: null }),
+    ).rejects.toThrow(/requires approval/);
+    await expect(
+      svc.update(companyId, created.id, { paymentProfileId: profile!.id }),
     ).rejects.toThrow(/requires approval/);
     await expect(
       svc.complete(companyId, created.id, { completedAt: new Date("2026-06-30T12:00:00.000Z") }),

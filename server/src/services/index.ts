@@ -44,6 +44,7 @@ export { backgroundJobService } from "./background-jobs.js";
 export { issueSchedulerService } from "./issue-scheduler.js";
 export { costService } from "./costs.js";
 export { financeService } from "./finance.js";
+export { paymentService } from "./payments.js";
 export { heartbeatService } from "./heartbeat.js";
 export {
   productivityReviewService,
