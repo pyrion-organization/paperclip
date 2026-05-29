@@ -515,6 +515,46 @@ describeEmbeddedPostgres("calendarService", () => {
     expect(queuedEmails[0]!.issueId).toBe(reminderIssues[0]!.id);
   });
 
+  it("queues a reminder email per recipient and dedupes each on re-scan", async () => {
+    await svc.create(companyId, item({
+      title: "Multi-recipient domain renewal",
+      category: "domain",
+      riskLevel: "critical",
+      nextDueDate: "2026-06-30",
+      purchaseEmail: "owner@example.com",
+      serviceUrl: "https://example.com",
+      metadata: { registrar: "Registrar", domainName: "example.com" },
+    }));
+
+    const first = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmails: ["ops@example.com", "finance@example.com"],
+    });
+    const second = await svc.runReminderScan(companyId, {
+      now: new Date("2026-05-31T00:00:00.000Z"),
+      createIssues: false,
+      sendEmail: true,
+      recipientEmails: ["ops@example.com", "finance@example.com"],
+    });
+
+    const queuedEmails = await db
+      .select()
+      .from(emailNotifications)
+      .where(and(
+        eq(emailNotifications.companyId, companyId),
+        eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+      ));
+
+    expect(first.queuedEmails).toBe(2);
+    expect(second.queuedEmails).toBe(0);
+    expect(queuedEmails).toHaveLength(2);
+    expect(new Set(queuedEmails.map((row) => row.recipientEmail))).toEqual(
+      new Set(["ops@example.com", "finance@example.com"]),
+    );
+  });
+
   it("reports missing details through a weekly issue", async () => {
     await svc.create(companyId, item({
       title: "Incomplete domain",
