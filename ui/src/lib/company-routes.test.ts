@@ -35,4 +35,19 @@ describe("company routes", () => {
     expect(applyCompanyPrefix("/search?q=hello%20world", "PAP")).toBe("/PAP/search?q=hello%20world");
     expect(toCompanyRelativePath("/PAP/search?q=foo")).toBe("/search?q=foo");
   });
+
+  it("recognizes built-in unprefixed board roots before dynamic company-prefix routes", () => {
+    for (const path of [
+      "/dashboard",
+      "/dashboard/live",
+      "/goals",
+      "/approvals/pending",
+      "/inbox/mine",
+      "/company/settings",
+      "/projects/project-1/budget",
+    ]) {
+      expect(isBoardPathWithoutPrefix(path)).toBe(true);
+      expect(extractCompanyPrefixFromPath(path)).toBeNull();
+    }
+  });
 });

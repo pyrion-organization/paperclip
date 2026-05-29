@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "@/lib/router";
 import { CloudAccessGate } from "./components/CloudAccessGate";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
+import { isBoardPathWithoutPrefix } from "./lib/company-routes";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
@@ -121,6 +122,16 @@ function OnboardingWizardMount() {
   );
 }
 
+function BoardRoutesGate() {
+  const location = useLocation();
+
+  if (isBoardPathWithoutPrefix(location.pathname)) {
+    return <UnprefixedBoardRedirect />;
+  }
+
+  return <BoardRoutes />;
+}
+
 export function App() {
   return (
     <>
@@ -183,8 +194,9 @@ export function App() {
             <Route path="execution-workspaces/:workspaceId/runtime-logs" element={<UnprefixedBoardRedirect />} />
             <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedBoardRedirect />} />
             <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedBoardRedirect />} />
+            <Route path="dashboard/*" element={<UnprefixedBoardRedirect />} />
             <Route path=":companyPrefix/dashboard/*" element={<BoardDashboardRoutes />} />
-            <Route path=":companyPrefix/*" element={<BoardRoutes />} />
+            <Route path=":companyPrefix/*" element={<BoardRoutesGate />} />
             <Route path="*" element={<NotFoundPage scope="global" />} />
           </Route>
         </Routes>

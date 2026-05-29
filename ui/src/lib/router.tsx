@@ -86,27 +86,31 @@ function IssueQuicklookLink({
   ...props
 }: IssueQuicklookLinkProps) {
     const [armed, setArmed] = React.useState(false);
+    const [openOnLoad, setOpenOnLoad] = React.useState(false);
     const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
-    const armQuicklook = React.useCallback(() => setArmed(true), []);
+    const armQuicklook = React.useCallback((openWhenLoaded = false) => {
+      setArmed(true);
+      setOpenOnLoad(openWhenLoaded);
+    }, []);
     const fallbackLink = (
       <RouterDom.Link
         ref={ref}
         to={to}
         state={prefetchedState}
         onMouseEnter={(event) => {
-          armQuicklook();
+          armQuicklook(true);
           onMouseEnter?.(event);
         }}
         onFocus={(event) => {
-          armQuicklook();
+          armQuicklook(true);
           onFocus?.(event);
         }}
         onTouchStart={(event) => {
-          armQuicklook();
+          armQuicklook(false);
           onTouchStart?.(event);
         }}
         onClickCapture={(event) => {
-          armQuicklook();
+          armQuicklook(false);
           onClickCapture?.(event);
         }}
         {...props}
@@ -125,6 +129,7 @@ function IssueQuicklookLink({
           state={state}
           issuePathId={issuePathId}
           issuePrefetch={issuePrefetch}
+          initialOpen={openOnLoad}
           issueQuicklookSide={issueQuicklookSide}
           issueQuicklookAlign={issueQuicklookAlign}
           onMouseEnter={onMouseEnter}

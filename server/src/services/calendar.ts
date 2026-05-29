@@ -224,7 +224,7 @@ function matchesCalendarSearchToken(
 // who it goes to, which item, and which due date. The day-timing match is
 // evaluated separately so overdue (any negative day count) can be a range.
 function reminderEmailKey(recipientEmail: string | null, calendarItemId: string | null, dueDate: string | null) {
-  return `${recipientEmail} ${calendarItemId ?? ""} ${dueDate ?? ""}`;
+  return `${recipientEmail}\0${calendarItemId ?? ""}\0${dueDate ?? ""}`;
 }
 
 function calendarItemMatchesSearch(item: CalendarItemRow, tokens: string[], now: Date) {

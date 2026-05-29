@@ -73,6 +73,7 @@ type IssueLinkQuicklookProps = React.ComponentProps<typeof RouterDom.Link> & {
   issuePathId: string;
   disableIssueQuicklook?: boolean;
   issuePrefetch?: Issue | null;
+  initialOpen?: boolean;
   issueQuicklookSide?: React.ComponentProps<typeof PopoverContent>["side"];
   issueQuicklookAlign?: React.ComponentProps<typeof PopoverContent>["align"];
   ref?: React.Ref<HTMLAnchorElement>;
@@ -86,6 +87,7 @@ export function IssueLinkQuicklook({
   state,
   disableIssueQuicklook = false,
   issuePrefetch = null,
+  initialOpen = false,
   issueQuicklookSide = "top",
   issueQuicklookAlign = "start",
   onClick,
@@ -110,6 +112,13 @@ export function IssueLinkQuicklook({
   const handlePrefetch = React.useCallback(() => {
     void prefetchIssueDetail(queryClient, issuePathId, { issue: issuePrefetch });
   }, [issuePathId, issuePrefetch, queryClient]);
+
+  React.useEffect(() => {
+    if (!initialOpen) return;
+    handlePrefetch();
+    setOpen(true);
+  }, [handlePrefetch, initialOpen]);
+
   const link = (
     <RouterDom.Link
       ref={ref}

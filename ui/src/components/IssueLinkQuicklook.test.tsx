@@ -134,4 +134,30 @@ describe("IssueLinkQuicklook", () => {
 
     expect(document.body.textContent).not.toContain("Quicklook title");
   });
+
+  it("opens immediately when mounted after an initial lazy-load trigger", async () => {
+    const issue = createIssue();
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <IssueLinkQuicklook
+              initialOpen
+              issuePathId="PAP-1"
+              issuePrefetch={issue}
+              to="/companies/company-1/issues/PAP-1"
+            >
+              PAP-1
+            </IssueLinkQuicklook>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("Quicklook title");
+  });
 });
