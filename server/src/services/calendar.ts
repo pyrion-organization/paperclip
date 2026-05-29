@@ -163,7 +163,12 @@ function calendarItemDaysUntilDue(item: CalendarItemRow, now: Date) {
   return due ? daysBetween(now, due) : null;
 }
 
-function matchesCalendarSearchToken(item: CalendarItemRow, rawToken: string, now: Date) {
+function matchesCalendarSearchToken(
+  item: CalendarItemRow,
+  rawToken: string,
+  now: Date,
+  getSearchText: () => { text: string; compact: string },
+) {
   const token = rawToken.trim().toLowerCase();
   if (!token) return true;
   const [prefix, ...rest] = token.split(":");
@@ -195,7 +200,7 @@ function matchesCalendarSearchToken(item: CalendarItemRow, rawToken: string, now
     }
   }
 
-  const compact = compactToken(token);
+  const compactQuery = compactToken(token);
   if (token === "overdue") return item.status === "overdue" || (dueDiff != null && dueDiff < 0);
   if (token === "today") return dueDiff === 0;
   if (token === "7d" || token === "7days") return withinDays(7);
@@ -209,13 +214,30 @@ function matchesCalendarSearchToken(item: CalendarItemRow, rawToken: string, now
   if (token === "software") return item.category === "software_subscription";
   if (CALENDAR_STATUS_SET.has(token)) return item.status === token;
   if (CALENDAR_RECURRENCE_SET.has(token)) return item.recurrenceType === token;
-  const searchText = calendarItemSearchText(item);
-  return searchText.includes(token) || compactToken(searchText).includes(compact);
+  const { text: searchText, compact: compactSearchText } = getSearchText();
+  return searchText.includes(token) || compactSearchText.includes(compactQuery);
 }
 
-function calendarItemMatchesSearch(item: CalendarItemRow, query: string | null | undefined, now: Date) {
-  const tokens = tokenizeSearch(query);
-  return tokens.length === 0 || tokens.every((token) => matchesCalendarSearchToken(item, token, now));
+// Identifies a reminder email by the fields that make it unique within a scan:
+// who it goes to, which item, and which due date. The day-timing match is
+// evaluated separately so overdue (any negative day count) can be a range.
+function reminderEmailKey(recipientEmail: string | null, calendarItemId: string | null, dueDate: string | null) {
+  return `${recipientEmail} ${calendarItemId ?? ""} ${dueDate ?? ""}`;
+}
+
+function calendarItemMatchesSearch(item: CalendarItemRow, tokens: string[], now: Date) {
+  if (tokens.length === 0) return true;
+  // Build the row's search text (and its compacted form) at most once, no matter
+  // how many tokens fall through to the free-text branch.
+  let cache: { text: string; compact: string } | null = null;
+  const getSearchText = () => {
+    if (!cache) {
+      const text = calendarItemSearchText(item);
+      cache = { text, compact: compactToken(text) };
+    }
+    return cache;
+  };
+  return tokens.every((token) => matchesCalendarSearchToken(item, token, now, getSearchText));
 }
 
 function currentWeekKey(now: Date): string {
@@ -755,7 +777,8 @@ export function calendarService(db: Db) {
           .where(where)
           .orderBy(asc(calendarItems.nextDueDate), asc(calendarItems.title));
         const now = new Date();
-        const matched = rows.filter((row) => calendarItemMatchesSearch(row, filters.q, now));
+        const tokens = tokenizeSearch(filters.q);
+        const matched = rows.filter((row) => calendarItemMatchesSearch(row, tokens, now));
         const offset = filters.offset ?? 0;
         const limit = filters.limit ?? 100;
         return {
@@ -1109,6 +1132,36 @@ export function calendarService(db: Db) {
         ...(opts.recipientEmails ?? []),
       ]);
 
+      // Preload every existing reminder email for these recipients once, instead
+      // of issuing one SELECT per recipient per rule per item. Grouped by
+      // recipient+item+dueDate; the day-timing match is applied in memory.
+      type ExistingReminderEmail = { id: string; issueId: string | null; daysUntilDue: string | null };
+      const existingEmailIndex = new Map<string, ExistingReminderEmail[]>();
+      if (sendEmail && recipientEmails.length > 0) {
+        const existing = await db
+          .select({
+            id: emailNotifications.id,
+            issueId: emailNotifications.issueId,
+            recipientEmail: emailNotifications.recipientEmail,
+            calendarItemId: sql<string | null>`${emailNotifications.payload}->>'calendarItemId'`,
+            dueDate: sql<string | null>`${emailNotifications.payload}->>'dueDate'`,
+            daysUntilDue: sql<string | null>`${emailNotifications.payload}->>'daysUntilDue'`,
+          })
+          .from(emailNotifications)
+          .where(and(
+            eq(emailNotifications.companyId, companyId),
+            eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
+            inArray(emailNotifications.recipientEmail, recipientEmails),
+          ));
+        for (const row of existing) {
+          const key = reminderEmailKey(row.recipientEmail, row.calendarItemId, row.dueDate);
+          const entry: ExistingReminderEmail = { id: row.id, issueId: row.issueId, daysUntilDue: row.daysUntilDue };
+          const list = existingEmailIndex.get(key);
+          if (list) list.push(entry);
+          else existingEmailIndex.set(key, [entry]);
+        }
+      }
+
       for (const item of rows) {
         const due = parseDateOnly(item.nextDueDate);
         if (!due || item.status === "pending_review") {
@@ -1163,30 +1216,22 @@ export function calendarService(db: Db) {
             const subject = daysUntilDue < 0
               ? `[Calendar Paperclip] OVERDUE: ${item.title}`
               : `[Calendar Paperclip] Upcoming deadline: ${item.title} - due ${dueText}`;
+            const matchesTiming = (raw: string | null) =>
+              daysUntilDue < 0
+                ? raw != null && /^-?\d+$/.test(raw) && Number(raw) < 0
+                : raw === String(daysUntilDue);
             for (const recipientEmail of recipientEmails) {
-              const emailTimingCondition = daysUntilDue < 0
-                ? sql`(${emailNotifications.payload}->>'daysUntilDue') ~ '^-?[0-9]+$' and (${emailNotifications.payload}->>'daysUntilDue')::int < 0`
-                : eq(sql<string>`${emailNotifications.payload}->>'daysUntilDue'`, String(daysUntilDue));
-              const existingEmail = await db
-                .select({ id: emailNotifications.id, issueId: emailNotifications.issueId })
-                .from(emailNotifications)
-                .where(and(
-                  eq(emailNotifications.companyId, companyId),
-                  eq(emailNotifications.kind, CALENDAR_EMAIL_NOTIFICATION_KIND),
-                  eq(emailNotifications.recipientEmail, recipientEmail),
-                  eq(sql<string>`${emailNotifications.payload}->>'calendarItemId'`, item.id),
-                  eq(sql<string>`${emailNotifications.payload}->>'dueDate'`, dueText),
-                  emailTimingCondition,
-                ))
-                .limit(1)
-                .then((emailRows) => emailRows[0] ?? null);
+              const key = reminderEmailKey(recipientEmail, item.id, dueText);
+              const candidates = existingEmailIndex.get(key);
+              const existingEmail = candidates?.find((c) => matchesTiming(c.daysUntilDue)) ?? null;
               if (existingEmail && linkedIssueId && !existingEmail.issueId) {
                 await db
                   .update(emailNotifications)
                   .set({ issueId: linkedIssueId, updatedAt: now })
                   .where(eq(emailNotifications.id, existingEmail.id));
+                existingEmail.issueId = linkedIssueId;
               } else if (!existingEmail) {
-                await db.insert(emailNotifications).values({
+                const [inserted] = await db.insert(emailNotifications).values({
                   companyId,
                   kind: CALENDAR_EMAIL_NOTIFICATION_KIND,
                   status: "pending",
@@ -1199,8 +1244,16 @@ export function calendarService(db: Db) {
                   requestedByAgentId: opts.actor?.agentId ?? null,
                   requestedByRunId: opts.actor?.runId ?? null,
                   scheduledAt: now,
-                });
+                }).returning({ id: emailNotifications.id });
                 queuedEmails += 1;
+                // Reflect the new row so later rules in this scan dedupe against it.
+                const entry: ExistingReminderEmail = {
+                  id: inserted.id,
+                  issueId: linkedIssueId,
+                  daysUntilDue: String(daysUntilDue),
+                };
+                if (candidates) candidates.push(entry);
+                else existingEmailIndex.set(key, [entry]);
               }
             }
           }
