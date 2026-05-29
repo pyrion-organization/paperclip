@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { History as HistoryIcon, RotateCcw, Search } from "lucide-react";
 import type {
@@ -98,11 +98,11 @@ export function RoutineHistoryTab({
     [sortedRevisions, routine.latestRevisionId],
   );
 
-  useEffect(() => {
-    if (selectedRevisionId === null && currentRevision) {
-      setSelectedRevisionId(currentRevision.id);
-    }
-  }, [currentRevision, selectedRevisionId]);
+  // Default the selection to the current revision until the user picks one —
+  // adjust during render instead of via an effect.
+  if (selectedRevisionId === null && currentRevision) {
+    setSelectedRevisionId(currentRevision.id);
+  }
 
   const selectedRevision = useMemo(
     () => sortedRevisions.find((r) => r.id === selectedRevisionId) ?? null,

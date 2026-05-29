@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CALENDAR_ITEM_CATEGORIES,
@@ -551,10 +551,16 @@ export function Calendar() {
     setItemDialogOpen(true);
   };
 
-  useEffect(() => {
-    if (!itemDialogOpen || !selectedItem) return;
-    setForm(formFromItem(selectedItem));
-  }, [itemDialogOpen, selectedItem?.id]);
+  // Reset the editable form when the dialog opens for an item — adjust during
+  // render instead of via an effect.
+  const calendarFormSyncKey = itemDialogOpen && selectedItem ? selectedItem.id : null;
+  const prevCalendarFormSyncKeyRef = useRef(calendarFormSyncKey);
+  if (calendarFormSyncKey !== prevCalendarFormSyncKeyRef.current) {
+    prevCalendarFormSyncKeyRef.current = calendarFormSyncKey;
+    if (itemDialogOpen && selectedItem) {
+      setForm(formFromItem(selectedItem));
+    }
+  }
 
   if (!selectedCompanyId) {
     return <EmptyState icon={CalendarDays} message="Create or select a company to manage calendar obligations." />;
