@@ -47,6 +47,102 @@ type CreatorOption = {
   searchText?: string;
 };
 
+function CreatorFilterSection({
+  creators,
+  selectedCreatorIds,
+  currentUserId,
+  onChange,
+}: {
+  creators: CreatorOption[];
+  selectedCreatorIds: string[];
+  currentUserId?: string | null;
+  onChange: (patch: Partial<IssueFilterState>) => void;
+}) {
+  const [creatorSearch, setCreatorSearch] = useState("");
+  const creatorOptionById = useMemo(
+    () => new Map(creators.map((option) => [option.id, option])),
+    [creators],
+  );
+  const normalizedCreatorSearch = creatorSearch.trim().toLowerCase();
+  const visibleCreatorOptions = useMemo(() => {
+    if (!normalizedCreatorSearch) return creators;
+    return creators.filter((option) =>
+      `${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(normalizedCreatorSearch),
+    );
+  }, [creators, normalizedCreatorSearch]);
+  const selectedCreatorOptions = useMemo(
+    () => selectedCreatorIds.map((creatorId) => {
+      const knownOption = creatorOptionById.get(creatorId);
+      if (knownOption) return knownOption;
+      if (creatorId.startsWith("agent:")) {
+        const agentId = creatorId.slice("agent:".length);
+        return { id: creatorId, label: agentId.slice(0, 8), kind: "agent" as const };
+      }
+      const userId = creatorId.startsWith("user:") ? creatorId.slice("user:".length) : creatorId;
+      return {
+        id: creatorId,
+        label: formatAssigneeUserLabel(userId, currentUserId) ?? userId.slice(0, 5),
+        kind: "user" as const,
+      };
+    }),
+    [creatorOptionById, currentUserId, selectedCreatorIds],
+  );
+
+  return (
+    <div className="space-y-1">
+      <span className="text-xs text-muted-foreground">Creator</span>
+      {selectedCreatorOptions.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {selectedCreatorOptions.map((creator) => (
+            <Badge key={creator.id} variant="secondary" className="gap-1 pr-1">
+              {creator.kind === "agent" ? <Bot className="size-3" /> : <User className="size-3" />}
+              <span>{creator.label}</span>
+              <button
+                type="button"
+                className="rounded-full p-0.5 hover:bg-accent"
+                onClick={() => onChange({ creators: selectedCreatorIds.filter((value) => value !== creator.id) })}
+                aria-label={`Remove creator ${creator.label}`}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={creatorSearch}
+          onChange={(event) => setCreatorSearch(event.target.value)}
+          placeholder="Search creators..."
+          className="h-8 pl-7 text-xs"
+        />
+      </div>
+      <div className="max-h-32 space-y-0.5 overflow-y-auto">
+        {visibleCreatorOptions.length > 0 ? visibleCreatorOptions.map((creator) => {
+          const selected = selectedCreatorIds.includes(creator.id);
+          return (
+            <button
+              key={creator.id}
+              type="button"
+              className={`flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm ${
+                selected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }`}
+              onClick={() => onChange({ creators: toggleIssueFilterValue(selectedCreatorIds, creator.id) })}
+            >
+              {creator.kind === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
+              <span className="min-w-0 flex-1 truncate">{creator.label}</span>
+              {selected ? <X className="size-3" /> : null}
+            </button>
+          );
+        }) : (
+          <div className="px-2 py-1 text-xs text-muted-foreground">No creators match.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function IssueFiltersPopover({
   state,
   onChange,
@@ -74,36 +170,7 @@ export function IssueFiltersPopover({
   workspaces?: WorkspaceOption[];
   creators?: CreatorOption[];
 }) {
-  const [creatorSearch, setCreatorSearch] = useState("");
   const creatorOptions = creators ?? [];
-  const creatorOptionById = useMemo(
-    () => new Map(creatorOptions.map((option) => [option.id, option])),
-    [creatorOptions],
-  );
-  const normalizedCreatorSearch = creatorSearch.trim().toLowerCase();
-  const visibleCreatorOptions = useMemo(() => {
-    if (!normalizedCreatorSearch) return creatorOptions;
-    return creatorOptions.filter((option) =>
-      `${option.label} ${option.searchText ?? ""}`.toLowerCase().includes(normalizedCreatorSearch),
-    );
-  }, [creatorOptions, normalizedCreatorSearch]);
-  const selectedCreatorOptions = useMemo(
-    () => state.creators.map((creatorId) => {
-      const knownOption = creatorOptionById.get(creatorId);
-      if (knownOption) return knownOption;
-      if (creatorId.startsWith("agent:")) {
-        const agentId = creatorId.slice("agent:".length);
-        return { id: creatorId, label: agentId.slice(0, 8), kind: "agent" as const };
-      }
-      const userId = creatorId.startsWith("user:") ? creatorId.slice("user:".length) : creatorId;
-      return {
-        id: creatorId,
-        label: formatAssigneeUserLabel(userId, currentUserId) ?? userId.slice(0, 5),
-        kind: "user" as const,
-      };
-    }),
-    [creatorOptionById, currentUserId, state.creators],
-  );
 
   return (
     <Popover>
@@ -238,57 +305,12 @@ export function IssueFiltersPopover({
               </div>
 
               {creatorOptions.length > 0 ? (
-                <div className="space-y-1">
-                  <span className="text-xs text-muted-foreground">Creator</span>
-                  {selectedCreatorOptions.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {selectedCreatorOptions.map((creator) => (
-                        <Badge key={creator.id} variant="secondary" className="gap-1 pr-1">
-                          {creator.kind === "agent" ? <Bot className="size-3" /> : <User className="size-3" />}
-                          <span>{creator.label}</span>
-                          <button
-                            type="button"
-                            className="rounded-full p-0.5 hover:bg-accent"
-                            onClick={() => onChange({ creators: state.creators.filter((value) => value !== creator.id) })}
-                            aria-label={`Remove creator ${creator.label}`}
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={creatorSearch}
-                      onChange={(event) => setCreatorSearch(event.target.value)}
-                      placeholder="Search creators..."
-                      className="h-8 pl-7 text-xs"
-                    />
-                  </div>
-                  <div className="max-h-32 space-y-0.5 overflow-y-auto">
-                    {visibleCreatorOptions.length > 0 ? visibleCreatorOptions.map((creator) => {
-                      const selected = state.creators.includes(creator.id);
-                      return (
-                        <button
-                          key={creator.id}
-                          type="button"
-                          className={`flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm ${
-                            selected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                          }`}
-                          onClick={() => onChange({ creators: toggleIssueFilterValue(state.creators, creator.id) })}
-                        >
-                          {creator.kind === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
-                          <span className="min-w-0 flex-1 truncate">{creator.label}</span>
-                          {selected ? <X className="size-3" /> : null}
-                        </button>
-                      );
-                    }) : (
-                      <div className="px-2 py-1 text-xs text-muted-foreground">No creators match.</div>
-                    )}
-                  </div>
-                </div>
+                <CreatorFilterSection
+                  creators={creatorOptions}
+                  selectedCreatorIds={state.creators}
+                  currentUserId={currentUserId}
+                  onChange={onChange}
+                />
               ) : null}
 
               {projects && projects.length > 0 ? (
