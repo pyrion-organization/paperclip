@@ -275,65 +275,7 @@ export function Agents() {
 
       {/* List view */}
       {effectiveView === "list" && filtered.length > 0 && (
-        <div className="border border-border">
-          {filtered.map((agent) => {
-            return (
-              <EntityRow
-                key={agent.id}
-                title={agent.name}
-                subtitle={`${roleLabels[agent.role] ?? agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
-                to={agentUrl(agent)}
-                className={agent.pausedAt && tab !== "paused" ? "opacity-50" : ""}
-                leadingSlot={() => (
-                  <span className="relative flex size-2.5">
-                    <span
-                      className={`absolute inline-flex size-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
-                    />
-                  </span>
-                )}
-                trailingSlot={() => (
-                  <div className="flex items-center gap-3">
-                    <span className="sm:hidden">
-                      {liveRunByAgent.has(agent.id) ? (
-                        <LiveRunIndicator
-                          agentRef={agentRouteRef(agent)}
-                          runId={liveRunByAgent.get(agent.id)!.runId}
-                          liveCount={liveRunByAgent.get(agent.id)!.liveCount}
-                        />
-                      ) : (
-                        <StatusBadge status={agent.status} />
-                      )}
-                    </span>
-                    <div className="hidden sm:flex items-center gap-3">
-                      {liveRunByAgent.has(agent.id) && (
-                        <LiveRunIndicator
-                          agentRef={agentRouteRef(agent)}
-                          runId={liveRunByAgent.get(agent.id)!.runId}
-                          liveCount={liveRunByAgent.get(agent.id)!.liveCount}
-                        />
-                      )}
-                      <span className="w-28 whitespace-nowrap text-left font-mono text-xs text-muted-foreground">
-                        {getAdapterLabel(agent.adapterType)}
-                      </span>
-                      <span
-                        className="w-36 truncate text-left font-mono text-xs text-muted-foreground"
-                        title={getConfiguredModel(agent) ?? undefined}
-                      >
-                        {getConfiguredModel(agent) ?? "—"}
-                      </span>
-                      <span className="text-xs text-muted-foreground w-16 text-right">
-                        {agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : "—"}
-                      </span>
-                      <span className="w-20 flex justify-end">
-                        <StatusBadge status={agent.status} />
-                      </span>
-                    </div>
-                  </div>
-                )}
-              />
-            );
-          })}
-        </div>
+        <AgentListView agents={filtered} liveRunByAgent={liveRunByAgent} tab={tab} />
       )}
 
       {effectiveView === "list" && agents && agents.length > 0 && filtered.length === 0 && (
@@ -362,6 +304,76 @@ export function Agents() {
           No organizational hierarchy defined.
         </p>
       )}
+    </div>
+  );
+}
+
+function AgentListView({
+  agents,
+  liveRunByAgent,
+  tab,
+}: {
+  agents: Agent[];
+  liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
+  tab: FilterTab;
+}) {
+  return (
+    <div className="border border-border">
+      {agents.map((agent) => (
+        <EntityRow
+          key={agent.id}
+          title={agent.name}
+          subtitle={`${roleLabels[agent.role] ?? agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
+          to={agentUrl(agent)}
+          className={agent.pausedAt && tab !== "paused" ? "opacity-50" : ""}
+          leadingSlot={() => (
+            <span className="relative flex size-2.5">
+              <span
+                className={`absolute inline-flex size-full rounded-full ${agentStatusDot[agent.status] ?? agentStatusDotDefault}`}
+              />
+            </span>
+          )}
+          trailingSlot={() => (
+            <div className="flex items-center gap-3">
+              <span className="sm:hidden">
+                {liveRunByAgent.has(agent.id) ? (
+                  <LiveRunIndicator
+                    agentRef={agentRouteRef(agent)}
+                    runId={liveRunByAgent.get(agent.id)!.runId}
+                    liveCount={liveRunByAgent.get(agent.id)!.liveCount}
+                  />
+                ) : (
+                  <StatusBadge status={agent.status} />
+                )}
+              </span>
+              <div className="hidden sm:flex items-center gap-3">
+                {liveRunByAgent.has(agent.id) && (
+                  <LiveRunIndicator
+                    agentRef={agentRouteRef(agent)}
+                    runId={liveRunByAgent.get(agent.id)!.runId}
+                    liveCount={liveRunByAgent.get(agent.id)!.liveCount}
+                  />
+                )}
+                <span className="w-28 whitespace-nowrap text-left font-mono text-xs text-muted-foreground">
+                  {getAdapterLabel(agent.adapterType)}
+                </span>
+                <span
+                  className="w-36 truncate text-left font-mono text-xs text-muted-foreground"
+                  title={getConfiguredModel(agent) ?? undefined}
+                >
+                  {getConfiguredModel(agent) ?? "—"}
+                </span>
+                <span className="text-xs text-muted-foreground w-16 text-right">
+                  {agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : "—"}
+                </span>
+                <span className="w-20 flex justify-end">
+                  <StatusBadge status={agent.status} />
+                </span>
+              </div>
+            </div>
+          )}
+        />
+      ))}
     </div>
   );
 }
