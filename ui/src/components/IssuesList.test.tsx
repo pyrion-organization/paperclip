@@ -90,22 +90,26 @@ vi.mock("../api/instanceSettings", () => ({
 vi.mock("./IssueRow", () => ({
   IssueRow: ({
     issue,
-    desktopMetaLeading,
-    desktopTrailing,
     titleClassName,
     checklistStepNumber,
     checklistCurrentStep,
-    checklistDependencyChips,
     checklistRowId,
+    mobileLeadingSlot,
+    desktopMetaLeadingSlot,
+    desktopTrailingSlot,
+    titleSuffixSlot,
+    checklistDependencyChipsSlot,
   }: {
     issue: Issue;
-    desktopMetaLeading?: ReactNode;
-    desktopTrailing?: ReactNode;
     titleClassName?: string;
     checklistStepNumber?: number | string | null;
     checklistCurrentStep?: boolean;
-    checklistDependencyChips?: ReactNode;
     checklistRowId?: string;
+    mobileLeadingSlot?: () => ReactNode;
+    desktopMetaLeadingSlot?: () => ReactNode;
+    desktopTrailingSlot?: () => ReactNode;
+    titleSuffixSlot?: () => ReactNode;
+    checklistDependencyChipsSlot?: () => ReactNode;
   }) => (
     <div
       data-testid="issue-row"
@@ -114,10 +118,13 @@ vi.mock("./IssueRow", () => ({
       data-current-step={checklistCurrentStep ? "true" : undefined}
       data-title-class={titleClassName ?? undefined}
     >
+      {checklistStepNumber != null ? <span>{checklistStepNumber}.</span> : null}
+      {desktopMetaLeadingSlot?.()}
       <span>{issue.title}</span>
-      {desktopMetaLeading}
-      {desktopTrailing}
-      {checklistDependencyChips}
+      {titleSuffixSlot?.()}
+      {mobileLeadingSlot?.()}
+      {desktopTrailingSlot?.()}
+      {checklistDependencyChipsSlot?.()}
     </div>
   ),
 }));
@@ -605,10 +612,10 @@ describe("IssuesList", () => {
     );
 
     await waitForAssertion(() => {
-      const progress = container.querySelector('[role="progressbar"]');
+      const progress = container.querySelector("progress");
       expect(progress).not.toBeNull();
-      expect(progress?.getAttribute("aria-valuenow")).toBe("1");
-      expect(progress?.getAttribute("aria-valuemax")).toBe("3");
+      expect(progress?.getAttribute("value")).toBe("1");
+      expect(progress?.getAttribute("max")).toBe("3");
       expect(container.textContent).toContain("1/3 done");
       expect(container.textContent).toContain("0 in progress");
       expect(container.textContent).toContain("1 blocked");
