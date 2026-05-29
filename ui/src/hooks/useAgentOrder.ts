@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { Agent } from "@paperclipai/shared";
 import {
   AGENT_ORDER_UPDATED_EVENT,
@@ -7,6 +7,7 @@ import {
   sortAgentsByStoredOrder,
   writeAgentOrder,
 } from "../lib/agent-order";
+import { reconcileOrderedIds, useOrderedIdsOverride } from "../lib/ordered-ids";
 
 type UseAgentOrderParams = {
   agents: Agent[];
@@ -18,14 +19,6 @@ type AgentOrderUpdatedDetail = {
   storageKey: string;
   orderedIds: string[];
 };
-
-function areEqual(a: string[], b: string[]) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function buildOrderIds(agents: Agent[], orderedIds: string[]) {
   return sortAgentsByStoredOrder(agents, orderedIds).map((agent) => agent.id);
@@ -44,25 +37,13 @@ export function useAgentOrder({ agents, companyId, userId }: UseAgentOrderParams
       : agents.map((agent) => agent.id),
     [agents, storageKey],
   );
-  const [orderedIdsOverride, setOrderedIdsOverride] = useState<{
-    source: string;
-    value: string[];
-  } | null>(null);
-  const orderedIds =
-    orderedIdsOverride?.source === orderedIdsSource
-      ? orderedIdsOverride.value
-      : persistedOrderedIds;
+  const { orderedIds, applyOverride } = useOrderedIdsOverride(orderedIdsSource, persistedOrderedIds);
 
   useEffect(() => {
     if (!storageKey) return;
 
     const syncFromIds = (ids: string[]) => {
-      const nextIds = buildOrderIds(agents, ids);
-      setOrderedIdsOverride((current) =>
-        current?.source === orderedIdsSource && areEqual(current.value, nextIds)
-          ? current
-          : { source: orderedIdsSource, value: nextIds },
-      );
+      applyOverride(buildOrderIds(agents, ids));
     };
 
     const onStorage = (event: StorageEvent) => {
@@ -81,7 +62,7 @@ export function useAgentOrder({ agents, companyId, userId }: UseAgentOrderParams
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(AGENT_ORDER_UPDATED_EVENT, onCustomEvent);
     };
-  }, [agents, orderedIdsSource, storageKey]);
+  }, [agents, applyOverride, storageKey]);
 
   const orderedAgents = useMemo(
     () => sortAgentsByStoredOrder(agents, orderedIds),
@@ -90,25 +71,17 @@ export function useAgentOrder({ agents, companyId, userId }: UseAgentOrderParams
 
   const persistOrder = useCallback(
     (ids: string[]) => {
-      const idSet = new Set(agents.map((agent) => agent.id));
-      const filtered = ids.filter((id) => idSet.has(id));
-      const filteredSet = new Set(filtered);
-      for (const agent of sortAgentsByStoredOrder(agents, [])) {
-        if (filteredSet.has(agent.id)) continue;
-        filtered.push(agent.id);
-        filteredSet.add(agent.id);
-      }
-
-      setOrderedIdsOverride((current) =>
-        current?.source === orderedIdsSource && areEqual(current.value, filtered)
-          ? current
-          : { source: orderedIdsSource, value: filtered },
+      const filtered = reconcileOrderedIds(
+        ids,
+        sortAgentsByStoredOrder(agents, []).map((agent) => agent.id),
       );
+
+      applyOverride(filtered);
       if (storageKey) {
         writeAgentOrder(storageKey, filtered);
       }
     },
-    [agents, orderedIdsSource, storageKey],
+    [agents, applyOverride, storageKey],
   );
 
   return {

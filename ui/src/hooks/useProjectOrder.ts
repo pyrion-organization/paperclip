@@ -1,22 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
 import { sortProjectsByStoredOrder } from "../lib/project-order";
 import { queryKeys } from "../lib/queryKeys";
+import { reconcileOrderedIds, useOrderedIdsOverride } from "../lib/ordered-ids";
 
 type UseProjectOrderParams = {
   projects: Project[];
   companyId: string | null | undefined;
   userId: string | null | undefined;
 };
-
-function areEqual(a: string[], b: string[]) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function buildOrderIds(projects: Project[], orderedIds: string[]) {
   return sortProjectsByStoredOrder(projects, orderedIds).map((project) => project.id);
@@ -43,14 +36,7 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
     () => buildOrderIds(projects, data?.orderedIds ?? []),
     [data?.orderedIds, projects],
   );
-  const [orderedIdsOverride, setOrderedIdsOverride] = useState<{
-    source: string;
-    value: string[];
-  } | null>(null);
-  const orderedIds =
-    orderedIdsOverride?.source === orderedIdsSource
-      ? orderedIdsOverride.value
-      : persistedOrderedIds;
+  const { orderedIds, applyOverride } = useOrderedIdsOverride(orderedIdsSource, persistedOrderedIds);
 
   const mutation = useMutation({
     mutationFn: async (nextIds: string[]) => {
@@ -69,20 +55,9 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
 
   const persistOrder = useCallback(
     (ids: string[]) => {
-      const idSet = new Set(projects.map((project) => project.id));
-      const filtered = ids.filter((id) => idSet.has(id));
-      const filteredSet = new Set(filtered);
-      for (const project of projects) {
-        if (filteredSet.has(project.id)) continue;
-        filtered.push(project.id);
-        filteredSet.add(project.id);
-      }
+      const filtered = reconcileOrderedIds(ids, projects.map((project) => project.id));
 
-      setOrderedIdsOverride((current) =>
-        current?.source === orderedIdsSource && areEqual(current.value, filtered)
-          ? current
-          : { source: orderedIdsSource, value: filtered },
-      );
+      applyOverride(filtered);
       if (!companyId || !userId) return;
 
       queryClient.setQueryData(queryKey, (current: { orderedIds?: string[]; updatedAt?: Date | null } | undefined) => ({
@@ -91,7 +66,7 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
       }));
       mutation.mutate(filtered);
     },
-    [companyId, mutation, orderedIdsSource, projects, queryClient, queryKey, userId],
+    [applyOverride, companyId, mutation, projects, queryClient, queryKey, userId],
   );
 
   return {
