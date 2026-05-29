@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { FeedbackDataSharingPreference, FeedbackVoteValue } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,11 +42,11 @@ export function OutputFeedbackButtons({
   const [optimisticVote, setOptimisticVote] = useState<FeedbackVoteValue | null>(null);
   const visibleVote = optimisticVote ?? activeVote ?? null;
 
-  useEffect(() => {
-    if (optimisticVote && activeVote === optimisticVote) {
-      setOptimisticVote(null);
-    }
-  }, [activeVote, optimisticVote]);
+  // Drop the optimistic vote once the persisted vote catches up — adjust during
+  // render instead of via an effect.
+  if (optimisticVote && activeVote === optimisticVote) {
+    setOptimisticVote(null);
+  }
 
   async function submitVote(
     vote: FeedbackVoteValue,
