@@ -21,8 +21,8 @@ export interface DashboardRecentIssue {
   priority: string;
   assigneeAgentId: string | null;
   assigneeAgentName: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DashboardSummary {
