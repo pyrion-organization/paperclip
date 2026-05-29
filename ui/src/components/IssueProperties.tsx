@@ -885,15 +885,16 @@ export function IssueProperties({
     }
     return `${stageLabel} pending${participantLabel ? ` with ${participantLabel}` : ""}`;
   })();
-  useEffect(() => {
+  // Reset the editable monitor inputs when the issue's monitor data changes —
+  // adjust during render instead of via an effect.
+  const monitorSyncKey = `${issue.executionPolicy?.monitor?.nextCheckAt ?? ""}|${issue.executionPolicy?.monitor?.notes ?? ""}|${issue.executionPolicy?.monitor?.serviceName ?? ""}`;
+  const prevMonitorSyncKeyRef = useRef(monitorSyncKey);
+  if (monitorSyncKey !== prevMonitorSyncKeyRef.current) {
+    prevMonitorSyncKeyRef.current = monitorSyncKey;
     setMonitorAtInput(toDateTimeLocalValue(issue.executionPolicy?.monitor?.nextCheckAt));
     setMonitorNotesInput(issue.executionPolicy?.monitor?.notes ?? "");
     setMonitorServiceInput(issue.executionPolicy?.monitor?.serviceName ?? "");
-  }, [
-    issue.executionPolicy?.monitor?.nextCheckAt,
-    issue.executionPolicy?.monitor?.notes,
-    issue.executionPolicy?.monitor?.serviceName,
-  ]);
+  }
 
   const updateMonitor = (nextMonitor: Issue["executionPolicy"] extends infer T
     ? T extends { monitor?: infer M | null } | null | undefined

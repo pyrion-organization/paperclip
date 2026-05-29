@@ -1599,10 +1599,13 @@ export function Inbox() {
     return "hidden";
   };
 
-  // Keep selection valid when the list shape changes, but do not auto-select on initial load.
-  useEffect(() => {
+  // Keep selection valid when the list shape changes, but do not auto-select on
+  // initial load — adjust during render instead of via an effect.
+  const prevFlatNavItemsLengthRef = useRef(flatNavItems.length);
+  if (flatNavItems.length !== prevFlatNavItemsLengthRef.current) {
+    prevFlatNavItemsLengthRef.current = flatNavItems.length;
     setSelectedIndex((prev) => resolveInboxSelectionIndex(prev, flatNavItems.length));
-  }, [flatNavItems.length]);
+  }
 
   useEffect(() => {
     undoableArchiveIssueIdsRef.current = [];
