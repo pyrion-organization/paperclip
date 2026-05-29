@@ -47,6 +47,185 @@ interface CommandPaletteProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+type PaletteIssue = { id: string; identifier?: string | null; title: string; assigneeAgentId?: string | null };
+type PaletteAgent = { id: string; name: string; role?: string | null; urlKey?: string | null };
+type PaletteClient = { id: string; name: string; contactName?: string | null };
+type PaletteProject = { id: string; name: string; urlKey?: string | null };
+
+function CommandPaletteActions({
+  go,
+  onNewIssue,
+  onNewAgent,
+  onNewClient,
+}: {
+  go: (path: string) => void;
+  onNewIssue: () => void;
+  onNewAgent: () => void;
+  onNewClient: () => void;
+}) {
+  return (
+    <>
+      <CommandGroup heading="Actions">
+        <CommandItem onSelect={onNewIssue}>
+          <SquarePen className="mr-2 size-4" />
+          Create new issue
+          <span className="ml-auto text-xs text-muted-foreground">C</span>
+        </CommandItem>
+        <CommandItem onSelect={onNewAgent}>
+          <Plus className="mr-2 size-4" />
+          Create new agent
+        </CommandItem>
+        <CommandItem onSelect={() => go("/projects")}>
+          <Plus className="mr-2 size-4" />
+          Create new project
+        </CommandItem>
+        <CommandItem onSelect={onNewClient}>
+          <Users className="mr-2 size-4" />
+          Create new client
+        </CommandItem>
+      </CommandGroup>
+
+      <CommandSeparator />
+
+      <CommandGroup heading="Pages">
+        <CommandItem onSelect={() => go("/dashboard")}>
+          <LayoutDashboard className="mr-2 size-4" />
+          Dashboard
+        </CommandItem>
+        <CommandItem onSelect={() => go("/inbox")}>
+          <Inbox className="mr-2 size-4" />
+          Inbox
+        </CommandItem>
+        <CommandItem onSelect={() => go("/issues")}>
+          <CircleDot className="mr-2 size-4" />
+          Issues
+        </CommandItem>
+        <CommandItem onSelect={() => go("/projects")}>
+          <Hexagon className="mr-2 size-4" />
+          Projects
+        </CommandItem>
+        <CommandItem onSelect={() => go("/goals")}>
+          <Target className="mr-2 size-4" />
+          Goals
+        </CommandItem>
+        <CommandItem onSelect={() => go("/agents")}>
+          <Bot className="mr-2 size-4" />
+          Agents
+        </CommandItem>
+        <CommandItem onSelect={() => go("/clients")}>
+          <Users className="mr-2 size-4" />
+          Clients
+        </CommandItem>
+        <CommandItem onSelect={() => go("/costs")}>
+          <DollarSign className="mr-2 size-4" />
+          Costs
+        </CommandItem>
+        <CommandItem onSelect={() => go("/activity")}>
+          <History className="mr-2 size-4" />
+          Activity
+        </CommandItem>
+      </CommandGroup>
+    </>
+  );
+}
+
+function CommandPaletteResults({
+  visibleIssues,
+  agents,
+  clients,
+  projects,
+  searchQuery,
+  agentName,
+  go,
+}: {
+  visibleIssues: PaletteIssue[];
+  agents: PaletteAgent[];
+  clients: PaletteClient[];
+  projects: PaletteProject[];
+  searchQuery: string;
+  agentName: (id: string | null) => string | null;
+  go: (path: string) => void;
+}) {
+  return (
+    <>
+      {visibleIssues.length > 0 && (
+        <>
+          <CommandSeparator />
+          <CommandGroup heading="Issues">
+            {visibleIssues.slice(0, 10).map((issue) => (
+              <CommandItem
+                key={issue.id}
+                value={
+                  searchQuery.length > 0
+                    ? `${searchQuery} ${issue.identifier ?? ""} ${issue.title}`
+                    : undefined
+                }
+                onSelect={() => go(`/issues/${issue.identifier ?? issue.id}`)}
+              >
+                <CircleDot className="mr-2 size-4" />
+                <span className="text-muted-foreground mr-2 font-mono text-xs">
+                  {issue.identifier ?? issue.id.slice(0, 8)}
+                </span>
+                <span className="flex-1 truncate">{issue.title}</span>
+                {issue.assigneeAgentId && (() => {
+                  const name = agentName(issue.assigneeAgentId);
+                  return name ? <Identity name={name} size="sm" className="ml-2 hidden sm:inline-flex" /> : null;
+                })()}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </>
+      )}
+
+      {agents.length > 0 && (
+        <>
+          <CommandSeparator />
+          <CommandGroup heading="Agents">
+            {agents.slice(0, 10).map((agent) => (
+              <CommandItem key={agent.id} onSelect={() => go(agentUrl(agent))}>
+                <Bot className="mr-2 size-4" />
+                {agent.name}
+                <span className="text-xs text-muted-foreground ml-2">{agent.role}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </>
+      )}
+
+      {clients.length > 0 && (
+        <>
+          <CommandSeparator />
+          <CommandGroup heading="Clients">
+            {clients.slice(0, 10).map((client) => (
+              <CommandItem key={client.id} onSelect={() => go(clientUrl(client))}>
+                <Users className="mr-2 size-4" />
+                <span className="flex-1 truncate">{client.name}</span>
+                {client.contactName ? (
+                  <span className="text-xs text-muted-foreground ml-2">{client.contactName}</span>
+                ) : null}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </>
+      )}
+
+      {projects.length > 0 && (
+        <>
+          <CommandSeparator />
+          <CommandGroup heading="Projects">
+            {projects.slice(0, 10).map((project) => (
+              <CommandItem key={project.id} onSelect={() => go(projectUrl(project))}>
+                <Hexagon className="mr-2 size-4" />
+                {project.name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </>
+      )}
+    </>
+  );
+}
+
 export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPaletteProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -204,156 +383,31 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
 
         {showSearchAll ? <CommandSeparator /> : null}
 
-        <CommandGroup heading="Actions">
-          <CommandItem
-            onSelect={() => {
-              setOpen(false);
-              openNewIssue();
-            }}
-          >
-            <SquarePen className="mr-2 size-4" />
-            Create new issue
-            <span className="ml-auto text-xs text-muted-foreground">C</span>
-          </CommandItem>
-          <CommandItem
-            onSelect={() => {
-              setOpen(false);
-              openNewAgent();
-            }}
-          >
-            <Plus className="mr-2 size-4" />
-            Create new agent
-          </CommandItem>
-          <CommandItem onSelect={() => go("/projects")}>
-            <Plus className="mr-2 size-4" />
-            Create new project
-          </CommandItem>
-          <CommandItem
-            onSelect={() => {
-              setOpen(false);
-              openNewClient();
-            }}
-          >
-            <Users className="mr-2 size-4" />
-            Create new client
-          </CommandItem>
-        </CommandGroup>
+        <CommandPaletteActions
+          go={go}
+          onNewIssue={() => {
+            setOpen(false);
+            openNewIssue();
+          }}
+          onNewAgent={() => {
+            setOpen(false);
+            openNewAgent();
+          }}
+          onNewClient={() => {
+            setOpen(false);
+            openNewClient();
+          }}
+        />
 
-        <CommandSeparator />
-
-        <CommandGroup heading="Pages">
-          <CommandItem onSelect={() => go("/dashboard")}>
-            <LayoutDashboard className="mr-2 size-4" />
-            Dashboard
-          </CommandItem>
-          <CommandItem onSelect={() => go("/inbox")}>
-            <Inbox className="mr-2 size-4" />
-            Inbox
-          </CommandItem>
-          <CommandItem onSelect={() => go("/issues")}>
-            <CircleDot className="mr-2 size-4" />
-            Issues
-          </CommandItem>
-          <CommandItem onSelect={() => go("/projects")}>
-            <Hexagon className="mr-2 size-4" />
-            Projects
-          </CommandItem>
-          <CommandItem onSelect={() => go("/goals")}>
-            <Target className="mr-2 size-4" />
-            Goals
-          </CommandItem>
-          <CommandItem onSelect={() => go("/agents")}>
-            <Bot className="mr-2 size-4" />
-            Agents
-          </CommandItem>
-          <CommandItem onSelect={() => go("/clients")}>
-            <Users className="mr-2 size-4" />
-            Clients
-          </CommandItem>
-          <CommandItem onSelect={() => go("/costs")}>
-            <DollarSign className="mr-2 size-4" />
-            Costs
-          </CommandItem>
-          <CommandItem onSelect={() => go("/activity")}>
-            <History className="mr-2 size-4" />
-            Activity
-          </CommandItem>
-        </CommandGroup>
-
-        {visibleIssues.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Issues">
-              {visibleIssues.slice(0, 10).map((issue) => (
-                <CommandItem
-                  key={issue.id}
-                  value={
-                    searchQuery.length > 0
-                      ? `${searchQuery} ${issue.identifier ?? ""} ${issue.title}`
-                      : undefined
-                  }
-                  onSelect={() => go(`/issues/${issue.identifier ?? issue.id}`)}
-                >
-                  <CircleDot className="mr-2 size-4" />
-                  <span className="text-muted-foreground mr-2 font-mono text-xs">
-                    {issue.identifier ?? issue.id.slice(0, 8)}
-                  </span>
-                  <span className="flex-1 truncate">{issue.title}</span>
-                  {issue.assigneeAgentId && (() => {
-                    const name = agentName(issue.assigneeAgentId);
-                    return name ? <Identity name={name} size="sm" className="ml-2 hidden sm:inline-flex" /> : null;
-                  })()}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
-
-        {agents.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Agents">
-              {agents.slice(0, 10).map((agent) => (
-                <CommandItem key={agent.id} onSelect={() => go(agentUrl(agent))}>
-                  <Bot className="mr-2 size-4" />
-                  {agent.name}
-                  <span className="text-xs text-muted-foreground ml-2">{agent.role}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
-
-        {clients.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Clients">
-              {clients.slice(0, 10).map((client) => (
-                <CommandItem key={client.id} onSelect={() => go(clientUrl(client))}>
-                  <Users className="mr-2 size-4" />
-                  <span className="flex-1 truncate">{client.name}</span>
-                  {client.contactName ? (
-                    <span className="text-xs text-muted-foreground ml-2">{client.contactName}</span>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
-
-        {projects.length > 0 && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Projects">
-              {projects.slice(0, 10).map((project) => (
-                <CommandItem key={project.id} onSelect={() => go(projectUrl(project))}>
-                  <Hexagon className="mr-2 size-4" />
-                  {project.name}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
+        <CommandPaletteResults
+          visibleIssues={visibleIssues}
+          agents={agents}
+          clients={clients}
+          projects={projects}
+          searchQuery={searchQuery}
+          agentName={agentName}
+          go={go}
+        />
       </CommandList>
     </CommandDialog>
   );
