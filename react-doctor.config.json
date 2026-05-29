@@ -1,0 +1,62 @@
+{
+  "ignore": {
+    "overrides": [
+      {
+        "comment": "prefer-tag-over-role on interactive/custom widgets or wrong semantic suggestions (rich-editor div, drag-handle separators, custom listbox option, nested-interactive rows) — verified false positives. Paths listed both project-relative and root-relative to match either scan invocation.",
+        "files": [
+          "src/components/InlineEditor.tsx",
+          "ui/src/components/InlineEditor.tsx",
+          "src/components/IssueDocumentsSection.tsx",
+          "ui/src/components/IssueDocumentsSection.tsx",
+          "src/components/NewIssueDialog.tsx",
+          "ui/src/components/NewIssueDialog.tsx",
+          "src/components/ProjectFilesTab.tsx",
+          "ui/src/components/ProjectFilesTab.tsx",
+          "src/components/ResizableSidebarPane.tsx",
+          "ui/src/components/ResizableSidebarPane.tsx",
+          "src/pages/AgentDetail.tsx",
+          "ui/src/pages/AgentDetail.tsx",
+          "src/pages/Companies.tsx",
+          "ui/src/pages/Companies.tsx",
+          "src/pages/CompanyInstructions.tsx",
+          "ui/src/pages/CompanyInstructions.tsx",
+          "src/pages/Inbox.tsx",
+          "ui/src/pages/Inbox.tsx",
+          "src/pages/OrgChart.tsx",
+          "ui/src/pages/OrgChart.tsx",
+          "src/plugins/launcher-shell.tsx",
+          "ui/src/plugins/launcher-shell.tsx"
+        ],
+        "rules": ["react-doctor/prefer-tag-over-role"]
+      },
+      {
+        "comment": "loop-carried / sequential awaits (zip parsing offset chain, ordered IssueDetail steps, launcher runtime) — cannot be parallelized.",
+        "files": [
+          "src/lib/zip.ts",
+          "ui/src/lib/zip.ts",
+          "src/pages/IssueDetail.tsx",
+          "ui/src/pages/IssueDetail.tsx",
+          "src/plugins/launcher-runtime.tsx",
+          "ui/src/plugins/launcher-runtime.tsx"
+        ],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "comment": "runtime plugin module loaded from a blob URL — a static import literal is impossible by design.",
+        "files": [
+          "src/plugins/slots-loader.ts",
+          "ui/src/plugins/slots-loader.ts"
+        ],
+        "rules": ["react-doctor/no-dynamic-import-path"]
+      },
+      {
+        "comment": "the await must precede the guard: the guard reads a ref mutated during the awaited save.",
+        "files": [
+          "src/hooks/useAutosaveIndicator.ts",
+          "ui/src/hooks/useAutosaveIndicator.ts"
+        ],
+        "rules": ["react-doctor/async-defer-await"]
+      }
+    ]
+  }
+}
