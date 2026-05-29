@@ -3389,17 +3389,23 @@ function IssueChatComposer({
     };
   }, []);
 
-  useEffect(() => {
+  // Re-sync the reassign target when the suggested assignee changes.
+  const prevSuggestedAssigneeRef = useRef(effectiveSuggestedAssigneeValue);
+  if (effectiveSuggestedAssigneeValue !== prevSuggestedAssigneeRef.current) {
+    prevSuggestedAssigneeRef.current = effectiveSuggestedAssigneeValue;
     setReassignTarget(effectiveSuggestedAssigneeValue);
-  }, [effectiveSuggestedAssigneeValue]);
+  }
 
   useEffect(() => {
     unassignedConfirmedRef.current = false;
   }, [reassignTarget]);
 
-  useEffect(() => {
+  // Re-sync the pending work mode when the resolved issue work mode changes.
+  const prevResolvedWorkModeRef = useRef(resolvedIssueWorkMode);
+  if (resolvedIssueWorkMode !== prevResolvedWorkModeRef.current) {
+    prevResolvedWorkModeRef.current = resolvedIssueWorkMode;
     setPendingWorkMode(resolvedIssueWorkMode);
-  }, [resolvedIssueWorkMode]);
+  }
 
   useImperativeHandle(forwardedRef, () => ({
     focus: focusComposer,

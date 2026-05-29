@@ -122,15 +122,21 @@ export function Search() {
     setRecentSearches(loadRecentSearches(selectedCompanyId));
   }, [selectedCompanyId]);
 
-  // Pull URL changes back into local state (e.g. browser back/forward).
-  useEffect(() => {
+  // Pull URL changes back into local state (e.g. browser back/forward). Typing
+  // updates the URL via history.replaceState, which doesn't re-trigger these,
+  // so the local draft isn't clobbered mid-edit.
+  const prevUrlQueryRef = useRef(urlQuery);
+  if (urlQuery !== prevUrlQueryRef.current) {
+    prevUrlQueryRef.current = urlQuery;
     setDraftQuery(urlQuery);
     setCommittedQuery(urlQuery);
-  }, [urlQuery]);
+  }
 
-  useEffect(() => {
+  const prevUrlScopeRef = useRef(urlScope);
+  if (urlScope !== prevUrlScopeRef.current) {
+    prevUrlScopeRef.current = urlScope;
     setScope(urlScope);
-  }, [urlScope]);
+  }
 
   // Debounce the draft query into committedQuery and write to URL via replaceState.
   useEffect(() => {

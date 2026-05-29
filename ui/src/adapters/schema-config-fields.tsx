@@ -82,10 +82,12 @@ function ComboboxField({
   const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync filter with external value when it changes (e.g. provider switch resets model)
-  useEffect(() => {
+  // Clear the filter when the external value changes (e.g. provider switch resets model).
+  const prevValueRef = useRef(value);
+  if (value !== prevValueRef.current) {
+    prevValueRef.current = value;
     setFilter("");
-  }, [value]);
+  }
 
   const filtered = options.filter((opt) => {
     if (!filter) return true;

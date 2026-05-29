@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Environment, EnvironmentProbeResult, JsonSchema } from "@paperclipai/shared";
 import { AGENT_ADAPTER_TYPES } from "@paperclipai/shared/constants";
@@ -281,11 +281,14 @@ export function CompanyEnvironments() {
     },
   });
 
-  useEffect(() => {
+  // Reset the editor and probe results when switching companies.
+  const prevEnvCompanyIdRef = useRef(selectedCompanyId);
+  if (selectedCompanyId !== prevEnvCompanyIdRef.current) {
+    prevEnvCompanyIdRef.current = selectedCompanyId;
     setEditingEnvironmentId(null);
     setEnvironmentForm(createEmptyEnvironmentForm());
     setProbeResults({});
-  }, [selectedCompanyId]);
+  }
 
   function handleEditEnvironment(environment: Environment) {
     setEditingEnvironmentId(environment.id);

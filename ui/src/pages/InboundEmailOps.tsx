@@ -685,9 +685,13 @@ function ExternalIntakeRecovery({
     }
   }, [mailboxId, mailboxes]);
 
-  useEffect(() => {
+  // Reset pagination when the company or filters change.
+  const intakeCursorKey = `${companyId}::${intakeStatus}::${intakeMailboxId}`;
+  const prevIntakeCursorKeyRef = useRef(intakeCursorKey);
+  if (intakeCursorKey !== prevIntakeCursorKeyRef.current) {
+    prevIntakeCursorKeyRef.current = intakeCursorKey;
     setCursorStack([]);
-  }, [companyId, intakeStatus, intakeMailboxId]);
+  }
 
   const externalIntakeQuery = useQuery({
     queryKey: [
@@ -1047,9 +1051,13 @@ function ProcessedEmailList({
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const cursor = cursorStack[cursorStack.length - 1] ?? null;
 
-  useEffect(() => {
+  // Reset pagination when the company or filters change.
+  const processedCursorKey = `${companyId}::${status}::${mailboxId}::${query}`;
+  const prevProcessedCursorKeyRef = useRef(processedCursorKey);
+  if (processedCursorKey !== prevProcessedCursorKeyRef.current) {
+    prevProcessedCursorKeyRef.current = processedCursorKey;
     setCursorStack([]);
-  }, [companyId, status, mailboxId, query]);
+  }
 
   const messagesQuery = useQuery({
     queryKey: [
