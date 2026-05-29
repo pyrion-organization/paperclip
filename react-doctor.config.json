@@ -56,6 +56,42 @@
           "ui/src/hooks/useAutosaveIndicator.ts"
         ],
         "rules": ["react-doctor/async-defer-await"]
+      },
+      {
+        "comment": "external-system sync effects (scroll-into-view, textarea autoresize, localStorage persistence, URL back/forward) — not harmful state chains.",
+        "files": [
+          "src/components/IssueDocumentsSection.tsx",
+          "ui/src/components/IssueDocumentsSection.tsx",
+          "src/components/OnboardingWizard.tsx",
+          "ui/src/components/OnboardingWizard.tsx",
+          "src/pages/CompanyExport.tsx",
+          "ui/src/pages/CompanyExport.tsx",
+          "src/pages/Inbox.tsx",
+          "ui/src/pages/Inbox.tsx"
+        ],
+        "rules": ["react-doctor/no-effect-chain"]
+      },
+      {
+        "comment": "intentional child->parent action-callback control pattern (e.g. AgentConfigForm hands its save/dirty/cancel actions to the page toolbar). Deliberate, not a state-lift smell.",
+        "files": [
+          "src/components/AgentConfigForm.tsx",
+          "ui/src/components/AgentConfigForm.tsx",
+          "src/components/IssueThreadInteractionCard.tsx",
+          "ui/src/components/IssueThreadInteractionCard.tsx",
+          "src/components/IssuesList.tsx",
+          "ui/src/components/IssuesList.tsx",
+          "src/components/RoutineVariablesEditor.tsx",
+          "ui/src/components/RoutineVariablesEditor.tsx",
+          "src/adapters/schema-config-fields.tsx",
+          "ui/src/adapters/schema-config-fields.tsx",
+          "src/pages/AgentDetail.tsx",
+          "ui/src/pages/AgentDetail.tsx"
+        ],
+        "rules": [
+          "react-doctor/no-pass-data-to-parent",
+          "react-doctor/no-pass-live-state-to-parent",
+          "react-doctor/no-prop-callback-in-effect"
+        ]
       }
     ]
   }
