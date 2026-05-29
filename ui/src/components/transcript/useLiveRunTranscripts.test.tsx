@@ -28,8 +28,11 @@ vi.mock("../../api/heartbeats", () => ({
   },
 }));
 
-vi.mock("../../adapters", () => ({
+vi.mock("../../adapters/transcript", () => ({
   buildTranscript: buildTranscriptMock,
+}));
+
+vi.mock("../../adapters/registry", () => ({
   getUIAdapter: () => null,
   onAdapterChange: () => () => {},
 }));

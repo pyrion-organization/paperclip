@@ -1149,7 +1149,7 @@ describe("IssueDetail", () => {
     await flushReact();
 
     const pauseMenuButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "Pause subtree...");
+      .find((button) => button.textContent?.trim() === "Pause subtree…");
     expect(pauseMenuButton).toBeTruthy();
 
     await act(async () => {
@@ -1258,7 +1258,7 @@ describe("IssueDetail", () => {
     await flushReact();
 
     const pauseMenuButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "Pause work...");
+      .find((button) => button.textContent?.trim() === "Pause work…");
     expect(pauseMenuButton).toBeTruthy();
   });
 
@@ -1463,7 +1463,7 @@ describe("IssueDetail", () => {
     await flushReact();
 
     const restoreMenuButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "Restore subtree...");
+      .find((button) => button.textContent?.trim() === "Restore subtree…");
     expect(restoreMenuButton).toBeTruthy();
 
     await act(async () => {
@@ -1526,7 +1526,7 @@ describe("IssueDetail", () => {
     await flushReact();
 
     const cancelMenuButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.trim() === "Cancel subtree...");
+      .find((button) => button.textContent?.trim() === "Cancel subtree…");
     expect(cancelMenuButton).toBeTruthy();
 
     await act(async () => {

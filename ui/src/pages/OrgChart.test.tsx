@@ -11,7 +11,7 @@ const orgMock = vi.fn();
 const listMock = vi.fn();
 
 vi.mock("@/lib/router", () => ({
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
+  Link: ({ to, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => <a href={to} {...props}>{children}</a>,
   useNavigate: () => navigateMock,
 }));
 
@@ -221,29 +221,35 @@ describe("OrgChart mobile gestures", () => {
 
   it("suppresses card navigation after a touch pan", async () => {
     const { viewport } = await renderOrgChart();
-    const card = container.querySelector("[data-org-card]") as HTMLDivElement;
+    const card = container.querySelector("[data-org-card]") as HTMLAnchorElement;
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
 
     await act(async () => {
       viewport.dispatchEvent(createTouchEvent("touchstart", [{ clientX: 100, clientY: 100 }]));
       viewport.dispatchEvent(createTouchEvent("touchmove", [{ clientX: 130, clientY: 145 }]));
       viewport.dispatchEvent(createTouchEvent("touchend", []));
-      card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      card.dispatchEvent(clickEvent);
     });
 
-    expect(navigateMock).not.toHaveBeenCalled();
+    // The card is a router Link; a pan suppresses its navigation by preventing
+    // the click's default action via onClickCapture.
+    expect(clickEvent.defaultPrevented).toBe(true);
   });
 
   it("allows card navigation after a touch tap without movement", async () => {
     const { viewport } = await renderOrgChart();
-    const card = container.querySelector("[data-org-card]") as HTMLDivElement;
+    const card = container.querySelector("[data-org-card]") as HTMLAnchorElement;
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
 
     await act(async () => {
       viewport.dispatchEvent(createTouchEvent("touchstart", [{ clientX: 100, clientY: 100 }]));
       viewport.dispatchEvent(createTouchEvent("touchend", []));
-      card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      card.dispatchEvent(clickEvent);
     });
 
-    expect(navigateMock).toHaveBeenCalledWith("/agents/ceo");
+    // A tap without movement leaves the Link navigation intact.
+    expect(clickEvent.defaultPrevented).toBe(false);
+    expect(card.getAttribute("href")).toBe("/agents/ceo");
   });
   it("pinch-zooms toward the touch center", async () => {
     const { viewport, layer } = await renderOrgChart();

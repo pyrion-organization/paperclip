@@ -221,7 +221,7 @@ function MetadataRow({
 }
 
 function MissingValue() {
-  return <span className="text-muted-foreground"> - </span>;
+  return <span className="text-muted-foreground">—</span>;
 }
 
 function AgentLink({

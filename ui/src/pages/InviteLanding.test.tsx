@@ -43,6 +43,15 @@ vi.mock("../api/companies", () => ({
   },
 }));
 
+// InviteLanding reads companies via `companiesListQueryOptions`, whose queryFn
+// calls `companiesCoreApi.list()` — mock that module so membership detection and
+// the post-sign-in redirect resolve against the test's company list.
+vi.mock("../api/companies-core", () => ({
+  companiesCoreApi: {
+    list: () => listCompaniesMock(),
+  },
+}));
+
 vi.mock("@/context/CompanyContext", () => ({
   useCompany: () => ({
     selectedCompany: null,
@@ -636,7 +645,7 @@ describe("InviteLandingPage", () => {
     });
     await flushReact();
 
-    expect(container.textContent).toContain("Checking your access...");
+    expect(container.textContent).toContain("Checking your access…");
     expect(container.textContent).not.toContain("Accept company invite");
     expect(acceptInviteMock).not.toHaveBeenCalled();
 
