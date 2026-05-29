@@ -90,7 +90,7 @@ export function RoutineHistoryTab({
 
   const revisions = useMemo(() => revisionsQuery.data ?? [], [revisionsQuery.data]);
   const sortedRevisions = useMemo(
-    () => revisions.toSorted((a, b) => b.revisionNumber - a.revisionNumber),
+    () => [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber),
     [revisions],
   );
   const currentRevision = useMemo(

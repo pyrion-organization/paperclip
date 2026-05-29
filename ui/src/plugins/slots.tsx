@@ -162,7 +162,7 @@ export function usePluginSlots(filters: SlotFilters): UsePluginSlotsResult {
   // Kick off dynamic imports for any new plugin contributions.
   usePluginModuleLoader(data);
 
-  const slotTypesKey = useMemo(() => filters.slotTypes.toSorted().join("|"), [filters.slotTypes]);
+  const slotTypesKey = useMemo(() => [...filters.slotTypes].sort().join("|"), [filters.slotTypes]);
 
   const slots = useMemo(() => {
     const allowedTypes = new Set(slotTypesKey.split("|").filter(Boolean) as PluginUiSlotType[]);

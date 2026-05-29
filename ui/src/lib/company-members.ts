@@ -99,7 +99,7 @@ export function buildMarkdownMentionOptions(args: {
         agentId: agent.id,
         agentIcon: agent.icon,
       })),
-    ...(args.projects ?? []).toSorted((left, right) => left.name.localeCompare(right.name))
+    ...[...(args.projects ?? [])].sort((left, right) => left.name.localeCompare(right.name))
       .map((project) => ({
         id: `project:${project.id}`,
         name: project.name,

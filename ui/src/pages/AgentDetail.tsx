@@ -1320,7 +1320,7 @@ function SummaryRow({ label, children }: { label: string; children: React.ReactN
 function LatestRunCard({ runs, agentId }: { runs: HeartbeatRun[]; agentId: string }) {
   if (runs.length === 0) return null;
 
-  const sorted = runs.toSorted(
+  const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
@@ -3055,7 +3055,7 @@ function RunsTab({
   }
 
   // Sort by created descending
-  const sorted = runs.toSorted(
+  const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 

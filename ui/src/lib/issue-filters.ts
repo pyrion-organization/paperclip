@@ -50,8 +50,8 @@ export function issueFilterLabel(value: string): string {
 
 export function issueFilterArraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
-  const sortedA = a.toSorted();
-  const sortedB = b.toSorted();
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
   return sortedA.length === sortedB.length && sortedA.every((value, index) => value === sortedB[index]);
 }
 

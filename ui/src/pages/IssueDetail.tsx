@@ -1271,7 +1271,7 @@ export function IssueDetail() {
   const childIssues = useMemo(
     () => {
       const descendants = issue?.id ? filterIssueDescendants(issue.id, rawChildIssues) : rawChildIssues;
-      return descendants.toSorted((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      return [...descendants].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     },
     [issue?.id, rawChildIssues],
   );

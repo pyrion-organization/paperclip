@@ -1235,7 +1235,7 @@ export function NewIssueDialog() {
   }, [applyIssueFormPatch, newIssueOpen, orderedProjects, projectId, selectedExecutionWorkspaceId]);
   const modelOverrideOptions = useMemo<InlineEntityOption[]>(
     () => {
-      return (assigneeAdapterModels ?? []).toSorted((a, b) => {
+      return [...(assigneeAdapterModels ?? [])].sort((a, b) => {
           const providerA = extractProviderIdWithFallback(a.id);
           const providerB = extractProviderIdWithFallback(b.id);
           const byProvider = providerA.localeCompare(providerB);

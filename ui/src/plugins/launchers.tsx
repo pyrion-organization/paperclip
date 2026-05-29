@@ -136,7 +136,7 @@ export function usePluginLaunchers(
   });
 
   const placementZonesKey = useMemo(
-    () => filters.placementZones.toSorted().join("|"),
+    () => [...filters.placementZones].sort().join("|"),
     [filters.placementZones],
   );
 

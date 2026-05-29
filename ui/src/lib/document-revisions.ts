@@ -12,7 +12,7 @@ function toTimestamp(value: Date | string | null | undefined) {
 }
 
 function sortRevisionsDescending(revisions: DocumentRevision[]) {
-  return revisions.toSorted((a, b) => {
+  return [...revisions].sort((a, b) => {
     if (a.revisionNumber !== b.revisionNumber) {
       return b.revisionNumber - a.revisionNumber;
     }

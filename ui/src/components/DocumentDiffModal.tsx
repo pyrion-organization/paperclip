@@ -49,7 +49,7 @@ export function DocumentDiffModal({
 
   const sortedRevisions = useMemo(() => {
     if (!revisions) return [];
-    return revisions.toSorted((a, b) => b.revisionNumber - a.revisionNumber);
+    return [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber);
   }, [revisions]);
 
   // Default: compare previous (latestRevisionNumber - 1) with current (latestRevisionNumber)
