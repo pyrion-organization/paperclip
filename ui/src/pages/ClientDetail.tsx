@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ClientEmployee, ClientProject } from "@paperclipai/shared";
@@ -307,9 +307,12 @@ export function ClientDetail() {
   const [selectedInstructionsFile, setSelectedInstructionsFile] = useState("CLIENT.md");
   const [emailDomainInput, setEmailDomainInput] = useState("");
 
-  useEffect(() => {
+  // Reset the selected instructions file when viewing a different client.
+  const prevClientIdRef = useRef(clientId);
+  if (clientId !== prevClientIdRef.current) {
+    prevClientIdRef.current = clientId;
     setSelectedInstructionsFile("CLIENT.md");
-  }, [clientId]);
+  }
 
   const { data: client, isLoading } = useQuery({
     queryKey: queryKeys.clients.detail(clientId!),

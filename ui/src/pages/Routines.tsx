@@ -208,9 +208,12 @@ export function Routines() {
     setBreadcrumbs([{ label: "Routines" }]);
   }, [setBreadcrumbs]);
 
-  useEffect(() => {
+  // Reload persisted view state when the company-scoped key changes.
+  const prevViewStateKeyRef = useRef(routineViewStateKey);
+  if (routineViewStateKey !== prevViewStateKeyRef.current) {
+    prevViewStateKeyRef.current = routineViewStateKey;
     setRoutineViewState(getRoutineViewState(routineViewStateKey));
-  }, [routineViewStateKey]);
+  }
 
   const { data: routines, isLoading, error } = useQuery({
     queryKey: queryKeys.routines.list(selectedCompanyId!),

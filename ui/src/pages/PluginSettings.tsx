@@ -126,9 +126,12 @@ export function PluginSettings() {
     ]);
   }, [selectedCompany?.name, setBreadcrumbs, companyPrefix, plugin]);
 
-  useEffect(() => {
+  // Reset to the configuration tab when navigating to a different plugin.
+  const prevPluginIdRef = useRef(pluginId);
+  if (pluginId !== prevPluginIdRef.current) {
+    prevPluginIdRef.current = pluginId;
     setActiveTab("configuration");
-  }, [pluginId]);
+  }
 
   if (pluginLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading plugin details&hellip;</div>;

@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES,
@@ -191,12 +191,15 @@ export function CompanySettings() {
     clearLogoMutation.mutate();
   }
 
-  useEffect(() => {
+  // Clear invite UI state when switching companies.
+  const prevInviteCompanyIdRef = useRef(selectedCompanyId);
+  if (selectedCompanyId !== prevInviteCompanyIdRef.current) {
+    prevInviteCompanyIdRef.current = selectedCompanyId;
     setInviteError(null);
     setInviteSnippet(null);
     setSnippetCopied(false);
     setSnippetCopyDelightId(0);
-  }, [selectedCompanyId]);
+  }
 
   const archiveMutation = useInvalidatingMutation({
     mutationFn: ({

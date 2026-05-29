@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SVGProps } from "react";
+import { useEffect, useMemo, useRef, useState, type SVGProps } from "react";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -843,9 +843,15 @@ export function CompanySkills() {
     staleTime: 60_000,
   });
 
-  useEffect(() => {
+  // Expand the selected skill and drop edit mode when the selection changes.
+  // Seed with `undefined` (never a valid id) so the initial selection — e.g.
+  // when loading a skill-detail URL directly — is expanded on first render too.
+  const prevSelectedSkillIdRef = useRef<string | null | undefined>(undefined);
+  if (selectedSkillId !== prevSelectedSkillIdRef.current) {
+    prevSelectedSkillIdRef.current = selectedSkillId;
     setExpandedSkillId(selectedSkillId);
-  }, [selectedSkillId]);
+    setEditMode(false);
+  }
 
   useEffect(() => {
     if (!selectedSkillId || selectedPath === "SKILL.md") return;
@@ -864,9 +870,12 @@ export function CompanySkills() {
     });
   }, [selectedPath, selectedSkillId]);
 
-  useEffect(() => {
+  // Drop edit mode when navigating to a different file within a skill.
+  const prevSelectedPathRef = useRef(selectedPath);
+  if (selectedPath !== prevSelectedPathRef.current) {
+    prevSelectedPathRef.current = selectedPath;
     setEditMode(false);
-  }, [selectedSkillId, selectedPath]);
+  }
 
   useEffect(() => {
     if (detailQuery.data) {

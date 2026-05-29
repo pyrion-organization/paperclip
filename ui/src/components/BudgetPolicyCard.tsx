@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import type { BudgetPolicySummary } from "@paperclipai/shared";
 import { AlertTriangle, PauseCircle, ShieldAlert, Wallet } from "lucide-react";
 import { cn, formatCents } from "../lib/utils";
@@ -42,10 +42,13 @@ export function BudgetPolicyCard({
   variant?: "card" | "plain";
 }) {
   const [draftBudget, setDraftBudget] = useState(() => centsInputValue(summary.amount));
-
-  useEffect(() => {
+  // Reset the editable draft when the saved amount changes (adjust state during
+  // render instead of in an effect — avoids an extra render with stale input).
+  const prevAmountRef = useRef(summary.amount);
+  if (summary.amount !== prevAmountRef.current) {
+    prevAmountRef.current = summary.amount;
     setDraftBudget(centsInputValue(summary.amount));
-  }, [summary.amount]);
+  }
 
   const parsedDraft = parseDollarInput(draftBudget);
   const canSave = typeof parsedDraft === "number" && parsedDraft !== summary.amount && Boolean(onSave);
