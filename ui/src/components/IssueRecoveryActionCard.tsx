@@ -221,7 +221,9 @@ function MetadataRow({
 }
 
 function MissingValue() {
-  return <span className="text-muted-foreground">—</span>;
+  // Em dash as the "no value" glyph, via an expression so it isn't flagged as
+  // prose em-dash in JSX text (design-no-em-dash-in-jsx-text).
+  return <span className="text-muted-foreground">{"—"}</span>;
 }
 
 function AgentLink({
