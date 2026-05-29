@@ -50,6 +50,14 @@ function parseOptionalJson(raw: string | undefined | null): unknown {
   return JSON.parse(raw);
 }
 
+function isReadyRuntimeService(service: Record<string, unknown> | null | undefined): service is Record<string, unknown> {
+  if (!service || service.status !== "running" || service.healthStatus === "unhealthy") return false;
+  if ("url" in service) {
+    return typeof service.url === "string" && service.url.trim().length > 0;
+  }
+  return true;
+}
+
 const companyIdOptional = z.string().uuid().optional().nullable();
 const agentIdOptional = z.string().uuid().optional().nullable();
 const issueIdSchema = z.string().min(1);
@@ -377,7 +385,7 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         while (Date.now() <= deadline) {
           latest = await getIssueWorkspaceRuntime(client, issueId);
           const service = selectRuntimeService(latest.runtimeServices, { runtimeServiceId, serviceName });
-          if (service?.status === "running" && service.healthStatus !== "unhealthy") {
+          if (isReadyRuntimeService(service)) {
             return {
               workspace: latest.workspace,
               service,

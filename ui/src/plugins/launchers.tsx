@@ -129,9 +129,10 @@ export function usePluginLaunchers(
 ): UsePluginLaunchersResult {
   const requestedEnabled = filters.enabled ?? true;
   const queryEnabled = useDeferredQueryEnabled(requestedEnabled);
+  const companyId = filters.companyId ?? null;
   const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.plugins.uiContributions,
-    queryFn: () => pluginsApi.listUiContributions(),
+    queryKey: queryKeys.plugins.uiContributions(companyId),
+    queryFn: () => pluginsApi.listUiContributions(companyId),
     enabled: queryEnabled,
   });
 

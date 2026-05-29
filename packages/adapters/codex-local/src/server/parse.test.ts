@@ -65,6 +65,38 @@ describe("parseCodexJsonl", () => {
       errorMessage: null,
     });
   });
+
+  it("captures usage from failed turns", () => {
+    const stdout = JSON.stringify({
+      type: "turn.failed",
+      usage: { input_tokens: 1000, cache_read_input_tokens: 900, output_tokens: 25 },
+      error: { message: "rate limited" },
+    });
+
+    expect(parseCodexJsonl(stdout)).toEqual({
+      sessionId: null,
+      summary: "",
+      usage: {
+        inputTokens: 1000,
+        cachedInputTokens: 900,
+        outputTokens: 25,
+      },
+      errorMessage: "rate limited",
+    });
+  });
+
+  it("accepts cache_read_input_tokens when cached_input_tokens is absent", () => {
+    const stdout = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 10, cache_read_input_tokens: 7, output_tokens: 4 },
+    });
+
+    expect(parseCodexJsonl(stdout).usage).toEqual({
+      inputTokens: 10,
+      cachedInputTokens: 7,
+      outputTokens: 4,
+    });
+  });
 });
 
 describe("isCodexUnknownSessionError", () => {

@@ -21,6 +21,16 @@ export function parseCodexJsonl(stdout: string) {
     outputTokens: 0,
   };
 
+  function captureUsage(rawUsage: unknown) {
+    const usageObj = parseObject(rawUsage);
+    usage.inputTokens = asNumber(usageObj.input_tokens, usage.inputTokens);
+    usage.cachedInputTokens = asNumber(
+      usageObj.cached_input_tokens ?? usageObj.cache_read_input_tokens,
+      usage.cachedInputTokens,
+    );
+    usage.outputTokens = asNumber(usageObj.output_tokens, usage.outputTokens);
+  }
+
   for (const rawLine of stdout.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -50,14 +60,12 @@ export function parseCodexJsonl(stdout: string) {
     }
 
     if (type === "turn.completed") {
-      const usageObj = parseObject(event.usage);
-      usage.inputTokens = asNumber(usageObj.input_tokens, usage.inputTokens);
-      usage.cachedInputTokens = asNumber(usageObj.cached_input_tokens, usage.cachedInputTokens);
-      usage.outputTokens = asNumber(usageObj.output_tokens, usage.outputTokens);
+      captureUsage(event.usage);
       continue;
     }
 
     if (type === "turn.failed") {
+      captureUsage(event.usage);
       const err = parseObject(event.error);
       const msg = asString(err.message, "").trim();
       if (msg) errorMessage = msg;

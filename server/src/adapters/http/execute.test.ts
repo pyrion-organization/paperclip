@@ -43,4 +43,42 @@ describe("http adapter execute", () => {
     expect(result.errorCode).toBe("timeout");
     expect(result.errorMessage).toContain("timed out after 1ms");
   });
+
+  it("honors the documented timeoutSec configuration", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      })),
+    );
+
+    const result = await execute({
+      runId: "run-1",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Agent",
+        adapterType: "http",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        url: "https://example.test/webhook",
+        timeoutSec: 0.001,
+      },
+      context: {},
+      onLog: async () => {},
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.errorCode).toBe("timeout");
+    expect(result.errorMessage).toContain("timed out after 1ms");
+  });
 });

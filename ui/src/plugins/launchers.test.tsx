@@ -8,6 +8,7 @@ import type { PluginUiContribution } from "@/api/plugins";
 import {
   type PluginLauncherContext,
   type ResolvedPluginLauncher,
+  usePluginLaunchers,
 } from "./launchers";
 import { PluginLauncherProvider, usePluginLauncherRuntime } from "./launcher-runtime";
 
@@ -158,5 +159,71 @@ describe("PluginLauncherProvider iframe launchers", () => {
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("src")).toBe("/_plugins/plugin-iframe/ui/panel.html");
     expect(iframe?.getAttribute("title")).toBe("Iframe Plugin Inspect");
+  });
+});
+
+describe("usePluginLaunchers", () => {
+  let container: HTMLDivElement;
+  let root: Root | null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = null;
+    mockPluginsApi.listUiContributions.mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+    container.remove();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("scopes launcher contribution discovery by company", async () => {
+    function Probe({ companyId }: { companyId: string }) {
+      usePluginLaunchers({
+        placementZones: ["toolbarButton"],
+        companyId,
+      });
+      return null;
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe companyId="company-a" />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root?.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe companyId="company-b" />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+      await Promise.resolve();
+    });
+
+    expect(mockPluginsApi.listUiContributions).toHaveBeenCalledWith("company-a");
+    expect(mockPluginsApi.listUiContributions).toHaveBeenCalledWith("company-b");
   });
 });

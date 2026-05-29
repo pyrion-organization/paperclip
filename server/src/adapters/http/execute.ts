@@ -7,7 +7,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (!url) throw new Error("HTTP adapter missing url");
 
   const method = asString(config.method, "POST");
-  const timeoutMs = asNumber(config.timeoutMs, 0);
+  const timeoutSec = asNumber(config.timeoutSec, 0);
+  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : asNumber(config.timeoutMs, 0);
   const headers = parseObject(config.headers) as Record<string, string>;
   const payloadTemplate = parseObject(config.payloadTemplate);
   const body = { ...payloadTemplate, agentId: agent.id, runId, context };

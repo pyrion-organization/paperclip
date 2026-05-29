@@ -5,7 +5,6 @@ import type { Goal } from "@paperclipai/shared";
 import { GOAL_LEVELS, GOAL_STATUSES } from "@paperclipai/shared/constants";
 import { agentsApi } from "../api/agents";
 import { goalsApi } from "../api/goals";
-import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 import { StatusBadge } from "./StatusBadge";
 import { formatDate, cn, agentUrl } from "../lib/utils";
@@ -71,18 +70,18 @@ function PickerButton({
 }
 
 export function GoalProperties({ goal, onUpdate }: GoalPropertiesProps) {
-  const { selectedCompanyId } = useCompany();
+  const lookupCompanyId = goal.companyId;
 
   const { data: agents } = useQuery({
-    queryKey: queryKeys.agents.list(selectedCompanyId!),
-    queryFn: () => agentsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    queryKey: queryKeys.agents.list(lookupCompanyId),
+    queryFn: () => agentsApi.list(lookupCompanyId),
+    enabled: !!lookupCompanyId,
   });
 
   const { data: allGoals } = useQuery({
-    queryKey: queryKeys.goals.list(selectedCompanyId!),
-    queryFn: () => goalsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    queryKey: queryKeys.goals.list(lookupCompanyId),
+    queryFn: () => goalsApi.list(lookupCompanyId),
+    enabled: !!lookupCompanyId,
   });
 
   const ownerAgent = goal.ownerAgentId

@@ -52,6 +52,22 @@ describe("paperclip MCP tools", () => {
     );
   });
 
+  it("rejects generic API paths that would resolve outside the configured origin", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({ ok: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = getTool("paperclipApiRequest");
+    const response = await tool.execute({
+      method: "GET",
+      path: "///attacker.example/collect",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.content[0]?.text).toContain("same-origin");
+  });
+
   it("uses default company id for company-scoped list tools", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse([{ id: "issue-1" }]),
@@ -205,6 +221,49 @@ describe("paperclip MCP tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.content[0]?.text).toContain("http://127.0.0.1:5173");
+  });
+
+  it("keeps polling a running exposed service until its URL is available", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(mockJsonResponse({
+        currentExecutionWorkspace: {
+          id: "44444444-4444-4444-8444-444444444444",
+          runtimeServices: [
+            {
+              id: "55555555-5555-4555-8555-555555555555",
+              serviceName: "web",
+              status: "running",
+              healthStatus: "healthy",
+              url: "",
+            },
+          ],
+        },
+      }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        currentExecutionWorkspace: {
+          id: "44444444-4444-4444-8444-444444444444",
+          runtimeServices: [
+            {
+              id: "55555555-5555-4555-8555-555555555555",
+              serviceName: "web",
+              status: "running",
+              healthStatus: "healthy",
+              url: "http://127.0.0.1:5173",
+            },
+          ],
+        },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = getTool("paperclipWaitForIssueWorkspaceService");
+    const response = await tool.execute({
+      issueId: "PAP-1135",
+      serviceName: "web",
+      timeoutSeconds: 2,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(response.content[0]?.text).toContain("http://127.0.0.1:5173");
   });
 

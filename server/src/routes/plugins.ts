@@ -727,6 +727,10 @@ export function pluginRoutes(
    */
   router.get("/plugins/ui-contributions", async (req, res) => {
     assertBoardOrgAccess(req);
+    const companyId = typeof req.query.companyId === "string" ? req.query.companyId.trim() : "";
+    if (companyId) {
+      assertCompanyAccess(req, companyId);
+    }
     const plugins = await registry.listByStatus("ready");
 
     const contributions: PluginUiContribution[] = plugins

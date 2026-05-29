@@ -66,4 +66,10 @@ describe("issue-reference", () => {
     expect(parseIssueReferenceFromHref("/issues/:id")).toBeNull();
     expect(parseIssueReferenceFromHref("http://localhost:3100/api/issues/:id")).toBeNull();
   });
+
+  it("treats malformed percent-encoded issue references as non-links", () => {
+    expect(parseIssuePathIdFromPath("/issues/%")).toBeNull();
+    expect(parseIssueReferenceFromHref("issue://%")).toBeNull();
+    expect(parseIssueReferenceFromHref("/issues/%")).toBeNull();
+  });
 });

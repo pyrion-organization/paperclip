@@ -27,6 +27,19 @@ export interface JsonRequestOptions {
   includeRunId?: boolean;
 }
 
+function resolveApiUrl(baseApiUrl: string, path: string): URL {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
+    throw new Error(`API path must be a same-origin absolute path: ${path}`);
+  }
+
+  const baseUrl = new URL(baseApiUrl);
+  const url = new URL(`.${path}`, `${baseUrl.href.replace(/\/+$/, "")}/`);
+  if (url.origin !== baseUrl.origin) {
+    throw new Error(`API path must stay on configured Paperclip origin: ${path}`);
+  }
+  return url;
+}
+
 function isWriteMethod(method: string): boolean {
   return !["GET", "HEAD"].includes(method.toUpperCase());
 }
@@ -76,11 +89,7 @@ export class PaperclipApiClient {
   }
 
   async requestJson<T>(method: string, path: string, options: JsonRequestOptions = {}): Promise<T> {
-    if (!path.startsWith("/")) {
-      throw new Error(`API path must start with "/": ${path}`);
-    }
-
-    const url = new URL(path.slice(1), `${this.config.apiUrl}/`);
+    const url = resolveApiUrl(this.config.apiUrl, path);
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
       Accept: "application/json",
