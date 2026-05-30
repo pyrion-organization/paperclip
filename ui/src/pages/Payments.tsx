@@ -19,10 +19,20 @@ import { Textarea } from "@/components/ui/textarea";
 const NO_COMPANY = "__none__";
 const NONE = "__none__";
 
+const moneyFormatters = new Map<string, Intl.NumberFormat>();
+function getMoneyFormatter(currency: string) {
+  let formatter = moneyFormatters.get(currency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency });
+    moneyFormatters.set(currency, formatter);
+  }
+  return formatter;
+}
+
 function money(cents: number | null | undefined, currency = "BRL") {
   if (cents == null) return "-";
   try {
-    return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+    return getMoneyFormatter(currency).format(cents / 100);
   } catch {
     return `${currency} ${(cents / 100).toFixed(2)}`;
   }

@@ -240,8 +240,18 @@ function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const moneyFormatters = new Map<string, Intl.NumberFormat>();
+function getMoneyFormatter(currency: string) {
+  let formatter = moneyFormatters.get(currency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency });
+    moneyFormatters.set(currency, formatter);
+  }
+  return formatter;
+}
+
 function money(cents: number, currency = "BRL") {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+  return getMoneyFormatter(currency).format(cents / 100);
 }
 
 function dueLabel(item: CalendarItem) {

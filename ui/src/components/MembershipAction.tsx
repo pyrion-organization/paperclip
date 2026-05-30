@@ -30,7 +30,7 @@ export function MembershipAction({
   const ariaLabel = `${isLeft ? "Join" : "Leave"} ${resourceName}`;
   const Icon = pending ? Loader2 : isLeft ? LogIn : LogOut;
 
-  function handleClick(event: MouseEvent<HTMLButtonElement>) {
+  function handleMembershipToggle(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
     if (pending) return;
@@ -54,7 +54,7 @@ export function MembershipAction({
         aria-label={ariaLabel}
         aria-busy={pending ? "true" : undefined}
         disabled={pending}
-        onClick={handleClick}
+        onClick={handleMembershipToggle}
         className="w-[66px]"
       >
         <Icon className={cn("size-3", pending && "motion-safe:animate-spin")} />
