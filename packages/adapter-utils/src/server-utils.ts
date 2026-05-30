@@ -1917,7 +1917,7 @@ async function removeStaleMaterializeLock(lockDir: string, staleMs: number): Pro
     const pid = typeof owner.pid === "number" ? owner.pid : 0;
     const createdAt = typeof owner.createdAt === "string" ? Date.parse(owner.createdAt) : Number.NaN;
     const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : staleMs + 1;
-    shouldRemove = !isPidAlive(pid) || ageMs > staleMs;
+    shouldRemove = !isPidAlive(pid) && ageMs > staleMs;
   } catch {
     const stat = await fs.stat(lockDir).catch(() => null);
     shouldRemove = !stat || Date.now() - stat.mtimeMs > staleMs;
@@ -2146,6 +2146,8 @@ export async function runChildProcess(
         let terminalCleanupStarted = false;
         let terminalCleanupTimer: NodeJS.Timeout | null = null;
         let terminalCleanupKillTimer: NodeJS.Timeout | null = null;
+        let timeoutKillTimer: NodeJS.Timeout | null = null;
+        let processClosed = false;
         let terminalResultStdoutScanOffset = 0;
         let terminalResultStderrScanOffset = 0;
 
@@ -2154,6 +2156,10 @@ export async function runChildProcess(
           if (terminalCleanupKillTimer) clearTimeout(terminalCleanupKillTimer);
           terminalCleanupTimer = null;
           terminalCleanupKillTimer = null;
+        };
+        const clearTimeoutKillTimer = () => {
+          if (timeoutKillTimer) clearTimeout(timeoutKillTimer);
+          timeoutKillTimer = null;
         };
 
         const maybeArmTerminalResultCleanup = () => {
@@ -2197,7 +2203,9 @@ export async function runChildProcess(
                 timedOut = true;
                 clearTerminalCleanupTimers();
                 signalRunningProcess({ child, processGroupId }, "SIGTERM");
-                setTimeout(() => {
+                timeoutKillTimer = setTimeout(() => {
+                  timeoutKillTimer = null;
+                  if (processClosed) return;
                   signalRunningProcess({ child, processGroupId }, "SIGKILL");
                 }, Math.max(1, opts.graceSec) * 1000);
               }, opts.timeoutSec * 1000)
@@ -2247,6 +2255,7 @@ export async function runChildProcess(
         child.on("error", (err: Error) => {
           if (timeout) clearTimeout(timeout);
           clearTerminalCleanupTimers();
+          clearTimeoutKillTimer();
           runningProcesses.delete(runId);
           void target.cleanup?.();
           const errno = (err as NodeJS.ErrnoException).code;
@@ -2263,8 +2272,10 @@ export async function runChildProcess(
         });
 
         child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+          processClosed = true;
           if (timeout) clearTimeout(timeout);
           clearTerminalCleanupTimers();
+          clearTimeoutKillTimer();
           runningProcesses.delete(runId);
           // After the main process exits, kill any orphaned children that
           // remain in the same process group (e.g. background server processes

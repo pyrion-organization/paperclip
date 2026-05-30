@@ -5,7 +5,8 @@ describe("buildSandboxNpmInstallCommand", () => {
   it("installs globally as root, via sudo when available, and under ~/.local otherwise", () => {
     const command = buildSandboxNpmInstallCommand("@google/gemini-cli");
     expect(command).toContain("if [ \"$(id -u)\" -eq 0 ]; then npm install -g '@google/gemini-cli';");
-    expect(command).toContain("sudo -E npm install -g '@google/gemini-cli'");
+    expect(command).toContain("sudo -E \"$(command -v npm)\" install -g '@google/gemini-cli'");
+    expect(command).toContain("|| { mkdir -p \"$HOME/.local\" && npm install -g --prefix \"$HOME/.local\" '@google/gemini-cli'; };");
     expect(command).toContain("npm install -g --prefix \"$HOME/.local\" '@google/gemini-cli'");
   });
 

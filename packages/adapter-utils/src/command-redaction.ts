@@ -1,10 +1,10 @@
 export const REDACTED_COMMAND_TEXT_VALUE = "***REDACTED***";
 
 const SECRET_NAME_PATTERN =
-  String.raw`[A-Za-z0-9_-]*(?:api[-_]?key|(?:access[-_]?|auth[-_]?)?token|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connectionstring)[A-Za-z0-9_-]*`;
+  String.raw`[A-Za-z0-9_-]*(?:api[-_]?key|(?:access[-_]?|auth[-_]?)?token|token|authorization|bearer|secret|passwd|password|credential|jwt|private[-_]?key|cookie|connection[-_]?string)[A-Za-z0-9_-]*`;
 
 const COMMAND_CLI_SECRET_OPTION_RE = new RegExp(
-  String.raw`(\B-{1,2}${SECRET_NAME_PATTERN}(?:\s+|=)(["']?))[^\s"'` + "`" + String.raw`]+(\2)`,
+  String.raw`(\B-{1,2}${SECRET_NAME_PATTERN}(?:\s+|=))(?:(["'])([^"'` + "`" + String.raw`\r\n]*)\2|([^\s"'` + "`" + String.raw`;|&]+))`,
   "gi",
 );
 const COMMAND_ENV_SECRET_ASSIGNMENT_RE = new RegExp(
@@ -46,7 +46,11 @@ export function redactCommandText(command: string, redactedValue = REDACTED_COMM
   if (!maybeContainsSecretText(command)) return command;
   return command
     .replace(COMMAND_AUTHORIZATION_BEARER_RE, `$1${redactedValue}`)
-    .replace(COMMAND_CLI_SECRET_OPTION_RE, `$1${redactedValue}$3`)
+    .replace(
+      COMMAND_CLI_SECRET_OPTION_RE,
+      (_match, prefix: string, quote: string | undefined) =>
+        quote ? `${prefix}${quote}${redactedValue}${quote}` : `${prefix}${redactedValue}`,
+    )
     .replace(
       COMMAND_ENV_SECRET_ASSIGNMENT_RE,
       (_match, prefix: string, quote: string | undefined) =>

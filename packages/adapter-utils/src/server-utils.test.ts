@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyPaperclipWorkspaceEnv,
   appendWithByteCap,
@@ -63,6 +63,20 @@ describe("buildInvocationEnvForLogs", () => {
     expect(loggedEnv.SAFE_VALUE).toBe("visible");
     expect(loggedEnv.PAPERCLIP_RESOLVED_COMMAND).toBe(
       "env OPENAI_API_KEY=***REDACTED*** PAPERCLIP_API_KEY='***REDACTED***' custom-acp --paperclip-api-key=***REDACTED*** --token ***REDACTED***",
+    );
+  });
+
+  it("redacts quoted CLI secret option values containing spaces", () => {
+    const loggedEnv = buildInvocationEnvForLogs(
+      {},
+      {
+        resolvedCommand:
+          "tool --password 'abc def' --connection-string=\"Server=x;Password=abc def\" --token plain-secret",
+      },
+    );
+
+    expect(loggedEnv.PAPERCLIP_RESOLVED_COMMAND).toBe(
+      "tool --password '***REDACTED***' --connection-string=\"***REDACTED***\" --token ***REDACTED***",
     );
   });
 });
@@ -201,6 +215,35 @@ describe("materializePaperclipSkillCopy", () => {
 
       await expect(materializePaperclipSkillCopy(source, target)).resolves.toMatchObject({ copiedFiles: 1 });
       await expect(fs.readFile(path.join(target, "SKILL.md"), "utf8")).resolves.toBe("# skill\n");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not break old materialization locks owned by a live process", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skill-copy-"));
+    try {
+      const source = path.join(root, "source");
+      const target = path.join(root, "target");
+      const lock = `${target}.lock`;
+      await fs.mkdir(source, { recursive: true });
+      await fs.writeFile(path.join(source, "SKILL.md"), "# skill\n", "utf8");
+      await fs.mkdir(lock, { recursive: true });
+      await fs.writeFile(
+        path.join(lock, "owner.json"),
+        JSON.stringify({ pid: process.pid, createdAt: "2000-01-01T00:00:00.000Z" }),
+        "utf8",
+      );
+
+      const materializePromise = materializePaperclipSkillCopy(source, target);
+      const race = await Promise.race([
+        materializePromise.then(() => "resolved" as const),
+        new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 200)),
+      ]);
+
+      expect(race).toBe("pending");
+      await fs.rm(lock, { recursive: true, force: true });
+      await expect(materializePromise).resolves.toMatchObject({ copiedFiles: 1 });
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -471,6 +514,37 @@ describe("runChildProcess", () => {
 
     expect(await waitForPidExit(descendantPid!, 2_000)).toBe(true);
   });
+
+  it.skipIf(process.platform === "win32")("cancels timeout SIGKILL fallback after the process exits", async () => {
+    const killSpy = vi.spyOn(process, "kill");
+    try {
+      const result = await runChildProcess(
+        randomUUID(),
+        process.execPath,
+        [
+          "-e",
+          [
+            "process.on('SIGTERM', () => process.exit(0));",
+            "setInterval(() => {}, 1000);",
+          ].join(" "),
+        ],
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutSec: 1,
+          graceSec: 1,
+          onLog: async () => {},
+        },
+      );
+
+      expect(result.timedOut).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const sigkillCalls = killSpy.mock.calls.filter((call) => call[1] === "SIGKILL");
+      expect(sigkillCalls).toHaveLength(0);
+    } finally {
+      killSpy.mockRestore();
+    }
+  }, 4_000);
 
   it.skipIf(process.platform === "win32")("cleans up a lingering process group after terminal output and child exit", async () => {
     const result = await runChildProcess(

@@ -242,6 +242,10 @@ export function OrgChart() {
   // Center the chart on first load
   const hasInitialized = useRef(false);
   useEffect(() => {
+    hasInitialized.current = false;
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
     if (hasInitialized.current || allNodes.length === 0 || !containerRef.current) return;
     hasInitialized.current = true;
 

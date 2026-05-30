@@ -167,6 +167,11 @@ describe("worktree merge history planner", () => {
     expect(parseWorktreeMergeScopes("issues")).toEqual(["issues"]);
   });
 
+  it("rejects any invalid scope token", () => {
+    expect(() => parseWorktreeMergeScopes("issues,comment")).toThrow(/comment/);
+    expect(() => parseWorktreeMergeScopes("issues, comments, nope")).toThrow(/nope/);
+  });
+
   it("dedupes nested worktree issues by preserved source uuid", () => {
     const sharedIssue = makeIssue({ id: "issue-a", identifier: "PAP-10", title: "Shared" });
     const branchOneIssue = makeIssue({
@@ -375,6 +380,44 @@ describe("worktree merge history planner", () => {
       "comment-new-issue",
     ]);
     expect(plan.adjustments.clear_author_agent).toBe(1);
+  });
+
+  it("does not import issues, documents, or attachments for comments-only scope", () => {
+    const sourceIssue = makeIssue({ id: "issue-new", identifier: "PAP-12" });
+    const sourceComment = makeComment({ id: "comment-new", issueId: "issue-new" });
+    const sourceDocument = makeIssueDocument({ issueId: "issue-new" });
+    const sourceAttachment = makeAttachment({ issueId: "issue-new" });
+
+    const plan = buildWorktreeMergePlan({
+      companyId: "company-1",
+      companyName: "Paperclip",
+      issuePrefix: "PAP",
+      previewIssueCounterStart: 10,
+      scopes: ["comments"],
+      sourceIssues: [sourceIssue],
+      targetIssues: [],
+      sourceComments: [sourceComment],
+      targetComments: [],
+      sourceDocuments: [sourceDocument],
+      targetDocuments: [],
+      sourceDocumentRevisions: [makeDocumentRevision()],
+      targetDocumentRevisions: [],
+      sourceAttachments: [sourceAttachment],
+      targetAttachments: [],
+      sourceProjects: [makeProject()],
+      sourceProjectWorkspaces: [makeProjectWorkspace()],
+      importProjectIds: ["project-1"],
+      targetAgents: [],
+      targetProjects: [],
+      targetProjectWorkspaces: [],
+      targetGoals: [{ id: "goal-1" }] as any,
+    });
+
+    expect(plan.projectImports).toEqual([]);
+    expect(plan.issuePlans).toEqual([]);
+    expect(plan.commentPlans).toEqual([{ source: sourceComment, action: "skip_missing_parent" }]);
+    expect(plan.documentPlans).toEqual([]);
+    expect(plan.attachmentPlans).toEqual([]);
   });
 
   it("merges document revisions onto an existing shared document and renumbers conflicts", () => {
