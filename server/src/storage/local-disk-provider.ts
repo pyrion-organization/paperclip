@@ -2,23 +2,10 @@ import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import type { StorageProvider, GetObjectResult, HeadObjectResult } from "./types.js";
 import { notFound, badRequest } from "../errors.js";
-
-function normalizeObjectKey(objectKey: string): string {
-  const normalized = objectKey.replace(/\\/g, "/").trim();
-  if (!normalized || normalized.startsWith("/")) {
-    throw badRequest("Invalid object key");
-  }
-
-  const parts = normalized.split("/").filter((part) => part.length > 0);
-  if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) {
-    throw badRequest("Invalid object key");
-  }
-
-  return parts.join("/");
-}
+import { normalizeStorageObjectKey } from "./object-key.js";
 
 function resolveWithin(baseDir: string, objectKey: string): string {
-  const normalizedKey = normalizeObjectKey(objectKey);
+  const normalizedKey = normalizeStorageObjectKey(objectKey);
   const resolved = path.resolve(baseDir, normalizedKey);
   const base = path.resolve(baseDir);
   if (resolved !== base && !resolved.startsWith(base + path.sep)) {
@@ -81,8 +68,9 @@ export function createLocalDiskStorageProvider(baseDir: string): StorageProvider
       const filePath = resolveWithin(root, input.objectKey);
       try {
         await fs.unlink(filePath);
-      } catch {
-        // idempotent delete
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
       }
     },
   };

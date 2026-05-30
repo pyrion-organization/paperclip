@@ -129,6 +129,25 @@ describeEmbeddedPostgres("projectFilesService", () => {
     expect(remoteBranch).toBe(localBranch);
   });
 
+  it("rejects project file reads and writes through symlinks that escape the workspace", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-project-files-workspace-"));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-project-files-outside-"));
+    tempDirs.add(workspace);
+    tempDirs.add(outside);
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret", "utf8");
+    await fs.symlink(outside, path.join(workspace, "linked-outside"));
+
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: workspace });
+
+    await expect(svc.readFile(projectId, "linked-outside/secret.txt")).rejects.toMatchObject({ status: 422 });
+    await expect(svc.saveFile(projectId, "linked-outside/new.txt", "nope")).rejects.toMatchObject({ status: 422 });
+    await expect(svc.saveFile(projectId, "linked-outside/nested/new.txt", "nope")).rejects.toMatchObject({ status: 422 });
+    await expect(fs.access(path.join(outside, "nested"))).rejects.toBeTruthy();
+  });
+
   it("returns raw JSON text for editable project files", async () => {
     const companyId = randomUUID();
     const projectId = randomUUID();

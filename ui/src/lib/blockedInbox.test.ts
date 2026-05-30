@@ -154,6 +154,22 @@ describe("blockedInbox", () => {
     expect(rows[0].issue.id).toBe("issue-1");
   });
 
+  it("falls back to issue timestamps when blocked attention timestamps are invalid", () => {
+    const rows = buildBlockedInboxRows([
+      makeIssue(
+        { id: "older", title: "Older", updatedAt: new Date("2026-05-08T00:00:00.000Z") },
+        makeAttention({ stoppedSinceAt: "not-a-date" }),
+      ),
+      makeIssue(
+        { id: "newer", title: "Newer", updatedAt: new Date("2026-05-09T00:00:00.000Z") },
+        makeAttention({ stoppedSinceAt: "also-not-a-date" }),
+      ),
+    ]);
+
+    expect(rows[0]?.stoppedAtMs).toBeNull();
+    expect(sortBlockedInboxRows(rows, "most_recent").map((row) => row.issue.id)).toEqual(["newer", "older"]);
+  });
+
   it("groupBlockedInboxRows orders groups by canonical variant order and sorts within group", () => {
     const issues = [
       makeIssue(

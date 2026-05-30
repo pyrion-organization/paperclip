@@ -75,4 +75,15 @@ describe("local disk storage provider", () => {
     await service.deleteObject("company-1", stored.objectKey);
     await expect(service.getObject("company-1", stored.objectKey)).rejects.toMatchObject({ status: 404 });
   });
+
+  it("rethrows local delete errors other than missing files", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-storage-"));
+    tempRoots.push(root);
+    const provider = createLocalDiskStorageProvider(root);
+    await fs.mkdir(path.join(root, "company-1", "blocked"), { recursive: true });
+
+    await expect(provider.deleteObject({ objectKey: "company-1/blocked" })).rejects.toMatchObject({
+      code: "EISDIR",
+    });
+  });
 });

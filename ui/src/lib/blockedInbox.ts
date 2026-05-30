@@ -136,7 +136,7 @@ export function buildBlockedInboxRows(issues: readonly Issue[]): BlockedInboxIss
       attention,
       variant: blockedReasonVariant(attention.reason),
       reasonLabel: blockedReasonLabel(attention.reason),
-      stoppedAtMs: attention.stoppedSinceAt ? new Date(attention.stoppedSinceAt).getTime() : null,
+      stoppedAtMs: issueTimestampMs(attention.stoppedSinceAt),
     });
   }
   return rows;
@@ -149,7 +149,7 @@ function issueTimestampMs(value: Date | string | null | undefined): number | nul
 }
 
 function blockedRowRecencyMs(row: BlockedInboxIssueRow): number {
-  return row.stoppedAtMs ?? issueTimestampMs(row.issue.updatedAt) ?? 0;
+  return Number.isFinite(row.stoppedAtMs) ? row.stoppedAtMs! : issueTimestampMs(row.issue.updatedAt) ?? 0;
 }
 
 function compareBlockedRowsByTitle(a: BlockedInboxIssueRow, b: BlockedInboxIssueRow): number {
@@ -165,7 +165,7 @@ export function compareBlockedRows(
 ): number {
   if (sort === "most_recent") {
     const recencyDiff = blockedRowRecencyMs(b) - blockedRowRecencyMs(a);
-    if (recencyDiff !== 0) return recencyDiff;
+    if (Number.isFinite(recencyDiff) && recencyDiff !== 0) return recencyDiff;
     const attentionDiff = compareBlockedAttention(a.attention, b.attention);
     if (attentionDiff !== 0) return attentionDiff;
     return compareBlockedRowsByTitle(a, b);
@@ -175,7 +175,7 @@ export function compareBlockedRows(
     const aStopped = a.stoppedAtMs ?? Number.POSITIVE_INFINITY;
     const bStopped = b.stoppedAtMs ?? Number.POSITIVE_INFINITY;
     const stoppedDiff = aStopped - bStopped;
-    if (stoppedDiff !== 0) return stoppedDiff;
+    if (Number.isFinite(stoppedDiff) && stoppedDiff !== 0) return stoppedDiff;
     const severityDiff = blockedSeverityRank(a.attention.severity) - blockedSeverityRank(b.attention.severity);
     if (severityDiff !== 0) return severityDiff;
     return compareBlockedRowsByTitle(a, b);
@@ -184,7 +184,7 @@ export function compareBlockedRows(
   const attentionDiff = compareBlockedAttention(a.attention, b.attention);
   if (attentionDiff !== 0) return attentionDiff;
   const recencyDiff = blockedRowRecencyMs(b) - blockedRowRecencyMs(a);
-  if (recencyDiff !== 0) return recencyDiff;
+  if (Number.isFinite(recencyDiff) && recencyDiff !== 0) return recencyDiff;
   return compareBlockedRowsByTitle(a, b);
 }
 

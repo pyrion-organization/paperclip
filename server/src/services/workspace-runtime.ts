@@ -108,7 +108,13 @@ interface RuntimeServiceRecord extends RuntimeServiceRef {
   serviceKey: string;
   profileKind: string;
   processGroupId: number | null;
+  observedExit?: RuntimeServiceProcessExit | null;
 }
+
+type RuntimeServiceProcessExit = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+};
 
 type StoppedRuntimeServiceReuseCandidate = {
   id: string;
@@ -2012,6 +2018,10 @@ function clearIdleTimer(record: RuntimeServiceRecord) {
   record.idleTimer = null;
 }
 
+function formatRuntimeServiceExit(exit: RuntimeServiceProcessExit) {
+  return `${exit.code === null ? "" : ` with code ${exit.code}`}${exit.signal ? ` signal ${exit.signal}` : ""}`;
+}
+
 export function normalizeAdapterManagedRuntimeServices(input: {
   adapterType: string;
   runId: string;
@@ -2249,6 +2259,15 @@ async function startLocalRuntimeService(input: {
       reject(err);
     });
   });
+  let observedExit: RuntimeServiceProcessExit | null = null;
+  let record: RuntimeServiceRecord | null = null;
+  const earlyExitPromise = new Promise<never>((_, reject) => {
+    child.once("exit", (code, signal) => {
+      observedExit = { code, signal };
+      if (record) record.observedExit = observedExit;
+      reject(new Error(`process exited before runtime service was ready${formatRuntimeServiceExit(observedExit)}`));
+    });
+  });
   let stderrExcerpt = "";
   let stdoutExcerpt = "";
   child.stdout?.on("data", async (chunk) => {
@@ -2263,9 +2282,16 @@ async function startLocalRuntimeService(input: {
   });
 
   try {
+    const readinessType = asString(readiness.type, "");
+    const readinessPromise = waitForReadiness({ service: input.service, url }).then(async () => {
+      if (readinessType !== "http" || !url) {
+        await delay(250);
+      }
+    });
     await Promise.race([
-      waitForReadiness({ service: input.service, url }),
+      readinessPromise,
       spawnErrorPromise,
+      earlyExitPromise,
     ]);
   } catch (err) {
     terminateChildProcess(child);
@@ -2274,7 +2300,7 @@ async function startLocalRuntimeService(input: {
     );
   }
 
-  const record: RuntimeServiceRecord = {
+  record = {
     id: stoppedReuseCandidate?.id ?? randomUUID(),
     companyId: input.agent.companyId,
     projectId: input.workspace.projectId,
@@ -2309,6 +2335,7 @@ async function startLocalRuntimeService(input: {
     serviceKey,
     profileKind: "workspace-runtime",
     processGroupId: child.pid ?? null,
+    observedExit,
   };
 
   if (child.pid) {
@@ -2338,6 +2365,11 @@ async function startLocalRuntimeService(input: {
         scopeId: record.scopeId,
       },
     });
+  }
+
+  if (observedExit) {
+    await removeLocalServiceRegistryRecord(serviceKey);
+    throw new Error(`Failed to start runtime service "${serviceName}": process exited before runtime service registration${formatRuntimeServiceExit(observedExit)}`);
   }
 
   return record;
@@ -2412,7 +2444,7 @@ function registerRuntimeService(db: Db | undefined, record: RuntimeServiceRecord
     runtimeServicesByReuseKey.set(record.reuseKey, record.id);
   }
 
-  record.child?.on("exit", (code, signal) => {
+  const markExited = (code: number | null, signal: NodeJS.Signals | null) => {
     const current = runtimeServicesById.get(record.id);
     if (!current) return;
     clearIdleTimer(current);
@@ -2426,7 +2458,12 @@ function registerRuntimeService(db: Db | undefined, record: RuntimeServiceRecord
     }
     void removeLocalServiceRegistryRecord(current.serviceKey);
     void persistRuntimeServiceRecord(db, current);
-  });
+  };
+
+  record.child?.on("exit", markExited);
+  if (record.observedExit) {
+    markExited(record.observedExit.code, record.observedExit.signal);
+  }
 }
 
 function readRuntimeServiceEntries(config: Record<string, unknown>) {

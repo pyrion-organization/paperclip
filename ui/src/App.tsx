@@ -4,6 +4,7 @@ import { CloudAccessGate } from "./components/CloudAccessGate";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
 import { isBoardPathWithoutPrefix } from "./lib/company-routes";
+import { resolveLegacyInstanceSettingsTarget } from "./lib/legacy-settings-route";
 import { shouldRedirectCompanylessRouteToOnboarding } from "./lib/onboarding-route";
 
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
@@ -55,7 +56,8 @@ function RouteFallback() {
 
 function LegacySettingsRedirect() {
   const location = useLocation();
-  return <Navigate to={`/instance/settings/general${location.search}${location.hash}`} replace />;
+  const target = resolveLegacyInstanceSettingsTarget(location.pathname);
+  return <Navigate to={`/instance/settings/${target}${location.search}${location.hash}`} replace />;
 }
 
 function CompanyRootRedirect() {

@@ -8,6 +8,7 @@ import {
 import { Readable } from "node:stream";
 import type { StorageProvider, GetObjectResult, HeadObjectResult } from "./types.js";
 import { notFound, unprocessable } from "../errors.js";
+import { normalizeStorageObjectKey } from "./object-key.js";
 
 interface S3ProviderConfig {
   bucket: string;
@@ -26,8 +27,9 @@ function normalizePrefix(prefix: string | undefined): string {
 }
 
 function buildKey(prefix: string, objectKey: string): string {
-  if (!prefix) return objectKey;
-  return `${prefix}/${objectKey}`;
+  const normalizedKey = normalizeStorageObjectKey(objectKey);
+  if (!prefix) return normalizedKey;
+  return `${prefix}/${normalizedKey}`;
 }
 
 async function toReadableStream(body: unknown): Promise<Readable> {

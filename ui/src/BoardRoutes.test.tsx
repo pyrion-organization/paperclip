@@ -104,4 +104,29 @@ describe("BoardRoutes", () => {
       root.unmount();
     });
   });
+
+  it("maps legacy settings subpaths to canonical instance settings routes", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/PER/settings/access?tab=members#invite"]}>
+          <LocationProbe />
+          <Routes>
+            <Route path=":companyPrefix/*" element={<BoardRoutes />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushReact();
+
+    expect(container.querySelector('[data-testid="location"]')?.textContent)
+      .toBe("/instance/settings/access");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });

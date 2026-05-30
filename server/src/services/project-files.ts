@@ -47,6 +47,53 @@ function resolvePathWithinRoot(rootPath: string, relativePath: string): string {
   return absolutePath;
 }
 
+async function realPathOrNull(targetPath: string): Promise<string | null> {
+  try {
+    return await fs.realpath(targetPath);
+  } catch {
+    return null;
+  }
+}
+
+async function assertRealPathWithinRoot(rootPath: string, targetPath: string): Promise<string> {
+  const realRoot = await fs.realpath(rootPath);
+  const realTarget = await fs.realpath(targetPath);
+  const relativeToRoot = path.relative(realRoot, realTarget);
+  if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) {
+    throw unprocessable("File path must stay within the project root");
+  }
+  return realTarget;
+}
+
+async function assertWritablePathWithinRoot(rootPath: string, targetPath: string): Promise<void> {
+  const parentPath = path.dirname(targetPath);
+  const absoluteRoot = path.resolve(rootPath);
+  const absoluteParent = path.resolve(parentPath);
+  const relativeParent = path.relative(absoluteRoot, absoluteParent);
+  if (relativeParent === ".." || relativeParent.startsWith(`..${path.sep}`) || path.isAbsolute(relativeParent)) {
+    throw unprocessable("File path must stay within the project root");
+  }
+  let currentPath = absoluteRoot;
+  for (const segment of relativeParent.split(path.sep).filter(Boolean)) {
+    currentPath = path.join(currentPath, segment);
+    const existing = await fs.lstat(currentPath).catch(() => null);
+    if (!existing) break;
+    if (existing.isSymbolicLink()) {
+      throw unprocessable("File path must stay within the project root");
+    }
+    await assertRealPathWithinRoot(rootPath, currentPath);
+  }
+  await fs.mkdir(parentPath, { recursive: true });
+  await assertRealPathWithinRoot(rootPath, parentPath);
+  const existing = await fs.lstat(targetPath).catch(() => null);
+  if (existing?.isSymbolicLink()) {
+    throw unprocessable("File path must stay within the project root");
+  }
+  if (existing) {
+    await assertRealPathWithinRoot(rootPath, targetPath);
+  }
+}
+
 function inferMimeType(filePath: string): string | null {
   const lower = filePath.toLowerCase();
   if (lower.endsWith(".png")) return "image/png";
@@ -322,7 +369,7 @@ export function projectFilesService(db: Db) {
     const normalizedPath = normalizeRelativePath(relativePath);
     if (!normalizedPath) throw badRequest("File path is required");
     const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await assertWritablePathWithinRoot(summary.rootPath, absolutePath);
     await fs.writeFile(absolutePath, content, "utf8");
     return await readFile(projectId, normalizedPath);
   }
@@ -336,13 +383,16 @@ export function projectFilesService(db: Db) {
     const normalizedPath = normalizeRelativePath(relativePath);
     if (!normalizedPath) throw badRequest("File path is required");
     const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
-    const stat = await fs.stat(absolutePath).catch(() => null);
+    const realPath = await realPathOrNull(absolutePath);
+    if (!realPath) throw notFound("File not found");
+    await assertRealPathWithinRoot(summary.rootPath, absolutePath);
+    const stat = await fs.stat(realPath).catch(() => null);
     if (!stat?.isFile()) {
       throw notFound("File not found");
     }
 
     if (isImagePath(normalizedPath)) {
-      const raw = await fs.readFile(absolutePath);
+      const raw = await fs.readFile(realPath);
       return {
         path: normalizedPath,
         name: path.basename(normalizedPath),
@@ -357,7 +407,7 @@ export function projectFilesService(db: Db) {
       };
     }
 
-    const raw = await fs.readFile(absolutePath);
+    const raw = await fs.readFile(realPath);
     const text = raw.toString("utf8");
     if (text.includes("\u0000")) {
       return {
@@ -405,6 +455,7 @@ export function projectFilesService(db: Db) {
     const normalizedPath = normalizeRelativePath(relativePath);
     if (!normalizedPath) throw badRequest("File path is required");
     const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
+    await assertRealPathWithinRoot(summary.rootPath, absolutePath);
     return { absolutePath, rootPath: summary.rootPath };
   }
 
@@ -423,6 +474,7 @@ export function projectFilesService(db: Db) {
       }
       const normalizedPath = normalizeRelativePath(relativePath);
       const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
+      await assertRealPathWithinRoot(summary.rootPath, absolutePath);
       const stat = await fs.stat(absolutePath).catch(() => null);
       if (!stat?.isDirectory()) {
         throw notFound("Directory not found");
@@ -470,6 +522,7 @@ export function projectFilesService(db: Db) {
       const normalizedPath = normalizeRelativePath(relativePath);
       if (!normalizedPath) throw badRequest("Folder path is required");
       const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
+      await assertWritablePathWithinRoot(summary.rootPath, absolutePath);
       await fs.mkdir(absolutePath, { recursive: true });
       return { path: normalizedPath };
     },
@@ -482,7 +535,8 @@ export function projectFilesService(db: Db) {
       }
       const currentPath = resolvePathWithinRoot(summary.rootPath, relativePath);
       const nextPath = resolvePathWithinRoot(summary.rootPath, nextRelativePath);
-      await fs.mkdir(path.dirname(nextPath), { recursive: true });
+      await assertRealPathWithinRoot(summary.rootPath, currentPath);
+      await assertWritablePathWithinRoot(summary.rootPath, nextPath);
       await fs.rename(currentPath, nextPath);
       return { path: normalizeRelativePath(nextRelativePath) };
     },
@@ -496,6 +550,7 @@ export function projectFilesService(db: Db) {
       const normalizedPath = normalizeRelativePath(relativePath);
       if (!normalizedPath) throw badRequest("Path is required");
       const absolutePath = resolvePathWithinRoot(summary.rootPath, normalizedPath);
+      await assertRealPathWithinRoot(summary.rootPath, absolutePath);
       await fs.rm(absolutePath, { recursive: true, force: true });
       return { path: normalizedPath };
     },
@@ -942,6 +997,7 @@ export function projectFilesService(db: Db) {
 
       for (const filePath of untracked) {
         const absPath = resolvePathWithinRoot(summary.repoRoot, filePath);
+        await assertRealPathWithinRoot(summary.repoRoot, absPath);
         await fs.rm(absPath, { recursive: true, force: true });
       }
 

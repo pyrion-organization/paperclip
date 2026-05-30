@@ -108,14 +108,25 @@ function sortAgentsByDefaultSidebarOrder(agents: Agent[]): Agent[] {
   }
 
   const sorted: Agent[] = [];
+  const visited = new Set<string>();
   const queue = [...(childrenOf.get(null) ?? [])];
   while (queue.length > 0) {
     const agent = queue.shift();
     if (!agent) continue;
+    if (visited.has(agent.id)) continue;
+    visited.add(agent.id);
     sorted.push(agent);
     const children = childrenOf.get(agent.id);
     if (children) queue.push(...children);
   }
+
+  const unvisited = agents
+    .filter((agent) => !visited.has(agent.id))
+    .sort((left, right) => {
+      const byName = left.name.localeCompare(right.name);
+      return byName !== 0 ? byName : left.id.localeCompare(right.id);
+    });
+  sorted.push(...unvisited);
 
   return sorted;
 }

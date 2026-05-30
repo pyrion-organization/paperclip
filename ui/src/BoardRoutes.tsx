@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { Navigate, Route, Routes, useLocation } from "@/lib/router";
 import { loadLastInboxTab } from "./lib/inbox-tabs";
+import { resolveLegacyInstanceSettingsTarget } from "./lib/legacy-settings-route";
 
 const Layout = lazy(() => import("./components/Layout").then(({ Layout }) => ({ default: Layout })));
 const OnboardingRoutePage = lazy(() =>
@@ -79,7 +80,8 @@ function InboxRootRedirect() {
 
 function LegacySettingsRedirect() {
   const location = useLocation();
-  return <Navigate to={`/instance/settings/general${location.search}${location.hash}`} replace />;
+  const target = resolveLegacyInstanceSettingsTarget(location.pathname);
+  return <Navigate to={`/instance/settings/${target}${location.search}${location.hash}`} replace />;
 }
 
 function CompanyScopedRedirect({ to }: { to: string }) {

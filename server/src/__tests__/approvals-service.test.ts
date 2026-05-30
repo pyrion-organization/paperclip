@@ -49,7 +49,11 @@ function createDbStub(selectResults: ApprovalRecord[][], updateResults: Approval
   const update = vi.fn(() => ({ set }));
 
   return {
-    db: { select, update },
+    db: {
+      select,
+      update,
+      transaction: async (callback: (tx: unknown) => unknown) => await callback({ select, update }),
+    },
     selectWhere,
     returning,
   };
