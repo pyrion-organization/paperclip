@@ -468,6 +468,8 @@ function StatesShowcase({ focusedThreadId = "open-1" }: { focusedThreadId?: stri
               threads={baseThreads.map((thread) => ({
                 id: thread.id,
                 selectedText: thread.selectedText,
+                normalizedStart: thread.normalizedStart,
+                normalizedEnd: thread.normalizedEnd,
                 status: thread.status,
                 anchorState: thread.anchorState,
               }))}

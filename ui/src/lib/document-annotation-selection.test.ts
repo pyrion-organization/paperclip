@@ -107,6 +107,25 @@ describe("rangesForNormalizedSpan", () => {
     expect(merged.replace(/\s+/g, " ")).toContain("Highlight a text segment");
   });
 
+  it("uses stored normalized offsets for repeated selected text", () => {
+    const container = document.createElement("div");
+    container.textContent = "Repeat this phrase. Then repeat this phrase again.";
+    document.body.appendChild(container);
+
+    const secondStart = normalizeSpaces(container.textContent ?? "").lastIndexOf("repeat this phrase");
+    const ranges = rangesForNormalizedSpan({
+      container,
+      selectedText: "repeat this phrase",
+      normalizedStart: secondStart,
+      normalizedEnd: secondStart + "repeat this phrase".length,
+    });
+
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]?.toString()).toBe("repeat this phrase");
+    expect((ranges[0]?.startContainer as Text).data).toContain("Then repeat this phrase");
+    expect(ranges[0]?.startOffset).toBe((container.textContent ?? "").lastIndexOf("repeat this phrase"));
+  });
+
   it("returns an empty array if selected text is missing", () => {
     const container = makeContainer();
     const ranges = rangesForNormalizedSpan({
@@ -116,3 +135,7 @@ describe("rangesForNormalizedSpan", () => {
     expect(ranges).toEqual([]);
   });
 });
+
+function normalizeSpaces(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}

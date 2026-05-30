@@ -75,10 +75,10 @@ describe("DocumentAnnotationLayer", () => {
           containerRef={{ current: body }}
           markdown="Annotated body text."
           threads={[
-            { id: "active", selectedText: "Annotated", status: "open", anchorState: "active" },
-            { id: "focused", selectedText: "body", status: "open", anchorState: "active" },
-            { id: "stale", selectedText: "text", status: "open", anchorState: "stale" },
-            { id: "resolved", selectedText: "body text", status: "resolved", anchorState: "active" },
+            { id: "active", selectedText: "Annotated", normalizedStart: 0, normalizedEnd: 9, status: "open", anchorState: "active" },
+            { id: "focused", selectedText: "body", normalizedStart: 10, normalizedEnd: 14, status: "open", anchorState: "active" },
+            { id: "stale", selectedText: "text", normalizedStart: 15, normalizedEnd: 19, status: "open", anchorState: "stale" },
+            { id: "resolved", selectedText: "body text", normalizedStart: 10, normalizedEnd: 19, status: "resolved", anchorState: "active" },
           ]}
           focusedThreadId="focused"
           onThreadFocus={vi.fn()}
@@ -125,7 +125,7 @@ describe("DocumentAnnotationLayer", () => {
           containerRef={{ current: body }}
           markdown="Hidden folded text"
           threads={[
-            { id: "hidden", selectedText: "Hidden folded text", status: "open", anchorState: "active" },
+            { id: "hidden", selectedText: "Hidden folded text", normalizedStart: 0, normalizedEnd: 18, status: "open", anchorState: "active" },
           ]}
           focusedThreadId={null}
           onThreadFocus={vi.fn()}
@@ -172,7 +172,7 @@ describe("DocumentAnnotationLayer", () => {
           containerRef={{ current: body }}
           markdown="Annotated body text."
           threads={[
-            { id: "active", selectedText: "Annotated", status: "open", anchorState: "active" },
+            { id: "active", selectedText: "Annotated", normalizedStart: 0, normalizedEnd: 9, status: "open", anchorState: "active" },
           ]}
           focusedThreadId={null}
           onThreadFocus={vi.fn()}

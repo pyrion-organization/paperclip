@@ -236,6 +236,8 @@ export function IssueDocumentAnnotations({
     () => allThreads.map((thread) => ({
       id: thread.id,
       selectedText: thread.selectedText,
+      normalizedStart: thread.normalizedStart,
+      normalizedEnd: thread.normalizedEnd,
       status: thread.status,
       anchorState: thread.anchorState,
     })),

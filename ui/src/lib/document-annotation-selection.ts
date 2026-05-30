@@ -110,12 +110,19 @@ function pickClosestOccurrence(occurrences: number[], expected: number): number 
 export function rangesForNormalizedSpan(input: {
   container: HTMLElement;
   selectedText: string;
+  normalizedStart?: number;
+  normalizedEnd?: number;
 }): Range[] {
   const normalizedNeedle = normalizeAnchorText(input.selectedText);
   if (!normalizedNeedle) return [];
   const containerText = input.container.textContent ?? "";
   const normalizedContainerText = normalizeAnchorText(containerText);
-  const containerOccurrenceIndex = normalizedContainerText.indexOf(normalizedNeedle);
+  const containerOccurrenceIndex = findContainerOccurrenceIndex({
+    normalizedContainerText,
+    normalizedNeedle,
+    normalizedStart: input.normalizedStart,
+    normalizedEnd: input.normalizedEnd,
+  });
   if (containerOccurrenceIndex === -1) return [];
 
   // Convert from normalized container offset back to raw container offset
@@ -132,6 +139,30 @@ export function rangesForNormalizedSpan(input: {
   const rawStart = rawIndex;
   const rawEnd = rawIndex + rawNeedleLength;
   return buildRangesForRawSpan(input.container, rawStart, rawEnd);
+}
+
+function findContainerOccurrenceIndex(input: {
+  normalizedContainerText: string;
+  normalizedNeedle: string;
+  normalizedStart?: number;
+  normalizedEnd?: number;
+}): number {
+  const { normalizedContainerText, normalizedNeedle, normalizedStart, normalizedEnd } = input;
+  if (
+    normalizedStart !== undefined
+    && normalizedEnd !== undefined
+    && normalizedStart >= 0
+    && normalizedEnd > normalizedStart
+    && normalizedEnd <= normalizedContainerText.length
+    && normalizedContainerText.slice(normalizedStart, normalizedEnd) === normalizedNeedle
+  ) {
+    return normalizedStart;
+  }
+
+  const occurrences = findAllOccurrences(normalizedContainerText, normalizedNeedle);
+  if (occurrences.length === 0) return -1;
+  if (normalizedStart === undefined || occurrences.length === 1) return occurrences[0] ?? -1;
+  return pickClosestOccurrence(occurrences, normalizedStart) ?? -1;
 }
 
 function mapNormalizedOffsetToRaw(rawText: string, normalizedOffset: number): number {

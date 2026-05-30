@@ -16,6 +16,8 @@ import type { DocumentAnnotationAnchorSelector } from "@paperclipai/shared";
 export interface AnnotationOverlayThread {
   id: string;
   selectedText: string;
+  normalizedStart: number;
+  normalizedEnd: number;
   status: DocumentAnnotationThreadStatus;
   anchorState: DocumentAnnotationAnchorState;
   unreadCount?: number;
@@ -244,6 +246,8 @@ export function DocumentAnnotationLayer({
       const ranges = rangesForNormalizedSpan({
         container,
         selectedText: thread.selectedText,
+        normalizedStart: thread.normalizedStart,
+        normalizedEnd: thread.normalizedEnd,
       });
       const startIndex = next.length;
       for (const range of ranges) {

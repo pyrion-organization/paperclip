@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { promises as fs } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -17,33 +18,53 @@ interface CatalogManifestFile {
 }
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(serviceDir, "../../..");
-const catalogPackageRoot = path.join(repoRoot, "packages/skills-catalog");
-const catalogManifestPath = path.join(catalogPackageRoot, "generated/catalog.json");
+const fallbackCatalogPackageRoot = path.join(repoRoot, "packages/skills-catalog");
+const fallbackCatalogManifestPath = path.join(fallbackCatalogPackageRoot, "generated/catalog.json");
 let cachedCatalogManifest: {
   manifest: CatalogManifestFile;
+  path: string;
   mtimeMs: number;
   size: number;
 } | null = null;
 
-function loadCatalogManifest(): CatalogManifestFile {
-  if (!existsSync(catalogManifestPath)) {
+function resolveCatalogManifestPath(): string {
+  const candidates: string[] = [];
+  try {
+    candidates.push(require.resolve("@paperclipai/skills-catalog/catalog.json"));
+  } catch {
+    // Monorepo dev and tests can still use the source-tree fallback below.
+  }
+  candidates.push(fallbackCatalogManifestPath);
+
+  const manifestPath = candidates.find((candidate) => existsSync(candidate));
+  if (!manifestPath) {
     throw new Error(
-      `Skills catalog manifest not found at ${catalogManifestPath}. Run pnpm --filter @paperclipai/skills-catalog build:manifest.`,
+      `Skills catalog manifest not found. Checked: ${candidates.join(", ")}. Run pnpm --filter @paperclipai/skills-catalog build:manifest.`,
     );
   }
-  return JSON.parse(readFileSync(catalogManifestPath, "utf8")) as CatalogManifestFile;
+  return manifestPath;
+}
+
+function catalogPackageRootForManifest(manifestPath: string): string {
+  const manifestDir = path.dirname(manifestPath);
+  if (path.basename(manifestDir) !== "generated") return path.dirname(manifestPath);
+  const generatedParent = path.dirname(manifestDir);
+  if (path.basename(generatedParent) === "dist") return path.dirname(generatedParent);
+  return generatedParent;
+}
+
+function loadCatalogManifest(): CatalogManifestFile {
+  return JSON.parse(readFileSync(resolveCatalogManifestPath(), "utf8")) as CatalogManifestFile;
 }
 
 function getCatalogManifest() {
-  if (!existsSync(catalogManifestPath)) {
-    throw new Error(
-      `Skills catalog manifest not found at ${catalogManifestPath}. Run pnpm --filter @paperclipai/skills-catalog build:manifest.`,
-    );
-  }
+  const catalogManifestPath = resolveCatalogManifestPath();
   const stats = statSync(catalogManifestPath);
   if (
     cachedCatalogManifest &&
+    cachedCatalogManifest.path === catalogManifestPath &&
     cachedCatalogManifest.mtimeMs === stats.mtimeMs &&
     cachedCatalogManifest.size === stats.size
   ) {
@@ -53,6 +74,7 @@ function getCatalogManifest() {
   const manifest = loadCatalogManifest();
   cachedCatalogManifest = {
     manifest,
+    path: catalogManifestPath,
     mtimeMs: stats.mtimeMs,
     size: stats.size,
   };
@@ -90,7 +112,7 @@ function inferLanguageFromPath(filePath: string) {
 }
 
 function resolveCatalogPackageRoot() {
-  return catalogPackageRoot;
+  return catalogPackageRootForManifest(resolveCatalogManifestPath());
 }
 
 function searchText(skill: CatalogSkill) {
