@@ -61,11 +61,13 @@ export function CloudAccessGate() {
   const claimMutation = useMutation({
     mutationFn: () => accessApi.claimBootstrapAdmin(),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.health });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.auth.session }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.health }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess }),
+      ]);
     },
   });
 

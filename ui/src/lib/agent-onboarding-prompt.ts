@@ -61,8 +61,10 @@ After you have connected to Paperclip, review and follow the full onboarding ins
 
 function buildCandidateOnboardingUrls(input: AgentOnboardingPromptInput): string[] {
   const candidates = (input.connectionCandidates ?? [])
-    .map((candidate) => candidate.trim())
-    .filter(Boolean);
+    .flatMap((candidate) => {
+      const trimmed = candidate.trim();
+      return trimmed ? [trimmed] : [];
+    });
   const urls = new Set<string>();
   let onboardingUrl: URL | null = null;
 

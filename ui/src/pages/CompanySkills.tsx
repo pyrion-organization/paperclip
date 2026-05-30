@@ -1472,7 +1472,7 @@ function SkillPane({
             {detail.editable ? (
               <button
                 className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setEditMode(!editMode)}
+                type="button" onClick={() => setEditMode(!editMode)}
               >
                 <Pencil className="size-3.5" />
                 {editMode ? "Stop editing" : "Edit"}
@@ -1617,7 +1617,7 @@ function SkillPane({
               <div className="flex items-center border border-border">
                 <button
                   className={cn("px-3 py-1.5 text-sm", viewMode === "preview" && "text-foreground", viewMode !== "preview" && "text-muted-foreground")}
-                  onClick={() => setViewMode("preview")}
+                  type="button" onClick={() => setViewMode("preview")}
                 >
                   <span className="flex items-center gap-1.5">
                     <Eye className="size-3.5" />
@@ -1626,7 +1626,7 @@ function SkillPane({
                 </button>
                 <button
                   className={cn("border-l border-border px-3 py-1.5 text-sm", viewMode === "code" && "text-foreground", viewMode !== "code" && "text-muted-foreground")}
-                  onClick={() => setViewMode("code")}
+                  type="button" onClick={() => setViewMode("code")}
                 >
                   <span className="flex items-center gap-1.5">
                     <Code2 className="size-3.5" />

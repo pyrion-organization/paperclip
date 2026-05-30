@@ -337,9 +337,11 @@ export function InviteLandingPage() {
       clearPendingInviteToken(token);
       const asBootstrap = isBootstrapAcceptancePayload(payload);
       setResult({ kind: asBootstrap ? "bootstrap" : "join", payload });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.auth.session }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.companies.all }),
+      ]);
       if (invite?.companyId && isApprovedHumanJoinPayload(payload, showsAgentForm)) {
         setSelectedCompanyId(invite.companyId, { source: "manual" });
         navigate("/", { replace: true });
@@ -372,8 +374,10 @@ export function InviteLandingPage() {
     onSuccess: async () => {
       setAuthFeedback(null);
       rememberPendingInviteToken(token);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.auth.session }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.access.currentBoardAccess }),
+      ]);
       const { companies: freshCompanies } = await queryClient.fetchQuery(companiesListQueryOptions);
 
       if (invite?.companyId && freshCompanies.some((company) => company.id === invite.companyId)) {

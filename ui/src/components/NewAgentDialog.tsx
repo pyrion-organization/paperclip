@@ -329,7 +329,7 @@ export function NewAgentDialog() {
               <div className="space-y-2">
                 <button
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setMode("choices")}
+                  type="button" onClick={() => setMode("choices")}
                 >
                   <ArrowLeft className="size-3.5" />
                   Back
@@ -371,7 +371,7 @@ export function NewAgentDialog() {
               <div className="space-y-2">
                 <button
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setMode("invite")}
+                  type="button" onClick={() => setMode("invite")}
                 >
                   <ArrowLeft className="size-3.5" />
                   Back
