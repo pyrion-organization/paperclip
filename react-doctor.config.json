@@ -37,7 +37,9 @@
           "src/pages/IssueDetail.tsx",
           "ui/src/pages/IssueDetail.tsx",
           "src/plugins/launcher-runtime.tsx",
-          "ui/src/plugins/launcher-runtime.tsx"
+          "ui/src/plugins/launcher-runtime.tsx",
+          "src/pages/CompanySkills.tsx",
+          "ui/src/pages/CompanySkills.tsx"
         ],
         "rules": ["react-doctor/async-await-in-loop"]
       },
@@ -85,7 +87,9 @@
           "src/adapters/schema-config-fields.tsx",
           "ui/src/adapters/schema-config-fields.tsx",
           "src/pages/AgentDetail.tsx",
-          "ui/src/pages/AgentDetail.tsx"
+          "ui/src/pages/AgentDetail.tsx",
+          "src/components/DocumentAnnotationLayer.tsx",
+          "ui/src/components/DocumentAnnotationLayer.tsx"
         ],
         "rules": [
           "react-doctor/no-pass-data-to-parent",
