@@ -46,7 +46,7 @@ export function sortAgentsByRecency<T extends { id: string; name: string }>(
   recentIds: string[],
 ): T[] {
   const recentIndex = new Map(recentIds.slice(0, RECENT_SELECTION_DISPLAY_LIMIT).map((id, i) => [id, i]));
-  return [...agents].sort((a, b) => {
+  return agents.toSorted((a, b) => {
     const aRecent = recentIndex.get(a.id);
     const bRecent = recentIndex.get(b.id);
     if (aRecent !== undefined && bRecent !== undefined) return aRecent - bRecent;

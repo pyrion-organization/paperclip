@@ -374,7 +374,7 @@ export function DocumentAnnotationsCountChip({
         : `Open ${openCount} unresolved comments on ${docKey}`}
       aria-expanded={panelOpen}
     >
-      <MessageSquare className="h-3 w-3" aria-hidden="true" />
+      <MessageSquare className="size-3" aria-hidden="true" />
       <span className="tabular-nums">{openCount}</span>
       <span className="hidden sm:inline">
         {openCount === 1 ? "comment" : "comments"}

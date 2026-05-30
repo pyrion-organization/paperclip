@@ -37,7 +37,7 @@ function detailText(window: QuotaWindow): string | null {
 }
 
 function orderedWindows(windows: QuotaWindow[]): QuotaWindow[] {
-  return [...windows].sort((a, b) => {
+  return windows.toSorted((a, b) => {
     const aIndex = WINDOW_ORDER.indexOf(normalizeLabel(a.label) as (typeof WINDOW_ORDER)[number]);
     const bIndex = WINDOW_ORDER.indexOf(normalizeLabel(b.label) as (typeof WINDOW_ORDER)[number]);
     return (aIndex === -1 ? WINDOW_ORDER.length : aIndex) - (bIndex === -1 ? WINDOW_ORDER.length : bIndex);

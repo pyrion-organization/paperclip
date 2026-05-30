@@ -1098,7 +1098,7 @@ export function AgentDetail() {
           />
           <button
             type="button"
-            className="h-6 w-6 shrink-0 text-yellow-100/70 hover:text-yellow-100"
+            className="size-6 shrink-0 text-yellow-100/70 hover:text-yellow-100"
             aria-label="Dismiss agent membership notice"
             onClick={() => setDismissedLeftAgentIds((current) => new Set(current).add(agent.id))}
           >
@@ -1381,7 +1381,7 @@ function SummaryRow({ label, children }: { label: string; children: React.ReactN
 function LatestRunCard({ runs, agentId }: { runs: HeartbeatRun[]; agentId: string }) {
   if (runs.length === 0) return null;
 
-  const sorted = [...runs].sort(
+  const sorted = runs.toSorted(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
@@ -2875,7 +2875,7 @@ export function AgentSkillsTab({
               const adapterEntry = skill.adapterEntry ?? adapterEntryByKey.get(skill.key);
               const required = Boolean(adapterEntry?.required);
               const rowClassName = cn(
-                "flex items-start gap-3 border-b border-border px-3 py-3 text-sm last:border-b-0",
+                "flex items-start gap-3 border-b border-border p-3 text-sm last:border-b-0",
                 skill.readOnly ? "bg-muted/20" : "hover:bg-accent/20",
               );
               const body = (
@@ -2978,7 +2978,7 @@ export function AgentSkillsTab({
                   {rows.length > 0 ? (
                     rows.map(renderSkillRow)
                   ) : (
-                    <div className="px-3 py-3 text-sm text-muted-foreground">
+                    <div className="p-3 text-sm text-muted-foreground">
                       {emptyMessage}
                     </div>
                   )}
@@ -3143,7 +3143,7 @@ function RunsTab({
   }
 
   // Sort by created descending
-  const sorted = [...runs].sort(
+  const sorted = runs.toSorted(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 

@@ -18,7 +18,7 @@ function normalizeLabel(text: string): string {
 }
 
 function orderedWindows(windows: QuotaWindow[]): QuotaWindow[] {
-  return [...windows].sort((a, b) => {
+  return windows.toSorted((a, b) => {
     const aBase = normalizeLabel(a.label).replace(/^gpt53codexspark/, "");
     const bBase = normalizeLabel(b.label).replace(/^gpt53codexspark/, "");
     const aIndex = WINDOW_PRIORITY.indexOf(aBase as (typeof WINDOW_PRIORITY)[number]);

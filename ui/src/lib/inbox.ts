@@ -662,7 +662,7 @@ export function getInboxKeyboardSelectionIndex(
 }
 
 export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {
-  const sorted = [...runs].sort(
+  const sorted = runs.toSorted(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   const latestByAgent = new Map<string, HeartbeatRun>();
@@ -699,7 +699,7 @@ function sortIssuesByMostRecentActivity(a: Issue, b: Issue): number {
 }
 
 export function getRecentTouchedIssues(issues: Issue[]): Issue[] {
-  return [...issues].sort(sortIssuesByMostRecentActivity).slice(0, RECENT_ISSUES_LIMIT);
+  return issues.toSorted(sortIssuesByMostRecentActivity).slice(0, RECENT_ISSUES_LIMIT);
 }
 
 export function getUnreadTouchedIssues(issues: Issue[]): Issue[] {
@@ -712,7 +712,7 @@ export function getApprovalsForTab(
   filter: InboxApprovalFilter,
   currentUserId?: string | null,
 ): Approval[] {
-  const sortedApprovals = [...approvals].sort(
+  const sortedApprovals = approvals.toSorted(
     (a, b) => normalizeTimestamp(b.updatedAt) - normalizeTimestamp(a.updatedAt),
   );
 

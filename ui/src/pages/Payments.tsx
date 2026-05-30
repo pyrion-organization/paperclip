@@ -175,8 +175,8 @@ export function Payments() {
           <p className="text-sm text-muted-foreground">Calendar-linked payables, standalone payments, and reusable payment profiles.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setOperationError(null); setProfileDialogOpen(true); }}><WalletCards className="mr-2 h-4 w-4" />Profile</Button>
-          <Button onClick={() => { setOperationError(null); setEntryDialogOpen(true); }}><Plus className="mr-2 h-4 w-4" />Payment</Button>
+          <Button variant="outline" onClick={() => { setOperationError(null); setProfileDialogOpen(true); }}><WalletCards className="mr-2 size-4" />Profile</Button>
+          <Button onClick={() => { setOperationError(null); setEntryDialogOpen(true); }}><Plus className="mr-2 size-4" />Payment</Button>
         </div>
       </div>
 

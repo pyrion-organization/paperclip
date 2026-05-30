@@ -331,7 +331,7 @@ export function NewAgentDialog() {
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setMode("choices")}
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <ArrowLeft className="size-3.5" />
                   Back
                 </button>
                 <div className="space-y-1">
@@ -373,7 +373,7 @@ export function NewAgentDialog() {
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setMode("invite")}
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
+                  <ArrowLeft className="size-3.5" />
                   Back
                 </button>
                 <div className="space-y-1">
@@ -381,7 +381,7 @@ export function NewAgentDialog() {
                     <h2 className="text-sm font-semibold">Agent onboarding prompt</h2>
                     {latestAgentPromptCopied ? (
                       <div className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
-                        <Check className="h-3.5 w-3.5" />
+                        <Check className="size-3.5" />
                         Copied
                       </div>
                     ) : null}

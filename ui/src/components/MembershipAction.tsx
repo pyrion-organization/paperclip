@@ -57,7 +57,7 @@ export function MembershipAction({
         onClick={handleClick}
         className="w-[66px]"
       >
-        <Icon className={cn("h-3 w-3", pending && "motion-safe:animate-spin")} />
+        <Icon className={cn("size-3", pending && "motion-safe:animate-spin")} />
         <span>{label}</span>
       </Button>
     </span>

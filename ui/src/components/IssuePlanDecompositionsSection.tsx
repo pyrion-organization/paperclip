@@ -17,14 +17,14 @@ function StatusBadge({ status }: { status: AcceptedPlanDecompositionSummary["sta
   if (status === "completed") {
     return (
       <span className="inline-flex items-center gap-1 rounded-sm border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-900 dark:text-emerald-100">
-        <CheckCircle2 className="h-3 w-3" />
+        <CheckCircle2 className="size-3" />
         Completed
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-sm border border-amber-500/50 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-100">
-      <Loader2 className="h-3 w-3 animate-spin" />
+      <Loader2 className="size-3 animate-spin" />
       In flight
     </span>
   );
@@ -94,7 +94,7 @@ export function IssuePlanDecompositionsSection({
                 </span>
                 <span className="text-xs text-muted-foreground/70">·</span>
                 <span className="inline-flex items-center gap-1 text-xs text-foreground">
-                  <GitBranch className="h-3 w-3 text-muted-foreground" />
+                  <GitBranch className="size-3 text-muted-foreground" />
                   {created} of {requested} child {requested === 1 ? "issue" : "issues"} created
                 </span>
                 {record.status === "completed" && requested > 0 ? (
@@ -102,7 +102,7 @@ export function IssuePlanDecompositionsSection({
                     className="inline-flex items-center gap-1 rounded-sm border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-900 dark:text-sky-100"
                     title="Repeat attempts with this fingerprint reuse this record instead of creating new children"
                   >
-                    <Repeat className="h-3 w-3" />
+                    <Repeat className="size-3" />
                     Idempotent claim
                   </span>
                 ) : null}
@@ -145,7 +145,7 @@ export function IssuePlanDecompositionsSection({
                         <span className="truncate max-w-[24ch] text-muted-foreground">
                           {child.title}
                         </span>
-                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        <ChevronRight className="size-3 text-muted-foreground" />
                       </Link>
                     </li>
                   ))}

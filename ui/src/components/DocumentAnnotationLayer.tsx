@@ -400,7 +400,7 @@ export function DocumentAnnotationLayer({
     <>
       {!nativeHighlightsSupported ? (
         <div className="paperclip-doc-annotation-visual-layer pointer-events-none absolute inset-0 z-0" aria-hidden="true">
-          <div className="relative h-full w-full">
+          <div className="relative size-full">
             {highlightRects.map((rect, index) => {
               const isFocused = rect.threadId === focusedThreadId;
               const isStale = rect.anchorState === "stale";
@@ -439,7 +439,7 @@ export function DocumentAnnotationLayer({
         className="paperclip-doc-annotation-layer pointer-events-none absolute inset-0 z-[2]"
         aria-hidden="true"
       >
-        <div ref={overlayRef} className="relative h-full w-full">
+        <div ref={overlayRef} className="relative size-full">
           {highlightRects.map((rect, index) => {
             const isFocused = rect.threadId === focusedThreadId;
             return (
@@ -483,7 +483,7 @@ export function DocumentAnnotationLayer({
                 }}
                 title="Anchor moved — needs review"
               >
-                <AlertTriangle className="h-3 w-3" />
+                <AlertTriangle className="size-3" />
               </span>
             ) : null,
           )}
@@ -492,7 +492,7 @@ export function DocumentAnnotationLayer({
               data-testid="document-annotation-selection-toolbar"
               role="toolbar"
               aria-label="Selection actions"
-              className="paperclip-doc-annotation-selection-toolbar pointer-events-auto absolute z-10 flex items-center gap-1 rounded-md border border-border bg-popover px-1 py-1 shadow-md"
+              className="paperclip-doc-annotation-selection-toolbar pointer-events-auto absolute z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md"
               style={{ top: toolbarPosition.top, left: toolbarPosition.left }}
               onMouseDown={(event) => event.preventDefault()}
             >
@@ -507,7 +507,7 @@ export function DocumentAnnotationLayer({
                   ? newCommentDisabledReason ?? undefined
                   : "Add comment on selection (⌘⇧M)"}
               >
-                <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+                <MessageSquarePlus className="size-3.5" aria-hidden="true" />
                 Comment
               </Button>
             </div>

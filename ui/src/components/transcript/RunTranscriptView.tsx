@@ -403,7 +403,7 @@ function TranscriptToolGroup({
         </span>
       </button>
       {open && (
-        <div className={cn("space-y-2 border-t border-border/30 px-3 py-3", hasError && "rounded-b-xl")}>
+        <div className={cn("space-y-2 border-t border-border/30 p-3", hasError && "rounded-b-xl")}>
           {block.items.map((item, index) => (
             <div key={`${item.ts}-${index}`} className="space-y-1.5">
               <div className="flex items-center gap-2">

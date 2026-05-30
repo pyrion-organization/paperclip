@@ -143,7 +143,7 @@ export function stabilizeThreadMessages(
 }
 
 function sortByCreated<T extends { createdAt: Date | string; id: string }>(items: readonly T[]) {
-  return [...items].sort((a, b) => {
+  return items.toSorted((a, b) => {
     const diff = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
     if (diff !== 0) return diff;
     return a.id.localeCompare(b.id);
@@ -948,7 +948,7 @@ export function buildIssueChatMessages(args: {
     });
   }
 
-  for (const run of [...linkedRuns].sort((a, b) => toTimestamp(runTimestamp(a)) - toTimestamp(runTimestamp(b)))) {
+  for (const run of linkedRuns.toSorted((a, b) => toTimestamp(runTimestamp(a)) - toTimestamp(runTimestamp(b)))) {
     const transcript = transcriptsByRunId?.get(run.runId) ?? [];
     const hasRunOutput = transcript.length > 0 || (hasOutputForRun?.(run.runId) ?? false);
     if (hasRunOutput || run.status !== "succeeded") {

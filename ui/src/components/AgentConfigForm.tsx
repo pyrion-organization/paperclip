@@ -1449,7 +1449,7 @@ function ModelDropdown({
       return [
         {
           provider: "models",
-          entries: [...filteredModels].sort((a, b) => a.id.localeCompare(b.id)),
+          entries: filteredModels.toSorted((a, b) => a.id.localeCompare(b.id)),
         },
       ];
     }
@@ -1464,7 +1464,7 @@ function ModelDropdown({
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([provider, entries]) => ({
         provider,
-        entries: [...entries].sort((a, b) => a.id.localeCompare(b.id)),
+        entries: entries.toSorted((a, b) => a.id.localeCompare(b.id)),
       }));
   }, [filteredModels, groupByProvider]);
 

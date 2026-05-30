@@ -170,7 +170,7 @@ function CommandSection({
       ) : (
         <div className="space-y-3">
           {items.map((item) => (
-            <div key={item.key} className={cn("border border-border/80 bg-background px-3 py-3", square ? "rounded-none" : "rounded-xl")}>
+            <div key={item.key} className={cn("border border-border/80 bg-background p-3", square ? "rounded-none" : "rounded-xl")}>
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">

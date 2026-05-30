@@ -399,13 +399,13 @@ export function ProjectDetail() {
     setSelectedCompanyId(project.companyId, { source: "route_sync" });
   }, [project?.companyId, selectedCompanyId, setSelectedCompanyId]);
 
-  const invalidateProject = () => {
+  const invalidateProject = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(routeProjectRef) });
     queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectLookupRef) });
     if (resolvedCompanyId) {
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(resolvedCompanyId) });
     }
-  };
+  }, [queryClient, routeProjectRef, projectLookupRef, resolvedCompanyId]);
 
   const updateProject = useInvalidatingMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -712,7 +712,7 @@ export function ProjectDetail() {
           />
           <button
             type="button"
-            className="h-6 w-6 shrink-0 text-yellow-100/70 hover:text-yellow-100"
+            className="size-6 shrink-0 text-yellow-100/70 hover:text-yellow-100"
             aria-label="Dismiss project membership notice"
             onClick={() => setDismissedLeftProjectIds((current) => new Set(current).add(project.id))}
           >

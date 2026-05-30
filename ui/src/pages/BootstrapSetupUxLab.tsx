@@ -208,7 +208,7 @@ export function BootstrapSetupUxLab() {
   return (
     <div className="bg-background min-h-screen pb-16">
       <header className="border-b border-border bg-muted/20">
-        <div className="mx-auto max-w-3xl px-6 py-6">
+        <div className="mx-auto max-w-3xl p-6">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">UX Lab</p>
           <h1 className="mt-1 text-2xl font-semibold">Bootstrap-pending setup states</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">

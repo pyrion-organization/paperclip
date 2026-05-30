@@ -661,7 +661,7 @@ function PluginSdkDataTable({ columns, rows, loading, emptyMessage = "No rows." 
         "div",
         {
           key: String(row.id ?? index),
-          className: "grid gap-2 px-3 py-3 md:items-center md:[grid-template-columns:var(--plugin-grid-cols)]",
+          className: "grid gap-2 p-3 md:items-center md:[grid-template-columns:var(--plugin-grid-cols)]",
           style: { "--plugin-grid-cols": gridColumns },
         },
         columns.map((column) => createElement(

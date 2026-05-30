@@ -224,7 +224,7 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
           }}
           aria-label="Close annotation panel"
         >
-          <X className="h-4 w-4" />
+          <X className="size-4" />
         </Button>
       </header>
       <div className="flex flex-wrap gap-1 border-b border-border px-3 py-2">
@@ -442,11 +442,11 @@ function ThreadCard(props: {
               >
                 {thread.status === "resolved" ? (
                   <>
-                    <RotateCcw className="h-3 w-3" /> Reopen
+                    <RotateCcw className="size-3" /> Reopen
                   </>
                 ) : (
                   <>
-                    <Check className="h-3 w-3" /> Resolve
+                    <Check className="size-3" /> Resolve
                   </>
                 )}
               </Button>
@@ -468,7 +468,7 @@ function ThreadCard(props: {
                     title="More actions"
                     aria-label="More thread actions"
                   >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    <MoreHorizontal className="size-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -478,7 +478,7 @@ function ThreadCard(props: {
                       props.onCopyLink();
                     }}
                   >
-                    <Copy className="h-3.5 w-3.5" />
+                    <Copy className="size-3.5" />
                     Copy link
                   </DropdownMenuItem>
                 </DropdownMenuContent>

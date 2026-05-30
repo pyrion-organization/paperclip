@@ -66,7 +66,7 @@ export function sortRoutines(
   sortDir: RoutineSortDir,
 ): RoutineListItem[] {
   const direction = sortDir === "asc" ? 1 : -1;
-  return [...routines].sort((left, right) => {
+  return routines.toSorted((left, right) => {
     let result = 0;
 
     if (sortField === "title") {

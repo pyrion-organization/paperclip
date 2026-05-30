@@ -192,7 +192,7 @@ export function sortBlockedInboxRows(
   rows: readonly BlockedInboxIssueRow[],
   sort: BlockedInboxSort = "urgency",
 ): BlockedInboxIssueRow[] {
-  return [...rows].sort((a, b) => compareBlockedRows(a, b, sort));
+  return rows.toSorted((a, b) => compareBlockedRows(a, b, sort));
 }
 
 export function groupBlockedInboxRows(

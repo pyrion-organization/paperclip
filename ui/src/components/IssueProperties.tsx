@@ -243,7 +243,7 @@ function overrideLane(overrides: Issue["assigneeAdapterOverrides"]): IssueModelL
 }
 
 function sortAdapterModels(models: AdapterModel[]) {
-  return [...models].sort((a, b) => {
+  return models.toSorted((a, b) => {
     const providerA = extractProviderIdWithFallback(a.id);
     const providerB = extractProviderIdWithFallback(b.id);
     const byProvider = providerA.localeCompare(providerB);

@@ -31,7 +31,7 @@ function createOptimisticCommentId() {
 }
 
 export function sortIssueComments<T extends { createdAt: Date | string; id: string }>(comments: T[]) {
-  return [...comments].sort((a, b) => {
+  return comments.toSorted((a, b) => {
     const createdAtDiff = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
     if (createdAtDiff !== 0) return createdAtDiff;
     return a.id.localeCompare(b.id);

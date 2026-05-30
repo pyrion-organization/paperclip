@@ -34,7 +34,7 @@ export function ProjectClientList({
             key={client.linkId}
             className={cn(
               "rounded-lg border border-border bg-card px-3 py-2",
-              compact && "border-none bg-transparent px-0 py-0",
+              compact && "border-none bg-transparent p-0",
             )}
           >
             <div className={cn("flex items-center min-w-0", compact ? "gap-1.5" : "justify-between gap-2")}>

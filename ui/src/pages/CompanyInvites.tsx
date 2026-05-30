@@ -423,7 +423,7 @@ export function CompanyInvites() {
                   setLatestInviteCopied(copied);
                 }}
               >
-                <Copy className="h-4 w-4" />
+                <Copy className="size-4" />
                 Copy link
               </Button>
               <Button size="sm" variant="outline" asChild>

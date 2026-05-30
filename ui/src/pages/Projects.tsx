@@ -56,7 +56,7 @@ function compareOptionalTime(
 }
 
 function sortProjects(projects: Project[], sortField: ProjectSortField, sortDir: ProjectSortDir) {
-  return [...projects].sort((left, right) => {
+  return projects.toSorted((left, right) => {
     let comparison = 0;
     if (sortField === "name") {
       comparison = compareProjectNames(left, right);
@@ -134,7 +134,7 @@ export function Projects() {
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="sm" className="w-fit text-xs" title="Sort">
-              <ArrowUpDown className="h-3.5 w-3.5 sm:h-3 sm:w-3 sm:mr-1" />
+              <ArrowUpDown className="size-3.5 sm:size-3 sm:mr-1" />
               <span>Sort: {sortLabel}</span>
             </Button>
           </PopoverTrigger>
@@ -161,7 +161,7 @@ export function Projects() {
                   <span>{option.label}</span>
                   {sortField === option.field ? (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Check className="h-3 w-3" />
+                      <Check className="size-3" />
                       {sortDir === "asc" ? "Asc" : "Desc"}
                     </span>
                   ) : null}

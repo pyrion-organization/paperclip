@@ -110,7 +110,7 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
   }
 
   if (emitted.size < issues.length) {
-    return [...issues].sort(tieBreakAsc);
+    return issues.toSorted(tieBreakAsc);
   }
 
   return output;

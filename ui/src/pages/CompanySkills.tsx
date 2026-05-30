@@ -355,9 +355,9 @@ function SourceFilterMenu({
           className={cn("relative shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="size-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -401,9 +401,9 @@ function CatalogFilterMenu({
           className={cn("relative shrink-0", activeFilterCount > 0 && "text-blue-600 dark:text-blue-400")}
           title={activeFilterCount > 0 ? `Filters: ${activeFilterCount}` : "Filter"}
         >
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="size-3.5" />
           {activeFilterCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">
               {activeFilterCount}
             </span>
           ) : null}
@@ -458,7 +458,7 @@ function TrustChip({ level }: { level: CompanySkillTrustLevel }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]", config.className)}>
-          <Icon className="h-3 w-3" aria-hidden="true" />
+          <Icon className="size-3" aria-hidden="true" />
           {config.label}
         </span>
       </TooltipTrigger>
@@ -489,7 +489,7 @@ function CompatChip({ compatibility }: { compatibility: CompanySkillCompatibilit
     <Tooltip>
       <TooltipTrigger asChild>
         <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]", config.className)}>
-          <Icon className="h-3 w-3" aria-hidden="true" />
+          <Icon className="size-3" aria-hidden="true" />
           {config.label}
         </span>
       </TooltipTrigger>
@@ -504,7 +504,7 @@ function ProvenanceBadge({ packageName, packageVersion }: { packageName: string 
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="inline-flex items-center gap-1 rounded border border-border bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-          <Boxes className="h-3 w-3" aria-hidden="true" />
+          <Boxes className="size-3" aria-hidden="true" />
           <span>{packageName}{packageVersion ? ` v${packageVersion}` : ""}</span>
         </span>
       </TooltipTrigger>
@@ -533,7 +533,7 @@ function NewSkillForm({
   const [description, setDescription] = useState("");
 
   return (
-    <div className="border-b border-border px-4 py-4">
+    <div className="border-b border-border p-4">
       <div className="space-y-3">
         <Input
           value={name}
@@ -642,8 +642,8 @@ function CatalogList({
             onClick={() => onSelect(skill.id)}
           >
             <span className="flex min-w-0 items-center gap-2 self-center">
-              <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
-                <Boxes className={cn("h-3.5 w-3.5", skill.kind === "optional" && "opacity-70")} aria-hidden="true" />
+              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
+                <Boxes className={cn("size-3.5", skill.kind === "optional" && "opacity-70")} aria-hidden="true" />
               </span>
               <span className="min-w-0 overflow-hidden text-[13px] font-medium leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
                 {skill.name}
@@ -652,11 +652,11 @@ function CatalogList({
           </Link>
           <button
             type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+            className="flex size-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
             onClick={() => onToggleSkill(skill.id)}
             aria-label={expanded ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
           >
-            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
         </div>
         <div
@@ -753,7 +753,7 @@ function CatalogDetailPane({
         <TooltipTrigger asChild>
           <span>
             <Button disabled>
-              <Download className="mr-1.5 h-3.5 w-3.5" />
+              <Download className="mr-1.5 size-3.5" />
               Install skill
             </Button>
           </span>
@@ -764,21 +764,21 @@ function CatalogDetailPane({
   } else if (!isInstalled) {
     cta = (
       <Button onClick={onInstall} disabled={loadingPrimaryAction}>
-        {skill.trustLevel === "scripts_executables" ? <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+        {skill.trustLevel === "scripts_executables" ? <AlertTriangle className="mr-1.5 size-3.5" /> : <Download className="mr-1.5 size-3.5" />}
         {loadingPrimaryAction ? "Preparing..." : (skill.kind === "bundled" ? "Install bundled skill" : "Install optional skill")}
       </Button>
     );
   } else if (hashOutOfSync) {
     cta = (
       <Button onClick={onUpdate} disabled={loadingPrimaryAction} className="border-amber-500/40 bg-amber-500/20 text-amber-100 hover:bg-amber-500/30">
-        <ArrowUpCircle className="mr-1.5 h-3.5 w-3.5" />
+        <ArrowUpCircle className="mr-1.5 size-3.5" />
         Update from catalog
       </Button>
     );
   } else {
     cta = (
       <Button variant="ghost" onClick={() => installedSkillId && onOpenInstalled(installedSkillId)}>
-        <Check className="mr-1.5 h-3.5 w-3.5" />
+        <Check className="mr-1.5 size-3.5" />
         Installed · Open in library
       </Button>
     );
@@ -792,7 +792,7 @@ function CatalogDetailPane({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 truncate text-2xl font-semibold">
-              <Boxes className={cn("h-5 w-5 shrink-0 text-muted-foreground", skill.kind === "optional" && "opacity-70")} aria-hidden="true" />
+              <Boxes className={cn("size-5 shrink-0 text-muted-foreground", skill.kind === "optional" && "opacity-70")} aria-hidden="true" />
               {skill.name}
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{skill.description}</p>
@@ -814,7 +814,7 @@ function CatalogDetailPane({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
-                  <ArrowUpCircle className="h-3 w-3" aria-hidden="true" />
+                  <ArrowUpCircle className="size-3" aria-hidden="true" />
                   Update available
                 </span>
               </TooltipTrigger>
@@ -849,9 +849,9 @@ function CatalogDetailPane({
             copiedLabel="Copied hash"
             ariaLabel="Copy content hash"
             title="Copy content hash"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="inline-flex size-6 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            <Copy className="h-3 w-3" />
+            <Copy className="size-3" />
           </CopyText>
         </div>
       </div>
@@ -860,7 +860,7 @@ function CatalogDetailPane({
         <div className="truncate font-mono text-sm">{selectedPath}</div>
       </div>
 
-      <div className="min-h-[400px] px-5 py-5">
+      <div className="min-h-[400px] p-5">
         {fileQuery.isLoading ? (
           <PageSkeleton variant="detail" />
         ) : fileQuery.error ? (
@@ -960,7 +960,7 @@ function InstallPreviewDialog({
               <div className="flex items-center gap-2">
                 {skill.compatibility === "compatible" ? (
                   <span className="inline-flex items-center gap-1 text-muted-foreground">
-                    <Check className="h-3 w-3" aria-hidden="true" />
+                    <Check className="size-3" aria-hidden="true" />
                     Compatible
                   </span>
                 ) : (
@@ -1006,7 +1006,7 @@ function InstallPreviewDialog({
             onClick={() => setAdvancedOpen((value) => !value)}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {advancedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
             Advanced
           </button>
           {advancedOpen ? (
@@ -1082,7 +1082,7 @@ function AttachAgentsPopover({
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           aria-label="Attach to agents"
         >
-          <Pencil className="h-3 w-3" />
+          <Pencil className="size-3" />
           Edit
         </button>
       </PopoverTrigger>
@@ -1191,17 +1191,17 @@ function SkillTree({
                   style={{ paddingLeft: `${SKILL_TREE_BASE_INDENT + depth * SKILL_TREE_STEP_INDENT}px` }}
                   onClick={() => node.path && onToggleDir(node.path)}
                 >
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                    {expanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    {expanded ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
                   </span>
                   <span className="truncate">{node.name}</span>
                 </button>
                 <button
                   type="button"
-                  className="flex h-9 w-9 items-center justify-center self-center rounded-sm text-muted-foreground opacity-70 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                  className="flex size-9 items-center justify-center self-center rounded-sm text-muted-foreground opacity-70 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
                   onClick={() => node.path && onToggleDir(node.path)}
                 >
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                 </button>
               </div>
               {expanded && (
@@ -1233,8 +1233,8 @@ function SkillTree({
             to={node.path ? fileHref(skillId, node.path) : skillRoute(skillId)}
             onClick={() => node.path && onSelectPath(node.path)}
           >
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-              <FileIcon className="h-3.5 w-3.5" />
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <FileIcon className="size-3.5" />
             </span>
             <span className="truncate">{node.name}</span>
           </Link>
@@ -1321,8 +1321,8 @@ function SkillList({
                 <span className="flex min-w-0 items-center gap-2 self-center">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
-                        <SourceIcon className="h-3.5 w-3.5" />
+                      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground opacity-75 transition-opacity group-hover:opacity-100">
+                        <SourceIcon className="size-3.5" />
                         <span className="sr-only">{source.managedLabel}</span>
                       </span>
                     </TooltipTrigger>
@@ -1335,11 +1335,11 @@ function SkillList({
               </Link>
               <button
                 type="button"
-                className="flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                className="flex size-9 shrink-0 items-center justify-center self-center rounded-sm text-muted-foreground opacity-80 transition-[background-color,color,opacity] hover:bg-accent hover:text-foreground group-hover:opacity-100"
                 onClick={() => onToggleSkill(skill.id)}
                 aria-label={expanded ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
               >
-                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
               </button>
             </div>
             <div
@@ -1451,7 +1451,7 @@ function SkillPane({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 truncate text-2xl font-semibold">
-              <SourceIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <SourceIcon className="size-5 shrink-0 text-muted-foreground" />
               {detail.name}
             </h1>
             {detail.description && (
@@ -1466,7 +1466,7 @@ function SkillPane({
               disabled={deletePending}
               title={removeDisabledReason ?? undefined}
             >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              <Trash2 className="mr-1.5 size-3.5" />
               {deletePending ? "Removing..." : "Remove"}
             </Button>
             {detail.editable ? (
@@ -1474,7 +1474,7 @@ function SkillPane({
                 className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => setEditMode(!editMode)}
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <Pencil className="size-3.5" />
                 {editMode ? "Stop editing" : "Edit"}
               </button>
             ) : (
@@ -1488,7 +1488,7 @@ function SkillPane({
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Source</span>
               <span className="flex min-w-0 items-center gap-2">
-                <SourceIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                <SourceIcon className="size-3.5 text-muted-foreground" />
                 {detail.sourcePath && displaySourcePath ? (
                   <>
                     <span
@@ -1502,9 +1502,9 @@ function SkillPane({
                       copiedLabel="Copied path"
                       ariaLabel="Copy source path"
                       title="Copy source path"
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
-                      <Copy className="h-3.5 w-3.5" />
+                      <Copy className="size-3.5" />
                     </CopyText>
                   </>
                 ) : (
@@ -1525,7 +1525,7 @@ function SkillPane({
                   onClick={onCheckUpdates}
                   disabled={checkUpdatesPending || updateStatusLoading}
                 >
-                  <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", (checkUpdatesPending || updateStatusLoading) && "animate-spin")} />
+                  <RefreshCw className={cn("mr-1.5 size-3.5", (checkUpdatesPending || updateStatusLoading) && "animate-spin")} />
                   Check for updates
                 </Button>
                 {updateStatus?.supported && updateStatus.hasUpdate && (
@@ -1534,7 +1534,7 @@ function SkillPane({
                     onClick={onInstallUpdate}
                     disabled={installUpdatePending}
                   >
-                    <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", installUpdatePending && "animate-spin")} />
+                    <RefreshCw className={cn("mr-1.5 size-3.5", installUpdatePending && "animate-spin")} />
                     Install update{latestPin ? ` ${latestPin}` : ""}
                   </Button>
                 )}
@@ -1563,7 +1563,7 @@ function SkillPane({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-200">
-                    <Pencil className="h-3 w-3" aria-hidden="true" />
+                    <Pencil className="size-3" aria-hidden="true" />
                     Locally modified
                   </span>
                 </TooltipTrigger>
@@ -1620,7 +1620,7 @@ function SkillPane({
                   onClick={() => setViewMode("preview")}
                 >
                   <span className="flex items-center gap-1.5">
-                    <Eye className="h-3.5 w-3.5" />
+                    <Eye className="size-3.5" />
                     View
                   </span>
                 </button>
@@ -1629,7 +1629,7 @@ function SkillPane({
                   onClick={() => setViewMode("code")}
                 >
                   <span className="flex items-center gap-1.5">
-                    <Code2 className="h-3.5 w-3.5" />
+                    <Code2 className="size-3.5" />
                     Code
                   </span>
                 </button>
@@ -1641,7 +1641,7 @@ function SkillPane({
                   Cancel
                 </Button>
                 <Button size="sm" onClick={onSave} disabled={savePending}>
-                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                  <Save className="mr-1.5 size-3.5" />
                   {savePending ? "Saving..." : "Save"}
                 </Button>
               </>
@@ -1650,7 +1650,7 @@ function SkillPane({
         </div>
       </div>
 
-      <div className="min-h-[560px] px-5 py-5">
+      <div className="min-h-[560px] p-5">
         {fileLoading ? (
           <PageSkeleton variant="detail" />
         ) : !file ? (
@@ -1667,7 +1667,7 @@ function SkillPane({
             <Textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              className="min-h-[520px] rounded-none border-0 bg-transparent px-0 py-0 font-mono text-sm shadow-none focus-visible:ring-0"
+              className="min-h-[520px] rounded-none border-0 bg-transparent p-0 font-mono text-sm shadow-none focus-visible:ring-0"
             />
           )
         ) : file.markdown && viewMode === "preview" ? (
@@ -2263,7 +2263,7 @@ export function CompanySkills() {
                 : "You are about to remove this skill."}
             </p>
             {deleteTargetDetail?.usedByAgents?.length ? (
-              <div className="rounded-md border border-border px-3 py-3 text-muted-foreground">
+              <div className="rounded-md border border-border p-3 text-muted-foreground">
                 Currently used by {deleteTargetDetail.usedByAgents.map((agent) => agent.name).join(", ")}.
               </div>
             ) : null}
@@ -2309,7 +2309,7 @@ export function CompanySkills() {
               href="https://skills.sh"
               target="_blank"
               rel="noreferrer"
-              className="flex items-start justify-between rounded-md border border-border px-3 py-3 text-foreground no-underline transition-colors hover:bg-accent/40"
+              className="flex items-start justify-between rounded-md border border-border p-3 text-foreground no-underline transition-colors hover:bg-accent/40"
             >
               <span>
                 <span className="block font-medium">Browse skills.sh</span>
@@ -2317,13 +2317,13 @@ export function CompanySkills() {
                   Find install commands and paste one here.
                 </span>
               </span>
-              <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <ExternalLink className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             </a>
             <a
               href="https://github.com/search?q=SKILL.md&type=code"
               target="_blank"
               rel="noreferrer"
-              className="flex items-start justify-between rounded-md border border-border px-3 py-3 text-foreground no-underline transition-colors hover:bg-accent/40"
+              className="flex items-start justify-between rounded-md border border-border p-3 text-foreground no-underline transition-colors hover:bg-accent/40"
             >
               <span>
                 <span className="block font-medium">Search GitHub</span>
@@ -2331,7 +2331,7 @@ export function CompanySkills() {
                   Look for repositories with `SKILL.md`, then paste the repo URL here.
                 </span>
               </span>
-              <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <ExternalLink className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             </a>
           </div>
           <DialogFooter showCloseButton />
@@ -2383,20 +2383,20 @@ export function CompanySkills() {
                 disabled={scanProjects.isPending}
                 title="Scan project workspaces for skills"
               >
-                <RefreshCw className={cn("h-4 w-4", scanProjects.isPending && "animate-spin")} />
+                <RefreshCw className={cn("size-4", scanProjects.isPending && "animate-spin")} />
               </Button>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="default">
-                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  <Plus className="mr-1 size-3.5" />
                   Add skill
-                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                  <ChevronDown className="ml-1 size-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setViewParam("catalog")}>
-                  <Boxes className="mr-2 h-4 w-4" />
+                  <Boxes className="mr-2 size-4" />
                   Browse catalog
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -2405,7 +2405,7 @@ export function CompanySkills() {
                     setEmptySourceHelpOpen(true);
                   }}
                 >
-                  <Globe className="mr-2 h-4 w-4" />
+                  <Globe className="mr-2 size-4" />
                   Import from URL or path
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -2414,7 +2414,7 @@ export function CompanySkills() {
                     setCreateOpen(true);
                   }}
                 >
-                  <Pencil className="mr-2 h-4 w-4" />
+                  <Pencil className="mr-2 size-4" />
                   Create blank skill
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -2427,7 +2427,7 @@ export function CompanySkills() {
             <aside className="border-r border-border">
               <div className="border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2 border-b border-border pb-2">
-                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Search className="size-4 text-muted-foreground" />
                   <input
                     value={skillFilter}
                     onChange={(event) => setSkillFilter(event.target.value)}
@@ -2450,7 +2450,7 @@ export function CompanySkills() {
                     onClick={handleAddSkillSource}
                     disabled={importSkill.isPending}
                   >
-                    {importSkill.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Add"}
+                    {importSkill.isPending ? <RefreshCw className="size-4 animate-spin" /> : "Add"}
                   </Button>
                 </div>
                 {scanStatusMessage && (
@@ -2478,7 +2478,7 @@ export function CompanySkills() {
                   />
                   <div className="mt-3 flex flex-col items-center gap-2">
                     <Button size="sm" onClick={() => setViewParam("catalog")}>
-                      <Boxes className="mr-1.5 h-3.5 w-3.5" /> Browse catalog
+                      <Boxes className="mr-1.5 size-3.5" /> Browse catalog
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setEmptySourceHelpOpen(true)}>
                       Import from URL
@@ -2549,7 +2549,7 @@ export function CompanySkills() {
             <aside className="border-r border-border">
               <div className="border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2 border-b border-border pb-2">
-                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Search className="size-4 text-muted-foreground" />
                   <input
                     value={catalogFilter}
                     onChange={(event) => setCatalogFilter(event.target.value)}
