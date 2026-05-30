@@ -881,7 +881,7 @@ export function DesignGuide() {
             identifier="PAP-001"
             title="Implement authentication flow"
             subtitle="Assigned to Agent Alpha"
-            trailing={designGuidePap001Trailing}
+            trailingSlot={() => designGuidePap001Trailing}
             onClick={() => {}}
           />
           <EntityRow
@@ -889,14 +889,14 @@ export function DesignGuide() {
             identifier="PAP-002"
             title="Set up CI/CD pipeline"
             subtitle="Completed 2 days ago"
-            trailing={designGuidePap002Trailing}
+            trailingSlot={() => designGuidePap002Trailing}
             onClick={() => {}}
           />
           <EntityRow
             leading={designGuidePap003Leading}
             identifier="PAP-003"
             title="Write API documentation"
-            trailing={designGuidePap003Trailing}
+            trailingSlot={() => designGuidePap003Trailing}
             onClick={() => {}}
           />
           <EntityRow
@@ -904,7 +904,7 @@ export function DesignGuide() {
             identifier="PAP-004"
             title="Deploy to production"
             subtitle="Blocked by PAP-001"
-            trailing={designGuidePap004Trailing}
+            trailingSlot={() => designGuidePap004Trailing}
             selected
           />
         </div>
@@ -914,7 +914,7 @@ export function DesignGuide() {
               title="Joined resource"
               subtitle="Hover or focus the row to reveal the reserved action slot."
               className="group"
-              trailing={
+              trailingSlot={() => 
                 <MembershipAction
                   state="joined"
                   resourceName="Joined resource"
@@ -927,7 +927,7 @@ export function DesignGuide() {
               title="Left resource"
               subtitle="Persistent action with dimmed row content."
               className="group text-foreground/55"
-              trailing={
+              trailingSlot={() => 
                 <MembershipAction
                   state="left"
                   resourceName="Left resource"
@@ -940,7 +940,7 @@ export function DesignGuide() {
               title="Leaving resource"
               subtitle="Disabled while the optimistic mutation is pending."
               className="group text-foreground/55"
-              trailing={
+              trailingSlot={() => 
                 <MembershipAction
                   state="left"
                   pending
@@ -955,7 +955,7 @@ export function DesignGuide() {
               title="Joining resource"
               subtitle="The target state is visible immediately while the server confirms."
               className="group"
-              trailing={
+              trailingSlot={() => 
                 <MembershipAction
                   state="joined"
                   pending
