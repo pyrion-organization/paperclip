@@ -117,7 +117,7 @@ function InviteHistorySection({
                           Review request
                         </Link>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">{"—"}</span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-right align-top">

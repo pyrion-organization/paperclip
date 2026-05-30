@@ -99,13 +99,13 @@ export function BootstrapPendingPage({
           <div>
             <h1 className="text-xl font-semibold">You're the instance admin</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Setup is complete. Taking you to onboarding to create your first company...
+              Setup is complete. Taking you to onboarding to create your first company…
             </p>
           </div>
         </div>
         <div className="mt-5 flex items-center gap-3">
           <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
-          <span className="text-sm text-muted-foreground">Redirecting...</span>
+          <span className="text-sm text-muted-foreground">Redirecting…</span>
         </div>
         <div className="mt-5">
           <Button asChild variant="outline">

@@ -758,7 +758,7 @@ function CatalogDetailPane({
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>This skill cannot be installed — its content is not valid Agent Skills markdown.</TooltipContent>
+        <TooltipContent>This skill cannot be installed: its content is not valid Agent Skills markdown.</TooltipContent>
       </Tooltip>
     );
   } else if (!isInstalled) {

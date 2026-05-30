@@ -92,7 +92,7 @@ export function CloudAccessGate() {
   if (isBootstrapPending) {
     const health = healthQuery.data;
     if (!health) {
-      return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
+      return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading…</div>;
     }
     const claimError = claimMutation.error instanceof ApiError
       ? { status: claimMutation.error.status, message: claimMutation.error.message }
