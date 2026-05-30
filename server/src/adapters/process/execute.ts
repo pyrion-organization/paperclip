@@ -24,6 +24,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (typeof v === "string") env[k] = v;
   }
   const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
+  const executionEnv = Object.fromEntries(
+    Object.entries(runtimeEnv).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
   const resolvedCommand = await resolveCommandForLogs(command, cwd, runtimeEnv);
   const loggedEnv = buildInvocationEnvForLogs(env, {
     runtimeEnv,
@@ -46,7 +49,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   const proc = await runChildProcess(runId, command, args, {
     cwd,
-    env,
+    env: executionEnv,
     timeoutSec,
     graceSec,
     onLog,

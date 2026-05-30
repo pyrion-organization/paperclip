@@ -120,9 +120,7 @@ import { enqueueIssueCompletionEmailNotification } from "../services/email-notif
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
-const updateIssueRouteSchema = updateIssueSchema.extend({
-  interrupt: z.boolean().optional(),
-});
+const updateIssueRouteSchema = updateIssueSchema;
 
 type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
 type NormalizedExecutionPolicy = NonNullable<ReturnType<typeof normalizeIssueExecutionPolicy>>;

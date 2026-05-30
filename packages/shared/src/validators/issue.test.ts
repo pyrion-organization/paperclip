@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MAX_ISSUE_REQUEST_DEPTH } from "../index.js";
 import {
   addIssueCommentSchema,
+  createChildIssueSchema,
+  createIssueInputSchema,
   createIssueSchema,
   issueBlockedInboxAttentionSchema,
   resolveIssueRecoveryActionSchema,
@@ -225,6 +227,30 @@ describe("issue validators", () => {
       assigneeAgentId: "22222222-2222-4222-8222-222222222222",
       status: "backlog",
     }).status).toBe("backlog");
+  });
+
+  it("rejects issue payloads with both agent and user assignees", () => {
+    const payload = {
+      title: "Double assigned",
+      assigneeAgentId: "22222222-2222-4222-8222-222222222222",
+      assigneeUserId: "board-user",
+    };
+
+    expect(createIssueSchema.safeParse(payload).success).toBe(false);
+    expect(createIssueInputSchema.safeParse(payload).success).toBe(false);
+    expect(createChildIssueSchema.safeParse(payload).success).toBe(false);
+    expect(updateIssueSchema.safeParse({
+      assigneeAgentId: payload.assigneeAgentId,
+      assigneeUserId: payload.assigneeUserId,
+    }).success).toBe(false);
+  });
+
+  it("rejects blank user assignees on issue create and update payloads", () => {
+    expect(createIssueSchema.safeParse({
+      title: "Blank user",
+      assigneeUserId: "   ",
+    }).success).toBe(false);
+    expect(updateIssueSchema.safeParse({ assigneeUserId: "   " }).success).toBe(false);
   });
 
   it("defaults issue work mode to standard and accepts planning", () => {

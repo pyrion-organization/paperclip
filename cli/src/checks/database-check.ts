@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import type { PaperclipConfig } from "../config/schema.js";
 import type { CheckResult } from "./index.js";
+import { ensureWritableDirectory } from "./filesystem.js";
 import { resolveRuntimeLikePath } from "./path-resolver.js";
 
 export async function databaseCheck(config: PaperclipConfig, configPath?: string): Promise<CheckResult> {
@@ -38,8 +38,15 @@ export async function databaseCheck(config: PaperclipConfig, configPath?: string
   if (config.database.mode === "embedded-postgres") {
     const dataDir = resolveRuntimeLikePath(config.database.embeddedPostgresDataDir, configPath);
     const reportedPath = dataDir;
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(reportedPath, { recursive: true });
+    const directoryProblem = ensureWritableDirectory(reportedPath);
+    if (directoryProblem) {
+      return {
+        name: "Database",
+        status: "fail",
+        message: `Embedded PostgreSQL data directory is not writable: ${reportedPath}: ${directoryProblem}`,
+        canRepair: false,
+        repairHint: "Check file permissions for database.embeddedPostgresDataDir",
+      };
     }
 
     return {

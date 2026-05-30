@@ -368,6 +368,16 @@ function withCreateIssueStatusDefault<T extends z.ZodRawShape>(schema: z.ZodObje
   }, schema);
 }
 
+function requireSingleIssueAssignee(value: { assigneeAgentId?: string | null; assigneeUserId?: string | null }, ctx: z.RefinementCtx) {
+  if (value.assigneeAgentId && value.assigneeUserId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Issues can only target one assignee",
+      path: ["assigneeAgentId"],
+    });
+  }
+}
+
 const createIssueBaseSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   projectWorkspaceId: z.string().uuid().optional().nullable(),
@@ -381,7 +391,7 @@ const createIssueBaseSchema = z.object({
   workMode: z.enum(ISSUE_WORK_MODES).optional().default("standard"),
   priority: z.enum(ISSUE_PRIORITIES).optional().default("medium"),
   assigneeAgentId: z.string().uuid().optional().nullable(),
-  assigneeUserId: z.string().optional().nullable(),
+  assigneeUserId: z.string().trim().min(1).optional().nullable(),
   requestDepth: issueRequestDepthInputSchema.optional().default(0),
   billingCode: z.string().optional().nullable(),
   assigneeAdapterOverrides: issueAssigneeAdapterOverridesSchema.optional().nullable(),
@@ -395,9 +405,10 @@ const createIssueBaseSchema = z.object({
 
 export const createIssueInputSchema = createIssueBaseSchema.extend({
   status: createIssueBaseSchema.shape.status.optional(),
-});
+}).superRefine(requireSingleIssueAssignee);
 
-export const createIssueSchema = withCreateIssueStatusDefault(createIssueBaseSchema);
+export const createIssueSchema = withCreateIssueStatusDefault(createIssueBaseSchema)
+  .superRefine(requireSingleIssueAssignee);
 
 export type CreateIssue = z.infer<typeof createIssueSchema>;
 
@@ -409,7 +420,8 @@ export const createChildIssueSchema = withCreateIssueStatusDefault(createIssueBa
   .extend({
     acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
     blockParentUntilDone: z.boolean().optional().default(false),
-  }));
+  }))
+  .superRefine(requireSingleIssueAssignee);
 
 export type CreateChildIssue = z.infer<typeof createChildIssueSchema>;
 
@@ -436,7 +448,7 @@ export const updateIssueSchema = createIssueBaseSchema.partial().extend({
   resume: z.boolean().optional(),
   interrupt: z.boolean().optional(),
   hiddenAt: z.string().datetime().nullable().optional(),
-});
+}).superRefine(requireSingleIssueAssignee);
 
 export type UpdateIssue = z.infer<typeof updateIssueSchema>;
 export type IssueExecutionWorkspaceSettings = z.infer<typeof issueExecutionWorkspaceSettingsSchema>;

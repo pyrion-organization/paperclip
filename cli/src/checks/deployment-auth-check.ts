@@ -2,6 +2,10 @@ import { inferBindModeFromHost } from "@paperclipai/shared";
 import type { PaperclipConfig } from "../config/schema.js";
 import type { CheckResult } from "./index.js";
 
+function firstNonEmptyEnv(...values: Array<string | undefined>): string | undefined {
+  return values.map((value) => value?.trim()).find((value): value is string => Boolean(value));
+}
+
 export function deploymentAuthCheck(config: PaperclipConfig): CheckResult {
   const mode = config.server.deploymentMode;
   const exposure = config.server.exposure;
@@ -25,9 +29,10 @@ export function deploymentAuthCheck(config: PaperclipConfig): CheckResult {
     };
   }
 
-  const secret =
-    process.env.BETTER_AUTH_SECRET?.trim() ??
-    process.env.PAPERCLIP_AGENT_JWT_SECRET?.trim();
+  const secret = firstNonEmptyEnv(
+    process.env.BETTER_AUTH_SECRET,
+    process.env.PAPERCLIP_AGENT_JWT_SECRET,
+  );
   if (!secret) {
     return {
       name: "Deployment/auth mode",
