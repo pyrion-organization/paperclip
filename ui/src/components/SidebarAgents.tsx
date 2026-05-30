@@ -15,6 +15,7 @@ import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { useAgentOrder } from "../hooks/useAgentOrder";
+import { resourceMembershipState, useResourceMembershipMutation, useResourceMemberships } from "../hooks/useResourceMemberships";
 import {
   AGENT_SORT_MODE_UPDATED_EVENT,
   getAgentSortModeStorageKey,
@@ -24,6 +25,7 @@ import {
   writeAgentSortMode,
 } from "../lib/agent-order";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
+import { SidebarAgentActionsMenu } from "./SidebarAgentActionsMenu";
 import { SidebarSection, type SidebarSectionRadioChoice } from "./SidebarSection";
 import type { Agent } from "@paperclipai/shared";
 import type { LiveRunForIssue } from "../api/heartbeats";
@@ -37,10 +39,6 @@ const AGENT_SORT_CHOICES: SidebarSectionRadioChoice[] = [
 const DeferredAgentIcon = lazy(() =>
   import("./AgentIcon").then((module) => ({ default: module.AgentIcon })),
 );
-const DeferredSidebarAgentActionsMenu = lazy(() =>
-  import("./SidebarAgentActionsMenu").then((module) => ({ default: module.SidebarAgentActionsMenu })),
-);
-
 type SidebarIdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
@@ -120,6 +118,8 @@ function SidebarAgentItem({
   disabled,
   isCollapsed,
   isMobile,
+  leaving,
+  onLeaveAgent,
   onPauseResume,
   runCount,
   setSidebarOpen,
@@ -131,6 +131,8 @@ function SidebarAgentItem({
   disabled: boolean;
   isCollapsed: boolean;
   isMobile: boolean;
+  leaving: boolean;
+  onLeaveAgent: (agent: Agent) => void;
   onPauseResume: (agent: Agent, action: "pause" | "resume") => void;
   runCount: number;
   setSidebarOpen: (open: boolean) => void;
@@ -234,22 +236,22 @@ function SidebarAgentItem({
       </NavLink>
 
       {actionsMenuRequested ? (
-        <Suspense fallback={actionsTrigger}>
-          <DeferredSidebarAgentActionsMenu
-            editHref={editHref}
-            isBudgetPaused={isBudgetPaused}
-            isMobile={isMobile}
-            isPaused={isPaused}
-            onOpenChange={setActionsMenuOpen}
-            onPauseResume={(action) => onPauseResume(agent, action)}
-            open={actionsMenuOpen}
-            pauseResumeDisabled={pauseResumeDisabled}
-            pauseResumeDisabledLabel={pauseResumeDisabledLabel}
-            setSidebarOpen={setSidebarOpen}
-            triggerClassName={actionsTriggerClassName}
-            triggerLabel={`Open actions for ${agent.name}`}
-          />
-        </Suspense>
+        <SidebarAgentActionsMenu
+          editHref={editHref}
+          isBudgetPaused={isBudgetPaused}
+          isMobile={isMobile}
+          isPaused={isPaused}
+          leaving={leaving}
+          onLeaveAgent={() => onLeaveAgent(agent)}
+          onOpenChange={setActionsMenuOpen}
+          onPauseResume={(action) => onPauseResume(agent, action)}
+          open={actionsMenuOpen}
+          pauseResumeDisabled={pauseResumeDisabled}
+          pauseResumeDisabledLabel={pauseResumeDisabledLabel}
+          setSidebarOpen={setSidebarOpen}
+          triggerClassName={actionsTriggerClassName}
+          triggerLabel={`Open actions for ${agent.name}`}
+        />
       ) : (
         actionsTrigger
       )}
@@ -289,6 +291,8 @@ export function SidebarAgents({ liveRuns = EMPTY_LIVE_RUNS }: SidebarAgentsProps
       return authApi.getSession();
     },
   });
+  const membershipsQuery = useResourceMemberships(selectedCompanyId);
+  const membershipMutation = useResourceMembershipMutation(selectedCompanyId);
 
   const liveCountByAgent = useMemo(() => {
     const counts = new Map<string, number>();
@@ -300,10 +304,12 @@ export function SidebarAgents({ liveRuns = EMPTY_LIVE_RUNS }: SidebarAgentsProps
 
   const visibleAgents = useMemo(() => {
     const filtered = (agents ?? []).filter(
-      (a: Agent) => a.status !== "terminated"
+      (a: Agent) =>
+        a.status !== "terminated" &&
+        resourceMembershipState(membershipsQuery.data, "agent", a.id) !== "left",
     );
     return filtered;
-  }, [agents]);
+  }, [agents, membershipsQuery.data]);
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const sortModeStorageKey = useMemo(() => {
     if (!selectedCompanyId) return null;
@@ -416,6 +422,24 @@ export function SidebarAgents({ liveRuns = EMPTY_LIVE_RUNS }: SidebarAgentsProps
     },
   });
 
+  const leaveAgent = useCallback(
+    (agent: Agent) =>
+      membershipMutation.mutate({
+        resourceType: "agent",
+        resourceId: agent.id,
+        resourceName: agent.name,
+        state: "left",
+      }),
+    [membershipMutation],
+  );
+  const agentLeaving = useCallback(
+    (agent: Agent) =>
+      membershipMutation.isPending &&
+      membershipMutation.variables?.resourceType === "agent" &&
+      membershipMutation.variables.resourceId === agent.id,
+    [membershipMutation.isPending, membershipMutation.variables],
+  );
+
   return (
     <SidebarSection
       label="Agents"
@@ -449,6 +473,8 @@ export function SidebarAgents({ liveRuns = EMPTY_LIVE_RUNS }: SidebarAgentsProps
             disabled={pendingAgentIds.has(agent.id)}
             isCollapsed={isCollapsed}
             isMobile={isMobile}
+            leaving={agentLeaving(agent)}
+            onLeaveAgent={leaveAgent}
             onPauseResume={(targetAgent, action) => pauseResumeAgent.mutate({ agent: targetAgent, action })}
             runCount={runCount}
             setSidebarOpen={setSidebarOpen}

@@ -1,5 +1,7 @@
 import { Link } from "@/lib/router";
 import {
+  Loader2,
+  LogOut,
   MoreHorizontal,
   PauseCircle,
   Pencil,
@@ -19,8 +21,10 @@ interface SidebarAgentActionsMenuProps {
   isMobile: boolean;
   isPaused: boolean;
   onOpenChange: (open: boolean) => void;
+  onLeaveAgent: () => void;
   onPauseResume: (action: "pause" | "resume") => void;
   open: boolean;
+  leaving: boolean;
   pauseResumeDisabled: boolean;
   pauseResumeDisabledLabel: string;
   setSidebarOpen: (open: boolean) => void;
@@ -34,8 +38,10 @@ export function SidebarAgentActionsMenu({
   isMobile,
   isPaused,
   onOpenChange,
+  onLeaveAgent,
   onPauseResume,
   open,
+  leaving,
   pauseResumeDisabled,
   pauseResumeDisabledLabel,
   setSidebarOpen,
@@ -76,6 +82,17 @@ export function SidebarAgentActionsMenu({
         >
           {isPaused ? <PlayCircle className="size-4" /> : <PauseCircle className="size-4" />}
           <span>{pauseResumeDisabledLabel}</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => {
+            if (leaving) return;
+            onLeaveAgent();
+          }}
+          disabled={leaving}
+        >
+          {leaving ? <Loader2 className="size-4 motion-safe:animate-spin" /> : <LogOut className="size-4" />}
+          <span>{leaving ? "Leaving..." : "Leave agent"}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

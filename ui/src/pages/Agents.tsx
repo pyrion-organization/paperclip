@@ -9,6 +9,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { queryKeys } from "../lib/queryKeys";
 import { StatusBadge } from "../components/StatusBadge";
+import { MembershipAction } from "../components/MembershipAction";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { EntityRow } from "../components/EntityRow";
 import { EmptyState } from "../components/EmptyState";
@@ -18,8 +19,13 @@ import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Bot, Plus, List, GitBranch, SlidersHorizontal, Pause, Play } from "lucide-react";
-import type { Agent } from "@paperclipai/shared";
 import { AGENT_ROLE_LABELS } from "@paperclipai/shared/constants";
+import type { Agent } from "@paperclipai/shared";
+import {
+  resourceMembershipState,
+  useResourceMembershipMutation,
+  useResourceMemberships,
+} from "../hooks/useResourceMemberships";
 
 import { getAdapterLabel } from "../adapters/adapter-display-registry";
 
@@ -95,6 +101,8 @@ export function Agents() {
     enabled: !!selectedCompanyId,
     refetchInterval: 15_000,
   });
+  const membershipsQuery = useResourceMemberships(selectedCompanyId);
+  const membershipMutation = useResourceMembershipMutation(selectedCompanyId);
 
   // Map agentId -> first live run + live run count
   const liveRunByAgent = useMemo(() => {
@@ -275,7 +283,13 @@ export function Agents() {
 
       {/* List view */}
       {effectiveView === "list" && filtered.length > 0 && (
-        <AgentListView agents={filtered} liveRunByAgent={liveRunByAgent} tab={tab} />
+        <AgentListView
+          agents={filtered}
+          liveRunByAgent={liveRunByAgent}
+          tab={tab}
+          memberships={membershipsQuery.data}
+          membershipMutation={membershipMutation}
+        />
       )}
 
       {effectiveView === "list" && agents && agents.length > 0 && filtered.length === 0 && (
@@ -288,7 +302,16 @@ export function Agents() {
       {effectiveView === "org" && filteredOrg.length > 0 && (
         <div className="border border-border py-1">
           {filteredOrg.map((node) => (
-            <OrgTreeNode key={node.id} node={node} depth={0} agentMap={agentMap} liveRunByAgent={liveRunByAgent} tab={tab} />
+            <OrgTreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              agentMap={agentMap}
+              liveRunByAgent={liveRunByAgent}
+              tab={tab}
+              memberships={membershipsQuery.data}
+              membershipMutation={membershipMutation}
+            />
           ))}
         </div>
       )}
@@ -312,10 +335,14 @@ function AgentListView({
   agents,
   liveRunByAgent,
   tab,
+  memberships,
+  membershipMutation,
 }: {
   agents: Agent[];
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
   tab: FilterTab;
+  memberships: ReturnType<typeof useResourceMemberships>["data"];
+  membershipMutation: ReturnType<typeof useResourceMembershipMutation>;
 }) {
   return (
     <div className="border border-border">
@@ -325,7 +352,10 @@ function AgentListView({
           title={agent.name}
           subtitle={`${roleLabels[agent.role] ?? agent.role}${agent.title ? ` - ${agent.title}` : ""}`}
           to={agentUrl(agent)}
-          className={agent.pausedAt && tab !== "paused" ? "opacity-50" : ""}
+          className={cn(
+            agent.pausedAt && tab !== "paused" ? "opacity-50" : "",
+            resourceMembershipState(memberships, "agent", agent.id) === "left" ? "text-foreground/55" : "",
+          )}
           leadingSlot={() => (
             <span className="relative flex size-2.5">
               <span
@@ -370,6 +400,34 @@ function AgentListView({
                   <StatusBadge status={agent.status} />
                 </span>
               </div>
+              <MembershipAction
+                state={resourceMembershipState(memberships, "agent", agent.id)}
+                pending={
+                  membershipMutation.isPending &&
+                  membershipMutation.variables?.resourceType === "agent" &&
+                  membershipMutation.variables.resourceId === agent.id
+                }
+                pendingState={
+                  membershipMutation.isPending &&
+                  membershipMutation.variables?.resourceType === "agent" &&
+                  membershipMutation.variables.resourceId === agent.id
+                    ? membershipMutation.variables.state
+                    : null
+                }
+                resourceName={agent.name}
+                onJoin={() => membershipMutation.mutate({
+                  resourceType: "agent",
+                  resourceId: agent.id,
+                  resourceName: agent.name,
+                  state: "joined",
+                })}
+                onLeave={() => membershipMutation.mutate({
+                  resourceType: "agent",
+                  resourceId: agent.id,
+                  resourceName: agent.name,
+                  state: "left",
+                })}
+              />
             </div>
           )}
         />
@@ -384,14 +442,22 @@ function OrgTreeNode({
   agentMap,
   liveRunByAgent,
   tab,
+  memberships,
+  membershipMutation,
 }: {
   node: OrgNode;
   depth: number;
   agentMap: Map<string, Agent>;
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
   tab: FilterTab;
+  memberships: ReturnType<typeof useResourceMemberships>["data"];
+  membershipMutation: ReturnType<typeof useResourceMembershipMutation>;
 }) {
   const agent = agentMap.get(node.id);
+  const membershipState = resourceMembershipState(memberships, "agent", node.id);
+  const pending = membershipMutation.isPending &&
+    membershipMutation.variables?.resourceType === "agent" &&
+    membershipMutation.variables.resourceId === node.id;
 
   const statusColor = agentStatusDot[node.status] ?? agentStatusDotDefault;
 
@@ -399,7 +465,11 @@ function OrgTreeNode({
     <div style={{ paddingLeft: depth * 24 }}>
       <Link
         to={agent ? agentUrl(agent) : `/agents/${node.id}`}
-        className={cn("flex items-center gap-3 px-3 py-2 hover:bg-accent/30 transition-colors w-full text-left no-underline text-inherit", agent?.pausedAt && tab !== "paused" && "opacity-50")}
+        className={cn(
+          "group flex items-center gap-3 px-3 py-2 hover:bg-accent/30 transition-colors w-full text-left no-underline text-inherit",
+          agent?.pausedAt && tab !== "paused" && "opacity-50",
+          membershipState === "left" && "text-foreground/55",
+        )}
       >
         <span className="relative flex size-2.5 shrink-0">
           <span className={`absolute inline-flex size-full rounded-full ${statusColor}`} />
@@ -451,12 +521,39 @@ function OrgTreeNode({
               <StatusBadge status={node.status} />
             </span>
           </div>
+          <MembershipAction
+            state={membershipState}
+            pending={pending}
+            pendingState={pending ? membershipMutation.variables?.state : null}
+            resourceName={node.name}
+            onJoin={() => membershipMutation.mutate({
+              resourceType: "agent",
+              resourceId: node.id,
+              resourceName: node.name,
+              state: "joined",
+            })}
+            onLeave={() => membershipMutation.mutate({
+              resourceType: "agent",
+              resourceId: node.id,
+              resourceName: node.name,
+              state: "left",
+            })}
+          />
         </div>
       </Link>
       {node.reports && node.reports.length > 0 && (
         <div className="border-l border-border/50 ml-4">
           {node.reports.map((child) => (
-            <OrgTreeNode key={child.id} node={child} depth={depth + 1} agentMap={agentMap} liveRunByAgent={liveRunByAgent} tab={tab} />
+            <OrgTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              agentMap={agentMap}
+              liveRunByAgent={liveRunByAgent}
+              tab={tab}
+              memberships={memberships}
+              membershipMutation={membershipMutation}
+            />
           ))}
         </div>
       )}

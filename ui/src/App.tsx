@@ -26,6 +26,9 @@ const IssueChatLongThreadPerf = lazy(() =>
 const CloudUpstreamUxLab = lazy(() =>
   import("./pages/CloudUpstreamUxLab").then(({ CloudUpstreamUxLab }) => ({ default: CloudUpstreamUxLab })),
 );
+const BootstrapSetupUxLab = lazy(() =>
+  import("./pages/BootstrapSetupUxLab").then(({ BootstrapSetupUxLab }) => ({ default: BootstrapSetupUxLab })),
+);
 const InstanceGeneralSettings = lazy(() =>
   import("./pages/InstanceGeneralSettings").then(({ InstanceGeneralSettings }) => ({ default: InstanceGeneralSettings })),
 );
@@ -143,6 +146,7 @@ export function App() {
           <Route path="invite/:token" element={<InviteLandingPage />} />
           <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
           <Route path="ux-lab/cloud-upstream" element={<CloudUpstreamUxLab />} />
+          <Route path="ux-lab/bootstrap-setup" element={<BootstrapSetupUxLab />} />
 
           <Route element={<CloudAccessGate />}>
             <Route index element={<CompanyRootRedirect />} />

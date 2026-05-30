@@ -65,6 +65,7 @@ import { relativeTime, cn } from "../lib/utils";
 import { InlineEditor } from "../components/InlineEditor";
 import type { IssueChatComposerHandle } from "../components/IssueChatThread";
 import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
+import { IssuePlanDecompositionsSection } from "../components/IssuePlanDecompositionsSection";
 import { AgentIcon } from "../components/AgentIcon";
 import type { MentionOption } from "../components/MarkdownEditor";
 import { ScrollToBottom } from "../components/ScrollToBottom";
@@ -1186,9 +1187,17 @@ export function IssueDetail() {
     enabled: !!issueId,
     retry: false,
   });
+  const { data: instanceExperimentalSettings } = useQuery({
+    queryKey: queryKeys.instance.experimentalSettings,
+    queryFn: () => instanceSettingsApi.getExperimental(),
+    enabled: !!issueId,
+    retry: false,
+  });
   const keyboardShortcutsEnabled = instanceGeneralSettings?.keyboardShortcuts === true;
   const feedbackDataSharingPreference = instanceGeneralSettings?.feedbackDataSharingPreference ?? "prompt";
   const issueDetailPluginsReady = useIssueDetailPluginsReady();
+  const showPlanDecompositionsSection =
+    instanceExperimentalSettings?.enableIssuePlanDecompositions === true;
   const { orderedProjects } = useProjectOrder({
     projects: projects ?? [],
     companyId: selectedCompanyId,
@@ -3466,6 +3475,16 @@ export function IssueDetail() {
         </div>
       )}
 
+      {showPlanDecompositionsSection ? (
+        <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={1} />}>
+          <IssuePlanDecompositionsSection
+            issueId={issue.id}
+            issueIdentifier={issue.identifier}
+            agentMap={agentMap}
+          />
+        </Suspense>
+      ) : null}
+
       <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={2} />}>
         <IssueDocumentsSection
           issue={issue}
@@ -3478,6 +3497,8 @@ export function IssueDetail() {
           imageUploadHandler={handleDocumentImageUpload}
           onVote={handleDocumentVote}
           extraActions={!hasAttachments ? attachmentUploadButton : null}
+          agentMap={agentMap}
+          userProfileMap={userProfileMap}
         />
       </Suspense>
 

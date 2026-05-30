@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type ComponentType, type ReactNode } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "../context/SidebarContext";
@@ -8,6 +8,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/classnames";
+import { SidebarSectionMenu } from "./SidebarSectionMenu";
 
 type SidebarSectionIcon = ComponentType<{ className?: string }>;
 
@@ -51,10 +52,6 @@ interface SidebarSectionProps {
   menu?: SidebarSectionMenu;
   headerAction?: SidebarSectionHeaderAction;
 }
-
-const LazySidebarSectionMenu = lazy(() =>
-  import("./SidebarSectionMenu").then((module) => ({ default: module.SidebarSectionMenu })),
-);
 
 function SidebarSectionHeader({
   collapsible,
@@ -107,16 +104,14 @@ function SidebarSectionHeader({
   );
   const headingControl = hasMenu && menu ? (
     menuRuntimeRequested ? (
-      <Suspense fallback={menuTrigger}>
-        <LazySidebarSectionMenu
-          ariaLabel={menuAriaLabel}
-          headerContent={headerContent}
-          menu={menu}
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          triggerClassName={menuTriggerClassName}
-        />
-      </Suspense>
+      <SidebarSectionMenu
+        ariaLabel={menuAriaLabel}
+        headerContent={headerContent}
+        menu={menu}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        triggerClassName={menuTriggerClassName}
+      />
     ) : (
       menuTrigger
     )

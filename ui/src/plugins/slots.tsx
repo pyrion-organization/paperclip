@@ -43,14 +43,24 @@ import {
   type PluginHostContext,
 } from "./bridge";
 import {
+  registerPluginWebComponent,
   resolveRegisteredComponent,
+  subscribePluginComponentRegistry,
 } from "./slots-registry";
 import {
+  _collectRegisterableExportNamesForTests,
+  _resetPluginModuleLoader,
   aggregateLoadState,
   ensurePluginModulesLoaded,
   getInflightPluginImport,
   getPluginLoadState,
 } from "./slots-loader";
+
+export {
+  _collectRegisterableExportNamesForTests,
+  _resetPluginModuleLoader,
+  registerPluginWebComponent,
+};
 
 export type PluginSlotContext = {
   companyId?: string | null;
@@ -339,6 +349,13 @@ export function PluginSlotMount({
 }: PluginSlotMountProps) {
   const [, forceRerender] = useState(0);
   const component = resolveRegisteredComponent(slot);
+
+  useEffect(() => {
+    const unsubscribe = subscribePluginComponentRegistry(() => {
+      forceRerender((tick) => tick + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (component) return;

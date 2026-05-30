@@ -6,6 +6,7 @@ export { cloudUpstreamConnections, cloudUpstreamRuns } from "./cloud_upstreams.j
 export { instanceUserRoles } from "./instance_user_roles.js";
 export { userSidebarPreferences } from "./user_sidebar_preferences.js";
 export { agents } from "./agents.js";
+export { agentMemberships } from "./agent_memberships.js";
 export { boardApiKeys } from "./board_api_keys.js";
 export { cliAuthChallenges } from "./cli_auth_challenges.js";
 export { companyMemberships } from "./company_memberships.js";
@@ -36,6 +37,7 @@ export {
   projectInfraActionProposals,
   projectInfraActionEvidence,
 } from "./project_infra.js";
+export { projectMemberships } from "./project_memberships.js";
 export { projectWorkspaces } from "./project_workspaces.js";
 export { executionWorkspaces } from "./execution_workspaces.js";
 export { environments } from "./environments.js";
@@ -45,6 +47,7 @@ export { workspaceRuntimeServices } from "./workspace_runtime_services.js";
 export { projectGoals } from "./project_goals.js";
 export { goals } from "./goals.js";
 export { issues } from "./issues.js";
+export { issuePlanDecompositions } from "./issue_plan_decompositions.js";
 export { issueRecoveryActions } from "./issue_recovery_actions.js";
 export { issueReferenceMentions } from "./issue_reference_mentions.js";
 export { issueRelations } from "./issue_relations.js";
@@ -89,6 +92,9 @@ export {
   type InboundEmailExternalIntakeSourceKind,
   type InboundEmailExternalIntakeStatus,
 } from "./inbound_email.js";
+export { documentAnnotationThreads } from "./document_annotation_threads.js";
+export { documentAnnotationComments } from "./document_annotation_comments.js";
+export { documentAnnotationAnchorSnapshots } from "./document_annotation_anchor_snapshots.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
 export { heartbeatRunWatchdogDecisions } from "./heartbeat_run_watchdog_decisions.js";

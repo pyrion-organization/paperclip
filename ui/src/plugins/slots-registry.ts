@@ -17,6 +17,7 @@ export type RegisteredPluginComponent =
   };
 
 const registry = new Map<string, RegisteredPluginComponent>();
+const registryListeners = new Set<() => void>();
 
 function buildRegistryKey(pluginKey: string, exportName: string): string {
   return `${pluginKey}:${exportName}`;
@@ -31,6 +32,7 @@ export function registerPluginReactComponent(
     kind: "react",
     component,
   });
+  notifyPluginComponentRegistryListeners();
 }
 
 export function registerPluginWebComponent(
@@ -42,6 +44,7 @@ export function registerPluginWebComponent(
     kind: "web-component",
     tagName,
   });
+  notifyPluginComponentRegistryListeners();
 }
 
 export function resolveRegisteredComponent(slot: ResolvedPluginSlot): RegisteredPluginComponent | null {
@@ -57,4 +60,18 @@ export function resolveRegisteredPluginComponent(
 
 export function clearPluginComponentRegistry(): void {
   registry.clear();
+  notifyPluginComponentRegistryListeners();
+}
+
+export function subscribePluginComponentRegistry(listener: () => void): () => void {
+  registryListeners.add(listener);
+  return () => {
+    registryListeners.delete(listener);
+  };
+}
+
+function notifyPluginComponentRegistryListeners(): void {
+  for (const listener of registryListeners) {
+    listener();
+  }
 }

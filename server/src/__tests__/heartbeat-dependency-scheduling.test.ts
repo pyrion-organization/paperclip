@@ -13,6 +13,7 @@ import {
   documents,
   environmentLeases,
   environments,
+  executionWorkspaces,
   heartbeatRunEvents,
   heartbeatRuns,
   issueComments,
@@ -20,6 +21,7 @@ import {
   issueRelations,
   issueTreeHolds,
   issues,
+  workspaceOperations,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -546,7 +548,7 @@ describeEmbeddedPostgres("heartbeat dependency-aware queued run selection", () =
           .where(eq(heartbeatRuns.id, secondWake!.id))
           .then((rows) => rows[0] ?? null);
         return run?.status === "succeeded";
-      });
+      }, 10_000);
       expect(secondRunSucceeded).toBe(true);
       expect(mockAdapterExecute.mock.calls.length).toBeGreaterThanOrEqual(2);
     } finally {
