@@ -91,7 +91,6 @@ export function DocumentAnnotationPanel(props: AnnotationPanelProps) {
 
   return (
     <aside
-      role="complementary"
       aria-label={`Annotations for ${props.documentKey.toUpperCase()}, revision ${props.documentRevisionNumber}`}
       data-testid="document-annotation-panel"
       className={cn(
@@ -382,7 +381,6 @@ function ThreadCard(props: {
   return (
     <li>
       <article
-        role="article"
         data-thread-id={thread.id}
         data-anchor-state={thread.anchorState}
         data-status={thread.status}

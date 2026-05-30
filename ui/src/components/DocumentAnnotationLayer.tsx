@@ -211,10 +211,7 @@ export function DocumentAnnotationLayer({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const lastCaptureSelectionRequestIdRef = useRef<number>(0);
   const reactId = useId();
-  const nativeHighlightInstanceId = useMemo(
-    () => `document-annotation-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`,
-    [reactId],
-  );
+  const nativeHighlightInstanceId = `document-annotation-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const nativeHighlightsSupported = getNativeHighlightApi() !== null;
 
   const visibleThreads = useMemo(() => {
