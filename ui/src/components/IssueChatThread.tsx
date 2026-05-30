@@ -4,6 +4,7 @@ import type {
   ThreadMessage,
   ToolCallMessagePart,
 } from "@assistant-ui/react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import {
   createContext,
   Component,
@@ -2816,7 +2817,7 @@ function useIssueThreadVirtualizer({
   getItemKey: (index: number) => React.Key;
   mode: VirtualizedScrollMode;
 }) {
-  const measuredSizeByKeyRef = useRef(new Map<React.Key, number>());
+  const measuredSizeByKeyRef = useLazyRef(() => new Map<React.Key, number>());
   const [, rerender] = useState(0);
   const estimatedSize = estimateSize();
 
@@ -3898,7 +3899,7 @@ export function IssueChatThread({
   const lastUserMessageIdRef = useRef<string | null>(null);
   const spacerBaselineAnchorRef = useRef<string | null>(null);
   const spacerInitialReserveRef = useRef(0);
-  const latestSettleTimeoutsRef = useRef<number[]>([]);
+  const latestSettleTimeoutsRef = useLazyRef<number[]>(() => []);
   const latestSettleCleanupRef = useRef<(() => void) | null>(null);
   const [bottomSpacerHeight, setBottomSpacerHeight] = useState(0);
   const displayLiveRuns = useMemo(() => {
@@ -3992,8 +3993,8 @@ export function IssueChatThread({
       userLabelMap,
     ],
   );
-  const stableMessagesRef = useRef<readonly ThreadMessage[]>([]);
-  const stableMessageCacheRef = useRef<Map<string, StableThreadMessageCacheEntry>>(new Map());
+  const stableMessagesRef = useLazyRef<readonly ThreadMessage[]>(() => []);
+  const stableMessageCacheRef = useLazyRef<Map<string, StableThreadMessageCacheEntry>>(() => new Map());
   const messages = useMemo(() => {
     const stabilized = stabilizeThreadMessages(
       rawMessages,

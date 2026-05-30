@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
@@ -1006,7 +1007,7 @@ export function IssueDetail() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
-  const cancelledQueuedOptimisticCommentIdsRef = useRef(new Set<string>());
+  const cancelledQueuedOptimisticCommentIdsRef = useLazyRef(() => new Set<string>());
   const resolvedIssueDetailState = useMemo(
     () => readIssueDetailLocationState(issueId, routerLocation.state, routerLocation.search),
     [issueId, routerLocation.state, routerLocation.search],

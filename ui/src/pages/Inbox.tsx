@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { INBOX_MINE_ISSUE_STATUS_FILTER } from "@paperclipai/shared/constants";
@@ -1417,8 +1418,8 @@ export function Inbox() {
   const [fadingOutIssues, setFadingOutIssues] = useState<Set<string>>(new Set());
   const [showMarkAllReadConfirm, setShowMarkAllReadConfirm] = useState(false);
   const [archivingIssueIds, setArchivingIssueIds] = useState<Set<string>>(new Set());
-  const undoableArchiveIssueIdsRef = useRef<string[]>([]);
-  const unarchivingIssueIdsRef = useRef<Set<string>>(new Set());
+  const undoableArchiveIssueIdsRef = useLazyRef<string[]>(() => []);
+  const unarchivingIssueIdsRef = useLazyRef<Set<string>>(() => new Set());
   const [fadingNonIssueItems, setFadingNonIssueItems] = useState<Set<string>>(new Set());
   const [archivingNonIssueIds, setArchivingNonIssueIds] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);

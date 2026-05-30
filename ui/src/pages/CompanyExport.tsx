@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { useQuery } from "@tanstack/react-query";
 import type {
   Agent,
@@ -608,7 +609,7 @@ export function CompanyExport() {
   const [treeSearch, setTreeSearch] = useState("");
   const [taskLimit, setTaskLimit] = useState(TASKS_PAGE_SIZE);
   const savedExpandedRef = useRef<Set<string> | null>(null);
-  const initialFileFromUrl = useRef(filePathFromLocation(routerLocation.pathname));
+  const initialFileFromUrl = useLazyRef(() => filePathFromLocation(routerLocation.pathname));
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
   const visibleAgents = useMemo(
     () => agents.filter((agent: Agent) => agent.status !== "terminated"),

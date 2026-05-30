@@ -1,4 +1,5 @@
 import type { KeyboardEvent, ReactNode } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { useMemo, useRef, useState } from "react";
 import { cn } from "../lib/classnames";
 import {
@@ -142,7 +143,7 @@ export function FileTree({
     [expandedDirs, nodes],
   );
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
-  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const rowRefs = useLazyRef(() => new Map<string, HTMLDivElement>());
 
   function focusPath(path: string) {
     setFocusedPath(path);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLazyRef } from "../../hooks/useLazyRef";
 import { useQuery } from "@tanstack/react-query";
 import type { LiveEvent } from "@paperclipai/shared";
 import { ApiError } from "../../api/client";
@@ -112,11 +113,11 @@ export function useLiveRunTranscripts({
   const normalizedRuns = useMemo(() => runs.map((run) => ({ ...run })), [runsKey]);
   const [chunksByRun, setChunksByRun] = useState<Map<string, RunLogChunk[]>>(new Map());
   const [hydratedRunIds, setHydratedRunIds] = useState<Set<string>>(new Set());
-  const seenChunkKeysRef = useRef(new Set<string>());
-  const pendingLogRowsByRunRef = useRef(new Map<string, string>());
-  const logOffsetByRunRef = useRef(new Map<string, number>());
-  const missingTerminalLogRunIdsRef = useRef(new Set<string>());
-  const transcriptCacheRef = useRef(new Map<string, {
+  const seenChunkKeysRef = useLazyRef(() => new Set<string>());
+  const pendingLogRowsByRunRef = useLazyRef(() => new Map<string, string>());
+  const logOffsetByRunRef = useLazyRef(() => new Map<string, number>());
+  const missingTerminalLogRunIdsRef = useLazyRef(() => new Set<string>());
+  const transcriptCacheRef = useLazyRef(() => new Map<string, {
     adapterType: string;
     chunks: RunLogChunk[];
     censorUsernameInLogs: boolean;

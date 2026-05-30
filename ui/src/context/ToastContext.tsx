@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 
 export type ToastTone = "info" | "success" | "warn" | "error";
 
@@ -73,8 +74,8 @@ function generateToastId() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const timersRef = useRef(new Map<string, number>());
-  const dedupeRef = useRef(new Map<string, number>());
+  const timersRef = useLazyRef(() => new Map<string, number>());
+  const dedupeRef = useLazyRef(() => new Map<string, number>());
 
   const clearTimer = useCallback((id: string) => {
     const handle = timersRef.current.get(id);

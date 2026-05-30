@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { GitStatusEntry, GitStatusResponse, ProjectFileDetail, ProjectFilesBranch, ProjectFilesBranchSyncDetail, ProjectFilesBranchSyncResult, ProjectFilesTreeEntry } from "@paperclipai/shared";
@@ -267,7 +268,7 @@ export function ProjectFilesTab({
   const [discardConfirmPaths, setDiscardConfirmPaths] = useState<string[] | null>(null);
   const entriesByDirRef = useRef<TreeCache>({});
   const selectedPathRef = useRef<string | null>(null);
-  const loadingDirKeysRef = useRef<Set<string>>(new Set());
+  const loadingDirKeysRef = useLazyRef<Set<string>>(() => new Set());
   const watchInFlightRef = useRef(false);
 
   const { data: summary, isLoading, error, refetch } = useQuery({

@@ -1,4 +1,5 @@
 import { Profiler, useEffect, useLayoutEffect, useRef, useState, type ProfilerOnRenderCallback } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { IssueChatThread } from "../components/IssueChatThread";
@@ -54,7 +55,7 @@ function MetricTile({ label, value, testId }: { label: string; value: string; te
 export function IssueChatLongThreadPerf() {
   const [metrics, setMetrics] = useState<RenderMetrics>(initialMetrics);
   const metricsRef = useRef<RenderMetrics>(initialMetrics);
-  const renderStartedAtRef = useRef(performance.now());
+  const renderStartedAtRef = useLazyRef(() => performance.now());
   const publishTimerRef = useRef<number | null>(null);
   const publishedRef = useRef(false);
   const fixture = issueChatLongThreadFixtureContext;

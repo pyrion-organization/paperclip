@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useLazyRef } from "../hooks/useLazyRef";
 import { Link } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "../api/dashboard";
@@ -91,9 +92,9 @@ export function Dashboard() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const dashboardDetailsReady = useDeferredDashboardDetailsReady();
   const [animatedActivityIds, setAnimatedActivityIds] = useState<Set<string>>(new Set());
-  const seenActivityIdsRef = useRef<Set<string>>(new Set());
+  const seenActivityIdsRef = useLazyRef<Set<string>>(() => new Set());
   const hydratedActivityRef = useRef(false);
-  const activityAnimationTimersRef = useRef<number[]>([]);
+  const activityAnimationTimersRef = useLazyRef<number[]>(() => []);
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
