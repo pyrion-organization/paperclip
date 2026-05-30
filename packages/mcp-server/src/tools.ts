@@ -103,11 +103,11 @@ const upsertDocumentToolSchema = z.object({
 
 const createIssueToolSchema = z.object({
   companyId: companyIdOptional,
-}).merge(createIssueInputSchema);
+}).merge(createIssueInputSchema.innerType());
 
 const updateIssueToolSchema = z.object({
   issueId: issueIdSchema,
-}).merge(updateIssueSchema);
+}).merge(updateIssueSchema.innerType());
 
 const checkoutIssueToolSchema = z.object({
   issueId: issueIdSchema,
