@@ -47,6 +47,11 @@ export function createSshCommandManagedRuntimeRunner(input: {
       const cwd = commandInput.cwd?.trim() || defaultCwd;
       const envEntries = Object.entries(commandInput.env ?? {})
         .filter((entry): entry is [string, string] => typeof entry[1] === "string");
+      for (const [key] of envEntries) {
+        if (!isValidShellEnvKey(key)) {
+          throw new Error(`Invalid SSH environment variable key: ${key}`);
+        }
+      }
       const envPrefix = envEntries.length > 0
         ? `env ${envEntries.map(([key, value]) => `${key}=${shellQuote(value)}`).join(" ")} `
         : "";

@@ -217,6 +217,31 @@ describe("runAdapterExecutionTargetShellCommand", () => {
   });
 });
 
+describe("createSshCommandManagedRuntimeRunner", () => {
+  it("rejects invalid environment keys before building the remote shell script", async () => {
+    const runner = ssh.createSshCommandManagedRuntimeRunner({
+      spec: {
+        host: "ssh.example.test",
+        port: 22,
+        username: "ssh-user",
+        remoteCwd: "/srv/paperclip/workspace",
+        remoteWorkspacePath: "/srv/paperclip/workspace",
+        privateKey: null,
+        knownHosts: null,
+        strictHostKeyChecking: true,
+      },
+    });
+
+    await expect(runner.execute({
+      command: "node",
+      args: ["--version"],
+      env: {
+        "BAD;touch /tmp/pwned": "1",
+      },
+    })).rejects.toThrow("Invalid SSH environment variable key");
+  });
+});
+
 describe("runAdapterExecutionTargetProcess", () => {
   afterEach(() => {
     vi.restoreAllMocks();

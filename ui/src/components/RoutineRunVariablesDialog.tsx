@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Agent,
   type ExecutionWorkspace,
@@ -186,11 +186,25 @@ function routineRunDialogContentKey({
   defaultAssigneeAgentId,
   defaultExecutionWorkspace,
   defaultProjectId,
+  projects,
   variables,
 }: RoutineRunVariablesDialogProps) {
+  const defaultProject = defaultProjectId
+    ? projects.find((project) => project.id === defaultProjectId) ?? null
+    : null;
   return JSON.stringify({
     defaultAssigneeAgentId: defaultAssigneeAgentId ?? null,
     defaultProjectId: defaultProjectId ?? null,
+    defaultProjectWorkspaceDefaults: defaultProject
+      ? {
+        id: defaultProject.id,
+        executionWorkspacePolicy: defaultProject.executionWorkspacePolicy ?? null,
+        workspaces: defaultProject.workspaces?.map((workspace) => ({
+          id: workspace.id,
+          isPrimary: workspace.isPrimary,
+        })) ?? [],
+      }
+      : null,
     defaultExecutionWorkspace: defaultExecutionWorkspace
       ? {
         id: defaultExecutionWorkspace.id,
@@ -269,12 +283,33 @@ function RoutineRunVariablesDialogContent({
   const currentAssignee = selection.assigneeAgentId
     ? agents.find((agent) => agent.id === selection.assigneeAgentId) ?? null
     : null;
-  const [workspaceConfig, setWorkspaceConfig] = useState(() =>
-    buildInitialWorkspaceConfig(selectedProject, defaultExecutionWorkspace));
+  const initialWorkspaceConfig = useMemo(
+    () => buildInitialWorkspaceConfig(selectedProject, defaultExecutionWorkspace),
+    [defaultExecutionWorkspace, selectedProject],
+  );
+  const [workspaceConfig, setWorkspaceConfig] = useState(initialWorkspaceConfig);
+  const lastAutoWorkspaceConfigRef = useRef(initialWorkspaceConfig);
   const [workspaceConfigValid, setWorkspaceConfigValid] = useState(true);
   const [workspaceBranchName, setWorkspaceBranchName] = useState<string | null>(
     () => defaultExecutionWorkspace?.branchName ?? null,
   );
+
+  useEffect(() => {
+    setWorkspaceConfig((current) => {
+      if (!workspaceConfigEquals(current, lastAutoWorkspaceConfigRef.current)) {
+        return current;
+      }
+      lastAutoWorkspaceConfigRef.current = initialWorkspaceConfig;
+      return workspaceConfigEquals(current, initialWorkspaceConfig) ? current : initialWorkspaceConfig;
+    });
+    setWorkspaceConfigValid(true);
+    setWorkspaceBranchName((current) => {
+      const next = defaultExecutionWorkspace && defaultExecutionWorkspace.projectId === selectedProject?.id
+        ? defaultExecutionWorkspace.branchName ?? null
+        : null;
+      return current === next ? current : next;
+    });
+  }, [defaultExecutionWorkspace, initialWorkspaceConfig, selectedProject?.id]);
 
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,
@@ -431,7 +466,9 @@ function RoutineRunVariablesDialogContent({
                   const project = projects.find((entry) => entry.id === projectId) ?? null;
                   if (projectId) trackRecentProject(projectId);
                   setSelection((current) => ({ ...current, projectId }));
-                  setWorkspaceConfig(buildInitialWorkspaceConfig(project, defaultExecutionWorkspace));
+                  const nextWorkspaceConfig = buildInitialWorkspaceConfig(project, defaultExecutionWorkspace);
+                  lastAutoWorkspaceConfigRef.current = nextWorkspaceConfig;
+                  setWorkspaceConfig(nextWorkspaceConfig);
                   setWorkspaceConfigValid(true);
                   setWorkspaceBranchName(
                     defaultExecutionWorkspace && defaultExecutionWorkspace.projectId === project?.id

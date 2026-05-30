@@ -82,6 +82,13 @@ function LegacySettingsRedirect() {
   return <Navigate to={`/instance/settings/general${location.search}${location.hash}`} replace />;
 }
 
+function CompanyScopedRedirect({ to }: { to: string }) {
+  const location = useLocation();
+  const companyPrefix = location.pathname.split("/").filter(Boolean)[0];
+  const targetPath = companyPrefix ? `/${companyPrefix}/${to}` : `/${to}`;
+  return <Navigate to={`${targetPath}${location.search}${location.hash}`} replace />;
+}
+
 export function BoardRoutes() {
   return (
     <Routes>
@@ -91,7 +98,7 @@ export function BoardRoutes() {
         <Route path="companies" element={<Companies />} />
         <Route path="company/settings" element={<CompanySettings />} />
         <Route path="company/settings/email" element={<CompanyEmailSettings />} />
-        <Route path="company/settings/email/ops" element={<Navigate to="/email/ops" replace />} />
+        <Route path="company/settings/email/ops" element={<CompanyScopedRedirect to="email/ops" />} />
         <Route path="company/instructions" element={<CompanyInstructions />} />
         <Route path="company/settings/environments" element={<CompanyEnvironments />} />
         <Route path="company/settings/members" element={<CompanyAccess />} />
@@ -107,7 +114,7 @@ export function BoardRoutes() {
         <Route path="settings/*" element={<LegacySettingsRedirect />} />
         <Route path="plugins/:pluginId" element={<PluginPage />} />
         <Route path="org" element={<OrgChart />} />
-        <Route path="agents" element={<Navigate to="/agents/all" replace />} />
+        <Route path="agents" element={<CompanyScopedRedirect to="agents/all" />} />
         <Route path="agents/all" element={<Agents />} />
         <Route path="agents/active" element={<Agents />} />
         <Route path="agents/paused" element={<Agents />} />
@@ -131,11 +138,11 @@ export function BoardRoutes() {
         <Route path="workspaces" element={<Workspaces />} />
         <Route path="issues" element={<Issues />} />
         <Route path="search" element={<Search />} />
-        <Route path="issues/all" element={<Navigate to="/issues" replace />} />
-        <Route path="issues/active" element={<Navigate to="/issues" replace />} />
-        <Route path="issues/backlog" element={<Navigate to="/issues" replace />} />
-        <Route path="issues/done" element={<Navigate to="/issues" replace />} />
-        <Route path="issues/recent" element={<Navigate to="/issues" replace />} />
+        <Route path="issues/all" element={<CompanyScopedRedirect to="issues" />} />
+        <Route path="issues/active" element={<CompanyScopedRedirect to="issues" />} />
+        <Route path="issues/backlog" element={<CompanyScopedRedirect to="issues" />} />
+        <Route path="issues/done" element={<CompanyScopedRedirect to="issues" />} />
+        <Route path="issues/recent" element={<CompanyScopedRedirect to="issues" />} />
         <Route path="issues/:issueId" element={<IssueDetail />} />
         {import.meta.env.DEV ? (
           <Route path="tests/perf/long-thread" element={<IssueChatLongThreadPerf />} />
@@ -151,7 +158,7 @@ export function BoardRoutes() {
         <Route path="execution-workspaces/:workspaceId/routines" element={<ExecutionWorkspaceDetail />} />
         <Route path="goals" element={<Goals />} />
         <Route path="goals/:goalId" element={<GoalDetail />} />
-        <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
+        <Route path="approvals" element={<CompanyScopedRedirect to="approvals/pending" />} />
         <Route path="approvals/pending" element={<Approvals />} />
         <Route path="approvals/all" element={<Approvals />} />
         <Route path="approvals/:approvalId" element={<ApprovalDetail />} />
@@ -167,7 +174,7 @@ export function BoardRoutes() {
         <Route path="inbox/blocked" element={<Inbox />} />
         <Route path="inbox/all" element={<Inbox />} />
         <Route path="inbox/requests" element={<JoinRequestQueue />} />
-        <Route path="inbox/new" element={<Navigate to="/inbox/mine" replace />} />
+        <Route path="inbox/new" element={<CompanyScopedRedirect to="inbox/mine" />} />
         <Route path="u/:userSlug" element={<UserProfile />} />
         <Route path="design-guide" element={<DesignGuide />} />
         <Route path="instance/settings/adapters" element={<AdapterManager />} />

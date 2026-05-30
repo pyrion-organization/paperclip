@@ -115,7 +115,7 @@ function SearchResultRowImpl({
     ? agentsById?.get(issue.assigneeAgentId)?.name ?? null
     : null;
   const updated = formatRelativeTime(result.updatedAt ?? issue.updatedAt);
-  const titleHighlights = result.snippets.find((snippet) => snippet.field === "title")?.highlights;
+  const titleSnippet = result.snippets.find((snippet) => snippet.field === "title");
   const bodySnippets = result.snippets.filter((snippet) => snippet.field !== "title").slice(0, 2);
   const previewImageUrl = result.previewImageUrl;
   const hasRightRail = previewImageUrl || assigneeName || updated;
@@ -138,8 +138,8 @@ function SearchResultRowImpl({
             </span>
           ) : null}
           <HighlightedText
-            text={issue.title}
-            highlights={titleHighlights}
+            text={titleSnippet?.text ?? issue.title}
+            highlights={titleSnippet?.highlights}
             className="min-w-0 flex-1 text-sm font-medium leading-snug text-foreground"
           />
         </div>

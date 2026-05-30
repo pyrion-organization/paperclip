@@ -46,7 +46,7 @@ vi.mock("./IssueWorkspaceCard", async () => {
           canSave: true,
           workspaceBranchName: issueWorkspaceBranchName,
         });
-      }, [onDraftChange]);
+      }, [issue, onDraftChange]);
 
       return <div data-testid="workspace-card">Workspace card</div>;
     },
@@ -428,6 +428,92 @@ describe("RoutineRunVariablesDialog", () => {
       executionWorkspacePreference: "reuse_existing",
       currentExecutionWorkspace: workspace,
       projectWorkspaceId: workspace.projectWorkspaceId,
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("refreshes workspace defaults when project workspace data arrives after mount", async () => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const initialProject = createProject();
+    const hydratedProject = {
+      ...createProject(),
+      executionWorkspacePolicy: {
+        enabled: true,
+        defaultMode: "isolated_workspace",
+        allowIssueOverride: true,
+        defaultProjectWorkspaceId: "project-workspace-loaded",
+      },
+      workspaces: [
+        {
+          id: "project-workspace-loaded",
+          isPrimary: true,
+        },
+      ],
+    } as Project;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <RoutineRunVariablesDialog
+            open
+            onOpenChange={() => {}}
+            companyId="company-1"
+            projects={[initialProject]}
+            agents={[createAgent()]}
+            defaultProjectId="project-1"
+            defaultAssigneeAgentId="agent-1"
+            variables={[]}
+            isPending={false}
+            onSubmit={() => {}}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    issueWorkspaceDraft = {
+      executionWorkspaceId: null,
+      executionWorkspacePreference: "isolated_workspace",
+      executionWorkspaceSettings: { mode: "isolated_workspace" },
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <RoutineRunVariablesDialog
+            open
+            onOpenChange={() => {}}
+            companyId="company-1"
+            projects={[hydratedProject]}
+            agents={[createAgent()]}
+            defaultProjectId="project-1"
+            defaultAssigneeAgentId="agent-1"
+            variables={[]}
+            isPending={false}
+            onSubmit={() => {}}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(latestWorkspaceIssue).toMatchObject({
+      projectWorkspaceId: "project-workspace-loaded",
+      executionWorkspacePreference: "isolated_workspace",
     });
 
     await act(async () => {

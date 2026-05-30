@@ -31,7 +31,7 @@ export function CompanyInstructions() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const { isMobile } = useSidebar();
   const queryClient = useQueryClient();
-  const companyId = selectedCompanyId!;
+  const companyId = selectedCompanyId ?? null;
 
   const [selectedFile, setSelectedFile] = useState<string>(ENTRY_FILE);
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
@@ -52,8 +52,8 @@ export function CompanyInstructions() {
   }, [setBreadcrumbs]);
 
   const { data: bundle, isLoading } = useQuery({
-    queryKey: queryKeys.companyInstructions.bundle(companyId),
-    queryFn: () => companiesApi.instructionsBundle(companyId),
+    queryKey: companyId ? queryKeys.companyInstructions.bundle(companyId) : ["companyInstructions", "none"],
+    queryFn: () => companiesApi.instructionsBundle(companyId!),
     enabled: !!companyId,
   });
 
@@ -75,19 +75,22 @@ export function CompanyInstructions() {
   const selectedFileSummary = bundle?.files.find((f) => f.path === selectedOrEntryFile) ?? null;
 
   const { data: selectedFileDetail, isLoading: fileLoading } = useQuery({
-    queryKey: queryKeys.companyInstructions.file(companyId, selectedOrEntryFile),
-    queryFn: () => companiesApi.instructionsFile(companyId, selectedOrEntryFile),
+    queryKey: companyId ? queryKeys.companyInstructions.file(companyId, selectedOrEntryFile) : ["companyInstructions", "none", selectedOrEntryFile],
+    queryFn: () => companiesApi.instructionsFile(companyId!, selectedOrEntryFile),
     enabled: !!companyId && selectedFileExists,
   });
 
   const saveFile = useMutation({
-    mutationFn: (data: { path: string; content: string }) =>
-      companiesApi.saveInstructionsFile(companyId, data),
+    mutationFn: (data: { path: string; content: string }) => {
+      if (!companyId) throw new Error("Select a company before saving instructions.");
+      return companiesApi.saveInstructionsFile(companyId, data);
+    },
     onMutate: () => {
       awaitingRefreshRef.current = true;
     },
     onSuccess: (_, variables) => {
       setPendingFiles((prev) => prev.filter((f) => f !== variables.path));
+      if (!companyId) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInstructions.bundle(companyId) });
       queryClient.invalidateQueries({
         queryKey: queryKeys.companyInstructions.file(companyId, variables.path),
@@ -99,12 +102,15 @@ export function CompanyInstructions() {
   });
 
   const deleteFile = useMutation({
-    mutationFn: (relativePath: string) =>
-      companiesApi.deleteInstructionsFile(companyId, relativePath),
+    mutationFn: (relativePath: string) => {
+      if (!companyId) throw new Error("Select a company before deleting instructions.");
+      return companiesApi.deleteInstructionsFile(companyId, relativePath);
+    },
     onMutate: () => {
       awaitingRefreshRef.current = true;
     },
     onSuccess: (_, relativePath) => {
+      if (!companyId) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInstructions.bundle(companyId) });
       queryClient.removeQueries({
         queryKey: queryKeys.companyInstructions.file(companyId, relativePath),
@@ -197,6 +203,10 @@ export function CompanyInstructions() {
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, [filePanelWidth]);
+
+  if (!companyId) {
+    return <div className="text-sm text-muted-foreground">Select a company to manage instructions.</div>;
+  }
 
   if (isLoading) return <PageSkeleton variant="detail" />;
 

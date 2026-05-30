@@ -43,6 +43,7 @@ const ENVIRONMENT_SUPPORT_ROWS = AGENT_ADAPTER_TYPES.map((adapterType) => ({
 }));
 
 function buildEnvironmentPayload(form: EnvironmentFormState) {
+  const sshPort = parseSshPort(form.sshPort) ?? 22;
   return {
     name: form.name.trim(),
     description: form.description.trim() || null,
@@ -51,7 +52,7 @@ function buildEnvironmentPayload(form: EnvironmentFormState) {
       form.driver === "ssh"
         ? {
             host: form.sshHost.trim(),
-            port: Number.parseInt(form.sshPort || "22", 10) || 22,
+            port: sshPort,
             username: form.sshUsername.trim(),
             remoteWorkspacePath: form.sshRemoteWorkspacePath.trim(),
             privateKey: form.sshPrivateKey.trim() || null,
@@ -87,6 +88,14 @@ function createEmptyEnvironmentForm(): EnvironmentFormState {
     sandboxProvider: "",
     sandboxConfig: {},
   };
+}
+
+export function parseSshPort(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return 22;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const port = Number(trimmed);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
 }
 
 function readSshConfig(environment: Environment) {
@@ -387,6 +396,7 @@ export function CompanyEnvironments() {
     (environmentForm.driver !== "ssh" ||
       (
         environmentForm.sshHost.trim().length > 0 &&
+        parseSshPort(environmentForm.sshPort) !== null &&
         environmentForm.sshUsername.trim().length > 0 &&
         environmentForm.sshRemoteWorkspacePath.trim().length > 0
       )) &&
@@ -644,6 +654,9 @@ export function CompanyEnvironments() {
                     value={environmentForm.sshPort}
                     onChange={(e) => setEnvironmentForm((current) => ({ ...current, sshPort: e.target.value }))}
                    aria-label="Ssh Port"/>
+                  {parseSshPort(environmentForm.sshPort) === null ? (
+                    <p className="text-xs text-destructive">Enter a port from 1 to 65535.</p>
+                  ) : null}
                 </Field>
                 <Field label="Username" hint="SSH login user.">
                   <input

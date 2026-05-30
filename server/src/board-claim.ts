@@ -89,59 +89,71 @@ export async function claimBoardOwnership(
 ): Promise<{ status: ChallengeStatus; claimedByUserId?: string }> {
   const status = getChallengeStatus(opts.token, opts.code);
   if (status !== "available") return { status };
+  const challenge = activeChallenge;
+  if (!challenge || challenge.token !== opts.token) return { status: "invalid" };
+  challenge.claimedAt = new Date();
+  challenge.claimedByUserId = opts.userId;
 
   const claimedCompanyIds: string[] = [];
-  await db.transaction(async (tx) => {
-    const existingTargetAdmin = await tx
-      .select({ id: instanceUserRoles.id })
-      .from(instanceUserRoles)
-      .where(and(eq(instanceUserRoles.userId, opts.userId), eq(instanceUserRoles.role, "instance_admin")))
-      .then((rows) => rows[0] ?? null);
-    if (!existingTargetAdmin) {
-      await tx.insert(instanceUserRoles).values({
-        userId: opts.userId,
-        role: "instance_admin",
-      });
-    }
-
-    await tx
-      .delete(instanceUserRoles)
-      .where(and(eq(instanceUserRoles.userId, LOCAL_BOARD_USER_ID), eq(instanceUserRoles.role, "instance_admin")));
-
-    const allCompanies = await tx.select({ id: companies.id }).from(companies);
-    for (const company of allCompanies) {
-      claimedCompanyIds.push(company.id);
-      const existing = await tx
-        .select({ id: companyMemberships.id, status: companyMemberships.status })
-        .from(companyMemberships)
-        .where(
-          and(
-            eq(companyMemberships.companyId, company.id),
-            eq(companyMemberships.principalType, "user"),
-            eq(companyMemberships.principalId, opts.userId),
-          ),
-        )
+  try {
+    await db.transaction(async (tx) => {
+      const existingTargetAdmin = await tx
+        .select({ id: instanceUserRoles.id })
+        .from(instanceUserRoles)
+        .where(and(eq(instanceUserRoles.userId, opts.userId), eq(instanceUserRoles.role, "instance_admin")))
         .then((rows) => rows[0] ?? null);
-
-      if (!existing) {
-        await tx.insert(companyMemberships).values({
-          companyId: company.id,
-          principalType: "user",
-          principalId: opts.userId,
-          status: "active",
-          membershipRole: "owner",
+      if (!existingTargetAdmin) {
+        await tx.insert(instanceUserRoles).values({
+          userId: opts.userId,
+          role: "instance_admin",
         });
-        continue;
       }
 
-      if (existing.status !== "active") {
-        await tx
-          .update(companyMemberships)
-          .set({ status: "active", membershipRole: "owner", updatedAt: new Date() })
-          .where(eq(companyMemberships.id, existing.id));
+      await tx
+        .delete(instanceUserRoles)
+        .where(and(eq(instanceUserRoles.userId, LOCAL_BOARD_USER_ID), eq(instanceUserRoles.role, "instance_admin")));
+
+      const allCompanies = await tx.select({ id: companies.id }).from(companies);
+      for (const company of allCompanies) {
+        claimedCompanyIds.push(company.id);
+        const existing = await tx
+          .select({ id: companyMemberships.id, status: companyMemberships.status })
+          .from(companyMemberships)
+          .where(
+            and(
+              eq(companyMemberships.companyId, company.id),
+              eq(companyMemberships.principalType, "user"),
+              eq(companyMemberships.principalId, opts.userId),
+            ),
+          )
+          .then((rows) => rows[0] ?? null);
+
+        if (!existing) {
+          await tx.insert(companyMemberships).values({
+            companyId: company.id,
+            principalType: "user",
+            principalId: opts.userId,
+            status: "active",
+            membershipRole: "owner",
+          });
+          continue;
+        }
+
+        if (existing.status !== "active") {
+          await tx
+            .update(companyMemberships)
+            .set({ status: "active", membershipRole: "owner", updatedAt: new Date() })
+            .where(eq(companyMemberships.id, existing.id));
+        }
       }
+    });
+  } catch (error) {
+    if (activeChallenge === challenge) {
+      challenge.claimedAt = null;
+      challenge.claimedByUserId = null;
     }
-  });
+    throw error;
+  }
 
   for (const companyId of claimedCompanyIds) {
     await ensureHumanRoleDefaultGrants(db, {
@@ -150,11 +162,6 @@ export async function claimBoardOwnership(
       membershipRole: "owner",
       grantedByUserId: opts.userId,
     });
-  }
-
-  if (activeChallenge && activeChallenge.token === opts.token) {
-    activeChallenge.claimedAt = new Date();
-    activeChallenge.claimedByUserId = opts.userId;
   }
 
   return { status: "claimed", claimedByUserId: opts.userId };
