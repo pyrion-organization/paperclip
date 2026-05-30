@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -202,6 +202,55 @@ describe("codex remote execution", () => {
       localDir: workspaceDir,
       remoteDir: managedRemoteWorkspace,
     }));
+  });
+
+  it("writes API-key auth.json into configured local CODEX_HOME before execution", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-codex-local-auth-"));
+    cleanupDirs.push(rootDir);
+    const workspaceDir = path.join(rootDir, "workspace");
+    const codexHomeDir = path.join(rootDir, "codex-home");
+    await mkdir(workspaceDir, { recursive: true });
+    await mkdir(codexHomeDir, { recursive: true });
+
+    await execute({
+      runId: "run-1",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "CodexCoder",
+        adapterType: "codex_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "codex",
+        env: {
+          CODEX_HOME: codexHomeDir,
+          OPENAI_API_KEY: "sk-configured",
+        },
+      },
+      context: {
+        paperclipWorkspace: {
+          cwd: workspaceDir,
+          source: "project_primary",
+          strategy: "git_worktree",
+          workspaceId: "workspace-1",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    await expect(readFile(path.join(codexHomeDir, "auth.json"), "utf8"))
+      .resolves.toBe(JSON.stringify({ OPENAI_API_KEY: "sk-configured" }));
+    const call = runChildProcess.mock.calls.at(-1) as unknown as
+      | [string, string, string[], { env: Record<string, string> }]
+      | undefined;
+    expect(call?.[3].env.CODEX_HOME).toBe(codexHomeDir);
   });
 
   it("does not resume saved Codex sessions for remote SSH execution without a matching remote identity", async () => {

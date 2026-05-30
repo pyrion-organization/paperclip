@@ -44,7 +44,13 @@ import {
   isCodexTransientUpstreamError,
   isCodexUnknownSessionError,
 } from "./parse.js";
-import { pathExists, prepareManagedCodexHome, resolveManagedCodexHomeDir, resolveSharedCodexHomeDir } from "./codex-home.js";
+import {
+  pathExists,
+  prepareManagedCodexHome,
+  resolveManagedCodexHomeDir,
+  resolveSharedCodexHomeDir,
+  writeApiKeyAuthJson,
+} from "./codex-home.js";
 import { resolveCodexDesiredSkillNames } from "./skills.js";
 import { buildCodexExecArgs } from "./codex-args.js";
 import { SANDBOX_INSTALL_COMMAND } from "../index.js";
@@ -339,15 +345,27 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     typeof envConfig.OPENAI_API_KEY === "string" && envConfig.OPENAI_API_KEY.trim().length > 0
       ? envConfig.OPENAI_API_KEY.trim()
       : null;
+  const hostOpenAiApiKey =
+    !executionTargetIsRemote && typeof process.env.OPENAI_API_KEY === "string" && process.env.OPENAI_API_KEY.trim().length > 0
+      ? process.env.OPENAI_API_KEY.trim()
+      : null;
+  const effectiveOpenAiApiKey = configuredOpenAiApiKey ?? hostOpenAiApiKey;
   const preparedManagedCodexHome =
     configuredCodexHome
       ? null
       : await prepareManagedCodexHome(process.env, onLog, agent.companyId, {
-          apiKey: configuredOpenAiApiKey,
+          apiKey: effectiveOpenAiApiKey,
         });
   const defaultCodexHome = resolveManagedCodexHomeDir(process.env, agent.companyId);
   const effectiveCodexHome = configuredCodexHome ?? preparedManagedCodexHome ?? defaultCodexHome;
   await fs.mkdir(effectiveCodexHome, { recursive: true });
+  if (configuredCodexHome && effectiveOpenAiApiKey) {
+    await writeApiKeyAuthJson(effectiveCodexHome, effectiveOpenAiApiKey);
+    await onLog(
+      "stdout",
+      `[paperclip] Wrote API-key auth.json into configured Codex home "${effectiveCodexHome}".\n`,
+    );
+  }
   // Inject skills into the same CODEX_HOME that Codex will actually run with
   // (managed home in the default case, or an explicit override from adapter config).
   const codexSkillsDir = resolveCodexSkillsDir(effectiveCodexHome);

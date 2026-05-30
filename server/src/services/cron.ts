@@ -84,8 +84,8 @@ function parseField(token: string, spec: FieldSpec): number[] {
     if (slashIdx !== -1) {
       const base = trimmed.slice(0, slashIdx);
       const stepStr = trimmed.slice(slashIdx + 1);
-      const step = parseInt(stepStr, 10);
-      if (isNaN(step) || step <= 0) {
+      const step = parseStrictInteger(stepStr, "step", spec);
+      if (step <= 0) {
         throw new Error(
           `Invalid step "${stepStr}" in cron ${spec.name} field`,
         );
@@ -98,23 +98,17 @@ function parseField(token: string, spec: FieldSpec): number[] {
         // */S — every S from field min
       } else if (base.includes("-")) {
         // N-M/S — range with step
-        const [a, b] = base.split("-").map((s) => parseInt(s, 10));
-        if (isNaN(a!) || isNaN(b!)) {
+        const [aStr, bStr, extra] = base.split("-");
+        if (extra !== undefined || !aStr || !bStr) {
           throw new Error(
             `Invalid range "${base}" in cron ${spec.name} field`,
           );
         }
-        rangeStart = a!;
-        rangeEnd = b!;
+        rangeStart = parseStrictInteger(aStr, "range start", spec);
+        rangeEnd = parseStrictInteger(bStr, "range end", spec);
       } else {
         // N/S — start at N, step S
-        const start = parseInt(base, 10);
-        if (isNaN(start)) {
-          throw new Error(
-            `Invalid start "${base}" in cron ${spec.name} field`,
-          );
-        }
-        rangeStart = start;
+        rangeStart = parseStrictInteger(base, "start", spec);
       }
 
       validateBounds(rangeStart, spec);
@@ -128,14 +122,14 @@ function parseField(token: string, spec: FieldSpec): number[] {
 
     // Check for range syntax: "N-M"
     if (trimmed.includes("-")) {
-      const [aStr, bStr] = trimmed.split("-");
-      const a = parseInt(aStr!, 10);
-      const b = parseInt(bStr!, 10);
-      if (isNaN(a) || isNaN(b)) {
+      const [aStr, bStr, extra] = trimmed.split("-");
+      if (extra !== undefined || !aStr || !bStr) {
         throw new Error(
           `Invalid range "${trimmed}" in cron ${spec.name} field`,
         );
       }
+      const a = parseStrictInteger(aStr, "range start", spec);
+      const b = parseStrictInteger(bStr, "range end", spec);
       validateBounds(a, spec);
       validateBounds(b, spec);
       if (a > b) {
@@ -158,12 +152,7 @@ function parseField(token: string, spec: FieldSpec): number[] {
     }
 
     // Single value
-    const val = parseInt(trimmed, 10);
-    if (isNaN(val)) {
-      throw new Error(
-        `Invalid value "${trimmed}" in cron ${spec.name} field`,
-      );
-    }
+    const val = parseStrictInteger(trimmed, "value", spec);
     validateBounds(val, spec);
     values.add(val);
   }
@@ -173,6 +162,15 @@ function parseField(token: string, spec: FieldSpec): number[] {
   }
 
   return [...values].sort((a, b) => a - b);
+}
+
+function parseStrictInteger(raw: string, description: string, spec: FieldSpec): number {
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(
+      `Invalid ${description} "${raw}" in cron ${spec.name} field`,
+    );
+  }
+  return Number.parseInt(raw, 10);
 }
 
 function validateBounds(value: number, spec: FieldSpec): void {

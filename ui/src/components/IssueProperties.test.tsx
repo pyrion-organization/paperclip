@@ -1123,6 +1123,61 @@ describe("IssueProperties", () => {
 
     act(() => rerenderedRoot.unmount());
   });
+
+  it("searches all company issues when setting a parent issue", async () => {
+    const onUpdate = vi.fn();
+    const loadedIssue = createIssue({ id: "issue-2", identifier: "PAP-2", title: "Loaded parent", status: "todo" });
+    const remoteIssue = createIssue({ id: "issue-99", identifier: "PAP-99", title: "Remote parent", status: "in_progress" });
+    mockIssuesApi.list.mockImplementation((_companyId: string, filters?: { q?: string; limit?: number }) => {
+      if (filters?.q === "remote") return Promise.resolve([remoteIssue]);
+      return Promise.resolve([loadedIssue]);
+    });
+
+    const root = renderProperties(container, {
+      issue: createIssue(),
+      childIssues: [],
+      onUpdate,
+      inline: true,
+    });
+    await flush();
+
+    const parentTrigger = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("No parent"));
+    expect(parentTrigger).not.toBeUndefined();
+
+    await act(async () => {
+      parentTrigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    const searchInput = container.querySelector('input[aria-label="Parent Search"]') as HTMLInputElement | null;
+    expect(searchInput).not.toBeNull();
+
+    await act(async () => {
+      const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      nativeSetter?.call(searchInput, "remote");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await waitForAssertion(() => {
+      expect(mockIssuesApi.list).toHaveBeenCalledWith("company-1", { q: "remote", limit: 50 });
+      expect(container.textContent).toContain("PAP-99 Remote parent");
+      expect(container.textContent).not.toContain("PAP-2 Loaded parent");
+    });
+
+    const candidateButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("PAP-99 Remote parent"));
+    expect(candidateButton).not.toBeUndefined();
+
+    await act(async () => {
+      candidateButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onUpdate).toHaveBeenCalledWith({ parentId: "issue-99" });
+
+    act(() => root.unmount());
+  });
+
   it("shows a run review action after reviewers are configured and starts execution explicitly when clicked", async () => {
     const onUpdate = vi.fn();
     const root = renderProperties(container, {

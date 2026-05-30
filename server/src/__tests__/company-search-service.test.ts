@@ -202,6 +202,56 @@ describeEmbeddedPostgres("companySearchService", () => {
     expect(result.results[0]?.snippet).toMatch(/parser/i);
   });
 
+  it("keeps document search snippets, titles, and anchors on the same ranked document", async () => {
+    const companyId = await createCompany();
+    const issueId = await createIssue(companyId, {
+      identifier: "TST-88",
+      title: "Adapter manager",
+    });
+    const exactDocumentId = randomUUID();
+    const newerTokenDocumentId = randomUUID();
+    await db.insert(documents).values([
+      {
+        id: exactDocumentId,
+        companyId,
+        title: "Exact parser plan",
+        latestBody: "This Hermes parser plan should provide the chosen snippet.",
+        format: "markdown",
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        id: newerTokenDocumentId,
+        companyId,
+        title: "Parser notes",
+        latestBody: "Hermes details are split across token matches.",
+        format: "markdown",
+        updatedAt: new Date("2026-02-01T00:00:00.000Z"),
+      },
+    ]);
+    await db.insert(issueDocuments).values([
+      {
+        companyId,
+        issueId,
+        documentId: exactDocumentId,
+        key: "exact",
+      },
+      {
+        companyId,
+        issueId,
+        documentId: newerTokenDocumentId,
+        key: "newer",
+      },
+    ]);
+
+    const result = await svc.search(companyId, companySearchQuerySchema.parse({ q: "Hermes parser", scope: "documents" }));
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.id).toBe(issueId);
+    expect(result.results[0]?.href).toContain("#document-exact");
+    expect(result.results[0]?.snippet).toMatch(/chosen snippet/i);
+    expect(result.results[0]?.snippets[0]?.label).toBe("Exact parser plan");
+  });
+
   it("excludes hidden issues and other companies' data", async () => {
     const companyId = await createCompany("Visible Co");
     const otherCompanyId = await createCompany("Other Co");

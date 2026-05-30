@@ -496,6 +496,76 @@ describeEmbeddedPostgres("cost and finance aggregate overflow handling", () => {
     expect(byAgentModelRow?.costCents).toBe(4_000_000_000);
   });
 
+  it("rejects cost events with project ids from another company and does not aggregate leaked project names", async () => {
+    const companyId = randomUUID();
+    const otherCompanyId = randomUUID();
+    const agentId = randomUUID();
+    const projectId = randomUUID();
+
+    await db.insert(companies).values([
+      {
+        id: companyId,
+        name: "Paperclip",
+        issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+        requireBoardApprovalForNewAgents: false,
+      },
+      {
+        id: otherCompanyId,
+        name: "Other Co",
+        issuePrefix: `T${otherCompanyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+        requireBoardApprovalForNewAgents: false,
+      },
+    ]);
+    await db.insert(agents).values({
+      id: agentId,
+      companyId,
+      name: "Cost Agent",
+      role: "engineer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+    await db.insert(projects).values({
+      id: projectId,
+      companyId: otherCompanyId,
+      name: "Other Project",
+      status: "active",
+    });
+
+    await expect(costs.createEvent(companyId, {
+      agentId,
+      projectId,
+      provider: "openai",
+      biller: "openai",
+      billingType: "metered_api",
+      model: "gpt-5",
+      inputTokens: 1,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      costCents: 50,
+      occurredAt: new Date("2026-04-10T00:00:00.000Z"),
+    })).rejects.toThrow("Project does not belong to company");
+
+    await db.insert(costEvents).values({
+      companyId,
+      agentId,
+      projectId,
+      provider: "openai",
+      biller: "openai",
+      billingType: "metered_api",
+      model: "gpt-5",
+      inputTokens: 1,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      costCents: 50,
+      occurredAt: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(costs.byProject(companyId)).resolves.toEqual([]);
+  });
+
   it("aggregates issue costs across recursive descendants only", async () => {
     const companyId = randomUUID();
     const agentId = randomUUID();

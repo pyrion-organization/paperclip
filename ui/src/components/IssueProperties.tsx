@@ -431,6 +431,7 @@ export function IssueProperties({
   const [monitorAtInput, setMonitorAtInput] = useState(() => toDateTimeLocalValue(issue.executionPolicy?.monitor?.nextCheckAt));
   const [monitorNotesInput, setMonitorNotesInput] = useState(issue.executionPolicy?.monitor?.notes ?? "");
   const [monitorServiceInput, setMonitorServiceInput] = useState(issue.executionPolicy?.monitor?.serviceName ?? "");
+  const normalizedParentSearch = parentSearch.trim();
   const normalizedBlockedBySearch = blockedBySearch.trim();
 
   const { data: session } = useQuery({
@@ -480,7 +481,21 @@ export function IssueProperties({
   const { data: allIssues, isFetching: isFetchingIssuePickerIssues } = useQuery({
     queryKey: queryKeys.issues.list(companyId!),
     queryFn: () => issuesApi.list(companyId!),
-    enabled: !!companyId && (parentOpen || (blockedByOpen && normalizedBlockedBySearch.length === 0)),
+    enabled: !!companyId && (
+      (parentOpen && normalizedParentSearch.length === 0) ||
+      (blockedByOpen && normalizedBlockedBySearch.length === 0)
+    ),
+  });
+
+  const { data: searchedParentIssues, isFetching: isFetchingSearchedParentIssues } = useQuery({
+    queryKey: companyId
+      ? queryKeys.issues.search(companyId, normalizedParentSearch, undefined, ISSUE_BLOCKER_SEARCH_LIMIT)
+      : ["issues", "parent-search", normalizedParentSearch, ISSUE_BLOCKER_SEARCH_LIMIT],
+    queryFn: () => issuesApi.list(companyId!, {
+      q: normalizedParentSearch,
+      limit: ISSUE_BLOCKER_SEARCH_LIMIT,
+    }),
+    enabled: !!companyId && parentOpen && normalizedParentSearch.length > 0,
   });
 
   const { data: searchedBlockedByIssues, isFetching: isFetchingSearchedBlockedByIssues } = useQuery({
@@ -1618,11 +1633,13 @@ export function IssueProperties({
       <ArrowUpRight className="size-3" />
     </Link>
   ) : undefined;
-  const parentOptions = (allIssues ?? [])
+  const parentSearchActive = normalizedParentSearch.length > 0;
+  const parentSourceIssues = parentSearchActive ? searchedParentIssues : allIssues;
+  const parentOptions = (parentSourceIssues ?? [])
     .filter((candidate) => {
       if (candidate.id === issue.id) return false;
       if (descendantIssueIds.has(candidate.id)) return false;
-      if (!parentSearch.trim()) return true;
+      if (parentSearchActive) return true;
       const query = parentSearch.toLowerCase();
       return (
         (candidate.identifier ?? "").toLowerCase().includes(query) ||
@@ -1634,6 +1651,9 @@ export function IssueProperties({
       const bLabel = `${b.identifier ?? ""} ${b.title}`.trim();
       return aLabel.localeCompare(bLabel);
     });
+  const parentOptionsLoading = parentOpen && (
+    parentSearchActive ? isFetchingSearchedParentIssues : isFetchingIssuePickerIssues
+  );
   const parentContent = (
     <>
       <input
@@ -1674,6 +1694,9 @@ export function IssueProperties({
             </span>
           </button>
         ))}
+        {parentOptionsLoading && (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">Searching...</div>
+        )}
       </div>
     </>
   );

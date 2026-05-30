@@ -566,7 +566,14 @@ export function companySearchService(db: Db) {
                     OR ${tokenMatchExpression(sql`search_documents.title`, tokenArray)}
                     OR ${tokenMatchExpression(sql`search_documents.latest_body`, tokenArray)}
                   )
-                ORDER BY search_documents.updated_at DESC, search_documents.id DESC
+                ORDER BY
+                  CASE
+                    WHEN lower(coalesce(search_documents.title, '')) LIKE ${containsPattern} ESCAPE '\\' THEN 0
+                    WHEN lower(search_documents.latest_body) LIKE ${containsPattern} ESCAPE '\\' THEN 1
+                    ELSE 2
+                  END,
+                  search_documents.updated_at DESC,
+                  search_documents.id DESC
                 LIMIT 1
               )
             `,
@@ -585,7 +592,14 @@ export function companySearchService(db: Db) {
                     OR ${tokenMatchExpression(sql`search_documents.title`, tokenArray)}
                     OR ${tokenMatchExpression(sql`search_documents.latest_body`, tokenArray)}
                   )
-                ORDER BY search_documents.updated_at DESC, search_documents.id DESC
+                ORDER BY
+                  CASE
+                    WHEN lower(coalesce(search_documents.title, '')) LIKE ${containsPattern} ESCAPE '\\' THEN 0
+                    WHEN lower(search_documents.latest_body) LIKE ${containsPattern} ESCAPE '\\' THEN 1
+                    ELSE 2
+                  END,
+                  search_documents.updated_at DESC,
+                  search_documents.id DESC
                 LIMIT 1
               )
             `,
