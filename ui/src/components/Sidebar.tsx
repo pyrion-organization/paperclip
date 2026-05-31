@@ -31,6 +31,8 @@ type SidebarIdleWindow = Window & {
   cancelIdleCallback?: (handle: number) => void;
 };
 
+const EMPTY_ARRAY: never[] = [];
+
 function useSidebarChromeReady() {
   const [ready, setReady] = useState(() => typeof window === "undefined");
 
@@ -169,7 +171,7 @@ export function Sidebar() {
         {sidebarChromeReady ? (
           <Suspense fallback={<SidebarDeferredSectionsPlaceholder />}>
             <SidebarDeferredSections
-              liveRuns={liveRuns ?? []}
+              liveRuns={liveRuns ?? EMPTY_ARRAY}
               pluginContext={pluginContext}
               showWorkspacesLink={showWorkspacesLink}
             />

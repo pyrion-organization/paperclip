@@ -41,6 +41,7 @@ export type { JsonSchemaNode } from "./json-schema-form-utils";
  */
 const TEXTAREA_THRESHOLD = 200;
 const EMPTY_FORM_ERRORS: Record<string, string> = {};
+const EMPTY_ARRAY: never[] = [];
 
 const EMPTY_ITEMS: unknown[] = [];
 
@@ -800,7 +801,7 @@ const FormField = React.memo(({
           isRequired={isRequired}
           description={propSchema.description}
           error={error}
-          options={propSchema.enum ?? []}
+          options={propSchema.enum ?? EMPTY_ARRAY}
         />
       );
 

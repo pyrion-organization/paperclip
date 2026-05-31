@@ -227,6 +227,8 @@ const LEAF_WORK_CONTROL_MODE_HELP_TEXT: Partial<Record<IssueTreeControlMode, str
   pause: "Pause active execution on this issue until an explicit resume.",
   resume: "Release the active pause hold so this issue can continue.",
 };
+const EMPTY_ARRAY: never[] = [];
+
 function issueTreeControlLabel(mode: IssueTreeControlMode, scope: "leaf" | "subtree") {
   return scope === "leaf"
     ? LEAF_WORK_CONTROL_MODE_LABEL[mode] ?? TREE_CONTROL_MODE_LABEL[mode]
@@ -910,7 +912,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           liveRuns={resolvedLiveRuns}
           activeRun={resolvedActiveRun}
           issueId={issueId}
-          blockedBy={blockedBy ?? []}
+          blockedBy={blockedBy ?? EMPTY_ARRAY}
           blockerAttention={blockerAttention}
           successfulRunHandoff={successfulRunHandoff}
           scheduledRetry={scheduledRetry}
