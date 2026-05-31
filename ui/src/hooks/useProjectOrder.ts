@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@paperclipai/shared";
 import { sortProjectsByStoredOrder } from "../lib/project-order";
@@ -37,13 +37,18 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
     [data?.orderedIds, projects],
   );
   const { orderedIds, applyOverride } = useOrderedIdsOverride(orderedIdsSource, persistedOrderedIds);
+  const latestSubmittedOrderRef = useRef<string[] | null>(null);
 
   const mutation = useMutation({
     mutationFn: async (nextIds: string[]) => {
       const { sidebarPreferencesApi } = await import("../api/sidebarPreferences");
       return sidebarPreferencesApi.updateProjectOrder(companyId!, { orderedIds: nextIds });
     },
-    onSuccess: (preference) => {
+    onSuccess: (preference, submittedIds) => {
+      const latest = latestSubmittedOrderRef.current;
+      if (!latest || latest.length !== submittedIds.length || latest.some((id, index) => id !== submittedIds[index])) {
+        return;
+      }
       queryClient.setQueryData(queryKey, preference);
     },
   });
@@ -59,6 +64,7 @@ export function useProjectOrder({ projects, companyId, userId }: UseProjectOrder
 
       applyOverride(filtered);
       if (!companyId || !userId) return;
+      latestSubmittedOrderRef.current = filtered;
 
       queryClient.setQueryData(queryKey, (current: { orderedIds?: string[]; updatedAt?: Date | null } | undefined) => ({
         orderedIds: filtered,

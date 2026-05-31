@@ -519,15 +519,16 @@ export function environmentRunOrchestrator(
     const status = input.status ?? "released";
     const result: EnvironmentReleaseResult = { released: [], errors: [] };
 
-    let releasedLeases: EnvironmentRuntimeLeaseRecord[];
+    let releaseResult: { released: EnvironmentRuntimeLeaseRecord[]; errors: Array<{ leaseId: string; error: unknown }> };
     try {
-      releasedLeases = await environmentRuntime.releaseRunLeases(input.heartbeatRunId, status);
+      releaseResult = await environmentRuntime.releaseRunLeasesDetailed(input.heartbeatRunId, status);
     } catch (err) {
       result.errors.push({ leaseId: "*", error: err });
       return result;
     }
+    result.errors.push(...releaseResult.errors);
 
-    for (const released of releasedLeases) {
+    for (const released of releaseResult.released) {
       try {
         await logActivity(db, {
           companyId: input.companyId,

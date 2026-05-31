@@ -37,6 +37,14 @@ function resolveApiUrl(baseApiUrl: string, path: string): URL {
   if (url.origin !== baseUrl.origin) {
     throw new Error(`API path must stay on configured Paperclip origin: ${path}`);
   }
+  const basePath = baseUrl.pathname.replace(/\/+$/, "") || "/";
+  const staysUnderBasePath =
+    basePath === "/"
+      ? url.pathname.startsWith("/")
+      : url.pathname === basePath || url.pathname.startsWith(`${basePath}/`);
+  if (!staysUnderBasePath) {
+    throw new Error(`API path must stay under configured Paperclip API base path: ${path}`);
+  }
   return url;
 }
 

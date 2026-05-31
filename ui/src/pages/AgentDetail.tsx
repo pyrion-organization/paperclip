@@ -121,6 +121,20 @@ const AgentIconPicker = lazy(() =>
   import("../components/AgentIconPicker").then(({ AgentIconPicker }) => ({ default: AgentIconPicker })),
 );
 
+const timeFormat: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
+
+const levelColors: Record<string, string> = {
+  info: "text-foreground",
+  warn: "text-yellow-600 dark:text-yellow-400",
+  error: "text-red-600 dark:text-red-400",
+};
+
+const streamColors: Record<string, string> = {
+  stdout: "text-foreground",
+  stderr: "text-red-600 dark:text-red-300",
+  system: "text-blue-600 dark:text-blue-300",
+};
+
 async function loadDuplicateInstructionsBundle(
   agentId: string,
   companyId?: string,
@@ -581,7 +595,7 @@ function WorkspaceOperationLogViewer({
   );
 }
 
-function WorkspaceOperationsSection({
+export function WorkspaceOperationsSection({
   operations,
   censorUsernameInLogs,
 }: {
@@ -598,6 +612,8 @@ function WorkspaceOperationsSection({
       <div className="space-y-3">
         {operations.map((operation) => {
           const metadata = asRecord(operation.metadata);
+          const worktreePath = asNonEmptyString(metadata?.worktreePath);
+          const repoRoot = asNonEmptyString(metadata?.repoRoot);
           return (
             <div key={operation.id} className="rounded-md border border-border/70 bg-background/70 p-3 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -611,19 +627,19 @@ function WorkspaceOperationsSection({
               {operation.command && (
                 <div className="text-xs break-all">
                   <span className="text-muted-foreground">Command: </span>
-                  <span className="font-mono">{operation.command}</span>
+                  <span className="font-mono">{redactCommandText(operation.command, censorUsernameInLogs)}</span>
                 </div>
               )}
               {operation.cwd && (
                 <div className="text-xs break-all">
                   <span className="text-muted-foreground">Working dir: </span>
-                  <span className="font-mono">{operation.cwd}</span>
+                  <span className="font-mono">{redactPathText(operation.cwd, censorUsernameInLogs)}</span>
                 </div>
               )}
               {(asNonEmptyString(metadata?.branchName)
                 || asNonEmptyString(metadata?.baseRef)
-                || asNonEmptyString(metadata?.worktreePath)
-                || asNonEmptyString(metadata?.repoRoot)
+                || worktreePath
+                || repoRoot
                 || asNonEmptyString(metadata?.cleanupAction)) && (
                 <div className="grid gap-1 text-xs sm:grid-cols-2">
                   {asNonEmptyString(metadata?.branchName) && (
@@ -632,11 +648,11 @@ function WorkspaceOperationsSection({
                   {asNonEmptyString(metadata?.baseRef) && (
                     <div><span className="text-muted-foreground">Base ref: </span><span className="font-mono">{metadata?.baseRef as string}</span></div>
                   )}
-                  {asNonEmptyString(metadata?.worktreePath) && (
-                    <div className="break-all"><span className="text-muted-foreground">Worktree: </span><span className="font-mono">{metadata?.worktreePath as string}</span></div>
+                  {worktreePath && (
+                    <div className="break-all"><span className="text-muted-foreground">Worktree: </span><span className="font-mono">{redactPathText(worktreePath, censorUsernameInLogs)}</span></div>
                   )}
-                  {asNonEmptyString(metadata?.repoRoot) && (
-                    <div className="break-all"><span className="text-muted-foreground">Repo root: </span><span className="font-mono">{metadata?.repoRoot as string}</span></div>
+                  {repoRoot && (
+                    <div className="break-all"><span className="text-muted-foreground">Repo root: </span><span className="font-mono">{redactPathText(repoRoot, censorUsernameInLogs)}</span></div>
                   )}
                   {asNonEmptyString(metadata?.cleanupAction) && (
                     <div><span className="text-muted-foreground">Cleanup: </span><span className="font-mono">{metadata?.cleanupAction as string}</span></div>
@@ -3339,7 +3355,6 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType, adapterConfig }
     return () => clearInterval(id);
   }, [isRunning, run.startedAt]);
 
-  const timeFormat: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false };
   const startTime = run.startedAt ? new Date(run.startedAt).toLocaleTimeString("en-US", timeFormat) : null;
   const endTime = run.finishedAt ? new Date(run.finishedAt).toLocaleTimeString("en-US", timeFormat) : null;
   const durationSec = run.startedAt && run.finishedAt
@@ -4075,18 +4090,6 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
   if (events.length === 0 && logLines.length === 0 && !logError) {
     return <p className="text-xs text-muted-foreground">No log events.</p>;
   }
-
-  const levelColors: Record<string, string> = {
-    info: "text-foreground",
-    warn: "text-yellow-600 dark:text-yellow-400",
-    error: "text-red-600 dark:text-red-400",
-  };
-
-  const streamColors: Record<string, string> = {
-    stdout: "text-foreground",
-    stderr: "text-red-600 dark:text-red-300",
-    system: "text-blue-600 dark:text-blue-300",
-  };
 
   return (
     <div className="space-y-3">

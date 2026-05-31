@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DocumentRevision } from "@paperclipai/shared";
 import { issuesApi } from "../api/issues";
@@ -18,6 +18,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const lineClassesByKind: Record<DiffRow["kind"], string> = {
+  context: "bg-transparent",
+  removed: "bg-red-500/10 text-red-100",
+  added: "bg-green-500/10 text-green-100",
+};
+
+const markerByKind: Record<DiffRow["kind"], string> = {
+  context: " ",
+  removed: "-",
+  added: "+",
+};
 
 function getRevisionLabel(revision: DocumentRevision) {
   const actor = revision.createdByUserId
@@ -56,6 +68,11 @@ export function DocumentDiffModal({
   const [leftRevisionId, setLeftRevisionId] = useState<string | null>(null);
   const [rightRevisionId, setRightRevisionId] = useState<string | null>(null);
 
+  useEffect(() => {
+    setLeftRevisionId(null);
+    setRightRevisionId(null);
+  }, [issueId, documentKey, latestRevisionNumber, open]);
+
   const effectiveLeftId = leftRevisionId ?? sortedRevisions.find(
     (r) => r.revisionNumber === latestRevisionNumber - 1,
   )?.id ?? null;
@@ -70,18 +87,6 @@ export function DocumentDiffModal({
   const leftBody = leftRevision?.body ?? "";
   const rightBody = rightRevision?.body ?? "";
   const diffRows = useMemo(() => buildLineDiff(leftBody, rightBody), [leftBody, rightBody]);
-
-  const lineClassesByKind: Record<DiffRow["kind"], string> = {
-    context: "bg-transparent",
-    removed: "bg-red-500/10 text-red-100",
-    added: "bg-green-500/10 text-green-100",
-  };
-
-  const markerByKind: Record<DiffRow["kind"], string> = {
-    context: " ",
-    removed: "-",
-    added: "+",
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

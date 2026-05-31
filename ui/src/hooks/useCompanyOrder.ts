@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Company } from "@paperclipai/shared";
 import { sidebarPreferencesApi } from "../api/sidebarPreferences";
@@ -52,10 +52,15 @@ export function useCompanyOrder({ companies, userId }: UseCompanyOrderParams) {
     [companies, data?.orderedIds],
   );
   const { orderedIds, applyOverride } = useOrderedIdsOverride(orderedIdsSource, persistedOrderedIds);
+  const latestSubmittedOrderRef = useRef<string[] | null>(null);
 
   const mutation = useMutation({
     mutationFn: (nextIds: string[]) => sidebarPreferencesApi.updateCompanyOrder({ orderedIds: nextIds }),
-    onSuccess: (preference) => {
+    onSuccess: (preference, submittedIds) => {
+      const latest = latestSubmittedOrderRef.current;
+      if (!latest || latest.length !== submittedIds.length || latest.some((id, index) => id !== submittedIds[index])) {
+        return;
+      }
       queryClient.setQueryData(queryKey, preference);
     },
   });
@@ -71,6 +76,7 @@ export function useCompanyOrder({ companies, userId }: UseCompanyOrderParams) {
 
       applyOverride(filtered);
       if (!userId) return;
+      latestSubmittedOrderRef.current = filtered;
 
       queryClient.setQueryData(queryKey, (current: { orderedIds?: string[]; updatedAt?: Date | null } | undefined) => ({
         orderedIds: filtered,

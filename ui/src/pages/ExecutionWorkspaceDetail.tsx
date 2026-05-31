@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ExecutionWorkspace, Issue, Project, ProjectWorkspace, RoutineListItem } from "@paperclipai/shared";
+import { redactCommandText as redactCommandSecretText, redactHomePathUserSegments } from "@paperclipai/adapter-utils";
 import { Copy, ExternalLink, Loader2, Play, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
@@ -15,6 +16,7 @@ import { MissingPluginTabPlaceholder } from "../components/MissingPluginTabPlace
 import { agentsApi } from "../api/agents";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { heartbeatsApi } from "../api/heartbeats";
+import { instanceSettingsApi } from "../api/instanceSettings";
 import { issuesApi } from "../api/issues";
 import { projectsApi } from "../api/projects";
 import { routinesApi } from "../api/routines";
@@ -73,6 +75,15 @@ const EXECUTION_WORKSPACE_BASE_TAB_ITEMS: OrderedExecutionWorkspaceTabItem[] = [
   { value: "runtime_logs", label: "Runtime logs", order: 40 },
   { value: "routines", label: "Routines", order: 60 },
 ];
+const REDACTED_ENV_VALUE = "***REDACTED***";
+
+function redactPathText(value: string, censorUsernameInLogs: boolean) {
+  return redactHomePathUserSegments(value, { enabled: censorUsernameInLogs });
+}
+
+function redactCommandText(value: string, censorUsernameInLogs: boolean) {
+  return redactPathText(redactCommandSecretText(value, REDACTED_ENV_VALUE), censorUsernameInLogs);
+}
 
 function isExecutionWorkspacePluginTab(value: string | null): value is ExecutionWorkspacePluginTab {
   return typeof value === "string" && value.startsWith("plugin:");
@@ -698,6 +709,10 @@ export function ExecutionWorkspaceDetail() {
     queryFn: () => executionWorkspacesApi.listWorkspaceOperations(workspaceId!),
     enabled: Boolean(workspaceId),
   });
+  const censorUsernameInLogs = useQuery({
+    queryKey: queryKeys.instance.generalSettings,
+    queryFn: () => instanceSettingsApi.getGeneral(),
+  }).data?.censorUsernameInLogs === true;
   const controlRuntimeServices = useMutation({
     mutationFn: (request: WorkspaceRuntimeControlRequest) =>
       executionWorkspacesApi.controlRuntimeCommands(workspace!.id, request.action, request),
@@ -1171,15 +1186,28 @@ export function ExecutionWorkspaceDetail() {
                   <div key={operation.id} className="rounded-none border border-border/80 bg-background px-4 py-3">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="space-y-1">
-                        <div className="text-sm font-medium">{operation.command ?? operation.phase}</div>
+                        <div className="text-sm font-medium">
+                          {operation.command
+                            ? redactCommandText(operation.command, censorUsernameInLogs)
+                            : operation.phase}
+                        </div>
+                        {operation.cwd ? (
+                          <div className="break-all font-mono text-xs text-muted-foreground">
+                            {redactPathText(operation.cwd, censorUsernameInLogs)}
+                          </div>
+                        ) : null}
                         <div className="text-xs text-muted-foreground">
                           {formatDateTime(operation.startedAt)}
                           {operation.finishedAt ? ` → ${formatDateTime(operation.finishedAt)}` : ""}
                         </div>
                         {operation.stderrExcerpt ? (
-                          <div className="whitespace-pre-wrap break-words text-xs text-destructive">{operation.stderrExcerpt}</div>
+                          <div className="whitespace-pre-wrap break-words text-xs text-destructive">
+                            {redactCommandText(operation.stderrExcerpt, censorUsernameInLogs)}
+                          </div>
                         ) : operation.stdoutExcerpt ? (
-                          <div className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{operation.stdoutExcerpt}</div>
+                          <div className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                            {redactCommandText(operation.stdoutExcerpt, censorUsernameInLogs)}
+                          </div>
                         ) : null}
                       </div>
                       <StatusPill className="self-start">{operation.status}</StatusPill>

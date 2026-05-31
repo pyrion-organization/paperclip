@@ -1001,6 +1001,53 @@ describe("feedbackService.saveIssueVote", () => {
     });
   });
 
+  it("claims pending shared traces before upload so concurrent flushes do not duplicate exports", async () => {
+    const { companyId, issueId, commentId } = await seedIssueWithAgentComment();
+    let releaseUpload!: () => void;
+    const uploadGate = new Promise<void>((resolve) => {
+      releaseUpload = resolve;
+    });
+    const uploadTraceBundle = vi.fn(async () => {
+      await uploadGate;
+      return {
+        objectKey: `feedback-traces/${companyId}/2026/04/01/test-trace.json`,
+      };
+    });
+    const flushingSvc = feedbackService(db, {
+      shareClient: {
+        uploadTraceBundle,
+      },
+    });
+
+    await flushingSvc.saveIssueVote({
+      issueId,
+      targetType: "issue_comment",
+      targetId: commentId,
+      vote: "up",
+      authorUserId: "user-1",
+      allowSharing: true,
+    });
+
+    const firstFlush = flushingSvc.flushPendingFeedbackTraces({ limit: 1 });
+    const secondFlush = flushingSvc.flushPendingFeedbackTraces({ limit: 1 });
+    await vi.waitFor(() => expect(uploadTraceBundle).toHaveBeenCalledTimes(1));
+    releaseUpload();
+    const results = await Promise.all([firstFlush, secondFlush]);
+
+    expect(results.reduce((sum, result) => sum + result.attempted, 0)).toBe(1);
+    expect(results.reduce((sum, result) => sum + result.sent, 0)).toBe(1);
+    expect(results.reduce((sum, result) => sum + result.failed, 0)).toBe(0);
+    expect(uploadTraceBundle).toHaveBeenCalledTimes(1);
+
+    const traces = await flushingSvc.listFeedbackTraces({
+      companyId,
+      issueId,
+      includePayload: true,
+    });
+    expect(traces[0]?.status).toBe("sent");
+    expect(traces[0]?.attemptCount).toBe(1);
+  });
+
   it("can flush a single shared trace immediately by trace id", async () => {
     const { companyId, issueId, commentId: firstCommentId } = await seedIssueWithAgentComment();
     const secondCommentId = randomUUID();

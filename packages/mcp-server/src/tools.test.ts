@@ -400,4 +400,18 @@ describe("paperclip MCP tools", () => {
 
     expect(response.content[0]?.text).toContain("must not contain '..'");
   });
+
+  it("rejects encoded generic request paths that escape /api", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = getTool("paperclipApiRequest");
+    const response = await tool.execute({
+      method: "GET",
+      path: "/%2e%2e/secret",
+    });
+
+    expect(response.content[0]?.text).toContain("must stay under configured Paperclip API base path");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

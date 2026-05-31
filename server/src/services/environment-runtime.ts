@@ -52,6 +52,11 @@ export function buildEnvironmentLeaseContext(input: {
   };
 }
 
+export type EnvironmentRuntimeReleaseRunLeasesResult = {
+  released: EnvironmentRuntimeLeaseRecord[];
+  errors: Array<{ leaseId: string; error: unknown }>;
+};
+
 function stripSecretRefValuesFromPluginLeaseMetadata(input: {
   metadata: Record<string, unknown> | null | undefined;
   schema: Record<string, unknown> | null | undefined;
@@ -1138,10 +1143,10 @@ export function environmentRuntimeService(
       };
     },
 
-    async releaseRunLeases(
+    async releaseRunLeasesDetailed(
       heartbeatRunId: string,
       status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
-    ): Promise<EnvironmentRuntimeLeaseRecord[]> {
+    ): Promise<EnvironmentRuntimeReleaseRunLeasesResult> {
       const leaseRows = await db
         .select()
         .from(environmentLeases)
@@ -1152,57 +1157,73 @@ export function environmentRuntimeService(
           ),
         );
       if (leaseRows.length === 0) {
-        return [];
+        return { released: [], errors: [] };
       }
 
       const released: EnvironmentRuntimeLeaseRecord[] = [];
+      const errors: Array<{ leaseId: string; error: unknown }> = [];
       for (const leaseRow of leaseRows) {
-        const environment = await environmentsSvc.getById(leaseRow.environmentId);
-        if (!environment) continue;
+        try {
+          const environment = await environmentsSvc.getById(leaseRow.environmentId);
+          if (!environment) continue;
 
-        const leaseSnapshot: EnvironmentLease = {
-          id: leaseRow.id,
-          companyId: leaseRow.companyId,
-          environmentId: leaseRow.environmentId,
-          executionWorkspaceId: leaseRow.executionWorkspaceId ?? null,
-          issueId: leaseRow.issueId ?? null,
-          heartbeatRunId: leaseRow.heartbeatRunId ?? null,
-          status: leaseRow.status as EnvironmentLease["status"],
-          leasePolicy: leaseRow.leasePolicy as EnvironmentLease["leasePolicy"],
-          provider: leaseRow.provider ?? null,
-          providerLeaseId: leaseRow.providerLeaseId ?? null,
-          acquiredAt: leaseRow.acquiredAt,
-          lastUsedAt: leaseRow.lastUsedAt,
-          expiresAt: leaseRow.expiresAt ?? null,
-          releasedAt: leaseRow.releasedAt ?? null,
-          failureReason: leaseRow.failureReason ?? null,
-          cleanupStatus: leaseRow.cleanupStatus as EnvironmentLease["cleanupStatus"],
-          metadata: (leaseRow.metadata as Record<string, unknown> | null) ?? null,
-          createdAt: leaseRow.createdAt,
-          updatedAt: leaseRow.updatedAt,
-        };
-        const driver = getDriver(getLeaseDriverKey(leaseSnapshot, environment));
-        const lease = driver
-          ? await driver.releaseRunLease({
-              environment,
-              lease: leaseSnapshot,
-              status,
-            })
-          : await environmentsSvc.releaseLease(leaseRow.id, status);
-        if (!lease) continue;
+          const leaseSnapshot: EnvironmentLease = {
+            id: leaseRow.id,
+            companyId: leaseRow.companyId,
+            environmentId: leaseRow.environmentId,
+            executionWorkspaceId: leaseRow.executionWorkspaceId ?? null,
+            issueId: leaseRow.issueId ?? null,
+            heartbeatRunId: leaseRow.heartbeatRunId ?? null,
+            status: leaseRow.status as EnvironmentLease["status"],
+            leasePolicy: leaseRow.leasePolicy as EnvironmentLease["leasePolicy"],
+            provider: leaseRow.provider ?? null,
+            providerLeaseId: leaseRow.providerLeaseId ?? null,
+            acquiredAt: leaseRow.acquiredAt,
+            lastUsedAt: leaseRow.lastUsedAt,
+            expiresAt: leaseRow.expiresAt ?? null,
+            releasedAt: leaseRow.releasedAt ?? null,
+            failureReason: leaseRow.failureReason ?? null,
+            cleanupStatus: leaseRow.cleanupStatus as EnvironmentLease["cleanupStatus"],
+            metadata: (leaseRow.metadata as Record<string, unknown> | null) ?? null,
+            createdAt: leaseRow.createdAt,
+            updatedAt: leaseRow.updatedAt,
+          };
+          const driver = getDriver(getLeaseDriverKey(leaseSnapshot, environment));
+          const lease = driver
+            ? await driver.releaseRunLease({
+                environment,
+                lease: leaseSnapshot,
+                status,
+              })
+            : await environmentsSvc.releaseLease(leaseRow.id, status);
+          if (!lease) continue;
 
-        released.push({
-          environment,
-          lease,
-          leaseContext: {
-            executionWorkspaceId: lease.executionWorkspaceId,
-            executionWorkspaceMode:
-              (lease.metadata?.executionWorkspaceMode as ExecutionWorkspace["mode"] | null | undefined) ?? null,
-          },
-        });
+          released.push({
+            environment,
+            lease,
+            leaseContext: {
+              executionWorkspaceId: lease.executionWorkspaceId,
+              executionWorkspaceMode:
+                (lease.metadata?.executionWorkspaceMode as ExecutionWorkspace["mode"] | null | undefined) ?? null,
+            },
+          });
+        } catch (error) {
+          errors.push({ leaseId: leaseRow.id, error });
+        }
       }
 
-      return released;
+      return { released, errors };
+    },
+
+    async releaseRunLeases(
+      heartbeatRunId: string,
+      status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
+    ): Promise<EnvironmentRuntimeLeaseRecord[]> {
+      const result = await this.releaseRunLeasesDetailed(heartbeatRunId, status);
+      if (result.errors.length > 0) {
+        throw result.errors[0]!.error;
+      }
+      return result.released;
     },
 
     async resumeRunLease(input: EnvironmentDriverLeaseInput): Promise<PluginEnvironmentLease | EnvironmentLease | null> {

@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { and, asc, desc, eq, getTableColumns, gte, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, ne, or } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -1820,7 +1820,7 @@ export function feedbackService(db: Db, options: FeedbackServiceOptions = {}) {
         filters.push(eq(feedbackExports.id, input.traceId));
       }
 
-      const rows = await db
+      const candidateRows = await db
         .select({
           ...feedbackExportColumns,
           issueIdentifier: issues.identifier,
@@ -1836,8 +1836,19 @@ export function feedbackService(db: Db, options: FeedbackServiceOptions = {}) {
       let sent = 0;
       let failed = 0;
 
-      for (const row of rows) {
+      for (const row of candidateRows) {
         const attemptAt = input?.now ?? new Date();
+        const claimedRows = await db
+          .update(feedbackExports)
+          .set({
+            status: "uploading",
+            lastAttemptedAt: attemptAt,
+            failureReason: null,
+            updatedAt: attemptAt,
+          })
+          .where(and(eq(feedbackExports.id, row.id), inArray(feedbackExports.status, ["pending", "failed"])))
+          .returning({ id: feedbackExports.id });
+        if (claimedRows.length === 0) continue;
         attempted += 1;
 
         try {

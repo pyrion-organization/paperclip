@@ -1394,4 +1394,52 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     expect(sshRelease).not.toHaveBeenCalled();
     expect(acquired.lease.metadata?.driver).toBe("local");
   });
+
+  it("continues releasing later run leases when one driver release fails", async () => {
+    const { companyId, environment, runId } = await seedEnvironment();
+    const environmentsSvc = environmentService(db);
+    const firstLease = await environmentsSvc.acquireLease({
+      companyId,
+      environmentId: environment.id,
+      executionWorkspaceId: null,
+      issueId: null,
+      heartbeatRunId: runId,
+      metadata: { driver: "local", executionWorkspaceMode: null },
+    });
+    const secondLease = await environmentsSvc.acquireLease({
+      companyId,
+      environmentId: environment.id,
+      executionWorkspaceId: null,
+      issueId: null,
+      heartbeatRunId: runId,
+      metadata: { driver: "local", executionWorkspaceMode: null },
+    });
+    const releaseRunLease = vi.fn(async ({ lease, status }: { lease: { id: string }; status: "released" | "expired" | "failed" }) => {
+      if (lease.id === firstLease.id) {
+        throw new Error("driver cleanup failed");
+      }
+      return await environmentsSvc.releaseLease(lease.id, status);
+    });
+    const runtimeWithFailingDriver = environmentRuntimeService(db, {
+      drivers: [
+        {
+          driver: "local",
+          acquireRunLease: async () => {
+            throw new Error("acquire should not be called");
+          },
+          releaseRunLease,
+        },
+      ],
+    });
+
+    const result = await runtimeWithFailingDriver.releaseRunLeasesDetailed(runId);
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.leaseId).toBe(firstLease.id);
+    expect(result.released.map((record) => record.lease.id)).toEqual([secondLease.id]);
+    expect(releaseRunLease).toHaveBeenCalledTimes(2);
+    const leaseRows = await db.select().from(environmentLeases);
+    expect(leaseRows.find((row) => row.id === firstLease.id)?.status).toBe("active");
+    expect(leaseRows.find((row) => row.id === secondLease.id)?.status).toBe("released");
+  });
 });

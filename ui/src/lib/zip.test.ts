@@ -286,4 +286,17 @@ describe("createZipArchive", () => {
       },
     });
   });
+
+  it("rejects archive entries with traversal paths", async () => {
+    const archive = createDeflatedZipArchive({ "../outside.txt": "nope" }, "paperclip-demo");
+
+    await expect(readZipArchive(archive)).rejects.toThrow("unsafe relative entry path");
+  });
+
+  it("rejects entries with invalid CRC checksums", async () => {
+    const archive = createZipArchive({ "COMPANY.md": "# Company\n" }, "paperclip-demo");
+    writeUint32(archive, 14, 0);
+
+    await expect(readZipArchive(archive)).rejects.toThrow("checksum mismatch");
+  });
 });
