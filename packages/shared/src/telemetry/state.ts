@@ -1,12 +1,12 @@
 import { randomUUID, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { TelemetryState } from "./types.js";
 
 export function loadOrCreateState(stateDir: string, version: string): TelemetryState {
   const filePath = path.join(stateDir, "state.json");
 
-  if (existsSync(filePath)) {
+  const readValidState = (): TelemetryState | null => {
     try {
       const raw = readFileSync(filePath, "utf-8");
       const parsed = JSON.parse(raw) as TelemetryState;
@@ -14,8 +14,14 @@ export function loadOrCreateState(stateDir: string, version: string): TelemetryS
         return parsed;
       }
     } catch {
-      // Corrupted state file — recreate
+      // Missing or corrupted state file.
     }
+    return null;
+  };
+
+  if (existsSync(filePath)) {
+    const existing = readValidState();
+    if (existing) return existing;
   }
 
   const state: TelemetryState = {
@@ -26,6 +32,19 @@ export function loadOrCreateState(stateDir: string, version: string): TelemetryS
   };
 
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(filePath, JSON.stringify(state, null, 2) + "\n", "utf-8");
-  return state;
+  let fd: number | null = null;
+  try {
+    fd = openSync(filePath, "wx");
+    writeFileSync(fd, JSON.stringify(state, null, 2) + "\n", "utf-8");
+    return state;
+  } catch (err) {
+    const code = err && typeof err === "object" ? (err as { code?: unknown }).code : null;
+    if (code === "EEXIST") {
+      const existing = readValidState();
+      if (existing) return existing;
+    }
+    throw err;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
 }

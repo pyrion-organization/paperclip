@@ -26,6 +26,11 @@ type SkillTelemetryInput = {
   metadata: Record<string, unknown> | null;
 };
 
+type SkillTelemetryRef = {
+  skillRef: string;
+  isPrivate: boolean;
+};
+
 export function companySkillRoutes(db: Db) {
   const router = Router();
   const agents = agentService(db);
@@ -43,9 +48,9 @@ export function companySkillRoutes(db: Db) {
     return trimmed.length > 0 ? trimmed : null;
   }
 
-  function deriveTrackedSkillRef(skill: SkillTelemetryInput): string | null {
+  function deriveTrackedSkillRef(skill: SkillTelemetryInput): SkillTelemetryRef | null {
     if (skill.sourceType === "skills_sh") {
-      return skill.key;
+      return { skillRef: skill.key, isPrivate: false };
     }
     if (skill.sourceType !== "github") {
       return null;
@@ -54,7 +59,7 @@ export function companySkillRoutes(db: Db) {
     if (hostname !== "github.com") {
       return null;
     }
-    return skill.key;
+    return { skillRef: skill.key, isPrivate: false };
   }
 
   function firstQueryString(value: unknown): string | undefined {
@@ -250,9 +255,11 @@ export function companySkillRoutes(db: Db) {
       const telemetryClient = getTelemetryClient();
       if (telemetryClient) {
         for (const skill of result.imported) {
+          const trackedRef = deriveTrackedSkillRef(skill);
           trackSkillImported(telemetryClient, {
             sourceType: skill.sourceType,
-            skillRef: deriveTrackedSkillRef(skill),
+            skillRef: trackedRef?.skillRef ?? null,
+            isPrivate: trackedRef?.isPrivate ?? true,
           });
         }
       }

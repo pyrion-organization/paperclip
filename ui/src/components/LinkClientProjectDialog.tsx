@@ -21,6 +21,13 @@ interface LinkClientProjectDialogProps {
   editingProject?: ClientProject;
 }
 
+function addUniqueValue(input: string, values: string[], setValues: (values: string[]) => void, normalize = false) {
+  const value = normalize ? input.trim().toLowerCase() : input.trim();
+  if (value && !values.some((current) => current.toLowerCase() === value.toLowerCase())) {
+    setValues([...values, value]);
+  }
+}
+
 export function LinkClientProjectDialog({
   open,
   onOpenChange,
@@ -86,12 +93,6 @@ function LinkClientProjectDialogContent({
 
   const activeMutation = mode === "edit" ? updateLink : createLink;
 
-  function addUniqueValue(input: string, values: string[], setValues: (values: string[]) => void, normalize = false) {
-    const value = normalize ? input.trim().toLowerCase() : input.trim();
-    if (value && !values.some((current) => current.toLowerCase() === value.toLowerCase())) {
-      setValues([...values, value]);
-    }
-  }
 
   function addTag() {
     addUniqueValue(tagsInput, tags, setTags, true);

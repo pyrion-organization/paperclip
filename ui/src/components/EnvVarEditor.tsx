@@ -17,6 +17,15 @@ type Row = {
 
 let nextEnvRowId = 0;
 
+function defaultSecretName(key: string) {
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
 function rowId() {
   nextEnvRowId += 1;
   return `env-row-${nextEnvRowId}`;
@@ -150,14 +159,6 @@ export function EnvVarEditor({
     emit(next);
   }
 
-  function defaultSecretName(key: string) {
-    return key
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 64);
-  }
 
   async function sealRow(index: number) {
     const row = rows[index];

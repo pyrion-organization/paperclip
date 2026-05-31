@@ -16,6 +16,69 @@ const ROUTINE_MENTION_LINK_RE = /\[[^\]]*]\((routine:\/\/[^)\s]+)\)/gi;
 const AGENT_ICON_NAME_RE = /^[a-z0-9-]+$/i;
 const SKILL_SLUG_RE = /^[a-z0-9][a-z0-9-]*$/i;
 
+function preserveNewlinesAsWhitespace(value: string) {
+  return value.replace(/[^\n]/g, " ");
+}
+
+function stripMarkdownCode(markdown: string): string {
+  if (!markdown) return "";
+
+  let output = "";
+  let index = 0;
+
+  while (index < markdown.length) {
+    const remaining = markdown.slice(index);
+    const fenceMatch = /^(?:```+|~~~+)/.exec(remaining);
+    const atLineStart = index === 0 || markdown[index - 1] === "\n";
+
+    if (atLineStart && fenceMatch) {
+      const fence = fenceMatch[0]!;
+      const blockStart = index;
+      index += fence.length;
+      while (index < markdown.length && markdown[index] !== "\n") index += 1;
+      if (index < markdown.length) index += 1;
+
+      while (index < markdown.length) {
+        const lineStart = index === 0 || markdown[index - 1] === "\n";
+        if (lineStart && markdown.startsWith(fence, index)) {
+          index += fence.length;
+          while (index < markdown.length && markdown[index] !== "\n") index += 1;
+          if (index < markdown.length) index += 1;
+          break;
+        }
+        index += 1;
+      }
+
+      output += preserveNewlinesAsWhitespace(markdown.slice(blockStart, index));
+      continue;
+    }
+
+    if (markdown[index] === "`") {
+      let tickCount = 1;
+      while (index + tickCount < markdown.length && markdown[index + tickCount] === "`") {
+        tickCount += 1;
+      }
+      const fence = "`".repeat(tickCount);
+      const inlineStart = index;
+      index += tickCount;
+      const closeIndex = markdown.indexOf(fence, index);
+      if (closeIndex === -1) {
+        output += markdown.slice(inlineStart, inlineStart + tickCount);
+        index = inlineStart + tickCount;
+        continue;
+      }
+      index = closeIndex + tickCount;
+      output += preserveNewlinesAsWhitespace(markdown.slice(inlineStart, index));
+      continue;
+    }
+
+    output += markdown[index]!;
+    index += 1;
+  }
+
+  return output;
+}
+
 export interface ParsedProjectMention {
   projectId: string;
   color: string | null;
@@ -199,10 +262,11 @@ export function parseRoutineMentionHref(href: string): ParsedRoutineMention | nu
 
 export function extractProjectMentionIds(markdown: string): string[] {
   if (!markdown) return [];
+  const searchable = stripMarkdownCode(markdown);
   const ids = new Set<string>();
   const re = new RegExp(PROJECT_MENTION_LINK_RE);
   let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
+  while ((match = re.exec(searchable)) !== null) {
     const parsed = parseProjectMentionHref(match[1]);
     if (parsed) ids.add(parsed.projectId);
   }
@@ -211,10 +275,11 @@ export function extractProjectMentionIds(markdown: string): string[] {
 
 export function extractAgentMentionIds(markdown: string): string[] {
   if (!markdown) return [];
+  const searchable = stripMarkdownCode(markdown);
   const ids = new Set<string>();
   const re = new RegExp(AGENT_MENTION_LINK_RE);
   let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
+  while ((match = re.exec(searchable)) !== null) {
     const parsed = parseAgentMentionHref(match[1]);
     if (parsed) ids.add(parsed.agentId);
   }
@@ -223,10 +288,11 @@ export function extractAgentMentionIds(markdown: string): string[] {
 
 export function extractUserMentionIds(markdown: string): string[] {
   if (!markdown) return [];
+  const searchable = stripMarkdownCode(markdown);
   const ids = new Set<string>();
   const re = new RegExp(USER_MENTION_LINK_RE);
   let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
+  while ((match = re.exec(searchable)) !== null) {
     const parsed = parseUserMentionHref(match[1]);
     if (parsed) ids.add(parsed.userId);
   }
@@ -235,10 +301,11 @@ export function extractUserMentionIds(markdown: string): string[] {
 
 export function extractSkillMentionIds(markdown: string): string[] {
   if (!markdown) return [];
+  const searchable = stripMarkdownCode(markdown);
   const ids = new Set<string>();
   const re = new RegExp(SKILL_MENTION_LINK_RE);
   let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
+  while ((match = re.exec(searchable)) !== null) {
     const parsed = parseSkillMentionHref(match[1]);
     if (parsed) ids.add(parsed.skillId);
   }
@@ -247,10 +314,11 @@ export function extractSkillMentionIds(markdown: string): string[] {
 
 export function extractRoutineMentionIds(markdown: string): string[] {
   if (!markdown) return [];
+  const searchable = stripMarkdownCode(markdown);
   const ids = new Set<string>();
   const re = new RegExp(ROUTINE_MENTION_LINK_RE);
   let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
+  while ((match = re.exec(searchable)) !== null) {
     const parsed = parseRoutineMentionHref(match[1]);
     if (parsed) ids.add(parsed.routineId);
   }

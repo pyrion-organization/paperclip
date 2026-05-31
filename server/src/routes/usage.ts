@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { Db } from "@paperclipai/db";
+import { assertBoard } from "./authz.js";
 
 const CLAUDE_CREDENTIALS_PATH = path.join(os.homedir(), ".claude", ".credentials.json");
 const CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -303,7 +304,8 @@ async function fetchCodexUsage(): Promise<ProviderUsage> {
 export function usageRoutes(_db: Db) {
   const router = Router();
 
-  router.get("/usage", async (_req, res) => {
+  router.get("/usage", async (req, res) => {
+    assertBoard(req);
     const [claude, codex] = await Promise.all([fetchClaudeUsage(), fetchCodexUsage()]);
     res.json({ providers: [claude, codex] });
   });

@@ -39,6 +39,10 @@ export {
   type KanbanColumnPageSize,
 } from "./kanban-board-constants";
 
+function handleDragOver(_event: DragOverEvent) {
+  // Could be used for visual feedback; keeping simple for now
+}
+
 function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -330,9 +334,6 @@ export function KanbanBoard({
     }
   }
 
-  function handleDragOver(_event: DragOverEvent) {
-    // Could be used for visual feedback; keeping simple for now
-  }
 
   return (
     <DndContext

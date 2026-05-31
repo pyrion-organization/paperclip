@@ -168,6 +168,10 @@ const SECRET_ENV_KEY_RE =
 const COMMAND_ENV_KEY_RE = /(^command$|^cmd$|command[-_]?line|resolved[-_]?command|PAPERCLIP_RESOLVED_COMMAND)/i;
 const JWT_VALUE_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$/;
 
+function isRunLogUnavailable(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
+}
+
 function redactPathText(value: string, censorUsernameInLogs: boolean) {
   return redactHomePathUserSegments(value, { enabled: censorUsernameInLogs });
 }
@@ -3691,9 +3695,6 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
     refetchInterval: isLive ? 2000 : false,
   });
 
-  function isRunLogUnavailable(err: unknown): boolean {
-    return err instanceof ApiError && err.status === 404;
-  }
 
   function appendLogContent(content: string, finalize = false) {
     if (!content && !finalize) return;

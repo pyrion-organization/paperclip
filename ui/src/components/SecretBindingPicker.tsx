@@ -34,6 +34,11 @@ interface SecretBindingPickerProps {
 
 const VERSION_LATEST: SecretVersionSelector = "latest";
 
+const versionDisplay = (selector: SecretVersionSelector | undefined) => {
+  if (selector === undefined || selector === VERSION_LATEST) return "latest";
+  return `v${selector}`;
+};
+
 function describeSecret(secret: CompanySecret): string {
   const provider = secret.provider.replaceAll("_", " ");
   if (secret.managedMode === "external_reference") {
@@ -118,10 +123,6 @@ export function SecretBindingPicker({
     },
   });
 
-  const versionDisplay = (selector: SecretVersionSelector | undefined) => {
-    if (selector === undefined || selector === VERSION_LATEST) return "latest";
-    return `v${selector}`;
-  };
 
   return (
     <div className={cn("space-y-1.5", className)}>

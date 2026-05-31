@@ -215,4 +215,60 @@ describeEmbeddedPostgres("GET /companies/:companyId/users/:userSlug/profile", ()
     expect(response.body.topAgents[0]).toMatchObject({ agentId, agentName: "Coder", costCents: 42 });
     expect(response.body.topProviders[0]).toMatchObject({ provider: "openai", model: "gpt-test", costCents: 42 });
   });
+
+  it("resolves older memberships beyond the first 200 updated rows", async () => {
+    const targetUserId = randomUUID();
+    const targetDate = new Date("2026-03-01T00:00:00.000Z");
+    await db.insert(authUsers).values({
+      id: targetUserId,
+      name: "Older Member",
+      email: "older-member@example.com",
+      emailVerified: true,
+      image: null,
+      createdAt: targetDate,
+      updatedAt: targetDate,
+    });
+    await db.insert(companyMemberships).values({
+      companyId,
+      principalType: "user",
+      principalId: targetUserId,
+      status: "active",
+      membershipRole: "member",
+      createdAt: targetDate,
+      updatedAt: targetDate,
+    });
+
+    const newerRows = Array.from({ length: 201 }, (_, index) => {
+      const fillerUserId = randomUUID();
+      const date = new Date(Date.UTC(2026, 3, 1, 0, index));
+      return {
+        user: {
+          id: fillerUserId,
+          name: `Newer Member ${index}`,
+          email: `newer-${index}@example.com`,
+          emailVerified: true,
+          image: null,
+          createdAt: date,
+          updatedAt: date,
+        },
+        membership: {
+          companyId,
+          principalType: "user" as const,
+          principalId: fillerUserId,
+          status: "active",
+          membershipRole: "member",
+          createdAt: date,
+          updatedAt: date,
+        },
+      };
+    });
+    await db.insert(authUsers).values(newerRows.map((row) => row.user));
+    await db.insert(companyMemberships).values(newerRows.map((row) => row.membership));
+
+    const response = await request(createApp()).get(`/api/companies/${companyId}/users/older-member/profile`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.user.id).toBe(targetUserId);
+    expect(response.body.user.slug).toBe("older-member");
+  });
 });

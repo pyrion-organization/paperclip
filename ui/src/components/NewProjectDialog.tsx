@@ -48,6 +48,36 @@ const projectStatuses = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+const isAbsolutePath = (value: string) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
+
+const looksLikeRepoUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return false;
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return segments.length >= 2;
+  } catch {
+    return false;
+  }
+};
+
+const deriveWorkspaceNameFromPath = (value: string) => {
+  const normalized = value.trim().replace(/[\\/]+$/, "");
+  const segments = normalized.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? "Local folder";
+};
+
+const deriveWorkspaceNameFromRepo = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const repo = segments[segments.length - 1]?.replace(/\.git$/i, "") ?? "";
+    return repo || "GitHub repo";
+  } catch {
+    return "GitHub repo";
+  }
+};
+
 export function NewProjectDialog() {
   const { newProjectOpen, closeNewProject } = useDialog();
   const { selectedCompanyId, selectedCompany } = useCompany();
@@ -115,35 +145,6 @@ export function NewProjectDialog() {
     setWorkspaceError(null);
   }
 
-  const isAbsolutePath = (value: string) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
-
-  const looksLikeRepoUrl = (value: string) => {
-    try {
-      const parsed = new URL(value);
-      if (parsed.protocol !== "https:") return false;
-      const segments = parsed.pathname.split("/").filter(Boolean);
-      return segments.length >= 2;
-    } catch {
-      return false;
-    }
-  };
-
-  const deriveWorkspaceNameFromPath = (value: string) => {
-    const normalized = value.trim().replace(/[\\/]+$/, "");
-    const segments = normalized.split(/[\\/]/).filter(Boolean);
-    return segments[segments.length - 1] ?? "Local folder";
-  };
-
-  const deriveWorkspaceNameFromRepo = (value: string) => {
-    try {
-      const parsed = new URL(value);
-      const segments = parsed.pathname.split("/").filter(Boolean);
-      const repo = segments[segments.length - 1]?.replace(/\.git$/i, "") ?? "";
-      return repo || "GitHub repo";
-    } catch {
-      return "GitHub repo";
-    }
-  };
 
   async function handleSubmit() {
     if (!selectedCompanyId || !name.trim()) return;

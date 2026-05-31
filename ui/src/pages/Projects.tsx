@@ -72,6 +72,13 @@ function sortProjects(projects: Project[], sortField: ProjectSortField, sortDir:
   });
 }
 
+const clientSummary = (project: { clients: { name: string }[] }) => {
+  if (project.clients.length === 0) return null;
+  const names = project.clients.slice(0, 2).map((client) => client.name);
+  const hiddenCount = Math.max(project.clients.length - names.length, 0);
+  return hiddenCount > 0 ? `${names.join(", ")} +${hiddenCount}` : names.join(", ");
+};
+
 export function Projects() {
   const { selectedCompanyId } = useCompany();
   const { openNewProject } = useDialogActions();
@@ -94,12 +101,6 @@ export function Projects() {
     () => (allProjects ?? []).filter((p) => !p.archivedAt),
     [allProjects],
   );
-  const clientSummary = (project: (typeof projects)[number]) => {
-    if (project.clients.length === 0) return null;
-    const names = project.clients.slice(0, 2).map((client) => client.name);
-    const hiddenCount = Math.max(project.clients.length - names.length, 0);
-    return hiddenCount > 0 ? `${names.join(", ")} +${hiddenCount}` : names.join(", ");
-  };
   const sortedProjects = useMemo(
     () => sortProjects(projects, sortField, sortDir),
     [projects, sortDir, sortField],

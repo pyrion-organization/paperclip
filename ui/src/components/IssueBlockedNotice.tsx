@@ -103,6 +103,25 @@ function SuccessfulRunRetryNowControl({
   );
 }
 
+const renderBlockerChip = (blocker: IssueRelationIssueSummary) => {
+  const issuePathId = blocker.identifier ?? blocker.id;
+  const recoveryAction = blocker.activeRecoveryAction ?? null;
+  return (
+    <IssueLinkQuicklook
+      key={blocker.id}
+      issuePathId={issuePathId}
+      to={createIssueDetailPath(issuePathId)}
+      className="inline-flex max-w-full items-center gap-1 rounded-md border border-amber-300/70 bg-background/80 px-2 py-1 font-mono text-xs text-amber-950 transition-colors hover:border-amber-500 hover:bg-amber-100 hover:underline dark:border-amber-500/40 dark:bg-background/40 dark:text-amber-100 dark:hover:bg-amber-500/15"
+    >
+      <span>{blocker.identifier ?? blocker.id.slice(0, 8)}</span>
+      <span className="max-w-[18rem] truncate font-sans text-[11px] text-amber-800 dark:text-amber-200">
+        {blocker.title}
+      </span>
+      {recoveryAction ? <BlockerRecoveryIndicator action={recoveryAction} /> : null}
+    </IssueLinkQuicklook>
+  );
+};
+
 export function IssueBlockedNotice({
   issueId,
   issueStatus,
@@ -179,24 +198,6 @@ export function IssueBlockedNotice({
   })();
   const showStalledRow = isStalled && stalledLeafBlockers.length > 0;
 
-  const renderBlockerChip = (blocker: IssueRelationIssueSummary) => {
-    const issuePathId = blocker.identifier ?? blocker.id;
-    const recoveryAction = blocker.activeRecoveryAction ?? null;
-    return (
-      <IssueLinkQuicklook
-        key={blocker.id}
-        issuePathId={issuePathId}
-        to={createIssueDetailPath(issuePathId)}
-        className="inline-flex max-w-full items-center gap-1 rounded-md border border-amber-300/70 bg-background/80 px-2 py-1 font-mono text-xs text-amber-950 transition-colors hover:border-amber-500 hover:bg-amber-100 hover:underline dark:border-amber-500/40 dark:bg-background/40 dark:text-amber-100 dark:hover:bg-amber-500/15"
-      >
-        <span>{blocker.identifier ?? blocker.id.slice(0, 8)}</span>
-        <span className="max-w-[18rem] truncate font-sans text-[11px] text-amber-800 dark:text-amber-200">
-          {blocker.title}
-        </span>
-        {recoveryAction ? <BlockerRecoveryIndicator action={recoveryAction} /> : null}
-      </IssueLinkQuicklook>
-    );
-  };
 
   return (
     <div

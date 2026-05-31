@@ -353,6 +353,7 @@ describe("company skill mutation permissions", () => {
     expect(mockTrackSkillImported).toHaveBeenCalledWith(expect.anything(), {
       sourceType: "github",
       skillRef: "vercel-labs/agent-browser/find-skills",
+      isPrivate: false,
     });
   });
 
@@ -399,6 +400,7 @@ describe("company skill mutation permissions", () => {
     expect(mockTrackSkillImported).toHaveBeenCalledWith(expect.anything(), {
       sourceType: "github",
       skillRef: null,
+      isPrivate: true,
     });
   });
 
@@ -441,6 +443,7 @@ describe("company skill mutation permissions", () => {
     expect(mockTrackSkillImported).toHaveBeenCalledWith(expect.anything(), {
       sourceType: "github",
       skillRef: null,
+      isPrivate: true,
     });
   });
 

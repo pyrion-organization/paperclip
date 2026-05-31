@@ -60,11 +60,18 @@ export function trackAgentCreated(
 
 export function trackSkillImported(
   client: TelemetryClient,
-  dims: { sourceType: string; skillRef?: string | null },
+  dims: { sourceType: string; skillRef?: string | null; isPrivate?: boolean },
 ): void {
+  const hasSkillRef = Boolean(dims.skillRef);
+  const isPrivate = hasSkillRef ? dims.isPrivate !== false : false;
+  const skillRef = dims.skillRef
+    ? isPrivate
+      ? client.hashPrivateRef(dims.skillRef)
+      : dims.skillRef
+    : null;
   client.track("skill.imported", {
     source_type: dims.sourceType,
-    ...(dims.skillRef ? { skill_ref: dims.skillRef } : {}),
+    ...(skillRef ? { skill_ref: skillRef, skill_ref_hashed: isPrivate } : {}),
   });
 }
 

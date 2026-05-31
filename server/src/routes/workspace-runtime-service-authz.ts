@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agents, issues } from "@paperclipai/db";
 import type { Request } from "express";
@@ -97,9 +97,7 @@ async function assertAgentCanManageRuntimeServicesForWorkspace(
       isNull(issues.hiddenAt),
       inArray(issues.status, WORKSPACE_RUNTIME_ELIGIBLE_ISSUE_STATUSES),
       inArray(issues.assigneeAgentId, eligibleAgentIds),
-      workspaceScopeConditions.length === 1
-        ? workspaceScopeConditions[0]!
-        : or(...workspaceScopeConditions),
+      ...workspaceScopeConditions,
     ))
     .then((rows) => rows[0] ?? null);
 

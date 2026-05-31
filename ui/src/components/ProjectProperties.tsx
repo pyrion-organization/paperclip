@@ -224,6 +224,49 @@ function ArchiveDangerZone({
   );
 }
 
+const isAbsolutePath = (value: string) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
+
+const looksLikeRepoUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return false;
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return segments.length >= 2;
+  } catch {
+    return false;
+  }
+};
+
+const isSafeExternalUrl = (value: string | null | undefined) => {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const formatRepoUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length < 2) return parsed.host;
+    const owner = segments[0];
+    const repo = segments[1]?.replace(/\.git$/i, "");
+    if (!owner || !repo) return parsed.host;
+    return `${parsed.host}/${owner}/${repo}`;
+  } catch {
+    return value;
+  }
+};
+
+const deriveSourceType = (cwd: string | null, repoUrl: string | null) => {
+  if (repoUrl) return "git_repo";
+  if (cwd) return "local_path";
+  return undefined;
+};
+
 export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSaveState, onArchive, archivePending }: ProjectPropertiesProps) {
   const { selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
@@ -379,48 +422,6 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
     };
   };
 
-  const isAbsolutePath = (value: string) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value);
-
-  const looksLikeRepoUrl = (value: string) => {
-    try {
-      const parsed = new URL(value);
-      if (parsed.protocol !== "https:") return false;
-      const segments = parsed.pathname.split("/").filter(Boolean);
-      return segments.length >= 2;
-    } catch {
-      return false;
-    }
-  };
-
-  const isSafeExternalUrl = (value: string | null | undefined) => {
-    if (!value) return false;
-    try {
-      const parsed = new URL(value);
-      return parsed.protocol === "http:" || parsed.protocol === "https:";
-    } catch {
-      return false;
-    }
-  };
-
-  const formatRepoUrl = (value: string) => {
-    try {
-      const parsed = new URL(value);
-      const segments = parsed.pathname.split("/").filter(Boolean);
-      if (segments.length < 2) return parsed.host;
-      const owner = segments[0];
-      const repo = segments[1]?.replace(/\.git$/i, "");
-      if (!owner || !repo) return parsed.host;
-      return `${parsed.host}/${owner}/${repo}`;
-    } catch {
-      return value;
-    }
-  };
-
-  const deriveSourceType = (cwd: string | null, repoUrl: string | null) => {
-    if (repoUrl) return "git_repo";
-    if (cwd) return "local_path";
-    return undefined;
-  };
 
   const persistCodebase = (patch: { cwd?: string | null; repoUrl?: string | null }) => {
     const nextCwd = patch.cwd !== undefined ? patch.cwd : codebase.localFolder;

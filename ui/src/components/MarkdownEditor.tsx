@@ -97,6 +97,10 @@ export interface MarkdownEditorRef {
   focus: () => void;
 }
 
+function hasFilePayload(evt: DragEvent<HTMLDivElement>) {
+  return Array.from(evt.dataTransfer?.types ?? []).includes("Files");
+}
+
 function readHtmlAttribute(attrs: string, name: string): string | null {
   const match = new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(attrs);
   return match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
@@ -803,9 +807,6 @@ function MarkdownEditorContent({
     handleAutocompletePress(event, option);
   }, [handleAutocompletePress]);
 
-  function hasFilePayload(evt: DragEvent<HTMLDivElement>) {
-    return Array.from(evt.dataTransfer?.types ?? []).includes("Files");
-  }
 
   const canDropFile = fileDropTarget === "editor" && Boolean(imageUploadHandler || onDropFile);
   const handlePasteCapture = useCallback((event: ClipboardEvent<HTMLDivElement>) => {

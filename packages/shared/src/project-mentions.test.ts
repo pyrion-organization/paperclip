@@ -60,4 +60,12 @@ describe("project-mentions", () => {
     });
     expect(extractRoutineMentionIds(`[/routine:Weekly review](${href})`)).toEqual(["routine-123"]);
   });
+
+  it("ignores mention-shaped links inside Markdown code", () => {
+    expect(extractProjectMentionIds("`[@Paperclip](project://project-123)`")).toEqual([]);
+    expect(extractAgentMentionIds("```md\n[@Codex](agent://agent-123)\n```")).toEqual([]);
+    expect(extractUserMentionIds("~~~md\n[@Taylor](user://user-123)\n~~~")).toEqual([]);
+    expect(extractSkillMentionIds("`[/release](skill://skill-123)`")).toEqual([]);
+    expect(extractRoutineMentionIds("```md\n[/routine:Weekly](routine://routine-123)\n```")).toEqual([]);
+  });
 });

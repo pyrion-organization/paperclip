@@ -210,6 +210,71 @@ describeEmbeddedPostgres("workspace runtime service authz helper", () => {
     })).resolves.toBeUndefined();
   });
 
+  it("rejects execution workspace access when source issue belongs to a different workspace", async () => {
+    const companyId = await seedCompany();
+    const { projectId, projectWorkspaceId } = await seedProjectWorkspace(companyId);
+    const firstExecutionWorkspaceId = await seedExecutionWorkspace(companyId, projectId, projectWorkspaceId);
+    const secondExecutionWorkspaceId = await seedExecutionWorkspace(companyId, projectId, projectWorkspaceId);
+    const managerId = await seedAgent(companyId, { role: "cto", name: "Manager" });
+    const reportId = await seedAgent(companyId, { reportsTo: managerId, name: "Report" });
+    const otherAgentId = await seedAgent(companyId, { name: "Other" });
+    const manageableIssueId = randomUUID();
+
+    await db.insert(issues).values([
+      {
+        id: manageableIssueId,
+        companyId,
+        projectId,
+        projectWorkspaceId,
+        executionWorkspaceId: firstExecutionWorkspaceId,
+        title: "Manageable issue",
+        status: "in_progress",
+        priority: "medium",
+        assigneeAgentId: reportId,
+      },
+      {
+        id: randomUUID(),
+        companyId,
+        projectId,
+        projectWorkspaceId,
+        executionWorkspaceId: secondExecutionWorkspaceId,
+        title: "Other workspace issue",
+        status: "in_progress",
+        priority: "medium",
+        assigneeAgentId: otherAgentId,
+      },
+    ]);
+
+    await expect(assertCanManageExecutionWorkspaceRuntimeServices(db, {
+      actor: {
+        type: "agent",
+        agentId: managerId,
+        companyId,
+        source: "agent_key",
+      },
+    } as any, {
+      companyId,
+      executionWorkspaceId: secondExecutionWorkspaceId,
+      sourceIssueId: manageableIssueId,
+    })).rejects.toMatchObject({
+      status: 403,
+      message: "Missing permission to manage workspace runtime services",
+    });
+
+    await expect(assertCanManageExecutionWorkspaceRuntimeServices(db, {
+      actor: {
+        type: "agent",
+        agentId: managerId,
+        companyId,
+        source: "agent_key",
+      },
+    } as any, {
+      companyId,
+      executionWorkspaceId: firstExecutionWorkspaceId,
+      sourceIssueId: manageableIssueId,
+    })).resolves.toBeUndefined();
+  });
+
   it("rejects unrelated same-company agents without matching workspace assignments", async () => {
     const companyId = await seedCompany();
     const { projectId, projectWorkspaceId } = await seedProjectWorkspace(companyId);
