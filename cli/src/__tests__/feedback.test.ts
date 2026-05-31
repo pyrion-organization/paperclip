@@ -3,7 +3,7 @@ import path from "node:path";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
-import type { FeedbackTrace } from "@paperclipai/shared";
+import type { FeedbackTrace, FeedbackTraceBundle } from "@paperclipai/shared";
 import { readZipArchive } from "../commands/client/zip.js";
 import {
   buildFeedbackTraceQuery,
@@ -173,5 +173,52 @@ describe("writeFeedbackExportBundle", () => {
         `traces/${manifest.files.traces[0]}`,
       ]),
     );
+  });
+
+  it("rejects full trace bundle files outside the bundle directory", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-feedback-export-"));
+    const outputDir = path.join(tempDir, "feedback-export");
+    const trace = makeTrace();
+    const bundle: FeedbackTraceBundle = {
+      traceId: trace.id,
+      exportId: null,
+      companyId: trace.companyId,
+      issueId: trace.issueId,
+      issueIdentifier: trace.issueIdentifier,
+      adapterType: "codex_local",
+      captureStatus: "full",
+      notes: [],
+      envelope: {},
+      surface: null,
+      paperclipRun: null,
+      rawAdapterTrace: null,
+      normalizedAdapterTrace: null,
+      privacy: null,
+      integrity: {},
+      files: [
+        {
+          path: "../escaped.txt",
+          contentType: "text/plain",
+          encoding: "utf8",
+          byteLength: 6,
+          sha256: "sha256:test",
+          source: "codex_session",
+          contents: "escape",
+        },
+      ],
+    };
+
+    await expect(
+      writeFeedbackExportBundle({
+        apiBase: "http://127.0.0.1:3100",
+        companyId: "company-123",
+        traces: [trace],
+        outputDir,
+        traceBundleFetcher: async () => bundle,
+      }),
+    ).rejects.toThrow("Invalid feedback bundle file path");
+    await expect(readFile(path.join(tempDir, "escaped.txt"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

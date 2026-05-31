@@ -156,6 +156,12 @@ export function cloudUpstreamService(db: Db, options: { instanceId?: string } = 
 
       const discovery = await fetchDiscovery(remoteUrl);
       const target = targetFromDiscovery(discovery);
+      const expectedOrigin = new URL(remoteUrl).origin;
+      validateCloudUpstreamUrl(new URL(target.origin), { expectedOrigin, label: "Cloud upstream origin" });
+      const tokenUrl = tokenUrlFromDiscovery(discovery);
+      validateCloudUpstreamUrl(new URL(tokenUrl), { expectedOrigin, label: "Cloud upstream token URL" });
+      const consentUrl = consentUrlFromDiscovery(discovery);
+      validateCloudUpstreamUrl(new URL(consentUrl), { expectedOrigin, label: "Cloud upstream authorization URL" });
       const connectionId = crypto.randomUUID();
       const state = crypto.randomBytes(24).toString("base64url");
       const codeVerifier = crypto.randomBytes(32).toString("base64url");
@@ -189,11 +195,11 @@ export function cloudUpstreamService(db: Db, options: { instanceId?: string } = 
         pendingState: state,
         pendingCodeVerifier: await sealCloudUpstreamCredential(codeVerifier),
         pendingRedirectUri: input.redirectUri,
-        pendingTokenUrl: tokenUrlFromDiscovery(discovery),
+        pendingTokenUrl: tokenUrl,
       }).returning();
       if (!row) throw badRequest("Failed to create cloud upstream connection");
 
-      const authorizationUrl = new URL(consentUrlFromDiscovery(discovery));
+      const authorizationUrl = new URL(consentUrl);
       authorizationUrl.searchParams.set("stackId", target.stackId);
       authorizationUrl.searchParams.set("redirectUri", input.redirectUri);
       authorizationUrl.searchParams.set("state", state);
@@ -647,7 +653,8 @@ export function cloudUpstreamService(db: Db, options: { instanceId?: string } = 
 
 async function fetchDiscovery(remoteUrl: string): Promise<Record<string, unknown>> {
   const parsed = new URL(remoteUrl);
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+  validateCloudUpstreamUrl(parsed, { allowLocalhostDev: true, label: "Cloud upstream target" });
+  if (parsed.protocol !== "https:" && !isLocalhost(parsed.hostname)) {
     throw badRequest("Cloud upstream targets require HTTPS except localhost development");
   }
   const stackId = firstPathSegment(parsed.pathname);
@@ -660,6 +667,53 @@ async function fetchDiscovery(remoteUrl: string): Promise<Record<string, unknown
     throw badRequest(`Cloud upstream discovery failed: ${response.status}`);
   }
   return await response.json() as Record<string, unknown>;
+}
+
+function isLocalhost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function isPrivateIp(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const parts = ipv4.slice(1).map(Number);
+    if (parts.some((part) => part < 0 || part > 255)) return false;
+    const [a, b] = parts;
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a === 0
+    );
+  }
+  const lower = host.toLowerCase();
+  return lower === "::1" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:");
+}
+
+function validateCloudUpstreamUrl(
+  url: URL,
+  options: { allowLocalhostDev?: boolean; expectedOrigin?: string; label: string },
+) {
+  const expectedOrigin = options.expectedOrigin ? new URL(options.expectedOrigin) : null;
+  const allowLocalhostDev = Boolean(
+    options.allowLocalhostDev || (expectedOrigin && isLocalhost(expectedOrigin.hostname)),
+  );
+  if (url.protocol !== "https:" && !(allowLocalhostDev && isLocalhost(url.hostname))) {
+    throw badRequest(`${options.label} must use HTTPS`);
+  }
+  if (!allowLocalhostDev && (isLocalhost(url.hostname) || isPrivateIp(url.hostname))) {
+    throw badRequest(`${options.label} cannot target a local or private network address`);
+  }
+  if (allowLocalhostDev ? !isLocalhost(url.hostname) && isPrivateIp(url.hostname) : isPrivateIp(url.hostname)) {
+    throw badRequest(`${options.label} cannot target a local or private network address`);
+  }
+  if (options.expectedOrigin && url.origin !== options.expectedOrigin) {
+    throw badRequest(`${options.label} must stay on the discovered upstream origin`);
+  }
 }
 
 export async function reconcileCloudUpstreamRunsOnStartup(db: Db, now = new Date()): Promise<{ reconciled: number }> {
@@ -712,6 +766,7 @@ function targetFromDiscovery(discovery: Record<string, unknown>): CloudUpstreamT
   const transfer = objectField(discovery, "transfer");
   const schema = optionalObject(transfer.schema);
   const origin = stringField(stack, "origin");
+  validateCloudUpstreamUrl(new URL(origin), { label: "Cloud upstream origin" });
   return {
     stackId: stringField(stack, "id"),
     stackSlug: optionalString(stack.slug),
@@ -968,6 +1023,7 @@ function buildLocalChunks(entities: LocalUpstreamExportEntity[], maxEntitiesPerC
 }
 
 async function remoteGet(connection: ConnectionRow, path: string): Promise<unknown> {
+  validateCloudUpstreamUrl(new URL(connection.targetOrigin), { label: "Cloud upstream origin" });
   const response = await fetchWithTimeout(`${connection.targetOrigin}${path}`, {
     method: "GET",
     headers: await proofHeaders(connection, "GET", path),
@@ -976,6 +1032,7 @@ async function remoteGet(connection: ConnectionRow, path: string): Promise<unkno
 }
 
 async function remotePost(connection: ConnectionRow, path: string, body: unknown): Promise<unknown> {
+  validateCloudUpstreamUrl(new URL(connection.targetOrigin), { label: "Cloud upstream origin" });
   const response = await fetchWithTimeout(`${connection.targetOrigin}${path}`, {
     method: "POST",
     headers: {

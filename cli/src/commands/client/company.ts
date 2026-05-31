@@ -1142,7 +1142,7 @@ export function registerCompanyCommands(program: Command): void {
         try {
           const ctx = resolveCommandContext(opts, { requireCompany: true });
           const traces = (await ctx.api.get<FeedbackTrace[]>(
-            `/api/companies/${ctx.companyId}/feedback-traces${buildFeedbackTraceQuery(opts)}`,
+            `/api/companies/${ctx.companyId}/feedback-traces${buildFeedbackTraceQuery(opts, Boolean(opts.includePayload))}`,
           )) ?? [];
           if (ctx.json) {
             printOutput(traces, { json: true });

@@ -28,6 +28,13 @@ import {
   principalPermissionGrants,
   companyMemberships,
   companySkills,
+  budgetIncidents,
+  budgetPolicies,
+  clientEmailDomains,
+  clientEmployeeProjectLinks,
+  clientEmployees,
+  clientProjects,
+  clients,
   documents,
 } from "@paperclipai/db";
 import { notFound, unprocessable } from "../errors.js";
@@ -332,6 +339,8 @@ export function companyService(db: Db) {
         await tx.delete(emailNotifications).where(eq(emailNotifications.companyId, id));
         await tx.delete(approvalComments).where(eq(approvalComments.companyId, id));
         await tx.delete(approvals).where(eq(approvals.companyId, id));
+        await tx.delete(budgetIncidents).where(eq(budgetIncidents.companyId, id));
+        await tx.delete(budgetPolicies).where(eq(budgetPolicies.companyId, id));
         await tx.delete(companySecrets).where(eq(companySecrets.companyId, id));
         await tx.delete(joinRequests).where(eq(joinRequests.companyId, id));
         await tx.delete(invites).where(eq(invites.companyId, id));
@@ -344,6 +353,11 @@ export function companyService(db: Db) {
         await tx.delete(companyLogos).where(eq(companyLogos.companyId, id));
         await tx.delete(assets).where(eq(assets.companyId, id));
         await tx.delete(goals).where(eq(goals.companyId, id));
+        await tx.delete(clientEmployeeProjectLinks).where(eq(clientEmployeeProjectLinks.companyId, id));
+        await tx.delete(clientEmailDomains).where(eq(clientEmailDomains.companyId, id));
+        await tx.delete(clientEmployees).where(eq(clientEmployees.companyId, id));
+        await tx.delete(clientProjects).where(eq(clientProjects.companyId, id));
+        await tx.delete(clients).where(eq(clients.companyId, id));
         await tx.delete(projects).where(eq(projects.companyId, id));
         await tx.delete(agents).where(eq(agents.companyId, id));
         const rows = await tx

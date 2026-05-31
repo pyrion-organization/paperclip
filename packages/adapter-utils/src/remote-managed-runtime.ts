@@ -37,6 +37,13 @@ function asNumber(value: unknown): number {
   return typeof value === "number" ? value : Number(value);
 }
 
+function validateRuntimeAssetKey(key: string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(key) || key === "." || key === "..") {
+    throw new Error(`Invalid managed runtime asset key: ${key}`);
+  }
+  return key;
+}
+
 export function buildRemoteExecutionSessionIdentity(spec: SshRemoteExecutionSpec | null) {
   if (!spec) return null;
   return {
@@ -93,8 +100,9 @@ export async function prepareRemoteManagedRuntime(input: {
   const assetDirs: Record<string, string> = {};
   try {
     for (const asset of input.assets ?? []) {
-      const remoteDir = path.posix.join(runtimeRootDir, asset.key);
-      assetDirs[asset.key] = remoteDir;
+      const assetKey = validateRuntimeAssetKey(asset.key);
+      const remoteDir = path.posix.join(runtimeRootDir, assetKey);
+      assetDirs[assetKey] = remoteDir;
       await syncDirectoryToSsh({
         spec: input.spec,
         localDir: asset.localDir,

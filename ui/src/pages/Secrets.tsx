@@ -464,6 +464,38 @@ export function Secrets() {
     }
   }
 
+  function resetCreateSensitiveFields() {
+    setCreateForm((current) => ({ ...current, value: "", externalRef: "" }));
+    setCreateError(null);
+  }
+
+  function handleCreateOpenChange(open: boolean) {
+    if (!open) resetCreateSensitiveFields();
+    setCreateOpen(open);
+  }
+
+  function closeCreateDialog() {
+    resetCreateSensitiveFields();
+    setCreateOpen(false);
+  }
+
+  function resetRotateSensitiveFields() {
+    setRotateValue("");
+    setRotateExternalRef("");
+    setRotateProviderConfigId("");
+    setRotateError(null);
+  }
+
+  function handleRotateOpenChange(open: boolean) {
+    if (!open) resetRotateSensitiveFields();
+    setRotateOpen(open);
+  }
+
+  function closeRotateDialog() {
+    resetRotateSensitiveFields();
+    setRotateOpen(false);
+  }
+
   const createMutation = useInvalidatingMutation({
     mutationFn: () => {
       const input: CreateSecretInput = {
@@ -519,10 +551,7 @@ export function Secrets() {
     onSuccess: (updated) => {
       pushToast({ title: "Rotated", body: `${updated.name} → v${updated.latestVersion}`, tone: "success" });
       setRotateOpen(false);
-      setRotateValue("");
-      setRotateExternalRef("");
-      setRotateProviderConfigId("");
-      setRotateError(null);
+      resetRotateSensitiveFields();
       invalidateAll([updated.id]);
     },
     onError: (error) => {
@@ -1100,7 +1129,7 @@ export function Secrets() {
         />
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Create secret</DialogTitle>
@@ -1278,7 +1307,7 @@ export function Secrets() {
             {createError ? <p className="text-xs text-destructive">{createError}</p> : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={closeCreateDialog}>
               Cancel
             </Button>
             <Button
@@ -1429,7 +1458,7 @@ export function Secrets() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rotateOpen} onOpenChange={setRotateOpen}>
+      <Dialog open={rotateOpen} onOpenChange={handleRotateOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
@@ -1498,7 +1527,7 @@ export function Secrets() {
           )}
           {rotateError ? <p className="text-xs text-destructive">{rotateError}</p> : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRotateOpen(false)}>
+            <Button variant="outline" onClick={closeRotateDialog}>
               Cancel
             </Button>
             <Button

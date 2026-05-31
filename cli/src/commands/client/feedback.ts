@@ -72,6 +72,35 @@ interface FeedbackExportResult {
   manifest: FeedbackExportManifest;
 }
 
+function normalizeBundleFilePath(pathValue: string): string {
+  const slashNormalized = pathValue.replace(/\\/g, "/");
+  if (
+    slashNormalized.startsWith("/") ||
+    slashNormalized.startsWith("//") ||
+    /^[A-Za-z]:\//.test(slashNormalized)
+  ) {
+    throw new Error(`Invalid feedback bundle file path: ${pathValue}`);
+  }
+  const segments = slashNormalized.split("/");
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error(`Invalid feedback bundle file path: ${pathValue}`);
+  }
+  return segments.join("/");
+}
+
+function resolvePathInsideRoot(root: string, relativePath: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(resolvedRoot, relativePath);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Invalid feedback bundle file path: ${relativePath}`);
+  }
+  return resolvedTarget;
+}
+
 export function registerFeedbackCommands(program: Command): void {
   const feedback = program.command("feedback").description("Inspect and export local feedback traces");
 
@@ -390,10 +419,11 @@ export async function writeFeedbackExportBundle(input: {
       );
       fullTraceFiles.push(path.posix.join("full-traces", bundleDirName, "bundle.json"));
       for (const file of bundle.files) {
-        const targetPath = path.join(bundleDir, file.path);
+        const safeFilePath = normalizeBundleFilePath(file.path);
+        const targetPath = resolvePathInsideRoot(bundleDir, safeFilePath);
         await mkdir(path.dirname(targetPath), { recursive: true });
         await writeFile(targetPath, file.contents, "utf8");
-        fullTraceFiles.push(path.posix.join("full-traces", bundleDirName, file.path.replace(/\\/g, "/")));
+        fullTraceFiles.push(path.posix.join("full-traces", bundleDirName, safeFilePath));
       }
     }
   }

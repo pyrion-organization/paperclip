@@ -59,6 +59,13 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function validateRuntimeAssetKey(key: string): string {
+  if (!/^[A-Za-z0-9._-]+$/.test(key) || key === "." || key === "..") {
+    throw new Error(`Invalid managed runtime asset key: ${key}`);
+  }
+  return key;
+}
+
 export function parseSandboxRemoteExecutionSpec(value: unknown): SandboxRemoteExecutionSpec | null {
   const parsed = asObject(value);
   const transport = asString(parsed.transport).trim();
@@ -284,7 +291,8 @@ export async function prepareSandboxManagedRuntime(input: {
     );
 
     for (const asset of input.assets ?? []) {
-      const assetTarPath = path.join(tempDir, `${asset.key}.tar`);
+      const assetKey = validateRuntimeAssetKey(asset.key);
+      const assetTarPath = path.join(tempDir, `${assetKey}.tar`);
       await createTarballFromDirectory({
         localDir: asset.localDir,
         archivePath: assetTarPath,
@@ -292,8 +300,8 @@ export async function prepareSandboxManagedRuntime(input: {
         exclude: asset.exclude,
       });
       const assetTarBytes = await fs.readFile(assetTarPath);
-      const remoteAssetDir = path.posix.join(runtimeRootDir, asset.key);
-      const remoteAssetTar = path.posix.join(runtimeRootDir, `${asset.key}-upload.tar`);
+      const remoteAssetDir = path.posix.join(runtimeRootDir, assetKey);
+      const remoteAssetTar = path.posix.join(runtimeRootDir, `${assetKey}-upload.tar`);
       await input.client.writeFile(remoteAssetTar, toArrayBuffer(assetTarBytes));
       await input.client.run(
         `sh -c ${shellQuote(
@@ -308,7 +316,10 @@ export async function prepareSandboxManagedRuntime(input: {
   });
 
   const assetDirs = Object.fromEntries(
-    (input.assets ?? []).map((asset) => [asset.key, path.posix.join(runtimeRootDir, asset.key)]),
+    (input.assets ?? []).map((asset) => {
+      const assetKey = validateRuntimeAssetKey(asset.key);
+      return [assetKey, path.posix.join(runtimeRootDir, assetKey)];
+    }),
   );
 
   return {

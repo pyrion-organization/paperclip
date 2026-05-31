@@ -275,7 +275,7 @@ export function registerIssueCommands(program: Command): void {
         try {
           const ctx = resolveCommandContext(opts);
           const traces = (await ctx.api.get<FeedbackTrace[]>(
-            `/api/issues/${issueId}/feedback-traces${buildFeedbackTraceQuery(opts)}`,
+            `/api/issues/${issueId}/feedback-traces${buildFeedbackTraceQuery(opts, Boolean(opts.includePayload))}`,
           )) ?? [];
           if (ctx.json) {
             printOutput(traces, { json: true });
