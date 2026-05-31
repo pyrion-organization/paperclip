@@ -91,6 +91,13 @@ const EMPTY_SECRETS: CompanySecret[] = [];
 const EMPTY_SECRET_PROVIDERS: SecretProviderDescriptor[] = [];
 const EMPTY_PROVIDER_CONFIGS: CompanySecretProviderConfig[] = [];
 
+const STATUS_OPTIONS: Array<{ value: SecretStatus | "all"; label: string }> = [
+  { value: "active", label: "Active" },
+  { value: "all", label: "All statuses" },
+  { value: "disabled", label: "Disabled" },
+  { value: "archived", label: "Archived" },
+];
+
 type ProviderVaultForm = {
   provider: SecretProvider;
   displayName: string;
@@ -1605,13 +1612,6 @@ function SecretsFiltersPopover({
     onProviderChange("all");
   };
 
-  const statusOptions: Array<{ value: SecretStatus | "all"; label: string }> = [
-    { value: "active", label: "Active" },
-    { value: "all", label: "All statuses" },
-    { value: "disabled", label: "Disabled" },
-    { value: "archived", label: "Archived" },
-  ];
-
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1652,7 +1652,7 @@ function SecretsFiltersPopover({
             <div className="space-y-1">
               <span className="text-xs text-muted-foreground">Status</span>
               <div className="space-y-0.5">
-                {statusOptions.map((option) => (
+                {STATUS_OPTIONS.map((option) => (
                   <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-accent/50">
                     <Checkbox
                       checked={statusFilter === option.value}

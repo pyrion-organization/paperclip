@@ -59,6 +59,15 @@ import {
 } from "lucide-react";
 
 
+const COMMAND_PLACEHOLDERS: Record<string, string> = {
+  claude_local: "claude",
+  codex_local: "codex",
+  gemini_local: "gemini",
+  pi_local: "pi",
+  cursor: "agent",
+  opencode_local: "opencode",
+};
+
 type Step = 1 | 2 | 3 | 4;
 type AdapterType = string;
 
@@ -225,14 +234,6 @@ export function OnboardingWizard() {
       moreAdapters: all.filter((a) => !a.recommended),
     };
   }, [disabledTypes]);
-  const COMMAND_PLACEHOLDERS: Record<string, string> = {
-    claude_local: "claude",
-    codex_local: "codex",
-    gemini_local: "gemini",
-    pi_local: "pi",
-    cursor: "agent",
-    opencode_local: "opencode",
-  };
   const effectiveAdapterCommand =
     command.trim() ||
     (COMMAND_PLACEHOLDERS[adapterType] ?? adapterType.replace(/_local$/, ""));

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -265,11 +265,15 @@ const SecretField = React.memo(({
 
   // Keep the raw-input panel open when the parent loads a raw value after
   // mount (e.g. an environment-config form rendering with empty defaults
-  // before its API response arrives). We only promote to `true` here; manual
-  // toggles off are still preserved as long as `hasRawValue` is false.
-  useEffect(() => {
+  // before its API response arrives). We only promote to `true` on the
+  // transition; manual toggles off are still preserved as long as
+  // `hasRawValue` is false. Adjusting during render (instead of via an
+  // effect) avoids an extra commit with a stale closed panel.
+  const [prevHasRawValue, setPrevHasRawValue] = useState(hasRawValue);
+  if (hasRawValue !== prevHasRawValue) {
+    setPrevHasRawValue(hasRawValue);
     if (hasRawValue) setShowRawInput(true);
-  }, [hasRawValue]);
+  }
 
   const bindingValue: SecretBindingValue | null = isBoundToSecret
     ? { secretId: trimmed }

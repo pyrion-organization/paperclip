@@ -104,6 +104,44 @@ const SKILL_TREE_BASE_INDENT = 16;
 const SKILL_TREE_STEP_INDENT = 24;
 const SKILL_TREE_ROW_HEIGHT_CLASS = "min-h-9";
 
+const SOURCE_FILTERS: SourceFilter[] = ["all", "company", "bundled", "optional", "external"];
+
+const TRUST_CHIP_MAP = {
+  markdown_only: {
+    icon: ShieldCheck,
+    label: "Markdown only",
+    tooltip: "Text only — no scripts, no binaries, no assets.",
+    className: "border-border bg-muted/40 text-muted-foreground",
+  },
+  assets: {
+    icon: Folder,
+    label: "Includes assets",
+    tooltip: "Ships images, fonts, or other non-script files.",
+    className: "border-cyan-500/30 bg-cyan-500/10 text-cyan-200",
+  },
+  scripts_executables: {
+    icon: AlertTriangle,
+    label: "Includes scripts",
+    tooltip: "Ships executable scripts. Review before installing.",
+    className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  },
+} as const;
+
+const COMPAT_CHIP_MAP = {
+  unknown: {
+    icon: HelpCircle,
+    label: "Unknown format",
+    tooltip: "Paperclip could not validate this skill as Agent Skills markdown. Install at your own risk.",
+    className: "border-yellow-500/40 bg-yellow-500/10 text-yellow-200",
+  },
+  invalid: {
+    icon: XOctagon,
+    label: "Invalid",
+    tooltip: "This skill cannot be installed — content is not valid Agent Skills markdown.",
+    className: "border-destructive/40 bg-destructive/10 text-destructive",
+  },
+} as const;
+
 function VercelMark(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
@@ -344,7 +382,6 @@ function SourceFilterMenu({
   value: SourceFilter;
   onChange: (next: SourceFilter) => void;
 }) {
-  const filters: SourceFilter[] = ["all", "company", "bundled", "optional", "external"];
   const activeFilterCount = value === "all" ? 0 : 1;
   return (
     <DropdownMenu>
@@ -366,7 +403,7 @@ function SourceFilterMenu({
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuLabel>Source</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as SourceFilter)}>
-          {filters.map((filter) => (
+          {SOURCE_FILTERS.map((filter) => (
             <DropdownMenuRadioItem key={filter} value={filter}>
               <span>{SOURCE_FILTER_LABELS[filter]}</span>
               <span className="ml-auto text-xs text-muted-foreground">{counts[filter] ?? 0}</span>
@@ -432,27 +469,7 @@ function CatalogFilterMenu({
 }
 
 function TrustChip({ level }: { level: CompanySkillTrustLevel }) {
-  const map = {
-    markdown_only: {
-      icon: ShieldCheck,
-      label: "Markdown only",
-      tooltip: "Text only — no scripts, no binaries, no assets.",
-      className: "border-border bg-muted/40 text-muted-foreground",
-    },
-    assets: {
-      icon: Folder,
-      label: "Includes assets",
-      tooltip: "Ships images, fonts, or other non-script files.",
-      className: "border-cyan-500/30 bg-cyan-500/10 text-cyan-200",
-    },
-    scripts_executables: {
-      icon: AlertTriangle,
-      label: "Includes scripts",
-      tooltip: "Ships executable scripts. Review before installing.",
-      className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-    },
-  } as const;
-  const config = map[level] ?? map.markdown_only;
+  const config = TRUST_CHIP_MAP[level] ?? TRUST_CHIP_MAP.markdown_only;
   const Icon = config.icon;
   return (
     <Tooltip>
@@ -469,21 +486,7 @@ function TrustChip({ level }: { level: CompanySkillTrustLevel }) {
 
 function CompatChip({ compatibility }: { compatibility: CompanySkillCompatibility }) {
   if (compatibility === "compatible") return null;
-  const map = {
-    unknown: {
-      icon: HelpCircle,
-      label: "Unknown format",
-      tooltip: "Paperclip could not validate this skill as Agent Skills markdown. Install at your own risk.",
-      className: "border-yellow-500/40 bg-yellow-500/10 text-yellow-200",
-    },
-    invalid: {
-      icon: XOctagon,
-      label: "Invalid",
-      tooltip: "This skill cannot be installed — content is not valid Agent Skills markdown.",
-      className: "border-destructive/40 bg-destructive/10 text-destructive",
-    },
-  } as const;
-  const config = map[compatibility];
+  const config = COMPAT_CHIP_MAP[compatibility];
   const Icon = config.icon;
   return (
     <Tooltip>

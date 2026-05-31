@@ -52,6 +52,13 @@ import {
 } from "@/lib/recent-assignees";
 import { getRecentProjectIds, trackRecentProject } from "@/lib/recent-projects";
 
+const LOG_LEVEL_CLASS_NAME: Record<string, string> = {
+  info: "text-sky-600",
+  warn: "text-amber-600",
+  error: "text-red-600",
+  debug: "text-muted-foreground",
+};
+
 // ---------------------------------------------------------------------------
 // Global bridge registry
 // ---------------------------------------------------------------------------
@@ -868,13 +875,6 @@ function PluginSdkLogView({
   if (loading) return createElement("div", { className: "text-sm text-muted-foreground" }, "Loading...");
   if (!entries.length) return createElement("div", { className: "text-sm text-muted-foreground" }, "No log entries.");
 
-  const levelClassName = {
-    info: "text-sky-600",
-    warn: "text-amber-600",
-    error: "text-red-600",
-    debug: "text-muted-foreground",
-  };
-
   return createElement(
     "div",
     {
@@ -885,7 +885,7 @@ function PluginSdkLogView({
       "div",
       { key: `${entry.timestamp}:${index}`, className: "grid grid-cols-[max-content_max-content_minmax(0,1fr)] gap-2 py-0.5" },
       createElement("span", { className: "text-muted-foreground" }, entry.timestamp),
-      createElement("span", { className: levelClassName[entry.level] }, entry.level.toUpperCase()),
+      createElement("span", { className: LOG_LEVEL_CLASS_NAME[entry.level] }, entry.level.toUpperCase()),
       createElement("span", { className: "min-w-0 whitespace-pre-wrap break-words" }, entry.message),
     )),
   );

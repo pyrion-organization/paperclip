@@ -54,6 +54,12 @@ import { cn } from "../../lib/classnames";
 
 type Step = "select" | "review" | "result";
 
+const STEPPER_STEPS: { id: Step; label: string }[] = [
+  { id: "select", label: "Select" },
+  { id: "review", label: "Review" },
+  { id: "result", label: "Result" },
+];
+
 interface ImportFromVaultDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -743,15 +749,10 @@ function ImportFromVaultDialogContent({
 }
 
 function Stepper({ step }: { step: Step }) {
-  const steps: { id: Step; label: string }[] = [
-    { id: "select", label: "Select" },
-    { id: "review", label: "Review" },
-    { id: "result", label: "Result" },
-  ];
-  const activeIndex = steps.findIndex((s) => s.id === step);
+  const activeIndex = STEPPER_STEPS.findIndex((s) => s.id === step);
   return (
     <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-      {steps.map((s, index) => (
+      {STEPPER_STEPS.map((s, index) => (
         <span key={s.id} className="flex items-center gap-2">
           <span
             className={cn(
@@ -772,7 +773,7 @@ function Stepper({ step }: { step: Step }) {
           >
             {s.label}
           </span>
-          {index < steps.length - 1 && (
+          {index < STEPPER_STEPS.length - 1 && (
             <span className="text-muted-foreground/60">›</span>
           )}
         </span>

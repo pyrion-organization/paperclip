@@ -36,6 +36,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "./EmptyState";
 import { MarkdownBody } from "./MarkdownBody";
 
+const lineClassesByKind: Record<DiffRow["kind"], string> = {
+  context: "bg-transparent",
+  removed: "bg-red-500/10 text-red-100",
+  added: "bg-green-500/10 text-green-100",
+};
+
+const markerByKind: Record<DiffRow["kind"], string> = {
+  context: " ",
+  removed: "-",
+  added: "+",
+};
+
 type AgentLookup = Map<string, { id: string; name: string }>;
 type ProjectLookup = Map<string, { id: string; name: string }>;
 type SecretLookup = Map<string, CompanySecret>;
@@ -933,16 +945,6 @@ function DiffTable({ rows }: { rows: DiffRow[] }) {
   if (rows.every((row) => row.kind === "context")) {
     return <p className="text-sm text-muted-foreground">Descriptions are identical.</p>;
   }
-  const lineClassesByKind: Record<DiffRow["kind"], string> = {
-    context: "bg-transparent",
-    removed: "bg-red-500/10 text-red-100",
-    added: "bg-green-500/10 text-green-100",
-  };
-  const markerByKind: Record<DiffRow["kind"], string> = {
-    context: " ",
-    removed: "-",
-    added: "+",
-  };
   return (
     <div className="rounded-md border border-border text-xs font-mono leading-6 overflow-hidden">
       <div className="grid grid-cols-[56px_56px_24px_minmax(0,1fr)] border-b border-border/60 bg-muted/30 px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
