@@ -17,7 +17,11 @@ export function trackRecentSelectionId(storageKey: string, id: string): void {
   const recent = readRecentSelectionIds(storageKey).filter((candidate) => candidate !== id);
   recent.unshift(id);
   if (recent.length > MAX_STORED_RECENT_SELECTIONS) recent.length = MAX_STORED_RECENT_SELECTIONS;
-  localStorage.setItem(storageKey, JSON.stringify(recent));
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(recent));
+  } catch {
+    // Ignore storage failures; recency is only a UI convenience.
+  }
 }
 
 export function orderItemsBySelectedAndRecent<T extends { id: string }>(

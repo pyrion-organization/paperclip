@@ -1,0 +1,1 @@
+const t={noCompanies:{title:"మీ మొదటి కంపెనీని సృష్టించండి",description:"కంపెనీని సృష్టించడం ద్వారా ప్రారంభించండి.",newCompany:"కొత్త కంపెనీ"}},e={app:t};export{t as app,e as default};

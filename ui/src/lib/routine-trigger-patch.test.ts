@@ -141,6 +141,31 @@ describe("buildRoutineTriggerPatch", () => {
     });
   });
 
+  it("falls back to valid random cron times for malformed drafts", () => {
+    const patch = buildRoutineTriggerPatch(
+      makeScheduleTrigger({ kind: "random_cron_scheduler" }),
+      {
+        label: "Random weekday scheduler",
+        conditions: [],
+        cronExpression: "",
+        signingMode: "bearer",
+        replayWindowSec: "300",
+        minTimeOfDayMin: "09:xx",
+        maxTimeOfDayMin: "abc",
+        minDaysAhead: "1",
+        maxDaysAhead: "7",
+      },
+      "UTC",
+    );
+
+    expect(Number.isNaN(patch.minTimeOfDayMin)).toBe(false);
+    expect(Number.isNaN(patch.maxTimeOfDayMin)).toBe(false);
+    expect(patch).toMatchObject({
+      minTimeOfDayMin: 0,
+      maxTimeOfDayMin: 0,
+    });
+  });
+
   it("uses the raw seconds value directly", () => {
     const patch = buildRoutineTriggerPatch(
       makeScheduleTrigger({ kind: "random_interval" }),

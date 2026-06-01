@@ -1,0 +1,1 @@
+function e(t){const r=t.trim();return r.includes("/")&&r.slice(0,r.indexOf("/")).trim()||null}function n(t,r="other"){return e(t)??r}function c(t){const r=t.trim();return r.includes("/")?r.slice(r.indexOf("/")+1).trim():r}export{c as a,e as b,n as e};

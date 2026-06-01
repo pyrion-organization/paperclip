@@ -388,7 +388,11 @@ function parseCsv(value: string | undefined): string[] {
 
 function parseOptionalInt(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
-  const parsed = Number.parseInt(value, 10);
+  const normalized = value.trim();
+  if (!/^-?\d+$/.test(normalized)) {
+    throw new Error(`Invalid integer value: ${value}`);
+  }
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid integer value: ${value}`);
   }

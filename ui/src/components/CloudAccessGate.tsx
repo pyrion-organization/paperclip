@@ -25,6 +25,10 @@ function NoBoardAccessPage() {
   );
 }
 
+function isUnauthenticatedSessionError(error: unknown) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 export function CloudAccessGate() {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -79,14 +83,21 @@ export function CloudAccessGate() {
     return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading&hellip;</div>;
   }
 
-  if (healthQuery.error || boardAccessQuery.error) {
+  const sessionError =
+    sessionQuery.error && !isUnauthenticatedSessionError(sessionQuery.error)
+      ? sessionQuery.error
+      : null;
+
+  if (healthQuery.error || sessionError || boardAccessQuery.error) {
     return (
       <div className="mx-auto max-w-xl py-10 text-sm text-destructive">
         {healthQuery.error instanceof Error
           ? healthQuery.error.message
-          : boardAccessQuery.error instanceof Error
-            ? boardAccessQuery.error.message
-            : "Failed to load app state"}
+          : sessionError instanceof Error
+            ? sessionError.message
+            : boardAccessQuery.error instanceof Error
+              ? boardAccessQuery.error.message
+              : "Failed to load app state"}
       </div>
     );
   }

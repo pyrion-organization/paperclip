@@ -2,6 +2,8 @@ import type { CompanyPortabilityFileEntry } from "@paperclipai/shared";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+const MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
 
 const crcTable = new Uint32Array(256);
 for (let i = 0; i < 256; i++) {
@@ -167,6 +169,7 @@ export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<
 }> {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source);
   const entries: Array<{ path: string; body: CompanyPortabilityFileEntry }> = [];
+  let totalUncompressedSize = 0;
   let offset = 0;
 
   while (offset + 4 <= bytes.length) {
@@ -203,6 +206,13 @@ export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<
     const isDirectoryEntry = /\/$/.test(rawArchivePath.replace(/\\/g, "/"));
     const archivePath = normalizeArchivePath(rawArchivePath, { allowEmpty: isDirectoryEntry });
     if (archivePath && !isDirectoryEntry) {
+      if (uncompressedSize > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES) {
+        throw new Error(`Invalid zip archive: entry "${archivePath}" exceeds the maximum uncompressed size.`);
+      }
+      totalUncompressedSize += uncompressedSize;
+      if (totalUncompressedSize > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
+        throw new Error("Invalid zip archive: total uncompressed size exceeds the maximum allowed size.");
+      }
       const entryBytes = await inflateZipEntry(compressionMethod, bytes.slice(bodyOffset, bodyEnd));
       if (entryBytes.length !== uncompressedSize) {
         throw new Error(`Invalid zip archive: entry size mismatch for "${archivePath}".`);

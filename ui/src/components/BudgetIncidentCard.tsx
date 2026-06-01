@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { BudgetIncident } from "@paperclipai/shared";
 import { AlertOctagon, ArrowUpRight, PauseCircle } from "lucide-react";
 import { formatCents } from "../lib/utils";
@@ -15,6 +15,10 @@ function parseDollarInput(value: string) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return Math.round(parsed * 100);
+}
+
+function defaultIncidentDraftAmount(incident: BudgetIncident) {
+  return centsInputValue(Math.max(incident.amountObserved + 1000, incident.amountLimit));
 }
 
 function incidentStateLabel(incident: BudgetIncident) {
@@ -36,9 +40,13 @@ export function BudgetIncidentCard({
   onKeepPaused: () => void;
   isMutating?: boolean;
 }) {
-  const [draftAmount, setDraftAmount] = useState(() =>
-    centsInputValue(Math.max(incident.amountObserved + 1000, incident.amountLimit)),
-  );
+  const [draftAmount, setDraftAmount] = useState(() => defaultIncidentDraftAmount(incident));
+  const prevIncidentKeyRef = useRef(`${incident.id}:${incident.amountLimit}:${incident.amountObserved}`);
+  const incidentKey = `${incident.id}:${incident.amountLimit}:${incident.amountObserved}`;
+  if (incidentKey !== prevIncidentKeyRef.current) {
+    prevIncidentKeyRef.current = incidentKey;
+    setDraftAmount(defaultIncidentDraftAmount(incident));
+  }
   const parsed = parseDollarInput(draftAmount);
   const stateLabel = incidentStateLabel(incident);
 

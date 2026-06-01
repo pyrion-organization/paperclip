@@ -1,0 +1,1 @@
+const r=/[^a-z0-9]+/g,i=/^-+|-+$/g,a=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;function o(n){return typeof n!="string"?!1:a.test(n.trim())}function e(n){if(typeof n!="string")return null;const t=n.trim().toLowerCase().replace(r,"-").replace(i,"");return t.length>0?t:null}function f(n,t){return e(n)??e(t)??"agent"}export{f as d,o as i,e as n};

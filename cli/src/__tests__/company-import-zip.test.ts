@@ -72,4 +72,16 @@ describe("resolveInlineSourceFromPath", () => {
 
     await expect(readZipArchive(archive)).rejects.toThrow("checksum mismatch");
   });
+
+  it("rejects oversized zip entries before inflation", async () => {
+    const archive = createStoredZipArchive(
+      {
+        "COMPANY.md": "# Company\n",
+      },
+      "paperclip-demo",
+    );
+    writeUint32(archive, 22, 101 * 1024 * 1024);
+
+    await expect(readZipArchive(archive)).rejects.toThrow("exceeds the maximum uncompressed size");
+  });
 });

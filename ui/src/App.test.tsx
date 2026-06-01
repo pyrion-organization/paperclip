@@ -148,6 +148,19 @@ describe("CloudAccessGate", () => {
     unmountRoot(root);
   });
 
+  it("shows session load failures instead of redirecting as signed out", async () => {
+    mockAuthApi.getSession.mockRejectedValue(new Error("session service down"));
+
+    const root = renderGate(container);
+    await waitForText(container, "session service down");
+
+    expect(container.textContent).toContain("session service down");
+    expect(container.textContent).not.toContain("Navigate:/auth");
+    expect(mockAccessApi.getCurrentBoardAccess).not.toHaveBeenCalled();
+
+    unmountRoot(root);
+  });
+
   it("shows browser sign-in setup for signed-out private bootstrap-pending instances", async () => {
     mockHealthApi.get.mockResolvedValue({
       status: "ok",

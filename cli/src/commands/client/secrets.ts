@@ -37,6 +37,7 @@ interface SecretCreateOptions extends BaseClientOptions {
   provider?: SecretProvider;
   value?: string;
   valueEnv?: string;
+  valueStdin?: boolean;
   description?: string;
 }
 
@@ -171,17 +172,31 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function readValueFromOptions(opts: SecretCreateOptions): string {
-  if (opts.value !== undefined && opts.valueEnv !== undefined) {
-    throw new Error("Use only one of --value or --value-env.");
+async function readStdinText(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
+  return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+}
+
+async function readValueFromOptions(opts: SecretCreateOptions): Promise<string> {
+  const provided = [opts.value !== undefined, opts.valueEnv !== undefined, Boolean(opts.valueStdin)]
+    .filter(Boolean).length;
+  if (provided > 1) {
+    throw new Error("Use only one of --value, --value-env, or --value-stdin.");
+  }
+  if (opts.valueStdin) return await readStdinText();
   if (opts.valueEnv !== undefined) {
     const value = process.env[opts.valueEnv];
     if (!value) throw new Error(`Environment variable ${opts.valueEnv} is empty or unset.`);
     return value;
   }
-  if (opts.value !== undefined) return opts.value;
-  throw new Error("Secret value is required. Pass --value or --value-env.");
+  if (opts.value !== undefined) {
+    console.warn("Warning: --value can expose secret material in shell history and process listings. Prefer --value-env or --value-stdin.");
+    return opts.value;
+  }
+  throw new Error("Secret value is required. Prefer --value-env or --value-stdin.");
 }
 
 function renderDeclaration(input: CompanyPortabilityEnvInput): Record<string, unknown> {
@@ -398,8 +413,9 @@ export function registerSecretCommands(program: Command): void {
       .requiredOption("--name <name>", "Secret display name")
       .option("--key <key>", "Portable secret key")
       .option("--provider <provider>", "Secret provider id")
-      .option("--value <value>", "Secret value")
+      .option("--value <value>", "Secret value (not recommended; visible in process arguments)")
       .option("--value-env <name>", "Read secret value from an environment variable")
+      .option("--value-stdin", "Read secret value from stdin")
       .option("--description <text>", "Description")
       .action(async (opts: SecretCreateOptions) => {
         try {
@@ -408,7 +424,7 @@ export function registerSecretCommands(program: Command): void {
             name: opts.name,
             key: opts.key,
             provider: opts.provider,
-            value: readValueFromOptions(opts),
+            value: await readValueFromOptions(opts),
             description: opts.description,
           });
           printOutput(ctx.json ? created : renderSecret(created!), { json: ctx.json });

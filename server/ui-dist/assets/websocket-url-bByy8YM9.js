@@ -1,0 +1,1 @@
+function n(o){const t=o.trim().toLowerCase();return t==="0.0.0.0"||t==="::"||t==="[::]"}function e(o=window.location){return n(o.hostname)?o.port?`localhost:${o.port}`:"localhost":o.host}function i(o,t=window.location){const r=t.protocol==="https:"?"wss":"ws",s=o.startsWith("/")?o:`/${o}`;return`${r}://${e(t)}${s}`}export{i as b};

@@ -1,0 +1,1 @@
+const e={noCompanies:{title:"Erstellen Sie Ihr erstes Unternehmen",description:"Beginnen Sie, indem Sie ein Unternehmen erstellen.",newCompany:"Neues Unternehmen"}},n={app:e};export{e as app,n as default};

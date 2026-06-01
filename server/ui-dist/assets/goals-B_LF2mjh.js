@@ -1,0 +1,1 @@
+import{a as e}from"./sidebar-runtime-D57EFm4H.js";const t={list:a=>e.get(`/companies/${a}/goals`),get:a=>e.get(`/goals/${a}`),create:(a,o)=>e.post(`/companies/${a}/goals`,o),update:(a,o)=>e.patch(`/goals/${a}`,o),remove:a=>e.delete(`/goals/${a}`)};export{t as g};

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getRecentAssigneeIds,
   getRecentAssigneeSelectionIds,
@@ -75,5 +75,15 @@ describe("recent selection ordering", () => {
 
     expect(getRecentAssigneeSelectionIds()).toEqual(["user:user-1", "agent:agent-1"]);
     expect(getRecentAssigneeIds()).toEqual(["agent-1"]);
+  });
+
+  it("ignores localStorage write failures when tracking recents", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+
+    expect(() => trackRecentProject("project-1")).not.toThrow();
+
+    spy.mockRestore();
   });
 });

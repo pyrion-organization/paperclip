@@ -299,4 +299,11 @@ describe("createZipArchive", () => {
 
     await expect(readZipArchive(archive)).rejects.toThrow("checksum mismatch");
   });
+
+  it("rejects oversized entries before inflating browser zip imports", async () => {
+    const archive = createZipArchive({ "COMPANY.md": "# Company\n" }, "paperclip-demo");
+    writeUint32(archive, 22, 101 * 1024 * 1024);
+
+    await expect(readZipArchive(archive)).rejects.toThrow("exceeds the maximum uncompressed size");
+  });
 });

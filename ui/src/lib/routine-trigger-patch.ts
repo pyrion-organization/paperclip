@@ -18,8 +18,14 @@ export type RoutineTriggerEditorDraft = {
 };
 
 export function parseTimeToMin(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
+  const match = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return 0;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+    return 0;
+  }
+  return h * 60 + m;
 }
 
 function buildRoutineTriggerConditionsPayload(drafts: RoutineTriggerConditionDraft[]): RoutineTriggerCondition[] | null {

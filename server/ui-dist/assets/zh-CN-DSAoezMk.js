@@ -1,0 +1,1 @@
+const n={noCompanies:{title:"创建您的第一家公司",description:"通过创建公司开始。",newCompany:"新公司"}},o={app:n};export{n as app,o as default};

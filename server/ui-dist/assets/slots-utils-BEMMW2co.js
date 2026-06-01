@@ -1,0 +1,1 @@
+function i(r,n){if(!n)return null;const t=r.filter(e=>e.type==="page"&&e.routePath===n);if(t.length!==1)return null;const[u]=t,l=r.filter(e=>e.type==="routeSidebar"&&e.routePath===n&&e.pluginId===u.pluginId);return l.length!==1?null:l[0]??null}export{i as r};
