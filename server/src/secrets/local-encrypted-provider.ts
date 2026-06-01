@@ -1,5 +1,16 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { resolveDefaultSecretsKeyFilePath } from "../home-paths.js";
 import type {
@@ -75,10 +86,17 @@ function loadOrCreateMasterKey(): Buffer {
   const dir = path.dirname(keyPath);
   mkdirSync(dir, { recursive: true });
   const generated = randomBytes(32);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(keyPath)}.${process.pid}.${Date.now()}.${randomBytes(8).toString("hex")}.tmp`,
+  );
   let fd: number | null = null;
   try {
-    fd = openSync(keyPath, "wx", 0o600);
+    fd = openSync(tempPath, "wx", 0o600);
     writeFileSync(fd, generated.toString("base64"), { encoding: "utf8" });
+    closeSync(fd);
+    fd = null;
+    linkSync(tempPath, keyPath);
   } catch (err) {
     const code = err && typeof err === "object" ? (err as { code?: unknown }).code : null;
     if (code === "EEXIST") {
@@ -87,6 +105,11 @@ function loadOrCreateMasterKey(): Buffer {
     throw err;
   } finally {
     if (fd !== null) closeSync(fd);
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // best effort
+    }
   }
   try {
     chmodSync(keyPath, 0o600);

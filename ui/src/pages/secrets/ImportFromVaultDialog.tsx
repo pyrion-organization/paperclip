@@ -970,7 +970,7 @@ function SelectStep(props: SelectStepProps) {
           <PreviewErrorBanner error={previewError} onRetry={onRefresh} />
         ) : previewLoading && candidates.length === 0 ? (
           <SkeletonRows rows={8} />
-        ) : candidates.length === 0 ? (
+        ) : visibleCandidates.length === 0 ? (
           <EmptyCandidates query={debouncedQuery} />
         ) : (
           <table className="w-full text-sm">

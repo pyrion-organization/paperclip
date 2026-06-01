@@ -332,6 +332,70 @@ describe("ImportFromVaultDialog", () => {
     });
   });
 
+  it("shows selected rows when the current search has no matches", async () => {
+    const stripe = makeCandidate({
+      externalRef: "arn:aws:secretsmanager:us-east-1:1:secret:prod/stripe-ABC",
+      remoteName: "prod/stripe",
+      name: "prod/stripe",
+      key: "prod-stripe",
+    });
+    mockSecretsApi.remoteImportPreview
+      .mockResolvedValueOnce(makePreview([stripe]))
+      .mockResolvedValueOnce(makePreview([]));
+
+    const { queryClient } = makeWrapper();
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ImportFromVaultDialog
+            open
+            onOpenChange={vi.fn()}
+            companyId="company-1"
+            providerConfigs={[awsVault]}
+            existingSecrets={[]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
+    await flush();
+
+    const stripeRow = document.querySelector(
+      '[data-testid="vault-row-arn:aws:secretsmanager:us-east-1:1:secret:prod/stripe-ABC"]',
+    ) as HTMLElement | null;
+    await act(async () => {
+      stripeRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    const searchInput = document.querySelector('[data-testid="vault-search"]') as HTMLInputElement | null;
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      valueSetter?.call(searchInput, "no-such-secret");
+      searchInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flushDebounce();
+    await flush();
+
+    expect(document.body.textContent).toContain("1 not visible with current search");
+    expect(document.body.textContent).toContain("No remote secrets match");
+    const showSelected = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Show selected"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      showSelected?.click();
+    });
+    await flush();
+
+    expect(document.body.textContent).toContain("prod/stripe");
+    expect(document.body.textContent).not.toContain("No remote secrets match");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("disables checkboxes for already-imported (duplicate) rows and shows a conflict badge for conflicts", async () => {
     mockSecretsApi.remoteImportPreview.mockResolvedValueOnce(
       makePreview([
