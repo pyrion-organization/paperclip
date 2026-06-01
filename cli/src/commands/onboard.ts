@@ -204,6 +204,10 @@ function quickstartDefaultsFromEnv(opts?: { preferTrustedLocal?: boolean }): {
     1,
     parseNumberFromEnv(process.env.PAPERCLIP_DB_BACKUP_INTERVAL_MINUTES) ?? 60,
   );
+  const databaseBackupTimeoutMinutes = Math.max(
+    1,
+    parseNumberFromEnv(process.env.PAPERCLIP_DB_BACKUP_TIMEOUT_MINUTES) ?? 45,
+  );
   const databaseBackupRetentionDays = Math.max(
     1,
     parseNumberFromEnv(process.env.PAPERCLIP_DB_BACKUP_RETENTION_DAYS) ?? 30,
@@ -217,6 +221,7 @@ function quickstartDefaultsFromEnv(opts?: { preferTrustedLocal?: boolean }): {
       backup: {
         enabled: databaseBackupEnabled,
         intervalMinutes: databaseBackupIntervalMinutes,
+        timeoutMinutes: databaseBackupTimeoutMinutes,
         retentionDays: databaseBackupRetentionDays,
         dir: resolvePathFromEnv(process.env.PAPERCLIP_DB_BACKUP_DIR) ?? resolveDefaultBackupDir(instanceId),
       },

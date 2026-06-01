@@ -25,6 +25,7 @@ function workerConfig(overrides?: Partial<Config>): Config {
     embeddedPostgresPort: 54329,
     databaseBackupEnabled: false,
     databaseBackupIntervalMinutes: 60,
+    databaseBackupTimeoutMinutes: 45,
     databaseBackupRetentionDays: 7,
     databaseBackupDir: "/tmp/paperclip-backups",
     serveUi: true,

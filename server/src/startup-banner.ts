@@ -32,6 +32,7 @@ type StartupBannerOptions = {
   heartbeatSchedulerIntervalMs: number;
   databaseBackupEnabled: boolean;
   databaseBackupIntervalMinutes: number;
+  databaseBackupTimeoutMinutes: number;
   databaseBackupRetentionDays: number;
   databaseBackupDir: string;
 };
@@ -131,7 +132,7 @@ export function printStartupBanner(opts: StartupBannerOptions): void {
     ? `enabled ${color(`(${opts.heartbeatSchedulerIntervalMs}ms)`, "dim")}`
     : color("disabled", "yellow");
   const dbBackup = opts.databaseBackupEnabled
-    ? `enabled ${color(`(every ${opts.databaseBackupIntervalMinutes}m, keep ${opts.databaseBackupRetentionDays}d)`, "dim")}`
+    ? `enabled ${color(`(every ${opts.databaseBackupIntervalMinutes}m, timeout ${opts.databaseBackupTimeoutMinutes}m, keep ${opts.databaseBackupRetentionDays}d)`, "dim")}`
     : color("disabled", "yellow");
 
   const art = [

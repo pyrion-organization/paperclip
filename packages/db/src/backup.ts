@@ -14,6 +14,7 @@ type PartialConfig = {
     embeddedPostgresPort?: number;
     backup?: {
       dir?: string;
+      timeoutMinutes?: number;
       retentionDays?: number;
     };
   };
@@ -64,15 +65,21 @@ function resolveRetentionDays(config: PartialConfig | null): number {
   return asPositiveInt(config?.database?.backup?.retentionDays) ?? 7;
 }
 
+function resolveTimeoutMinutes(config: PartialConfig | null): number {
+  return asPositiveInt(config?.database?.backup?.timeoutMinutes) ?? 45;
+}
+
 async function main() {
   const configPath = resolvePaperclipConfigPathForInstance();
   const config = readConfig(configPath);
   const connectionString = resolveConnectionString(config);
   const backupDir = resolveBackupDir(config);
   const retentionDays = resolveRetentionDays(config);
+  const timeoutMinutes = resolveTimeoutMinutes(config);
 
   console.log(`Config path: ${configPath}`);
   console.log(`Backing up database to: ${backupDir}`);
+  console.log(`Backup timeout: ${timeoutMinutes} minute(s)`);
   console.log(`Retention window: ${retentionDays} day(s)`);
 
   try {
@@ -81,6 +88,7 @@ async function main() {
       backupDir,
       retention: { dailyDays: retentionDays, weeklyWeeks: 4, monthlyMonths: 1 },
       filenamePrefix: "paperclip",
+      timeoutMs: timeoutMinutes * 60 * 1000,
     });
 
     console.log(`Backup saved: ${formatDatabaseBackupResult(result)}`);
