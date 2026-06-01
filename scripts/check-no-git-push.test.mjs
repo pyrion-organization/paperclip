@@ -146,6 +146,25 @@ test("runCheck ignores opt-in marker outside the scoped tree", () => {
   }
 });
 
+test("runCheck does not scan server routes by default", () => {
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "no-git-push-server-routes-"));
+  try {
+    mkdirSync(path.join(tmpRoot, "server/src/routes"), { recursive: true });
+    writeFileSync(
+      path.join(tmpRoot, "server/src/routes/projects.ts"),
+      'router.post("/projects/:id/files/git-push", handler);\n',
+    );
+    const code = runCheck({
+      repoRoot: tmpRoot,
+      log: () => {},
+      error: () => {},
+    });
+    assert.equal(code, 0);
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
 test("collectScannableFiles skips node_modules, dist, and .d.ts", () => {
   const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "no-git-push-collect-"));
   try {

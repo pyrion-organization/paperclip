@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_SCAN_ROOTS = [
   "packages/adapters",
   "packages/adapter-utils",
-  "server/src",
+  "server/src/services",
   "cli/src",
 ];
 
