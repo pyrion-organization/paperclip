@@ -11,7 +11,7 @@
  * available. If username detection fails, the check degrades gracefully.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import { resolve } from "node:path";
@@ -52,7 +52,7 @@ export function resolveForbiddenTokens(tokensFile, env = process.env, osModule =
 export function runForbiddenTokenCheck({
   repoRoot,
   tokens,
-  exec = execSync,
+  execFile = execFileSync,
   log = console.log,
   error = console.error,
 }) {
@@ -65,8 +65,9 @@ export function runForbiddenTokenCheck({
 
   for (const token of tokens) {
     try {
-      const result = exec(
-        `git grep -in --no-color -- ${JSON.stringify(token)} -- ':!pnpm-lock.yaml' ':!.git'`,
+      const result = execFile(
+        "git",
+        ["grep", "-in", "--no-color", "--", token, "--", ":!pnpm-lock.yaml", ":!.git"],
         { encoding: "utf8", cwd: repoRoot, stdio: ["pipe", "pipe", "pipe"] },
       );
       if (result.trim()) {

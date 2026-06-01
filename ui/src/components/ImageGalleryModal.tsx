@@ -10,6 +10,11 @@ interface ImageGalleryModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function clampImageIndex(index: number, imageCount: number) {
+  if (imageCount <= 0) return 0;
+  return Math.min(Math.max(index, 0), imageCount - 1);
+}
+
 export function ImageGalleryModal({
   images,
   initialIndex,
@@ -32,6 +37,16 @@ export function ImageGalleryModal({
     else if (e.key === "ArrowLeft") goPrev();
     else if (e.key === "Escape") onOpenChange(false);
   });
+
+  useEffect(() => {
+    if (!open) return;
+    setCurrentIndex(clampImageIndex(initialIndex, images.length));
+  }, [open, initialIndex, images.length]);
+
+  useEffect(() => {
+    if (images.length === 0) return;
+    setCurrentIndex((index) => clampImageIndex(index, images.length));
+  }, [images.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -59,7 +74,8 @@ export function ImageGalleryModal({
 
   if (images.length === 0) return null;
 
-  const current = images[currentIndex];
+  const visibleIndex = clampImageIndex(currentIndex, images.length);
+  const current = images[visibleIndex];
   if (!current) return null;
 
   return (
@@ -78,7 +94,7 @@ export function ImageGalleryModal({
             </span>
             <div className="flex items-center gap-4">
               <span className="text-white/40 tabular-nums text-xs">
-                {currentIndex + 1} / {images.length}
+                {visibleIndex + 1} / {images.length}
               </span>
               <a
                 href={current.contentPath}

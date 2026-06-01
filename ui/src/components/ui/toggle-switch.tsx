@@ -16,6 +16,7 @@ export function ToggleSwitch({
   className,
   disabled,
   ref,
+  onClick,
   ...props
 }: ToggleSwitchProps) {
     const isLg = size === "lg";
@@ -37,7 +38,11 @@ export function ToggleSwitch({
           checked ? "bg-green-600" : "bg-muted",
           className,
         )}
-        onClick={() => onCheckedChange(!checked)}
+        onClick={(event) => {
+          onClick?.(event);
+          if (event.defaultPrevented) return;
+          onCheckedChange(!checked);
+        }}
         {...props}
       >
         <span

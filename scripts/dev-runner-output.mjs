@@ -65,7 +65,7 @@ export async function parseJsonResponseWithLimit(response, maxBytes = DEFAULT_JS
   }
 
   if (!response.body) {
-    return JSON.parse("");
+    throw new Error("Response has no body");
   }
 
   const reader = response.body.getReader();

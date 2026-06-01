@@ -60,6 +60,27 @@ describe("parseCodexStdoutLine", () => {
     }]);
   });
 
+  it("marks explicit failed tool_result payloads as error results", () => {
+    const completed = parseCodexStdoutLine(JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "tool-4-result",
+        type: "tool_result",
+        tool_use_id: "tool-4",
+        content: "permission denied",
+        status: "failed",
+      },
+    }), "2026-04-08T12:00:04.000Z");
+
+    expect(completed).toEqual([{
+      kind: "tool_result",
+      ts: "2026-04-08T12:00:04.000Z",
+      toolUseId: "tool-4",
+      content: "permission denied",
+      isError: true,
+    }]);
+  });
+
   it("marks failed completed tool_use items as error results", () => {
     const completed = parseCodexStdoutLine(JSON.stringify({
       type: "item.completed",

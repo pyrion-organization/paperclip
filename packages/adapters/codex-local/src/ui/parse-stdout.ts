@@ -48,6 +48,10 @@ function stringifyUnknown(value: unknown): string {
   }
 }
 
+function isFailureStatus(status: string): boolean {
+  return status === "failed" || status === "errored" || status === "error" || status === "cancelled";
+}
+
 function parseCommandExecutionItem(
   item: Record<string, unknown>,
   ts: string,
@@ -84,10 +88,7 @@ function parseCommandExecutionItem(
 
   const isError =
     (exitCode !== null && exitCode !== 0) ||
-    status === "failed" ||
-    status === "errored" ||
-    status === "error" ||
-    status === "cancelled";
+    isFailureStatus(status);
 
   return [{
     kind: "tool_result",
@@ -139,10 +140,7 @@ function parseToolUseItem(
   const status = asString(item.status);
   const isError =
     item.is_error === true ||
-    status === "failed" ||
-    status === "errored" ||
-    status === "error" ||
-    status === "cancelled";
+    isFailureStatus(status);
   const rawContent =
     item.content ??
     item.output ??
@@ -202,7 +200,7 @@ function parseCodexItem(
       asString(item.output) ||
       asString(item.result) ||
       stringifyUnknown(item.content ?? item.output ?? item.result);
-    const isError = item.is_error === true || asString(item.status) === "error";
+    const isError = item.is_error === true || isFailureStatus(asString(item.status));
     return [{ kind: "tool_result", ts, toolUseId, content, isError }];
   }
 
