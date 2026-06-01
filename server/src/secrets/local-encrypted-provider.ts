@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveDefaultSecretsKeyFilePath } from "../home-paths.js";
 import type {
@@ -58,7 +58,7 @@ function loadOrCreateMasterKey(): Buffer {
   }
 
   const keyPath = resolveMasterKeyFilePath();
-  if (existsSync(keyPath)) {
+  const readExistingKey = () => {
     enforceKeyFilePermissionsBestEffort(keyPath);
     const raw = readFileSync(keyPath, "utf8");
     const decoded = decodeMasterKey(raw);
@@ -66,12 +66,28 @@ function loadOrCreateMasterKey(): Buffer {
       throw badRequest(`Invalid secrets master key at ${keyPath}`);
     }
     return decoded;
+  };
+
+  if (existsSync(keyPath)) {
+    return readExistingKey();
   }
 
   const dir = path.dirname(keyPath);
   mkdirSync(dir, { recursive: true });
   const generated = randomBytes(32);
-  writeFileSync(keyPath, generated.toString("base64"), { encoding: "utf8", mode: 0o600 });
+  let fd: number | null = null;
+  try {
+    fd = openSync(keyPath, "wx", 0o600);
+    writeFileSync(fd, generated.toString("base64"), { encoding: "utf8" });
+  } catch (err) {
+    const code = err && typeof err === "object" ? (err as { code?: unknown }).code : null;
+    if (code === "EEXIST") {
+      return readExistingKey();
+    }
+    throw err;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
   try {
     chmodSync(keyPath, 0o600);
   } catch {

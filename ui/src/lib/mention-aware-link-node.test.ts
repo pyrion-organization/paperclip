@@ -18,6 +18,26 @@ function createTestEditor() {
 }
 
 describe("getMentionAwareLinkNodeInit", () => {
+  it("preserves supported custom mention schemes during URL sanitization", () => {
+    const editor = createTestEditor();
+
+    editor.update(() => {
+      const node = new MentionAwareLinkNode();
+
+      for (const href of [
+        "agent://agent-123",
+        "project://project-123",
+        "skill://skill-123",
+        "user://user-123",
+        "routine://routine-123",
+      ]) {
+        expect(node.sanitizeUrl(href)).toBe(href);
+      }
+
+      expect(node.sanitizeUrl("javascript:alert(1)")).not.toBe("javascript:alert(1)");
+    });
+  });
+
   it("copies link attributes without carrying over a node key", () => {
     const init = getMentionAwareLinkNodeInit({
       getURL: () => "agent://agent-123",

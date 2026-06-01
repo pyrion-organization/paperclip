@@ -206,6 +206,132 @@ describe("ImportFromVaultDialog", () => {
     });
   });
 
+  it("selects a newly available vault after provider configs load", async () => {
+    mockSecretsApi.remoteImportPreview.mockResolvedValueOnce(
+      makePreview([
+        makeCandidate({
+          remoteName: "prod/openai",
+          name: "prod/openai",
+          key: "prod-openai",
+        }),
+      ]),
+    );
+
+    const { queryClient } = makeWrapper();
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ImportFromVaultDialog
+            open
+            onOpenChange={vi.fn()}
+            companyId="company-1"
+            providerConfigs={[]}
+            existingSecrets={[]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ImportFromVaultDialog
+            open
+            onOpenChange={vi.fn()}
+            companyId="company-1"
+            providerConfigs={[awsVault]}
+            existingSecrets={[]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
+    await flush();
+
+    expect(mockSecretsApi.remoteImportPreview).toHaveBeenCalledWith("company-1", {
+      providerConfigId: "vault-aws",
+      query: null,
+      nextToken: null,
+      pageSize: 50,
+    });
+    expect(document.body.textContent).toContain("prod/openai");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("shows selected rows that are hidden by the current search", async () => {
+    const stripe = makeCandidate({
+      externalRef: "arn:aws:secretsmanager:us-east-1:1:secret:prod/stripe-ABC",
+      remoteName: "prod/stripe",
+      name: "prod/stripe",
+      key: "prod-stripe",
+    });
+    const openai = makeCandidate({
+      externalRef: "arn:aws:secretsmanager:us-east-1:1:secret:prod/openai-XYZ",
+      remoteName: "prod/openai",
+      name: "prod/openai",
+      key: "prod-openai",
+    });
+    mockSecretsApi.remoteImportPreview
+      .mockResolvedValueOnce(makePreview([stripe]))
+      .mockResolvedValueOnce(makePreview([openai]));
+
+    const { queryClient } = makeWrapper();
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ImportFromVaultDialog
+            open
+            onOpenChange={vi.fn()}
+            companyId="company-1"
+            providerConfigs={[awsVault]}
+            existingSecrets={[]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
+    await flush();
+
+    const stripeRow = document.querySelector(
+      '[data-testid="vault-row-arn:aws:secretsmanager:us-east-1:1:secret:prod/stripe-ABC"]',
+    ) as HTMLElement | null;
+    await act(async () => {
+      stripeRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    const searchInput = document.querySelector('[data-testid="vault-search"]') as HTMLInputElement | null;
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      valueSetter?.call(searchInput, "openai");
+      searchInput?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flushDebounce();
+    await flush();
+
+    expect(document.body.textContent).toContain("1 not visible with current search");
+    const showSelected = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Show selected"),
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      showSelected?.click();
+    });
+    await flush();
+
+    expect(document.body.textContent).toContain("prod/stripe");
+    expect(document.body.textContent).not.toContain("prod/openai");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("disables checkboxes for already-imported (duplicate) rows and shows a conflict badge for conflicts", async () => {
     mockSecretsApi.remoteImportPreview.mockResolvedValueOnce(
       makePreview([

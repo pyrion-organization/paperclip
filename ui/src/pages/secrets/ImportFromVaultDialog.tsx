@@ -372,6 +372,18 @@ function ImportFromVaultDialogContent({
   const [selection, setSelection] = useState<Map<string, DraftSelection>>(new Map());
   const [importResult, setImportResult] = useState<RemoteSecretImportResult | null>(null);
 
+  useEffect(() => {
+    const current = vaultId ? eligible.find((vault) => vault.id === vaultId) : null;
+    if (current) return;
+    const nextVaultId = pickDefaultVault(providerConfigs);
+    if (nextVaultId === vaultId) return;
+    setVaultId(nextVaultId);
+    setSearchInput("");
+    setShowOnlySelected(false);
+    setSelection(new Map());
+    setExtraPreviewPages(null);
+  }, [eligible, providerConfigs, vaultId]);
+
   const previewQuery = useQuery({
     queryKey: ["secrets", "remote-import-preview", companyId, vaultId, debouncedQuery || null],
     queryFn: () => {
@@ -409,7 +421,17 @@ function ImportFromVaultDialogContent({
 
   const visibleCandidates = useMemo<RemoteSecretImportCandidate[]>(() => {
     if (!showOnlySelected) return preview.candidates;
-    return preview.candidates.filter((candidate) => selection.has(candidate.externalRef));
+    const selected = new Map(selection);
+    const visible: RemoteSecretImportCandidate[] = [];
+    for (const candidate of preview.candidates) {
+      if (!selected.has(candidate.externalRef)) continue;
+      selected.delete(candidate.externalRef);
+      visible.push(candidate);
+    }
+    for (const draft of selected.values()) {
+      visible.push(draft.candidate);
+    }
+    return visible;
   }, [preview.candidates, selection, showOnlySelected]);
 
   const selectableInLoaded = useMemo(

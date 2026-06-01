@@ -23,4 +23,18 @@ describe("telemetry state", () => {
 
     expect(second).toEqual(first);
   });
+
+  it("replaces a corrupted existing state file", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-telemetry-state-"));
+    tempDirs.add(dir);
+    const statePath = path.join(dir, "state.json");
+    fs.writeFileSync(statePath, "{ nope", "utf8");
+
+    const state = loadOrCreateState(dir, "1.0.0");
+    const persisted = JSON.parse(fs.readFileSync(statePath, "utf8"));
+
+    expect(state.installId).toBeTruthy();
+    expect(state.salt).toBeTruthy();
+    expect(persisted).toEqual(state);
+  });
 });

@@ -249,6 +249,16 @@ export async function mergeDirectoryWithBaseline(input: {
       .sort(([left], [right]) => left.localeCompare(right));
 
     for (const [relative, entry] of changedSourceEntries) {
+      const baselineEntry = input.baseline.entries.get(relative);
+      const currentEntry = current.entries.get(relative);
+      if (
+        currentEntry &&
+        baselineEntry &&
+        !entriesMatch(currentEntry, baselineEntry) &&
+        !entriesMatch(currentEntry, entry)
+      ) {
+        continue;
+      }
       await copySnapshotEntry(input.sourceDir, input.targetDir, relative, entry);
     }
   });

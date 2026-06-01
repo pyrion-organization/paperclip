@@ -60,6 +60,30 @@ describe("workspace restore merge", () => {
     ).resolves.toBe("ssh codex\n");
   });
 
+  it("does not overwrite target files edited after the restore baseline", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-restore-merge-"));
+    cleanupDirs.push(rootDir);
+
+    const targetDir = path.join(rootDir, "target");
+    const sourceDir = path.join(rootDir, "source");
+    await mkdir(targetDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(path.join(targetDir, "notes.md"), "baseline\n", "utf8");
+    await writeFile(path.join(sourceDir, "notes.md"), "baseline\n", "utf8");
+
+    const baseline = await captureDirectorySnapshot(targetDir, { exclude: [] });
+    await writeFile(path.join(targetDir, "notes.md"), "local edit\n", "utf8");
+    await writeFile(path.join(sourceDir, "notes.md"), "remote edit\n", "utf8");
+
+    await mergeDirectoryWithBaseline({
+      baseline,
+      sourceDir,
+      targetDir,
+    });
+
+    await expect(readFile(path.join(targetDir, "notes.md"), "utf8")).resolves.toBe("local edit\n");
+  });
+
   it("ignores non-file entries when capturing snapshots", async () => {
     if (process.platform === "win32") return;
 

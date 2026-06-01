@@ -1,10 +1,11 @@
 import { randomUUID, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { TelemetryState } from "./types.js";
 
 export function loadOrCreateState(stateDir: string, version: string): TelemetryState {
   const filePath = path.join(stateDir, "state.json");
+  let existingStateWasInvalid = false;
 
   const readValidState = (): TelemetryState | null => {
     try {
@@ -22,6 +23,7 @@ export function loadOrCreateState(stateDir: string, version: string): TelemetryS
   if (existsSync(filePath)) {
     const existing = readValidState();
     if (existing) return existing;
+    existingStateWasInvalid = true;
   }
 
   const state: TelemetryState = {
@@ -32,6 +34,13 @@ export function loadOrCreateState(stateDir: string, version: string): TelemetryS
   };
 
   mkdirSync(stateDir, { recursive: true });
+  if (existingStateWasInvalid) {
+    const tempPath = path.join(stateDir, `.state.${process.pid}.${randomUUID()}.tmp`);
+    writeFileSync(tempPath, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", flag: "wx" });
+    renameSync(tempPath, filePath);
+    return state;
+  }
+
   let fd: number | null = null;
   try {
     fd = openSync(filePath, "wx");
