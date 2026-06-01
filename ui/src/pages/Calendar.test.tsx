@@ -22,11 +22,13 @@ const mockCalendarApi = vi.hoisted(() => ({
 }));
 const mockClientsApi = vi.hoisted(() => ({ list: vi.fn() }));
 const mockProjectsApi = vi.hoisted(() => ({ list: vi.fn() }));
+const mockPaymentsApi = vi.hoisted(() => ({ profiles: vi.fn() }));
 const mockSetBreadcrumbs = vi.hoisted(() => vi.fn());
 
 vi.mock("../api/calendar", () => ({ calendarApi: mockCalendarApi }));
 vi.mock("../api/clients", () => ({ clientsApi: mockClientsApi }));
 vi.mock("../api/projects", () => ({ projectsApi: mockProjectsApi }));
+vi.mock("../api/payments", () => ({ paymentsApi: mockPaymentsApi }));
 vi.mock("../context/BreadcrumbContext", () => ({
   useBreadcrumbs: () => ({ setBreadcrumbs: mockSetBreadcrumbs }),
 }));
@@ -248,6 +250,7 @@ describe("Calendar", () => {
     }));
     mockClientsApi.list.mockResolvedValue({ data: [] });
     mockProjectsApi.list.mockResolvedValue([]);
+    mockPaymentsApi.profiles.mockResolvedValue([]);
   });
 
   afterEach(async () => {
@@ -314,6 +317,45 @@ describe("Calendar", () => {
     await flushReact();
 
     expect((document.body.querySelector("input[value='BRL']") as HTMLInputElement | null)).not.toBeNull();
+  });
+
+  it("keeps new item field edits local and visible across tabs", async () => {
+    await renderPage();
+
+    await act(async () => {
+      (container.querySelector("button") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    const dialog = document.body.querySelector("[data-testid='calendar-item-dialog']") as HTMLElement;
+    const title = dialog.querySelector("input") as HTMLInputElement;
+    const description = dialog.querySelector("textarea") as HTMLTextAreaElement;
+    const dueDate = dialog.querySelector("input[type='date']") as HTMLInputElement;
+
+    await act(async () => {
+      setInputValue(title, "SSL certificate renewal");
+      setInputValue(description, "Renew before production cert expires");
+      setInputValue(dueDate, "2026-08-01");
+    });
+    await flushReact();
+
+    expect(title.value).toBe("SSL certificate renewal");
+    expect(description.value).toBe("Renew before production cert expires");
+    expect(dueDate.value).toBe("2026-08-01");
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-payment']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    await act(async () => {
+      (document.body.querySelector("[data-testid='calendar-tab-overview']") as HTMLButtonElement).click();
+    });
+    await flushReact();
+
+    expect(title.value).toBe("SSL certificate renewal");
+    expect(description.value).toBe("Renew before production cert expires");
+    expect(dueDate.value).toBe("2026-08-01");
   });
 
   it("opens the edit dialog from row click and keyboard activation", async () => {
@@ -458,6 +500,7 @@ describe("Calendar", () => {
     expect(mockCalendarApi.detail).toHaveBeenCalledWith("company-1", "stale-item");
     expect(document.body.textContent).toContain("Item Detail");
     expect(document.body.textContent).toContain("Hidden renewal");
+    expect((document.body.querySelector("input[value='Hidden renewal']") as HTMLInputElement | null)).not.toBeNull();
   });
 
   it("organizes item editing into tabs", async () => {

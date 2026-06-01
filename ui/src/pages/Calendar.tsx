@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CALENDAR_ITEM_CATEGORIES,
@@ -426,17 +426,327 @@ function ReminderStatusPanel({ dashboard }: { dashboard: CalendarDashboard | und
   );
 }
 
+type CalendarItemDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  formKey: number;
+  initialForm: ItemFormState;
+  isEditing: boolean;
+  selectedItem: CalendarItem | CalendarItemDetail | null;
+  selectedDocuments: ReturnType<typeof itemDocuments>;
+  selectedActivity: ReturnType<typeof itemActivity>;
+  clients: { id: string; name: string }[];
+  projects: { id: string; name: string }[];
+  paymentProfiles: { id: string; accountLabel: string; ownerName?: string | null }[];
+  savePending: boolean;
+  completePending: boolean;
+  onSave: (form: ItemFormState) => void;
+  onComplete: (itemId: string) => void;
+  onStatusAction: (input: { itemId: string; action: "pause" | "activate" | "archive" }) => void;
+};
+
+const CalendarItemDialog = memo(function CalendarItemDialog({
+  open,
+  onOpenChange,
+  formKey,
+  initialForm,
+  isEditing,
+  selectedItem,
+  selectedDocuments,
+  selectedActivity,
+  clients,
+  projects,
+  paymentProfiles,
+  savePending,
+  completePending,
+  onSave,
+  onComplete,
+  onStatusAction,
+}: CalendarItemDialogProps) {
+  const [form, setForm] = useState<ItemFormState>(initialForm);
+  const [itemDialogTab, setItemDialogTab] = useState("overview");
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(initialForm);
+    setItemDialogTab("overview");
+  }, [formKey, initialForm, open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        data-testid="calendar-item-dialog"
+        className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(820px,calc(100dvh-2rem))] sm:max-w-4xl"
+      >
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-3 pr-12">
+          <div className="flex items-center justify-between gap-3">
+            <DialogTitle>{isEditing ? "Item Detail" : "New Item"}</DialogTitle>
+            {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
+          </div>
+          <DialogDescription>
+            Track the due date, owner, payment, account, and proof details for this obligation.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 px-5 py-3">
+          <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
+            <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto">
+              <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
+              <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
+              <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
+              <TabsTrigger value="links" data-testid="calendar-tab-links" onClick={() => setItemDialogTab("links")}>Links</TabsTrigger>
+              <TabsTrigger value="notes" data-testid="calendar-tab-notes" onClick={() => setItemDialogTab("notes")}>Notes</TabsTrigger>
+              {selectedItem ? <TabsTrigger value="documents" data-testid="calendar-tab-documents" onClick={() => setItemDialogTab("documents")}>Documents</TabsTrigger> : null}
+              {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
+            </TabsList>
+            <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-3 md:grid-cols-2">
+                <Field label="Title">
+                  <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+                </Field>
+                <Field label="Description">
+                  <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Category">
+                    <Select value={form.category} onValueChange={(category) => setForm((current) => ({ ...current, category: category as CalendarItemCategory }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Risk">
+                    <Select value={form.riskLevel} onValueChange={(riskLevel) => setForm((current) => ({ ...current, riskLevel: riskLevel as CalendarRiskLevel }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                <div className="grid gap-3 border border-border bg-muted/20 p-3 md:col-span-2 md:max-w-md">
+                  <div className="text-xs font-medium uppercase text-muted-foreground">Schedule</div>
+                  <Field label="Due Date">
+                    <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
+                  </Field>
+                  <Field label="Due Time">
+                    <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
+                  </Field>
+                  <Field label="Timezone">
+                    <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {CALENDAR_TIMEZONE_OPTIONS.map((timezone) => (
+                          <SelectItem key={timezone.value} value={timezone.value}>{timezone.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Recurrence">
+                    <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </Field>
+                  {form.recurrenceType === "custom_rrule" ? (
+                    <Field label="Recurrence Rule">
+                      <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
+                    </Field>
+                  ) : null}
+                  <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
+                  <div className="mt-1">{nextDuePreview(form)}</div>
+                </div>
+                {selectedItem?.reminderPolicy ? (
+                  <div className="border border-border p-3 text-sm md:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-medium uppercase text-muted-foreground">Reminder policy</div>
+                        <div className="mt-1">{selectedItem.reminderPolicy.summary}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {selectedItem.reminderPolicy.daysBefore.length ? selectedItem.reminderPolicy.daysBefore.map((day) => (
+                          <span key={day} className="border border-border px-2 py-0.5 text-xs">{day}d</span>
+                        )) : (
+                          <span className="border border-border px-2 py-0.5 text-xs">overdue</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                <Field label="Provider">
+                  <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Client">
+                    <Select value={form.relatedClientId || NONE} onValueChange={(relatedClientId) => setForm((current) => ({ ...current, relatedClientId: relatedClientId === NONE ? "" : relatedClientId }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>None</SelectItem>
+                        {clients.map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Project">
+                    <Select value={form.relatedProjectId || NONE} onValueChange={(relatedProjectId) => setForm((current) => ({ ...current, relatedProjectId: relatedProjectId === NONE ? "" : relatedProjectId }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>None</SelectItem>
+                        {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="payment" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-[1fr_90px] gap-3">
+                  <Field label="Amount">
+                    <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
+                  </Field>
+                  <Field label="Currency">
+                    <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
+                  </Field>
+                </div>
+                <Field label="Payment Profile">
+                  <Select value={form.paymentProfileId || NONE} onValueChange={(paymentProfileId) => setForm((current) => ({ ...current, paymentProfileId: paymentProfileId === NONE ? "" : paymentProfileId }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>None</SelectItem>
+                      {paymentProfiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
+                <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
+                <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.autoRenew}
+                    onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
+                    aria-label="Auto Renew"
+                  />
+                  Auto-renew
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.manualActionRequired}
+                    onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
+                    aria-label="Manual Action Required"
+                  />
+                  Manual action required
+                </label>
+              </div>
+            </TabsContent>
+            <TabsContent value="contacts" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-3 md:grid-cols-2">
+                <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
+                <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
+                <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
+                <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
+                <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
+              </div>
+            </TabsContent>
+            <TabsContent value="links" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-3 md:grid-cols-2">
+                <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
+                <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
+                <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
+                <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
+              </div>
+            </TabsContent>
+            <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-3">
+                <Field label="Notes">
+                  <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+                </Field>
+                <Field label="Internal Notes">
+                  <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
+                </Field>
+              </div>
+            </TabsContent>
+            <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-2">
+                {selectedDocuments.length === 0 ? (
+                  <div className="border border-border p-3 text-sm text-muted-foreground">No documents linked.</div>
+                ) : selectedDocuments.map((document) => (
+                  <div key={document.id} className="border border-border p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium">{document.title ?? titleCase(document.documentType)}</div>
+                      <div className="text-xs text-muted-foreground">{titleCase(document.documentType)}</div>
+                    </div>
+                    {document.url ? (
+                      <a className="mt-1 block truncate text-xs text-primary hover:underline" href={document.url} target="_blank" rel="noreferrer">
+                        {document.url}
+                      </a>
+                    ) : null}
+                    {document.notes ? <div className="mt-2 text-xs text-muted-foreground">{document.notes}</div> : null}
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+            <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid content-start gap-2">
+                {selectedActivity.length === 0 ? (
+                  <div className="border border-border p-3 text-sm text-muted-foreground">No activity recorded.</div>
+                ) : selectedActivity.map((entry) => (
+                  <div key={entry.id} className="border border-border p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium">{titleCase(entry.action.replace(/^calendar_item\./, ""))}</div>
+                      <div className="text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {titleCase(entry.actorType)} - {entry.actorId}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
+          <div className="flex flex-1 flex-wrap gap-2">
+            <Button onClick={() => onSave(form)} disabled={savePending || (isEditing && !selectedItem)}>
+              {isEditing ? "Save" : "Create"}
+            </Button>
+            {selectedItem ? (
+              <>
+                <Button variant="outline" onClick={() => onComplete(selectedItem.id)} disabled={completePending}>
+                  <CheckCircle2 className="mr-2 size-4" /> Complete
+                </Button>
+                {selectedItem.status === "paused" || selectedItem.status === "pending_review" ? (
+                  <Button variant="outline" onClick={() => onStatusAction({ itemId: selectedItem.id, action: "activate" })}>
+                    <Play className="mr-2 size-4" /> Activate
+                  </Button>
+                ) : (
+                  <Button variant="outline" onClick={() => onStatusAction({ itemId: selectedItem.id, action: "pause" })}>
+                    <Pause className="mr-2 size-4" /> Pause
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => onStatusAction({ itemId: selectedItem.id, action: "archive" })}>
+                  <Archive className="mr-2 size-4" /> Archive
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
 export function Calendar() {
   const { selectedCompanyId } = useCompany();
   const companyId = selectedCompanyId ?? NO_COMPANY;
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [form, setForm] = useState<ItemFormState>(() => emptyForm());
+  const [dialogFormKey, setDialogFormKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
-  const [itemDialogTab, setItemDialogTab] = useState("overview");
   const [operationError, setOperationError] = useState<string | null>(null);
   const isEditing = selectedItemId !== null;
 
@@ -493,9 +803,9 @@ export function Calendar() {
   };
 
   const saveMutation = useInvalidatingMutation({
-    mutationFn: async () => {
+    mutationFn: async (nextForm: ItemFormState) => {
       if (!selectedCompanyId) throw new Error("No company selected");
-      const payload = payloadFromForm(form);
+      const payload = payloadFromForm(nextForm);
       if (!payload.title) throw new Error("Title is required");
       if (requiresActivePayablePaymentDetails(payload)) {
         throw new Error("Payment payables require due date, amount, and payment profile");
@@ -515,7 +825,6 @@ export function Calendar() {
     },
     onSuccess: (item) => {
       setSelectedItemId(item.id);
-      setForm(formFromItem(item));
       setItemDialogOpen(false);
       setOperationError(null);
       invalidateCalendar();
@@ -534,7 +843,7 @@ export function Calendar() {
       return calendarApi.complete(companyId, itemId, {}, approvalConfirmed);
     },
     onSuccess: (item) => {
-      setForm(formFromItem(item));
+      setDialogFormKey((current) => current + 1);
       setOperationError(null);
       invalidateCalendar();
     },
@@ -550,7 +859,7 @@ export function Calendar() {
       return calendarApi.cancel(companyId, itemId, approvalConfirmed);
     },
     onSuccess: (item) => {
-      setForm(formFromItem(item));
+      setDialogFormKey((current) => current + 1);
       setOperationError(null);
       invalidateCalendar();
     },
@@ -565,42 +874,30 @@ export function Calendar() {
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
   const selectedDocuments = itemDocuments(selectedItem);
   const selectedActivity = itemActivity(selectedItem);
+  const initialDialogForm = useMemo(() => {
+    return selectedItem ? formFromItem(selectedItem) : emptyForm();
+  }, [selectedItem?.id, selectedItem?.updatedAt]);
 
   const openCreateDialog = () => {
     setSelectedItemId(null);
-    setForm(emptyForm());
-    setItemDialogTab("overview");
+    setDialogFormKey((current) => current + 1);
     setOperationError(null);
     setItemDialogOpen(true);
   };
 
   const openEditDialog = (item: CalendarItem) => {
     setSelectedItemId(item.id);
-    setForm(formFromItem(item));
-    setItemDialogTab("overview");
+    setDialogFormKey((current) => current + 1);
     setOperationError(null);
     setItemDialogOpen(true);
   };
 
   const openItemById = (itemId: string) => {
-    const item = items.find((candidate) => candidate.id === itemId);
     setSelectedItemId(itemId);
-    setForm(item ? formFromItem(item) : emptyForm());
-    setItemDialogTab("overview");
+    setDialogFormKey((current) => current + 1);
     setOperationError(null);
     setItemDialogOpen(true);
   };
-
-  // Reset the editable form when the dialog opens for an item — adjust during
-  // render instead of via an effect.
-  const calendarFormSyncKey = itemDialogOpen && selectedItem ? selectedItem.id : null;
-  const prevCalendarFormSyncKeyRef = useRef(calendarFormSyncKey);
-  if (calendarFormSyncKey !== prevCalendarFormSyncKeyRef.current) {
-    prevCalendarFormSyncKeyRef.current = calendarFormSyncKey;
-    if (itemDialogOpen && selectedItem) {
-      setForm(formFromItem(selectedItem));
-    }
-  }
 
   if (!selectedCompanyId) {
     return <EmptyState icon={CalendarDays} message="Create or select a company to manage calendar obligations." />;
@@ -772,266 +1069,24 @@ export function Calendar() {
           </CardContent>
         </Card>
 
-        <Dialog open={itemDialogOpen} onOpenChange={setItemDialogOpen}>
-          <DialogContent
-            data-testid="calendar-item-dialog"
-            className="flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:h-[min(820px,calc(100dvh-2rem))] sm:max-w-4xl"
-          >
-            <DialogHeader className="shrink-0 border-b border-border px-5 py-3 pr-12">
-              <div className="flex items-center justify-between gap-3">
-                <DialogTitle>{isEditing ? "Item Detail" : "New Item"}</DialogTitle>
-                {selectedItem ? <StatusBadge status={selectedItem.status} /> : null}
-              </div>
-              <DialogDescription>
-                Track the due date, owner, payment, account, and proof details for this obligation.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 px-5 py-3">
-              <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
-                <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto">
-                  <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
-                  <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
-                  <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
-                  <TabsTrigger value="links" data-testid="calendar-tab-links" onClick={() => setItemDialogTab("links")}>Links</TabsTrigger>
-                  <TabsTrigger value="notes" data-testid="calendar-tab-notes" onClick={() => setItemDialogTab("notes")}>Notes</TabsTrigger>
-                  {selectedItem ? <TabsTrigger value="documents" data-testid="calendar-tab-documents" onClick={() => setItemDialogTab("documents")}>Documents</TabsTrigger> : null}
-                  {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
-                </TabsList>
-                <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-3 md:grid-cols-2">
-                  <Field label="Title">
-                    <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-                  </Field>
-                  <Field label="Description">
-                    <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Category">
-                      <Select value={form.category} onValueChange={(category) => setForm((current) => ({ ...current, category: category as CalendarItemCategory }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Risk">
-                      <Select value={form.riskLevel} onValueChange={(riskLevel) => setForm((current) => ({ ...current, riskLevel: riskLevel as CalendarRiskLevel }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                  <div className="grid gap-3 border border-border bg-muted/20 p-3 md:col-span-2 md:max-w-md">
-                    <div className="text-xs font-medium uppercase text-muted-foreground">Schedule</div>
-                    <Field label="Due Date">
-                      <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
-                    </Field>
-                    <Field label="Due Time">
-                      <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
-                    </Field>
-                    <Field label="Timezone">
-                      <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {CALENDAR_TIMEZONE_OPTIONS.map((timezone) => (
-                            <SelectItem key={timezone.value} value={timezone.value}>{timezone.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Recurrence">
-                      <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </Field>
-                    {form.recurrenceType === "custom_rrule" ? (
-                      <Field label="Recurrence Rule">
-                        <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
-                      </Field>
-                    ) : null}
-                    <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
-                    <div className="mt-1">{nextDuePreview(form)}</div>
-                  </div>
-                  {selectedItem?.reminderPolicy ? (
-                    <div className="border border-border p-3 text-sm md:col-span-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-medium uppercase text-muted-foreground">Reminder policy</div>
-                          <div className="mt-1">{selectedItem.reminderPolicy.summary}</div>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {selectedItem.reminderPolicy.daysBefore.length ? selectedItem.reminderPolicy.daysBefore.map((day) => (
-                            <span key={day} className="border border-border px-2 py-0.5 text-xs">{day}d</span>
-                          )) : (
-                            <span className="border border-border px-2 py-0.5 text-xs">overdue</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  <Field label="Provider">
-                    <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Client">
-                      <Select value={form.relatedClientId || NONE} onValueChange={(relatedClientId) => setForm((current) => ({ ...current, relatedClientId: relatedClientId === NONE ? "" : relatedClientId }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NONE}>None</SelectItem>
-                          {(clientsQuery.data?.data ?? []).map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Project">
-                      <Select value={form.relatedProjectId || NONE} onValueChange={(relatedProjectId) => setForm((current) => ({ ...current, relatedProjectId: relatedProjectId === NONE ? "" : relatedProjectId }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NONE}>None</SelectItem>
-                          {(projectsQuery.data ?? []).map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                  </div>
-                </TabsContent>
-                <TabsContent value="payment" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-3 md:grid-cols-2">
-                  <div className="grid grid-cols-[1fr_90px] gap-3">
-                    <Field label="Amount">
-                      <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
-                    </Field>
-                    <Field label="Currency">
-                      <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
-                    </Field>
-                  </div>
-                  <Field label="Payment Profile">
-                    <Select value={form.paymentProfileId || NONE} onValueChange={(paymentProfileId) => setForm((current) => ({ ...current, paymentProfileId: paymentProfileId === NONE ? "" : paymentProfileId }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {(paymentProfilesQuery.data ?? []).map((profile) => (
-                          <SelectItem key={profile.id} value={profile.id}>
-                            {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
-                  <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
-                  <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.autoRenew}
-                      onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
-                     aria-label="Auto Renew"/>
-                    Auto-renew
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.manualActionRequired}
-                      onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
-                     aria-label="Manual Action Required"/>
-                    Manual action required
-                  </label>
-                  </div>
-                </TabsContent>
-                <TabsContent value="contacts" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-3 md:grid-cols-2">
-                  <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
-                  <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
-                  <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
-                  <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
-                  <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
-                  </div>
-                </TabsContent>
-                <TabsContent value="links" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-3 md:grid-cols-2">
-                  <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
-                  <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
-                  <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
-                  <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
-                  </div>
-                </TabsContent>
-                <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-3">
-                  <Field label="Notes">
-                    <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-                  </Field>
-                  <Field label="Internal Notes">
-                    <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
-                  </Field>
-                  </div>
-                </TabsContent>
-                <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-2">
-                  {selectedDocuments.length === 0 ? (
-                    <div className="border border-border p-3 text-sm text-muted-foreground">No documents linked.</div>
-                  ) : selectedDocuments.map((document) => (
-                    <div key={document.id} className="border border-border p-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="font-medium">{document.title ?? titleCase(document.documentType)}</div>
-                        <div className="text-xs text-muted-foreground">{titleCase(document.documentType)}</div>
-                      </div>
-                      {document.url ? (
-                        <a className="mt-1 block truncate text-xs text-primary hover:underline" href={document.url} target="_blank" rel="noreferrer">
-                          {document.url}
-                        </a>
-                      ) : null}
-                      {document.notes ? <div className="mt-2 text-xs text-muted-foreground">{document.notes}</div> : null}
-                    </div>
-                  ))}
-                  </div>
-                </TabsContent>
-                <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  <div className="grid content-start gap-2">
-                  {selectedActivity.length === 0 ? (
-                    <div className="border border-border p-3 text-sm text-muted-foreground">No activity recorded.</div>
-                  ) : selectedActivity.map((entry) => (
-                    <div key={entry.id} className="border border-border p-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="font-medium">{titleCase(entry.action.replace(/^calendar_item\./, ""))}</div>
-                        <div className="text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</div>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {titleCase(entry.actorType)} - {entry.actorId}
-                      </div>
-                    </div>
-                  ))}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </div>
-            <DialogFooter className="shrink-0 border-t border-border px-5 py-3">
-              <div className="flex flex-1 flex-wrap gap-2">
-                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || (isEditing && !selectedItem)}>
-                  {isEditing ? "Save" : "Create"}
-                </Button>
-                {selectedItem ? (
-                  <>
-                    <Button variant="outline" onClick={() => completeMutation.mutate(selectedItem.id)} disabled={completeMutation.isPending}>
-                      <CheckCircle2 className="mr-2 size-4" /> Complete
-                    </Button>
-                    {selectedItem.status === "paused" || selectedItem.status === "pending_review" ? (
-                      <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "activate" })}>
-                        <Play className="mr-2 size-4" /> Activate
-                      </Button>
-                    ) : (
-                      <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "pause" })}>
-                        <Pause className="mr-2 size-4" /> Pause
-                      </Button>
-                    )}
-                    <Button variant="outline" onClick={() => statusMutation.mutate({ itemId: selectedItem.id, action: "archive" })}>
-                      <Archive className="mr-2 size-4" /> Archive
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </DialogFooter>
-
-          </DialogContent>
-        </Dialog>
+        <CalendarItemDialog
+          open={itemDialogOpen}
+          onOpenChange={setItemDialogOpen}
+          formKey={dialogFormKey}
+          initialForm={initialDialogForm}
+          isEditing={isEditing}
+          selectedItem={selectedItem}
+          selectedDocuments={selectedDocuments}
+          selectedActivity={selectedActivity}
+          clients={clientsQuery.data?.data ?? []}
+          projects={projectsQuery.data ?? []}
+          paymentProfiles={paymentProfilesQuery.data ?? []}
+          savePending={saveMutation.isPending}
+          completePending={completeMutation.isPending}
+          onSave={(nextForm) => saveMutation.mutate(nextForm)}
+          onComplete={(itemId) => completeMutation.mutate(itemId)}
+          onStatusAction={(input) => statusMutation.mutate(input)}
+        />
       </div>
     </div>
   );

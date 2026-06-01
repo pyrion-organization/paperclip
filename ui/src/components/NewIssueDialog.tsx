@@ -333,7 +333,7 @@ const IssueTitleTextarea = memo(function IssueTitleTextarea({
 }) {
   return (
     <textarea
-      className="w-full text-lg font-semibold bg-transparent outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50"
+      className="w-full resize-none overflow-hidden bg-transparent text-lg font-semibold text-foreground outline-none placeholder:text-muted-foreground/50"
       placeholder="Issue title"
       rows={1}
       value={value}
@@ -394,7 +394,7 @@ const IssueDescriptionEditor = memo(function IssueDescriptionEditor({
       placeholder="Add description..."
       bordered={false}
       mentions={mentions}
-      contentClassName={cn("text-sm text-muted-foreground pb-12", expanded ? "min-h-[220px]" : "min-h-[120px]")}
+      contentClassName={cn("pb-12 text-sm text-foreground", expanded ? "min-h-[220px]" : "min-h-[120px]")}
       imageUploadHandler={imageUploadHandler}
     />
   );
@@ -726,6 +726,7 @@ export function NewIssueDialog() {
 
   const handleTitleChange = useCallback((nextTitle: string) => {
     titleRef.current = nextTitle;
+    setTitle(nextTitle);
     const nextTitleHasText = nextTitle.trim().length > 0;
     const nextDraftHasText = nextTitleHasText || descriptionRef.current.trim().length > 0;
     setTitleHasText((current) => current === nextTitleHasText ? current : nextTitleHasText);
@@ -735,6 +736,7 @@ export function NewIssueDialog() {
 
   const handleDescriptionChange = useCallback((nextDescription: string) => {
     descriptionRef.current = nextDescription;
+    setDescription(nextDescription);
     const nextDraftHasText = titleRef.current.trim().length > 0 || nextDescription.trim().length > 0;
     setDraftHasText((current) => current === nextDraftHasText ? current : nextDraftHasText);
     queueDraftSave({ description: nextDescription });

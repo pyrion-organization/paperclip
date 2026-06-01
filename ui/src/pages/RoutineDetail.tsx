@@ -1289,7 +1289,7 @@ export function RoutineDetail() {
         <div className="min-w-0 flex-1 space-y-2">
           <textarea
             ref={titleInputRef}
-            className="w-full resize-none overflow-hidden bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50"
+            className="w-full resize-none overflow-hidden bg-transparent text-xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
             placeholder="Routine title"
             rows={1}
             value={editDraft.title}
@@ -1623,7 +1623,7 @@ export function RoutineDetail() {
               <label htmlFor="routine-edit-bash-command" className="text-xs font-medium">Bash command</label>
               <textarea
                 id="routine-edit-bash-command"
-                className="w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[64px]"
+                className="min-h-[64px] w-full resize-y rounded border border-input bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 placeholder={'echo "hello world" && date'}
                 value={editDraft.scriptPath}
                 onChange={(e) => setEditDraft((current) => ({ ...current, scriptPath: e.target.value }))}

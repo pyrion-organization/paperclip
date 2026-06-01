@@ -482,6 +482,28 @@ describe("NewIssueDialog", () => {
     act(() => root.unmount());
   });
 
+  it("updates title and description fields immediately while typing", async () => {
+    const { root } = renderDialog(container);
+    await flush();
+
+    const title = container.querySelector('textarea[aria-label="Draft Value"]') as HTMLTextAreaElement | null;
+    expect(title).not.toBeNull();
+    await typeTextareaValue(title!, "Typed issue title");
+
+    expect(title!.value).toBe("Typed issue title");
+    const submitButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Create Issue"));
+    expect(submitButton?.hasAttribute("disabled")).toBe(false);
+
+    const description = container.querySelector('textarea[aria-label="Add description..."]') as HTMLTextAreaElement | null;
+    expect(description).not.toBeNull();
+    await typeTextareaValue(description!, "Typed issue description");
+
+    expect(description!.value).toBe("Typed issue description");
+
+    act(() => root.unmount());
+  });
+
   it("applies project and execution workspace defaults for normal new issues", async () => {
     mockProjectsApi.list.mockResolvedValue([
       {
