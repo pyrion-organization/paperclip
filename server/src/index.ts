@@ -608,6 +608,7 @@ export async function startServer(): Promise<StartedServer> {
         backupDir: config.databaseBackupDir,
         retention,
         filenamePrefix: "paperclip",
+        timeoutMs: config.databaseBackupTimeoutMinutes * 60 * 1000,
       });
       const finishedAt = new Date();
       const response: InstanceDatabaseBackupRunResult = {
@@ -937,6 +938,7 @@ export async function startServer(): Promise<StartedServer> {
     logger.info(
       {
         intervalMinutes: config.databaseBackupIntervalMinutes,
+        timeoutMinutes: config.databaseBackupTimeoutMinutes,
         retentionSource: "instance-settings-db",
         backupDir: config.databaseBackupDir,
       },
@@ -992,6 +994,7 @@ export async function startServer(): Promise<StartedServer> {
         heartbeatSchedulerIntervalMs: config.heartbeatSchedulerIntervalMs,
         databaseBackupEnabled: config.databaseBackupEnabled,
         databaseBackupIntervalMinutes: config.databaseBackupIntervalMinutes,
+        databaseBackupTimeoutMinutes: config.databaseBackupTimeoutMinutes,
         databaseBackupRetentionDays: config.databaseBackupRetentionDays,
         databaseBackupDir: config.databaseBackupDir,
       });

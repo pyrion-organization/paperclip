@@ -19,6 +19,7 @@ export type RunDatabaseBackupOptions = {
   retention: BackupRetentionPolicy;
   filenamePrefix?: string;
   connectTimeoutSeconds?: number;
+  timeoutMs?: number;
   /**
    * @deprecated Migration-journal schemas are included with the normal backup
    * scope. This option is kept for compatibility and no longer changes backup
@@ -67,6 +68,8 @@ type ExtensionDefinition = {
 };
 
 const DEFAULT_BACKUP_WRITE_BUFFER_BYTES = 1024 * 1024;
+const DEFAULT_BACKUP_TIMEOUT_MS = 45 * 60 * 1000;
+const BACKUP_CHILD_KILL_GRACE_MS = 5000;
 const BACKUP_DATA_CURSOR_ROWS = 100;
 const BACKUP_CLI_STDERR_BYTES = 64 * 1024;
 const BACKUP_BREAKPOINT_DETECT_BYTES = 64 * 1024;
@@ -292,16 +295,58 @@ function appendCapturedStderr(previous: string, chunk: Buffer | string): string 
   return Buffer.from(next, "utf8").subarray(-BACKUP_CLI_STDERR_BYTES).toString("utf8");
 }
 
-async function waitForChildExit(child: ReturnType<typeof spawn>, label: string): Promise<void> {
+function formatTimeoutMs(timeoutMs: number): string {
+  const totalSeconds = Math.ceil(timeoutMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
+function createTimeoutError(label: string, timeoutMs: number, stderr: string): Error {
+  return new Error(
+    `${label} timed out after ${formatTimeoutMs(timeoutMs)}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+  );
+}
+
+async function waitForChildExit(
+  child: ReturnType<typeof spawn>,
+  label: string,
+  timeoutMs?: number,
+): Promise<void> {
   let stderr = "";
+  let timedOut = false;
+  let childExited = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let forceKillId: ReturnType<typeof setTimeout> | undefined;
+
   child.stderr?.on("data", (chunk) => {
     stderr = appendCapturedStderr(stderr, chunk);
   });
 
   const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("exit", (code, signal) => {
+      childExited = true;
+      resolve({ code, signal });
+    });
+    if (timeoutMs && timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        forceKillId = setTimeout(() => {
+          if (!childExited) child.kill("SIGKILL");
+        }, BACKUP_CHILD_KILL_GRACE_MS);
+      }, timeoutMs);
+    }
+  }).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (forceKillId) clearTimeout(forceKillId);
   });
+
+  if (timedOut && timeoutMs) {
+    throw createTimeoutError(label, timeoutMs, stderr);
+  }
 
   if (result.signal) {
     throw new Error(`${label} exited via ${result.signal}${stderr.trim() ? `: ${stderr.trim()}` : ""}`);
@@ -315,6 +360,7 @@ async function runPgDumpBackup(opts: {
   connectionString: string;
   backupFile: string;
   connectTimeout: number;
+  timeoutMs: number;
 }): Promise<void> {
   const pgDumpBin = process.env.PAPERCLIP_PG_DUMP_PATH || "pg_dump";
   const child = spawn(
@@ -340,10 +386,12 @@ async function runPgDumpBackup(opts: {
     throw new Error("pg_dump did not expose stdout");
   }
 
-  await Promise.all([
+  const [pipelineResult, childResult] = await Promise.allSettled([
     pipeline(child.stdout, createGzip(), createWriteStream(opts.backupFile)),
-    waitForChildExit(child, pgDumpBin),
+    waitForChildExit(child, pgDumpBin, opts.timeoutMs),
   ]);
+  if (childResult.status === "rejected") throw childResult.reason;
+  if (pipelineResult.status === "rejected") throw pipelineResult.reason;
 }
 
 async function restoreWithPsql(opts: RunDatabaseRestoreOptions, connectTimeout: number): Promise<void> {
@@ -522,6 +570,14 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
   const filenamePrefix = opts.filenamePrefix ?? "paperclip";
   const retention = opts.retention;
   const connectTimeout = Math.max(1, Math.trunc(opts.connectTimeoutSeconds ?? 5));
+  const timeoutMs = Math.max(1, Math.trunc(opts.timeoutMs ?? DEFAULT_BACKUP_TIMEOUT_MS));
+  const startedAtMs = Date.now();
+  const remainingTimeoutMs = () => Math.max(1, timeoutMs - (Date.now() - startedAtMs));
+  const throwIfTimedOut = (stage: string) => {
+    if (Date.now() - startedAtMs > timeoutMs) {
+      throw createTimeoutError(`database backup ${stage}`, timeoutMs, "");
+    }
+  };
   const backupEngine = opts.backupEngine ?? "auto";
   const canUsePgDump = !hasBackupTransforms(opts);
   const excludedTableNames = normalizeTableNameSet(opts.excludeTables);
@@ -547,6 +603,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
           connectionString: opts.connectionString,
           backupFile,
           connectTimeout,
+          timeoutMs: remainingTimeoutMs(),
         });
         await writer.abort();
         const sizeBytes = statSync(backupFile).size;
@@ -569,6 +626,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
     }
 
     await sql`SELECT 1`;
+    throwIfTimedOut("initialization");
 
     const emit = (line: string) => writer.emit(line);
     const emitStatement = (statement: string) => {
@@ -594,6 +652,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
         AND ${sql.unsafe(nonSystemSchemaPredicate("table_schema"))}
       ORDER BY table_schema, table_name
     `;
+    throwIfTimedOut("table discovery");
     const tables = allTables;
     const includedTableNames = new Set(tables.map(({ schema_name, tablename }) => tableKey(schema_name, tablename)));
     const includedSchemas = new Set(tables.map(({ schema_name }) => schema_name));
@@ -608,6 +667,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
       GROUP BY n.nspname, t.typname
       ORDER BY n.nspname, t.typname
     `;
+    throwIfTimedOut("enum discovery");
     for (const e of enums) includedSchemas.add(e.schema_name);
 
     const allSequences = await sql<SequenceDefinition[]>`
@@ -633,6 +693,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
       WHERE ${sql.unsafe(nonSystemSchemaPredicate("s.sequence_schema"))}
       ORDER BY s.sequence_schema, s.sequence_name
     `;
+    throwIfTimedOut("sequence discovery");
     const sequences = allSequences.filter(
       (seq) => !seq.owner_table || includedTableNames.has(tableKey(seq.owner_schema ?? "public", seq.owner_table)),
     );
@@ -687,6 +748,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
 
     // Get full CREATE TABLE DDL via column info
     for (const { schema_name, tablename } of tables) {
+      throwIfTimedOut(`schema dump for ${schema_name}.${tablename}`);
       const qualifiedTableName = quoteQualifiedName(schema_name, tablename);
       const columns = await sql<{
         column_name: string;
@@ -792,6 +854,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
       GROUP BY c.conname, n.nspname, t.relname
       ORDER BY n.nspname, t.relname, c.conname
     `;
+    throwIfTimedOut("unique constraint discovery");
     const uniques = allUniqueConstraints.filter((entry) => includedTableNames.has(tableKey(entry.schema_name, entry.tablename)));
 
     if (uniques.length > 0) {
@@ -838,6 +901,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
       GROUP BY c.conname, srcn.nspname, src.relname, tgtn.nspname, tgt.relname, c.confupdtype, c.confdeltype
       ORDER BY srcn.nspname, src.relname, c.conname
     `;
+    throwIfTimedOut("foreign key discovery");
     const fks = allForeignKeys.filter(
       (fk) => includedTableNames.has(tableKey(fk.source_schema, fk.source_table))
         && includedTableNames.has(tableKey(fk.target_schema, fk.target_table)),
@@ -867,6 +931,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
         )
       ORDER BY schemaname, tablename, indexname
     `;
+    throwIfTimedOut("index discovery");
     const indexes = allIndexes.filter((entry) => includedTableNames.has(tableKey(entry.schema_name, entry.tablename)));
 
     if (indexes.length > 0) {
@@ -879,6 +944,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
 
     // Dump data for each table
     for (const { schema_name, tablename } of tables) {
+      throwIfTimedOut(`data dump for ${schema_name}.${tablename}`);
       const currentTableKey = tableKey(schema_name, tablename);
       const qualifiedTableName = quoteQualifiedName(schema_name, tablename);
       const count = await sql.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM ${qualifiedTableName}`);
@@ -905,6 +971,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
             .unsafe(`COPY ${qualifiedTableName} (${colNames}) TO STDOUT`)
             .readable();
           for await (const chunk of copyStream) {
+            throwIfTimedOut(`copy dump for ${schema_name}.${tablename}`);
             await writer.writeRaw(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
           }
         } finally {
@@ -921,6 +988,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
         .values()
         .cursor(BACKUP_DATA_CURSOR_ROWS) as AsyncIterable<unknown[][]>;
       for await (const rows of rowCursor) {
+        throwIfTimedOut(`row dump for ${schema_name}.${tablename}`);
         for (const row of rows) {
           const values = row.map((rawValue, index) =>
             formatSqlValue(rawValue, cols[index]?.column_name, nullifiedColumns, cols[index]?.data_type),
@@ -936,6 +1004,7 @@ export async function runDatabaseBackup(opts: RunDatabaseBackupOptions): Promise
     if (sequences.length > 0) {
       emit("-- Sequence values");
       for (const seq of sequences) {
+        throwIfTimedOut(`sequence value dump for ${seq.sequence_schema}.${seq.sequence_name}`);
         const qualifiedSequenceName = quoteQualifiedName(seq.sequence_schema, seq.sequence_name);
         const val = await sql.unsafe<{ last_value: string; is_called: boolean }[]>(
           `SELECT last_value::text, is_called FROM ${qualifiedSequenceName}`,

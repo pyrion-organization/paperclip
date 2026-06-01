@@ -538,6 +538,7 @@ schemas. Defaults:
 
 - enabled
 - every 60 minutes
+- timeout after 45 minutes
 - retain 30 days
 - backup dir: `~/.paperclip/instances/default/data/backups`
 
@@ -559,6 +560,7 @@ Environment overrides:
 
 - `PAPERCLIP_DB_BACKUP_ENABLED=true|false`
 - `PAPERCLIP_DB_BACKUP_INTERVAL_MINUTES=<minutes>`
+- `PAPERCLIP_DB_BACKUP_TIMEOUT_MINUTES=<minutes>`
 - `PAPERCLIP_DB_BACKUP_RETENTION_DAYS=<days>`
 - `PAPERCLIP_DB_BACKUP_DIR=/absolute/or/~/path`
 

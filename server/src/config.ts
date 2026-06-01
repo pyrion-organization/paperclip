@@ -67,6 +67,7 @@ export interface Config {
   embeddedPostgresPort: number;
   databaseBackupEnabled: boolean;
   databaseBackupIntervalMinutes: number;
+  databaseBackupTimeoutMinutes: number;
   databaseBackupRetentionDays: number;
   databaseBackupDir: string;
   serveUi: boolean;
@@ -257,6 +258,12 @@ export function loadConfig(): Config {
       fileDatabaseBackup?.intervalMinutes ||
       60,
   );
+  const databaseBackupTimeoutMinutes = Math.max(
+    1,
+    Number(process.env.PAPERCLIP_DB_BACKUP_TIMEOUT_MINUTES) ||
+      fileDatabaseBackup?.timeoutMinutes ||
+      45,
+  );
   const databaseBackupRetentionDays = Math.max(
     1,
     Number(process.env.PAPERCLIP_DB_BACKUP_RETENTION_DAYS) ||
@@ -308,6 +315,7 @@ export function loadConfig(): Config {
     embeddedPostgresPort: fileConfig?.database.embeddedPostgresPort ?? 54329,
     databaseBackupEnabled,
     databaseBackupIntervalMinutes,
+    databaseBackupTimeoutMinutes,
     databaseBackupRetentionDays,
     databaseBackupDir,
     serveUi:
