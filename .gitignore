@@ -42,8 +42,9 @@ diagnostics/
 *.tmp
 .vscode/
 .clawpatch/
-.claude/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
 .paperclip-local/
 /.idea/
 /.agents/

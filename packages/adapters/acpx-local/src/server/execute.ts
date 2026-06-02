@@ -831,7 +831,7 @@ async function buildRuntime(input: {
   // bare model IDs (e.g. "claude-opus-4-7") that don't exactly match a model
   // entry in some versions. ANTHROPIC_MODEL is read during initialization, so
   // it reliably sets the model before any turns are run.
-  if (requestedModel && acpxAgent === "claude" && !env.ANTHROPIC_MODEL) {
+  if (requestedModel && acpxAgent === "claude") {
     env.ANTHROPIC_MODEL = requestedModel;
   }
 

@@ -265,6 +265,24 @@ describe("acpx_local runtime skill isolation", () => {
     expect(env).not.toContain("old-key");
   });
 
+  it("lets a requested ACPX Claude model override a configured ANTHROPIC_MODEL env value", async () => {
+    const root = await makeTempRoot();
+    const stateDir = path.join(root, "state");
+
+    await runExecutor({
+      agent: "claude",
+      stateDir,
+      model: "claude-requested-model",
+      env: { ANTHROPIC_MODEL: "claude-stale-env-model" },
+    });
+
+    const wrappers = await fs.readdir(path.join(stateDir, "wrappers"));
+    const envPath = path.join(stateDir, "wrappers", wrappers.find((name) => name.endsWith(".env"))!);
+    const env = await fs.readFile(envPath, "utf8");
+    expect(env).toContain("ANTHROPIC_MODEL='claude-requested-model'");
+    expect(env).not.toContain("claude-stale-env-model");
+  });
+
   it("shapes ACPX wrapper workspace env for remote execution identities", async () => {
     const root = await makeTempRoot();
     const stateDir = path.join(root, "state");
