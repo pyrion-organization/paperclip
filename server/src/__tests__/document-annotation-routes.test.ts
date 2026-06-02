@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const issueId = "11111111-1111-4111-8111-111111111111";
 const companyId = "22222222-2222-4222-8222-222222222222";
@@ -172,11 +172,20 @@ async function createApp(actor: "board" | "agent" = "board", actorCompanyId = co
 }
 
 describe("document annotation routes", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.doUnmock("../routes/issues.js");
-    vi.doUnmock("../middleware/index.js");
+  let boardApp: express.Express;
+  let agentApp: express.Express;
+  let otherCompanyAgentApp: express.Express;
+
+  beforeAll(async () => {
     registerModuleMocks();
+    [boardApp, agentApp, otherCompanyAgentApp] = await Promise.all([
+      createApp(),
+      createApp("agent"),
+      createApp("agent", otherCompanyId),
+    ]);
+  });
+
+  beforeEach(() => {
     vi.clearAllMocks();
     mockIssueService.getById.mockResolvedValue({
       id: issueId,
@@ -204,7 +213,7 @@ describe("document annotation routes", () => {
   });
 
   it("includes compact open annotations without comment bodies by default for agent document reads", async () => {
-    const res = await request(await createApp("agent"))
+    const res = await request(agentApp)
       .get(`/api/issues/${issueId}/documents/plan`)
       .expect(200);
 
@@ -217,7 +226,7 @@ describe("document annotation routes", () => {
   });
 
   it("includes annotation comment bodies on document reads only when explicitly requested", async () => {
-    const res = await request(await createApp("agent"))
+    const res = await request(agentApp)
       .get(`/api/issues/${issueId}/documents/plan?includeAnnotationComments=true`)
       .expect(200);
 
@@ -237,7 +246,7 @@ describe("document annotation routes", () => {
       assigneeAgentId: "99999999-9999-4999-8999-999999999999",
     });
 
-    const res = await request(await createApp())
+    const res = await request(boardApp)
       .post(`/api/issues/${issueId}/documents/plan/annotations`)
       .send({
         baseRevisionId: documentPayload.latestRevisionId,
@@ -264,19 +273,19 @@ describe("document annotation routes", () => {
   });
 
   it("rejects agent cross-company annotation reads", async () => {
-    await request(await createApp("agent", otherCompanyId))
+    await request(otherCompanyAgentApp)
       .get(`/api/issues/${issueId}/documents/plan/annotations`)
       .expect(403);
   });
 
   it("adds annotation comments and resolves threads", async () => {
-    await request(await createApp())
+    await request(boardApp)
       .post(`/api/issues/${issueId}/documents/plan/annotations/${annotationThread.id}/comments`)
       .send({ body: "Reply with PAP-2" })
       .expect(201);
     expect(mockIssueReferenceService.syncAnnotationComment).toHaveBeenCalledWith(annotationComment.id);
 
-    const resolved = await request(await createApp())
+    const resolved = await request(boardApp)
       .patch(`/api/issues/${issueId}/documents/plan/annotations/${annotationThread.id}`)
       .send({ status: "resolved" })
       .expect(200);
