@@ -18,6 +18,7 @@ export async function promptDatabase(current?: DatabaseConfig): Promise<Database
       enabled: true,
       intervalMinutes: 60,
       retentionDays: 30,
+      timeoutMinutes: 45,
       dir: defaultBackupDir,
     },
   };
@@ -151,6 +152,7 @@ export async function promptDatabase(current?: DatabaseConfig): Promise<Database
       enabled: backupEnabled,
       intervalMinutes: Number(backupIntervalInput || "60"),
       retentionDays: Number(backupRetentionInput || "30"),
+      timeoutMinutes: current?.backup.timeoutMinutes ?? 45,
       dir: backupDirInput || defaultBackupDir,
     },
   };

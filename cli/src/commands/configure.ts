@@ -44,6 +44,7 @@ function defaultConfig(): PaperclipConfig {
         enabled: true,
         intervalMinutes: 60,
         retentionDays: 30,
+        timeoutMinutes: 45,
         dir: resolveDefaultBackupDir(instanceId),
       },
     },

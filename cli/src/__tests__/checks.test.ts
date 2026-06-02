@@ -22,6 +22,7 @@ function makeConfig(root: string): PaperclipConfig {
         enabled: true,
         intervalMinutes: 60,
         retentionDays: 30,
+        timeoutMinutes: 45,
         dir: path.join(root, "backups"),
       },
     },

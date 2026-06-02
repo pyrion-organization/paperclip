@@ -80,6 +80,7 @@ function configWithSecretsProvider(provider: PaperclipConfig["secrets"]["provide
         enabled: true,
         intervalMinutes: 60,
         retentionDays: 30,
+        timeoutMinutes: 45,
         dir: "/tmp/paperclip/backups",
       },
     },
