@@ -24,12 +24,18 @@ function readStoredCollapsedPreference(): boolean {
   }
 }
 
+function isCurrentViewportMobile(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < MOBILE_BREAKPOINT;
+}
+
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_BREAKPOINT);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= MOBILE_BREAKPOINT);
+  const [isMobile, setIsMobile] = useState(() => isCurrentViewportMobile());
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isCurrentViewportMobile());
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => readStoredCollapsedPreference());
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const onChange = (e: MediaQueryListEvent) => {
       setIsMobile(e.matches);

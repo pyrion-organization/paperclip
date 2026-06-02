@@ -194,4 +194,50 @@ describe("SystemNotice", () => {
     expect(node.textContent).toContain("abc12345");
     expect(node.textContent).toContain("PAP-1");
   });
+
+  it("renders unsafe source and metadata hrefs as plain text", () => {
+    const node = render(
+      <SystemNotice
+        tone="warning"
+        body="Unsafe links"
+        source={{ label: "source", href: "javascript:alert(1)" }}
+        detailsDefaultOpen
+        metadata={[
+          {
+            rows: [
+              { kind: "issue", label: "Issue", identifier: "PAP-1", href: "javascript:alert(1)" },
+              { kind: "agent", label: "Agent", name: "Codex", href: "data:text/html,pwned" },
+              { kind: "run", label: "Run", runId: "run-1", href: "//evil.test/run" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(node.querySelectorAll("a")).toHaveLength(0);
+    expect(node.textContent).toContain("source");
+    expect(node.textContent).toContain("PAP-1");
+    expect(node.textContent).toContain("Codex");
+    expect(node.textContent).toContain("run-1");
+  });
+
+  it("keeps safe internal and https notice hrefs", () => {
+    const node = render(
+      <SystemNotice
+        body="Safe links"
+        source={{ label: "source", href: "/issues/PAP-1" }}
+        detailsDefaultOpen
+        metadata={[
+          {
+            rows: [
+              { kind: "issue", label: "Issue", identifier: "PAP-1", href: "https://example.test/issue" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const links = Array.from(node.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+    expect(links).toEqual(["/issues/PAP-1", "https://example.test/issue"]);
+  });
 });

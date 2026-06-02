@@ -58,13 +58,20 @@ function parsePersistedLogContent(
   runId: string,
   content: string,
   pendingByRun: Map<string, string>,
+  options: { flushFinal?: boolean } = {},
 ): Array<RunLogChunk & { dedupeKey: string }> {
   if (!content) return [];
 
   const pendingKey = `${runId}:records`;
   const combined = `${pendingByRun.get(pendingKey) ?? ""}${content}`;
   const split = combined.split("\n");
-  pendingByRun.set(pendingKey, split.pop() ?? "");
+  const finalLine = split.pop() ?? "";
+  if (options.flushFinal) {
+    pendingByRun.delete(pendingKey);
+    if (finalLine) split.push(finalLine);
+  } else {
+    pendingByRun.set(pendingKey, finalLine);
+  }
 
   const parsed: Array<RunLogChunk & { dedupeKey: string }> = [];
   for (const line of split) {
@@ -225,7 +232,9 @@ export function useLiveRunTranscripts({
         const result = await heartbeatsApi.log(run.id, offset, logReadLimitBytes);
         if (cancelled) return;
 
-        appendChunks(run.id, parsePersistedLogContent(run.id, result.content, pendingLogRowsByRunRef.current));
+        appendChunks(run.id, parsePersistedLogContent(run.id, result.content, pendingLogRowsByRunRef.current, {
+          flushFinal: isTerminalStatus(run.status),
+        }));
 
         if (result.nextOffset !== undefined) {
           logOffsetByRunRef.current.set(run.id, result.nextOffset);

@@ -101,6 +101,12 @@ export function SecretBindingPicker({
   }, [secretsQuery.data, value]);
 
   const selectedMissing = Boolean(value && !selectedSecret);
+  const visibleSecrets = useMemo(() => {
+    if (!selectedSecret || filteredSecrets.some((secret) => secret.id === selectedSecret.id)) {
+      return filteredSecrets;
+    }
+    return [selectedSecret, ...filteredSecrets];
+  }, [filteredSecrets, selectedSecret]);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -164,9 +170,10 @@ export function SecretBindingPicker({
             {selectedMissing && value ? (
               <option value={value.secretId}>Missing secret ({value.secretId.slice(0, 8)}…)</option>
             ) : null}
-            {filteredSecrets.map((secret) => (
+            {visibleSecrets.map((secret) => (
               <option key={secret.id} value={secret.id}>
                 {secret.name}, {describeSecret(secret)}
+                {statusFilter !== null && !statusFilter.includes(secret.status) ? ` (${secret.status})` : ""}
               </option>
             ))}
           </select>
@@ -220,7 +227,7 @@ export function SecretBindingPicker({
           <AlertCircle className="size-3" />
           The previously selected secret is no longer available. Pick another or remove the binding.
         </p>
-      ) : (filteredSecrets.length === 0 && !secretsQuery.isPending) ? (
+      ) : (visibleSecrets.length === 0 && !secretsQuery.isPending) ? (
         <p className="text-[11px] text-muted-foreground">{emptyHint}</p>
       ) : null}
 

@@ -125,6 +125,19 @@ function metadataRowKey(row: SystemNoticeMetadataRow) {
   }
 }
 
+function safeNoticeHref(href: string | undefined): string | null {
+  if (!href) return null;
+  const trimmed = href.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTokens }) {
   return (
     <div className="grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-0.5 px-3 py-1.5 text-xs">
@@ -151,10 +164,11 @@ function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTo
                   ) : null}
                 </>
               );
-              if (row.href) {
+              const safeHref = safeNoticeHref(row.href);
+              if (safeHref) {
                 return (
                   <a
-                    href={row.href}
+                    href={safeHref}
                     className={cn(
                       "inline-flex items-center gap-1 rounded-sm font-medium underline-offset-2 hover:underline",
                       tone.label,
@@ -170,11 +184,12 @@ function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTo
                 </span>
               );
             }
-            case "agent":
-              if (row.href) {
+            case "agent": {
+              const safeHref = safeNoticeHref(row.href);
+              if (safeHref) {
                 return (
                   <a
-                    href={row.href}
+                    href={safeHref}
                     className={cn(
                       "inline-flex items-center gap-1 rounded-sm font-medium underline-offset-2 hover:underline",
                       tone.label,
@@ -187,6 +202,7 @@ function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTo
               return (
                 <span className={cn("font-medium", tone.label)}>{row.name}</span>
               );
+            }
             case "run": {
               const runShort = row.runId.length > 12 ? `${row.runId.slice(0, 8)}…` : row.runId;
               const inner = (
@@ -197,10 +213,11 @@ function MetadataRow({ row, tone }: { row: SystemNoticeMetadataRow; tone: ToneTo
                   ) : null}
                 </>
               );
-              if (row.href) {
+              const safeHref = safeNoticeHref(row.href);
+              if (safeHref) {
                 return (
                   <a
-                    href={row.href}
+                    href={safeHref}
                     className="inline-flex items-center gap-2 rounded-sm font-mono text-[11px] underline-offset-2 hover:underline"
                   >
                     {inner}
@@ -272,9 +289,9 @@ export function SystemNotice({
             {source ? (
               <>
                 <span className="text-muted-foreground/60" aria-hidden>·</span>
-                {source.href ? (
+                {safeNoticeHref(source.href) ? (
                   <a
-                    href={source.href}
+                    href={safeNoticeHref(source.href)!}
                     className="rounded-sm font-medium normal-case tracking-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                   >
                     {source.label}

@@ -198,4 +198,36 @@ describe("CompanyProvider", () => {
     expect(seen).toEqual([null, "company-1"]);
     expect(localStorage.getItem("paperclip.selectedCompanyId")).toBe("company-1");
   });
+
+  it("continues when localStorage throws", async () => {
+    queryClient.setQueryData(queryKeys.companies.all, {
+      companies: [makeCompany("company-1")],
+      unauthorized: false,
+    });
+    mockCompaniesApi.list.mockImplementation(() => new Promise(() => {}));
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const seen: Array<string | null> = [];
+
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <CompanyProvider>
+              <Probe onSelectedCompanyId={(companyId) => seen.push(companyId)} />
+            </CompanyProvider>
+          </QueryClientProvider>,
+        );
+      });
+
+      expect(seen).toEqual([null, "company-1"]);
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
 });

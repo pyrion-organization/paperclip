@@ -235,6 +235,68 @@ describe("ProjectFilesTab", () => {
     });
   });
 
+  it("disables saving when an external file change is detected", async () => {
+    vi.useFakeTimers();
+    projectsApiMock.filesTree.mockResolvedValue({
+      path: "",
+      entries: [
+        {
+          name: "config.json",
+          path: "config.json",
+          kind: "file",
+          hiddenByDefault: false,
+          fileType: "text",
+        },
+      ],
+    });
+    projectsApiMock.fileContent
+      .mockResolvedValueOnce(jsonFileDetail(RAW_JSON))
+      .mockResolvedValueOnce({
+        ...jsonFileDetail(RAW_JSON),
+        updatedAt: new Date("2026-05-14T00:01:00.000Z"),
+      });
+
+    try {
+      act(() => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ProjectFilesTab projectId="project-1" companyId="company-1" />
+          </QueryClientProvider>,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector("[data-testid='project-code-editor']")).not.toBeNull();
+      });
+
+      const editButton = container.querySelector("[data-testid='edit-json']") as HTMLButtonElement;
+      act(() => {
+        editButton.click();
+      });
+
+      await vi.waitFor(() => {
+        const saveButton = Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent?.includes("Save")) as HTMLButtonElement | undefined;
+        expect(saveButton?.disabled).toBe(false);
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(15000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Files may have changed outside the UI.");
+        const saveButton = Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent?.includes("Save")) as HTMLButtonElement | undefined;
+        expect(saveButton?.disabled).toBe(true);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders project markdown file previews without auto-linking issue references", async () => {
     projectsApiMock.filesTree.mockResolvedValue({
       path: "",

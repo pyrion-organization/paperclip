@@ -197,32 +197,38 @@ const EnumField = React.memo(({
   description?: string;
   error?: string;
   options: unknown[];
-}) => (
-  <FieldWrapper
-    label={label}
-    description={description}
-    required={isRequired}
-    error={error}
-    disabled={disabled}
-  >
-    <Select
-      value={String(value ?? "")}
-      onValueChange={onChange}
+}) => {
+  const selectedIndex = options.findIndex((option) => Object.is(option, value));
+  return (
+    <FieldWrapper
+      label={label}
+      description={description}
+      required={isRequired}
+      error={error}
       disabled={disabled}
     >
-      <SelectTrigger className="w-full">
-        <SelectValue placeholder="Select an option" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={String(option)} value={String(option)}>
-            {String(option)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  </FieldWrapper>
-));
+      <Select
+        value={selectedIndex >= 0 ? String(selectedIndex) : ""}
+        onValueChange={(next) => {
+          const index = Number.parseInt(next, 10);
+          onChange(Number.isInteger(index) && index >= 0 && index < options.length ? options[index] : "");
+        }}
+        disabled={disabled}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Select an option" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option, index) => (
+            <SelectItem key={`${index}:${String(option)}`} value={String(index)}>
+              {String(option)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </FieldWrapper>
+  );
+});
 
 EnumField.displayName = "EnumField";
 
@@ -273,6 +279,11 @@ const SecretField = React.memo(({
   if (hasRawValue !== prevHasRawValue) {
     setPrevHasRawValue(hasRawValue);
     if (hasRawValue) setShowRawInput(true);
+  }
+  const [prevStringValue, setPrevStringValue] = useState(stringValue);
+  if (stringValue !== prevStringValue) {
+    setPrevStringValue(stringValue);
+    setIsVisible(false);
   }
 
   const bindingValue: SecretBindingValue | null = isBoundToSecret
@@ -637,7 +648,7 @@ const ArrayField = React.memo(({
       <div className="space-y-3">
         {items.map((item, index) => (
           <div
-            key={`${path}.${index}`}
+            key={`${path}.${index}:${JSON.stringify(item)}`}
             className="group relative flex items-start gap-x-2 rounded-lg border p-3"
           >
             <div className="flex-1">

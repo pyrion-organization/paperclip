@@ -1111,7 +1111,7 @@ export function ProjectFilesTab({
                   variant="ghost"
                   className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => saveFile.mutate({ path: selectedFile.path, content: editorValue })}
-                  disabled={!fileDirty || saveFile.isPending}
+                  disabled={!fileDirty || saveFile.isPending || showReloadHint}
                 >
                   <Save className="size-4" />
                   Save

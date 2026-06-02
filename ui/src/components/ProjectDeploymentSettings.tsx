@@ -348,9 +348,9 @@ function DeployCommandRecords({
                 <span className="text-muted-foreground">{formatDate(record.createdAt)}</span>
               </div>
               <div className="mt-0.5 break-all font-mono text-muted-foreground">{record.command}</div>
-              {record.output || record.note || record.exitCode ? (
+              {record.output || record.note || record.exitCode != null ? (
                 <div className="mt-0.5 break-words text-muted-foreground">
-                  {record.exitCode ? `exit ${record.exitCode}: ` : ""}
+                  {record.exitCode != null ? `exit ${record.exitCode}: ` : ""}
                   {record.output ?? record.note}
                 </div>
               ) : null}

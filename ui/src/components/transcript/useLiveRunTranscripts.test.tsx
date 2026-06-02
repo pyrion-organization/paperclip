@@ -152,6 +152,50 @@ describe("useLiveRunTranscripts", () => {
     container.remove();
   });
 
+  it("hydrates a terminal persisted log record without a trailing newline", async () => {
+    logMock.mockResolvedValueOnce({
+      runId: "run-1",
+      store: "memory",
+      logRef: "log-1",
+      content: JSON.stringify({
+        ts: "2026-04-20T00:00:00.000Z",
+        stream: "stdout",
+        chunk: "final line",
+      }),
+      nextOffset: 0,
+    });
+
+    function Harness() {
+      useLiveRunTranscripts({
+        companyId: "company-1",
+        runs: [{ id: "run-1", status: "succeeded", adapterType: "codex_local" }],
+        enableRealtimeUpdates: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(buildTranscriptMock).toHaveBeenCalledWith(
+      [{ ts: "2026-04-20T00:00:00.000Z", stream: "stdout", chunk: "final line" }],
+      null,
+      { censorUsernameInLogs: false },
+    );
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
   it("reports initial hydration until the first persisted-log read completes", async () => {
     let latestIsInitialHydrating = false;
     type RunLogResult = { runId: string; store: string; logRef: string; content: string; nextOffset: number };
