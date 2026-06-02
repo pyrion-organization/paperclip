@@ -1,7 +1,9 @@
 import type { IncomingMessage } from "node:http";
+import { EventEmitter } from "node:events";
+import type { Duplex } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { agentApiKeys, agents } from "@paperclipai/db";
-import { authorizeUpgrade } from "../realtime/live-events-ws.js";
+import { authorizeUpgrade, setupLiveEventsWebSocketServer } from "../realtime/live-events-ws.js";
 
 function createSelectChain(rowsByTable: Map<unknown, unknown[]>) {
   return {
@@ -51,5 +53,29 @@ describe("authorizeUpgrade", () => {
 
     expect(context).toBeNull();
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe("setupLiveEventsWebSocketServer", () => {
+  it("leaves unrelated websocket upgrade requests for other listeners", () => {
+    const server = new EventEmitter();
+    const socket = {
+      destroy: vi.fn(),
+      write: vi.fn(),
+    } as unknown as Duplex;
+    const req = {
+      url: "/vite-hmr",
+      headers: {},
+    } as IncomingMessage;
+
+    const wss = setupLiveEventsWebSocketServer(server as any, {} as any, {
+      deploymentMode: "local_trusted",
+    });
+
+    server.emit("upgrade", req, socket, Buffer.alloc(0));
+
+    expect(socket.write).not.toHaveBeenCalled();
+    expect(socket.destroy).not.toHaveBeenCalled();
+    (wss as any).emit("close");
   });
 });

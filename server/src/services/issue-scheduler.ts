@@ -22,14 +22,26 @@ export function issueSchedulerService(db: Db, heartbeat: IssueAssignmentWakeupDe
       let promoted = 0;
       for (const issue of dueIssues) {
         try {
-          await db
+          const [promotedIssue] = await db
             .update(issues)
             .set({ status: "todo", updatedAt: now })
-            .where(eq(issues.id, issue.id));
+            .where(
+              and(
+                eq(issues.id, issue.id),
+                eq(issues.status, "backlog"),
+                isNotNull(issues.scheduledAt),
+                lte(issues.scheduledAt, now),
+              ),
+            )
+            .returning();
+
+          if (!promotedIssue) {
+            continue;
+          }
 
           void queueIssueAssignmentWakeup({
             heartbeat,
-            issue: { id: issue.id, assigneeAgentId: issue.assigneeAgentId, status: "todo" },
+            issue: { id: promotedIssue.id, assigneeAgentId: promotedIssue.assigneeAgentId, status: "todo" },
             reason: "issue_status_changed",
             mutation: "scheduled_start",
             contextSource: "issue.scheduled_start",
