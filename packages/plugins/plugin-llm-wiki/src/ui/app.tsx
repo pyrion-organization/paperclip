@@ -645,17 +645,28 @@ function AutosaveMarkdownEditor({
   const [status, setStatus] = useState<AutosaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reset the editor to a freshly-loaded value during render when the value or
+  // its reset key changes, instead of one stale commit later.
+  const currentResetSnapshot = `${resetKey} ${value}`;
+  const [resetSnapshot, setResetSnapshot] = useState(currentResetSnapshot);
+  if (currentResetSnapshot !== resetSnapshot) {
+    setResetSnapshot(currentResetSnapshot);
     setDraft(value);
     setLastSaved(value);
     setStatus("idle");
     setError(null);
+  }
+
+  // Notify the parent that the editor reset to idle (after commit, off render).
+  useEffect(() => {
     onStatusChange?.("idle");
-  }, [onStatusChange, resetKey, value]);
+  }, [onStatusChange, resetSnapshot]);
 
   useEffect(() => {
     if (draft === lastSaved) return;
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- debounced autosave marker; the async save timer follows below
     setStatus("dirty");
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- cleared alongside the dirty mark for the debounced save below
     setError(null);
     onStatusChange?.("dirty");
     const timeout = window.setTimeout(async () => {
@@ -3248,12 +3259,15 @@ function PageDetail({ context, path, spaceSlug }: { context: { companyId: string
   const parsedMarkdown = useMemo(() => parseWikiMarkdown(content.data?.contents ?? ""), [content.data?.contents]);
   const tocHeadings = useMemo(() => extractWikiTocHeadings(parsedMarkdown.body), [parsedMarkdown.body]);
 
-  useEffect(() => {
+  // Reset the per-page view state during render when the path changes.
+  const [prevPath, setPrevPath] = useState(path);
+  if (path !== prevPath) {
+    setPrevPath(path);
     setEditing(false);
     setSavedHash(null);
     setTocOpen(true);
     setActiveTocId(null);
-  }, [path]);
+  }
 
   useEffect(() => {
     if (!content.data || editing) return;
@@ -3493,6 +3507,7 @@ function OnThisPagePane({
 
   useEffect(() => {
     if (mobile) {
+      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- DOM-measurement effect: teardown of the measured frame on mobile
       setFixedFrame(null);
       return;
     }
@@ -3519,6 +3534,7 @@ function OnThisPagePane({
       });
     };
 
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- DOM-measurement effect: reads getBoundingClientRect, cannot run during render
     updateFrame();
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateFrame);
     resizeObserver?.observe(shell);
