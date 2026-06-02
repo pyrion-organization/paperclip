@@ -51,7 +51,7 @@ describe("forbidden token check", () => {
   });
 
   it("reports matches without leaking which token was searched", () => {
-    const exec = vi
+    const execFile = vi
       .fn()
       .mockReturnValueOnce("server/file.ts:1:found\n")
       .mockImplementation(() => {
@@ -63,13 +63,13 @@ describe("forbidden token check", () => {
     const exitCode = runForbiddenTokenCheck({
       repoRoot: "/repo",
       tokens: ["paperclip", "custom-token"],
-      exec,
+      execFile,
       log,
       error,
     });
 
     expect(exitCode).toBe(1);
-    expect(exec).toHaveBeenCalledTimes(2);
+    expect(execFile).toHaveBeenCalledTimes(2);
     expect(error).toHaveBeenCalledWith("ERROR: Forbidden tokens found in tracked files:\n");
     expect(error).toHaveBeenCalledWith("  server/file.ts:1:found");
     expect(error).toHaveBeenCalledWith("\nBuild blocked. Remove the forbidden token(s) before publishing.");

@@ -61,6 +61,11 @@ vi.mock("../adapters/index.js", () => ({
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
 
+function isForeignKeyViolation(error: unknown) {
+  const cause = (error as { cause?: { code?: string } } | null)?.cause;
+  return cause?.code === "23503";
+}
+
 if (!embeddedPostgresSupport.supported) {
   console.warn(
     `Skipping embedded Postgres accepted-plan workspace refresh tests on this host: ${embeddedPostgresSupport.reason ?? "unsupported environment"}`,
@@ -112,11 +117,19 @@ describeEmbeddedPostgres("accepted plan workspace refresh", () => {
     await db.delete(issueDocuments);
     await db.delete(documentRevisions);
     await db.delete(documents);
-    await db.delete(agentTaskSessions);
     await db.delete(executionWorkspaces);
-    await db.delete(activityLog);
-    await db.delete(heartbeatRunEvents);
-    await db.delete(heartbeatRuns);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await db.delete(agentTaskSessions);
+      await db.delete(activityLog);
+      await db.delete(heartbeatRunEvents);
+      try {
+        await db.delete(heartbeatRuns);
+        break;
+      } catch (error) {
+        if (!isForeignKeyViolation(error) || attempt === 19) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
     await db.delete(issueComments);
     await db.delete(issues);
     await db.delete(projectWorkspaces);
