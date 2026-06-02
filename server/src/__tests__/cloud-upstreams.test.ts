@@ -159,6 +159,47 @@ describeEmbeddedPostgres("cloud upstream persistence", () => {
     expect(row.accessToken).not.toContain("cloud-access-token");
   });
 
+  it("allows localhost discovery origins for development upstreams", async () => {
+    const companyId = randomUUID();
+    await seedCompany(companyId);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("http://localhost:3200/.well-known/paperclip-upstream")) {
+        return jsonResponse({
+          product: "Paperclip Cloud Dev",
+          stack: {
+            id: "local-stack-1",
+            companyId: "cloud-company-1",
+            origin: "http://localhost:3200",
+            primaryHost: "localhost:3200",
+          },
+          transfer: {
+            supportedSchemaMajor: 1,
+            maxChunkBytes: 8192,
+          },
+          auth: {
+            scopes: ["upstream_import:write"],
+            pkce: {
+              authorizeUrl: "http://localhost:3200/oauth/authorize",
+              tokenUrl: "http://localhost:3200/oauth/token",
+            },
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const started = await cloudUpstreamService(db, { instanceId: "test" }).startConnect({
+      companyId,
+      remoteUrl: "http://localhost:3200",
+      redirectUri: "http://localhost:3100/callback",
+    });
+
+    expect(started.authorizationUrl).toContain("http://localhost:3200/oauth/authorize");
+    const [row] = await db.select().from(cloudUpstreamConnections);
+    expect(row.targetOrigin).toBe("http://localhost:3200");
+  });
+
   it("marks orphaned running runs failed during startup reconciliation", async () => {
     const companyId = randomUUID();
     const connectionId = randomUUID();

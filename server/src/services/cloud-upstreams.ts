@@ -154,8 +154,9 @@ export function cloudUpstreamService(db: Db, options: { instanceId?: string } = 
       const remoteUrl = input.remoteUrl.trim();
       if (!remoteUrl) throw badRequest("Remote URL is required");
 
+      const parsedRemoteUrl = new URL(remoteUrl);
       const discovery = await fetchDiscovery(remoteUrl);
-      const target = targetFromDiscovery(discovery);
+      const target = targetFromDiscovery(discovery, { allowLocalhostDev: isLocalhost(parsedRemoteUrl.hostname) });
       const expectedOrigin = new URL(remoteUrl).origin;
       validateCloudUpstreamUrl(new URL(target.origin), { expectedOrigin, label: "Cloud upstream origin" });
       const tokenUrl = tokenUrlFromDiscovery(discovery);
@@ -761,12 +762,18 @@ function firstPathSegment(pathname: string): string | null {
   return segment && segment.toLowerCase() !== "dashboard" ? segment : null;
 }
 
-function targetFromDiscovery(discovery: Record<string, unknown>): CloudUpstreamTarget {
+function targetFromDiscovery(
+  discovery: Record<string, unknown>,
+  options: { allowLocalhostDev?: boolean } = {},
+): CloudUpstreamTarget {
   const stack = objectField(discovery, "stack");
   const transfer = objectField(discovery, "transfer");
   const schema = optionalObject(transfer.schema);
   const origin = stringField(stack, "origin");
-  validateCloudUpstreamUrl(new URL(origin), { label: "Cloud upstream origin" });
+  validateCloudUpstreamUrl(new URL(origin), {
+    allowLocalhostDev: options.allowLocalhostDev,
+    label: "Cloud upstream origin",
+  });
   return {
     stackId: stringField(stack, "id"),
     stackSlug: optionalString(stack.slug),
