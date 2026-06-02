@@ -1,278 +1,217 @@
-# Inbound Email Polling Logic
+# Inbound Email Polling
 
-End-to-end flow for inbound IMAP polling and message processing. Two-stage pipeline driven by a generic background-job queue.
+## Implemented
 
-## 1. Worker entry point (`server/src/email-worker.ts`)
+Paperclip has the core inbound email polling flow implemented.
 
-A standalone Node process loops forever calling `svc.runEmailWorkerOnce(workerId, batchSize, { runScheduler })`:
+The system runs a standalone email worker that schedules and claims `email.*` background jobs, polls enabled IMAP mailboxes, imports raw RFC 822 messages, deduplicates them, stores the raw email and attachments, and processes each message into a terminal outcome.
 
-- Env-tunable knobs: `PAPERCLIP_EMAIL_WORKER_IDLE_MS` (5s default), `_BATCH_SIZE` (10), `_SCHEDULER_INTERVAL_MS` (10s).
-- Each tick: optionally run the scheduler, claim up to `batchSize` jobs, sleep `idleMs` if no work.
-- SIGINT/SIGTERM flips a `stopped` flag for graceful drain (30s hard deadline).
+Imported messages are persisted in `inbound_email_messages` with source cleanup state, classification fields, support reply fields, and links to created issues. Attachments are stored separately and linked to created Paperclip issues. Mailboxes and rules are company-scoped and configurable from the board UI.
 
-## 2. One tick — `runEmailWorkerOnce` (inbound-email.ts:1086)
+Message processing resolves the sender against client email domains and registered client employees, detects client-employee registration commands, resolves the target project from the message text, applies mailbox/rule routing policy, creates triage issues for authorized support mail, and records activity for important transitions.
 
-Three steps:
+The current deterministic support classifier is implemented for the main support-intake categories:
 
-1. **`jobs.requeueStaleRunning(5 * 60_000)`** — any job marked `running` for >5min gets returned to the queue (handles crashed workers).
-2. **`enqueueDueMailboxPollJobs()`** — the scheduler (only every 10s thanks to `runScheduler`).
-3. **Claim and run** up to `batchSize` jobs via `runNextEmailJob`.
+- `code_bug`
+- `infra_incident`
+- `how_to_question`
+- `feature_request`
+- `account_access`
+- `unsafe_or_prompt_injection`
+- `unclear`
 
-## 3. Scheduler — `enqueueDueMailboxPollJobs` (line 797)
+Classified support messages can create issues, request clarification, quarantine unsafe messages, send Portuguese support acknowledgements when enabled, and optionally turn trusted high-confidence code bug reports into assigned agent tasks when mailbox automation policy allows it.
 
-- Loads every `inboundEmailMailboxes` row with `enabled = true`.
-- For each, checks `lastPollAt + pollIntervalSeconds <= now`; if due, enqueues a `email.poll_mailbox` job.
-- **Dedupe key** = `${mailboxId}:${floor(now / intervalMs)}` — bucketed by interval window, so multiple workers/ticks within the same window can't queue duplicate polls.
+External intake and recovery are also implemented. Operators can import preserved raw `.eml` messages singly or in bounded batches, public backup systems can submit raw messages through per-mailbox external intake tokens, and the normal raw-message import/dedupe/classification/issue flow is reused.
 
-## 4. Job dispatch — `runNextEmailJob` (line 1062)
+Related deployment and infrastructure foundations are implemented separately: deployment targets, approval-gated deploy events, command evidence, maintenance messages, infrastructure targets, health checks, external monitor evidence, infrastructure incidents, and repair/failover proposal records.
 
-- `jobs.claimNext({ workerId, kindPrefix: "email." })` — atomic claim from `background_jobs`, scoped to `email.*` kinds.
-- Two kinds:
-  - `email.poll_mailbox` → `pollMailbox(companyId, mailboxId)`
-  - `email.process_message` → `processMessage(companyId, messageId)`
-- On success → `jobs.complete`; on throw → `jobs.fail` (which decrements attempts / schedules retry).
+## To Implement: Provider-Backed Spam Classification
 
-## 5. Stage A — `pollMailbox` (line 843)
+The database, shared types, processing logic, and UI already know about `spam_or_irrelevant`, but Paperclip does not currently have a real spam detector that assigns that category during normal classification.
 
-For one mailbox:
+Today, `spam_or_irrelevant` is represented and handled:
 
-1. Load row, decrypt password via `secretService` (`__inbound_email_password__:<mailboxId>`).
-2. Stamp `lastPollAt = now` (so we don't double-poll even if IMAP hangs).
-3. Open IMAP session via `fetchUnreadMessages` (inbound-email-imap.ts) — pulls up to `fetchLimit` (default 20) unseen messages.
-4. For each raw RFC822 buffer, call `submitRawMessage({...processAfterImport: false})`, then process the message inline while the IMAP session is still open. If inline processing fails, enqueue `email.process_message` for retry.
-5. Do not mark the source message as read merely because it was fetched. Source cleanup happens only after processing reaches a terminal outcome: issue creation deletes the source, clarification-style skips mark it seen, and terminal duplicate sources get the same delete/seen treatment as the original row.
-6. On overall success → set `lastSuccessAt`, clear `lastError`. On failure → write `lastError`, rethrow (job will retry).
+- It is a valid inbound email classification category.
+- Inbound messages can store it in `classification_category`.
+- The Email Ops quarantine panel can list skipped spam messages.
+- Support replies are suppressed for spam/unsafe messages.
+- Processing treats the category as a quarantine/discard final action if something has already assigned it.
 
-## 6. Stage A.5 — `submitRawMessage` (line 904)
+The missing piece is detection. The deterministic classifier currently matches support categories and unsafe/prompt-injection patterns, but it does not contain a spam-specific signal source or robust spam pattern set. Paperclip should not try to become a full email-security product. The best V1 is to consume provider spam/authentication verdicts where available and only add a small local fallback.
 
-Imports a raw email into the DB without yet creating an issue:
+### Goals
 
-1. **Parse** via `parseInboundEmail` (MIME → subject, from, to, body text/html, attachments, `messageId`, `rawSha256`).
-2. **Dedupe** via `findDuplicate` — matches on `(mailboxId, providerUid)` OR `rawSha256` OR `messageId`.
-   - If duplicate exists and it's stuck in a non-terminal state without an issue, re-enqueue a process job (handles the case where the original import partially failed before the process job was scheduled).
-3. **Store the raw email** to object storage (`storeRawEmail`) → `rawStorageKey`.
-4. Insert an `inbound_email_messages` row with `status: "persisted"`.
-5. Stream attachments to storage and insert `inbound_email_attachments`.
-6. Log `inbound_email.message_imported` activity.
-7. Enqueue `email.process_message` job for that message id.
+1. Automatically classify provider-confirmed spam as `spam_or_irrelevant`.
+2. Preserve spam evidence without rendering raw untrusted HTML.
+3. Keep spam messages out of issue creation, support replies, and agent automation.
+4. Make the decision explainable in Email Ops.
+5. Keep the design provider-agnostic so IMAP polling, SES/webhook intake, Mailgun, and future providers can all feed the same classifier contract.
 
-This separation means parsing/storage and issue creation are **transactionally independent** — a flaky issues service won't lose mail, and a re-poll won't double-import.
+### Suggested Architecture
 
-The historical archive is storage-linked: raw `.eml` files are saved under `inbound-email/raw`, attachments under `inbound-email/attachments`, and the database rows link the message, attachment metadata, and created assets.
+Add an inbound email "provider verdicts" layer before the deterministic support classifier finalizes a message.
 
-## 7. Stage B — `processMessage` (line 985)
+The flow should be:
 
-Runs in its own job, so retries don't repeat IMAP I/O:
+1. Parse raw headers and external intake metadata into normalized verdict fields.
+2. Evaluate high-confidence spam/security verdicts first.
+3. If spam is confirmed, persist:
+   - `classification_category = "spam_or_irrelevant"`
+   - `classification_confidence = 90+` for provider-confirmed spam
+   - `classification_severity = "low"` or `"medium"` depending on the signal
+   - `classification_recommended_action = "discard_or_quarantine"`
+   - `classification_final_action = "discard_or_quarantine"`
+   - `classification_summary` explaining the provider verdict
+   - `classification_safety_flags` only for security-relevant signals such as malware/phishing/failed auth
+   - `classification_rule_version` identifying the provider-verdict classifier version
+4. Skip issue creation and support replies.
+5. Mark the source message seen after terminal quarantine so it is not reprocessed.
+6. Show the message in Email Ops quarantine with the provider evidence.
 
-1. Re-read message; if already `processed`/`duplicate`/`skipped`, return (idempotent).
-2. Flip `status: "processing"`.
-3. Resolve sender identity — domain → active client → registered employee.
-4. If the registered sender sent a registration command, handle the client employee registration path and do not create an issue.
-5. Otherwise, `resolveProcessingContext` → `{mailbox, rule}` for mailbox settings plus optional priority/labels from matching rules, then `resolveSenderAuthorization` performs fuzzy project detection and optional employee project-link checks.
-6. For recognized non-registration senders, run deterministic V1 support classification and persist category, confidence, severity, recommended/final action, summary, safety flags, rule version, and timestamp on the message.
-6. **If unauthorized**:
-   - For `employee_not_registered`, `project_not_authorized`, `project_not_identified`, and `project_match_ambiguous`, send a Portuguese auto-reply via `sendInboundEmailAuthorizationReply` (email.ts). Authorization replies are best-effort and SMTP failures are logged.
-   - Otherwise mark `status: "skipped"`, store `error: <reason>`, log `inbound_email.message_skipped`.
-7. **If authorized for a support request**: `createIssueFromMessage` — calls `issues.create` with subject as title, formatted description, `priority`/`labelIds` from the rule context, `projectId` from fuzzy detection or configured target project, and `originKind: "inbound_email"` + `originFingerprint: rawSha256` so downstream dedupe at the issue level works. Then attaches each `inbound_email_attachments` row to the issue via `issueAttachments`.
-8. Flip support messages to `status: "processed"`, write `createdIssueId`, log `inbound_email.issue_created`.
-9. Delete the source IMAP message after a successful issue creation, or after a required Portuguese authorization/registration reply is sent and the message is marked `skipped`. `project_not_identified` keeps the source email in the mailbox and marks it seen after the reply. Unknown-domain skips are not deleted, but they are marked seen so the poller does not keep fetching them.
-10. On exception before terminal status → `status: "failed"`, `error: <msg>`, rethrow so the job-queue retry policy applies.
-11. If source deletion fails after terminal status, keep the terminal status, store `source_delete_error`, rethrow, and let the job retry deletion without recreating the issue or resending the reply.
+### Data Model
 
-## Email employee registration
+The current schema can store the category and summary, but richer spam evidence would be useful.
 
-Registered client employees can register another employee by email without creating a Paperclip issue.
+Recommended minimal addition:
 
-- The command is detected before project matching. Accepted phrases are token-aware and accent-insensitive: `cadastro de usuário`, `cadastrar usuário`, `novo usuário`, and `registrar usuário`.
-- The email must include labeled fields: `Nome: Maria Silva` and `Email: maria@empresa.com`.
-- The requested email must belong to one of the same client's accepted email domains.
-- New employees copy the requester's `role`, `projectScope`, and selected project links. Existing employees keep their name; if role or project permissions differ, those permissions are updated to match the requester. Both writes (employee row + project-link replacement) run inside a single DB transaction so retries never observe a partial update.
-- **Privilege model**: any registered employee can grant another address on an accepted client domain the same role/scope they hold themselves — there is no admin approval step and no "max role you can grant" gate. If `role` grants meaningful authority elsewhere, treat email-based registration as equivalent to letting any current employee create peers.
-- Registration parsing only reads the subject and the new body content above quoted history (`Em … escreveu:`, `On … wrote:`, `>` lines, `-----Original Message-----`, etc.), so replies to old registration threads don't re-trigger the flow.
-- Registration outcomes are terminal `skipped` messages with `employee_registration_*` skip reasons. They send a Portuguese reply and delete the source IMAP message after the reply succeeds. They never call `createIssueFromMessage`.
+- Add `classificationEvidence` JSON on `inbound_email_messages`.
 
-## Support classification V1
+Suggested shape:
 
-Classification is deterministic and conservative in V1. It does not call an LLM, auto-run agents, auto-deploy code, or fix infrastructure. The classifier treats the original email as untrusted evidence and stores its decision on `inbound_email_messages`.
-
-- Categories: `code_bug`, `infra_incident`, `how_to_question`, `feature_request`, `account_access`, `spam_or_irrelevant`, `unsafe_or_prompt_injection`, and `unclear`.
-- Safety patterns such as prompt-injection text, secret requests, dangerous commands, or immediate deploy instructions win before normal bug/infra/question matching.
-- `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` create triage issues for recognized senders. `code_bug` and `infra_incident` default to high priority when no rule priority applies; questions default to low. `unclear` keeps the existing project-clarification behavior when no project is identified.
-- `unsafe_or_prompt_injection` and `spam_or_irrelevant` are skipped/quarantined and marked seen so the worker does not keep reprocessing them.
-- Email Ops exposes a Quarantine panel that lists the latest skipped unsafe and spam messages by classification category, including subject, sender, skip reason, summary, and safety flags. Quarantined messages are operator-visible but do not create issues or send support replies.
-- Email Ops exposes a Classification Review panel for classified messages that are `unclear` or have confidence at or below 60. The panel is for operator review and classifier/rule tuning; it does not grant extra authority or trigger automation.
-- The deterministic classifier has a focused eval corpus test covering unsafe input, infrastructure incidents, code bugs, account/access requests, feature requests, how-to questions, and vague low-confidence reports.
-- If project matching fails with `project_not_identified`, classification can still create a projectless triage issue for a recognized sender when mailbox/rule policy allows it. Unknown domains, unregistered employees, unauthorized projects, and ambiguous project matches keep the existing authorization skip/reply behavior.
-- Created issue descriptions include classification metadata plus an explicit warning that the original email is untrusted user-provided evidence.
-
-## Support intake routing
-
-Support intake routing is configured on the inbound mailbox and can be refined by inbound rules.
-
-- Mailboxes default to allowing projectless triage (`allow_projectless_triage = true`) and using `create_projectless_triage` when a recognized support email does not identify a project.
-- Operators can set mailbox `project_fallback_mode` to `request_clarification` to preserve the existing clarification reply/skip behavior for projectless reports.
-- Inbound rules can now match classification category and body text in addition to sender and subject.
-- Inbound rules can override the missing-project fallback for matching mail. A rule can allow projectless triage for a specific support category/body pattern, or force clarification for risky matches.
-- `allow_projectless_triage = false` is a hard mailbox gate: matching rules cannot create projectless issues for that mailbox.
-
-## Support replies V1
-
-Support replies are per-mailbox opt-in via `support_replies_enabled`. When enabled and company SMTP is configured, the worker sends Portuguese acknowledgement replies after a classified support email reaches a terminal outcome.
-
-- `code_bug`, `infra_incident`, `feature_request`, `how_to_question`, and `account_access` confirmations include the created issue identifier when one exists.
-- `unclear` can send a request for project name, URL or screen, reproduction steps, expected behavior, actual behavior, screenshots, or logs, except when the existing project-identification authorization reply already handled that clarification.
-- `unsafe_or_prompt_injection` and `spam_or_irrelevant` never send a support reply.
-- Reply outcomes are stored on `inbound_email_messages` as status, reason, attempted/sent timestamps, and error text. SMTP-not-configured and send failures do not fail message processing or source cleanup, and sent replies are not duplicated by retries.
-
-## Code bug agent automation V1
-
-Agent automation is per-mailbox opt-in via `agent_automation_enabled`. When enabled, the mailbox must name an assignable `agent_automation_assignee_id`.
-
-- Only trusted `code_bug` reports with a resolved project are eligible.
-- The classifier confidence must be at or above `agent_automation_min_confidence` and the message must have no safety flags.
-- The resolved project must have a configured workspace (`cwd`, `repo_url`, or `remote_workspace_ref`) and the selected agent/project/company must pass budget hard-stop checks.
-- Eligible messages persist `classification_final_action = create_agent_task`, create a sanitized issue in `todo`, assign the configured agent, and optionally wake the agent when `agent_automation_wake_enabled` is true.
-- Projectless triage, projects without an execution workspace, budget-blocked agents/projects/companies, unclear reports, infra incidents, feature requests, questions, account/access messages, unsafe messages, spam, unauthorized senders, ambiguous project matches, and low-confidence bug reports remain triage or skip flows.
-- The created issue description still treats the original email as untrusted evidence; agents receive the Paperclip issue, not raw email authority.
-
-## Approved deploy workflow foundation
-
-Paperclip now stores deployment readiness metadata and can execute approved deploy commands only when a deployment target explicitly opts in.
-
-- Project configuration includes deployment targets with environment, provider, target URL, health-check URL, operator notes, deploy/rollback command descriptors, rollback instructions, command-execution opt-in, and active/disabled status.
-- Deployment targets can opt in to maintenance updates with an explicit recipient list.
-- Agents or operators can request a `deploy_change` approval for a project issue and an active deployment target.
-- Deploy approval payloads capture changed files, tests run, target snapshot, issue snapshot, risk notes, rollback plan, and optional maintenance message.
-- Each request writes a project deploy event with `approval_requested`; approval and rejection update that event to `approved` or `rejected`.
-- After approval, the requesting agent or board can record the manual deploy handoff as `deploying`, `deployed`, `failed`, or `rolled_back`. These transitions append audit metadata to the deploy event and log project activity.
-- Approved deploy events can store deploy/rollback command evidence. The command text must match the selected deployment target descriptor, the deploy approval must be approved, and rollback evidence is only accepted after the event is deployed, failed, or already rolled back. Deploy command evidence advances the deploy event to `deploying`, `deployed`, or `failed`; successful rollback evidence advances it to `rolled_back`. Terminal command records require output, a note, or an exit code. These records capture command type, status, output/note, and actor metadata.
-- If a deployment target enables Paperclip command execution, the requesting agent or board can execute the approved deploy/rollback descriptor in the project's primary local workspace. Execution records a workspace operation, persists command evidence, updates deploy event status, and logs activity. This does not grant provider API, DNS, SSH, or infrastructure repair authority beyond whatever the approved local command itself does.
-- Maintenance messages are explicit sends, not automatic side effects. They require approved deploy approval, an eligible deploy event status, target opt-in, configured recipients, and a message body. Delivery status, recipients, attempted/sent timestamps, and errors are stored on the deploy event. A `sent` message is not sent again on retry.
-- Disabled targets cannot receive deploy approval requests.
-- This foundation is intentionally approval-gated. It does not automatically deploy, change DNS, repair infrastructure, or send customer maintenance mail as a side effect.
-
-## Infrastructure topology and health foundation
-
-Paperclip can now record project infrastructure metadata without mutating provider state.
-
-- Project configuration can store infrastructure targets with environment, provider, provider account reference, region, role, host, failover group/rank, and active/disabled status.
-- Known infrastructure providers are described by a metadata-only capability catalog (`manual`, `generic_vps`, `hetzner`, `digitalocean`, `linode`, `vultr`, `aws_lightsail`, `fly_io`, `render`). The descriptor records known health, repair, failover, and provider-support capabilities for planning and UI visibility only.
-- Provider credentials, tokens, passwords, and API keys are rejected from infrastructure target metadata. Credentials must live in dedicated secret bindings before any future provider adapter can use them.
-- Infrastructure targets default to `repairActionsRequireApproval = true`; the current system records topology and incidents but does not run provider repair, failover, DNS, SSH, or VPS commands.
-- Project health checks can be configured as HTTP, TCP, or manual checks with target linkage, URL, expected status, interval, timeout, enabled flag, and last-known health result.
-- Operators or approved automation can record health results as `healthy`, `degraded`, or `unhealthy`. Degraded/unhealthy results can create an infra incident and linked Paperclip issue.
-- The server runs a conservative HTTP health-check scheduler by default. It evaluates due enabled HTTP checks, stores status/latency/error evidence, and creates or reuses open infra incidents for degraded/unhealthy results. Configure it with `PAPERCLIP_INFRA_HEALTH_SCHEDULER_ENABLED=false`, `PAPERCLIP_INFRA_HEALTH_SCHEDULER_INTERVAL_MS`, and `PAPERCLIP_INFRA_HEALTH_SCHEDULER_BATCH_SIZE`.
-- Health results store evidence-only source fields (`operator`, `paperclip_scheduler`, or `external_monitor`), optional source ID/detail, and optional source metadata. External monitor submissions update health evidence and may create incidents, but they do not execute provider repair, failover, DNS, SSH, or deploy actions.
-- Trusted inbound emails classified as `infra_incident` and resolved to a project create or reuse an active infrastructure incident record linked to the project. Projectless infra triage still creates only a triage issue until a project is identified.
-- Infra incident records track source, grouping key, occurrence count, last occurrence time, escalation marker/reason, severity, status, recommended action, related health check, related infra target, and optional approval reference for future repair actions.
-- Repeated active incidents are grouped by health check, target, or project-level inbound infra report. Escalation is evidence-only: by default urgent incidents escalate immediately and repeated incidents escalate after 3 occurrences. Tune with `PAPERCLIP_INFRA_INCIDENT_ESCALATION_REPEAT_THRESHOLD`, `PAPERCLIP_INFRA_INCIDENT_ESCALATE_URGENT_SEVERITY=false`, and `PAPERCLIP_INFRA_INCIDENT_ESCALATE_HIGH_SEVERITY=true`.
-- Infra repair/failover proposals are explicit records linked to an infra incident and a normal `infra_repair` approval. They capture action type, rationale, proposed manual action, rollback plan, risk, provider/region context, and required evidence.
-- Approval decisions move infra proposals to approved/rejected/revision-requested through the standard approvals flow. Evidence for manual repair/failover attempts is accepted only after approval and records status, notes, optional output, and actor metadata.
-
-## External support intake recovery
-
-Paperclip can preserve and recover raw support messages captured outside the normal IMAP polling path.
-
-- External intake records are stored in `inbound_email_external_intake_records` with company, mailbox, source kind, source ID, optional source location, raw SHA-256, parsed Message-ID, status, linked inbound message, non-secret metadata, error, and timestamps.
-- Each external intake outcome writes an activity event (`imported`, `duplicate`, `failed`, or source conflict) with source IDs, status, linked message, and metadata keys, but not raw email bodies or metadata values.
-- Supported source kinds are `webhook`, `queue`, `object_storage`, and `manual_recovery`. They represent preserved raw messages from an external backup mailbox, webhook provider, queue, or operator recovery run.
-- Operators can import a preserved raw message through `POST /api/companies/:companyId/inbound-email/external-intake/import`. The payload supplies `mailboxId`, `sourceKind`, `sourceId`, optional `sourceLocation`, optional `metadata`, and `rawEmail`.
-- Operators can import up to 50 preserved raw messages in one bounded recovery call through `POST /api/companies/:companyId/inbound-email/external-intake/import-batch` with `{ "messages": [...] }`. Each item uses the same single-message payload shape and reports its own imported, duplicate, or failed result, so one bad preserved message does not block the rest of the recovery batch.
-- Operators can also use **Inbound Email Ops → External Recovery Import** to paste one preserved raw message, paste batch JSON for multiple messages, choose the default source kind/mailbox, record backup source IDs, inspect per-item batch results, and review filtered/paginated external intake evidence.
-- Operators can create, rotate, or revoke a per-mailbox external intake token from **Email Settings → External intake endpoint**. The token is shown once and only a SHA-256 hash plus short hint is stored.
-- External backup systems can submit preserved raw emails to `POST /api/external/inbound-email/mailboxes/:mailboxId/intake` with `Authorization: Bearer <token>` or `X-Paperclip-External-Intake-Token`. Public submissions accept only `webhook`, `queue`, or `object_storage` source kinds; `manual_recovery` remains board-only.
-- The public external intake endpoint is rate-limited per mailbox and client IP before token checks, request-body validation, or import work is started. Limited responses return `429`, `Retry-After`, and `X-RateLimit-*` headers, and rotating invalid tokens or malformed payloads do not bypass the limit.
-- The import path calls the normal `submitRawMessage` flow with an external provider UID, so raw SHA/message-ID dedupe, attachment reconciliation, processing jobs, classification, issue creation, and support replies stay centralized.
-- Recovery imports are idempotent by source. Reposting the same `(company, sourceKind, sourceId)` returns the existing intake record and linked message. Reusing a source ID with different raw bytes is rejected.
-- Recovery imports are also idempotent by message fingerprint through the existing inbound email dedupe path. Different external sources that preserve the same raw email create separate intake evidence records but link to one inbound message.
-- Failed imports keep a durable failed intake record with the error text and can be retried with the same source ID and raw email.
-- This foundation does not fetch from external object storage, mutate mailbox provider state, repair infrastructure, fail over providers, or auto-deploy code. External monitoring remains evidence-only until explicit provider credentials, approvals, rollback, and alerting paths are added.
-
-## External monitor health evidence
-
-Project infrastructure health checks can accept evidence from an external monitor without granting board, agent, provider, deploy, or repair authority.
-
-- Operators create or rotate a per-health-check monitor token from the project deployment settings UI. The token is shown once; Paperclip stores only a SHA-256 hash and a short hint.
-- Operators can revoke the monitor token from the same UI. Revoked tokens stop accepting external monitor submissions.
-- External monitors submit evidence to `POST /api/external/infra-health-checks/:healthCheckId/results` with `Authorization: Bearer <token>` or `X-Paperclip-Monitor-Token: <token>`.
-- The request accepts health result fields such as `status`, `checkedAt`, `latencyMs`, `error`, `sourceId`, `sourceDetail`, and non-secret `sourceMetadata`.
-- External submissions are forced to `sourceKind = external_monitor`. They only update the health-check evidence and activity log; they cannot create approvals, execute repair actions, fail over providers, create deployment events, or run commands.
-- Operators can use the protected project health result route to turn degraded or unhealthy evidence into an infra incident after reviewing the result.
-
-### External backup handoff format
-
-During Paperclip downtime, the external support intake backup should preserve each original message as a raw RFC 822 `.eml` payload plus stable source metadata. The recovery importer expects operators or future webhook/queue adapters to provide:
-
-| Field | Required | Meaning |
-|---|---:|---|
-| `mailboxId` | yes | The Paperclip inbound mailbox that should own the recovered message. |
-| `sourceKind` | yes | One of `manual_recovery`, `webhook`, `queue`, or `object_storage`. |
-| `sourceId` | yes | Stable unique external ID, such as queue message ID, webhook event ID, or object key. Reusing the same source ID with different raw bytes is rejected. |
-| `sourceLocation` | no | Human-readable backup location, such as `s3://bucket/path/message.eml` or backup mailbox folder path. Do not use presigned URLs or links containing tokens, signatures, credentials, cookies, sessions, passwords, or API keys. |
-| `rawEmail` | yes | The original raw email including headers and body. Do not paste a rendered or summarized email. |
-| `metadata` | no | Non-secret JSON metadata about provider, backup batch, receipt timestamp, or operator note. Keys that look like credentials, tokens, passwords, cookies, sessions, or API keys are rejected. |
-
-Recommended object-storage layout:
-
-```text
-support-backup/
-  company-<company-id>/
-    mailbox-<mailbox-id>/
-      YYYY/MM/DD/
-        <provider-message-id-or-random-id>.eml
-        <provider-message-id-or-random-id>.json
+```json
+{
+  "provider": "ses",
+  "spamVerdict": "FAIL",
+  "virusVerdict": "PASS",
+  "spfVerdict": "PASS",
+  "dkimVerdict": "PASS",
+  "dmarcVerdict": "PASS",
+  "source": "headers",
+  "rawHeaders": {
+    "X-SES-Spam-Verdict": "FAIL",
+    "X-SES-Virus-Verdict": "PASS"
+  }
+}
 ```
 
-The sidecar JSON should repeat `sourceKind`, `sourceId`, `sourceLocation`, receipt timestamp, provider, and mailbox address. It must not contain mailbox passwords, API keys, provider tokens, session cookies, presigned URLs, or customer secrets beyond the email content already present in the `.eml`.
+If adding a new column is too much for V1, store a concise explanation in `classification_summary` and provider signal names in `classification_safety_flags`. That is less expressive but enough to make the quarantine decision auditable.
 
-### Downtime recovery procedure
+### Provider Signals To Support First
 
-1. Confirm Paperclip is back online and migrations have applied.
-2. Open **Inbound Email Ops → External Recovery Import**.
-3. Select the mailbox that normally receives the message.
-4. Choose the source kind and paste the stable source ID from the backup system.
-5. Paste the raw `.eml` content into `Raw email`; optionally add the object path as `Source location`.
-6. For multiple preserved messages, paste batch JSON as either an array of message objects or `{ "messages": [...] }`. Items may omit `mailboxId` and `sourceKind` to inherit the selected defaults, but each item must include a stable `sourceId` and raw `.eml` `rawEmail`.
-7. Submit the import and confirm the batch item results and external intake records are `imported` or `duplicate`. Use the `Failed` filter and `Older` pagination to investigate any failed preserved messages before deleting the external backup.
-8. For a failed external intake record, use **Retry source** to preload its mailbox, source ID, source kind, and source location, then paste the preserved raw `.eml` again.
-9. Review **Processed Emails** or **Recent Failures**. If the recovered message failed processing, fix the underlying configuration or SMTP/authorization issue and retry the message.
+#### Amazon SES
 
-Repeated imports are safe when the source ID and raw bytes are unchanged. Different backup sources that contain the same raw email are recorded separately as evidence but link to one inbound message through the existing message fingerprint dedupe.
+SES is the best first integration if inbound mail or backup intake can pass SES metadata.
 
-## Project resolution
+Signals to read:
 
-The shared support mailbox does not decide the project. Project resolution happens after sender authorization identifies the client and employee.
+- `X-SES-Spam-Verdict`
+- `X-SES-Virus-Verdict`
+- `X-SES-Receipt`
+- SNS/Lambda receipt notification fields:
+  - `spamVerdict.status`
+  - `virusVerdict.status`
+  - `spfVerdict.status`
+  - `dkimVerdict.status`
+  - `dmarcVerdict.status`
 
-- Rules (`selectRule(message)`) are matched against `inboundEmailRules` after classification so they can use sender, subject, body text, classification category, priority, labels, and missing-project fallback overrides.
-- Candidate projects are only active `client_projects` rows for the sender's active client.
-- The matcher searches subject + body text against project name, client project name override, and client project aliases.
-- Matching normalizes text by lowercasing, stripping accents, and removing spaces/punctuation, so `Oc Importer`, `oc-importer`, and `OCIMPORTER` all match.
-- Single-token names or aliases such as `AI`, `IT`, or `OC` must appear as a whole token, so they do not match unrelated words like `failure` or `document`.
-- The single strongest match wins. If there is no match, the sender gets `project_not_identified`. If multiple projects tie for strongest match, the sender gets `project_match_ambiguous`.
+Mapping:
 
-## Sender authorization
+- `spamVerdict.status = FAIL` -> `spam_or_irrelevant`
+- `virusVerdict.status = FAIL` -> `unsafe_or_prompt_injection` or a future `malware_or_unsafe_attachment` category; until then, quarantine with safety flag `virus_verdict_fail`
+- `spamVerdict.status = GRAY` -> do not auto-quarantine; add evidence and let normal support classification continue
+- DMARC/SPF/DKIM failures alone should not be treated as spam for support mail, but they should lower trust or add evidence for operator review
 
-In `resolveSenderAuthorization`:
+#### Mailgun Routes
 
-1. Normalize sender email + domain. If missing → `unknown_sender_domain`.
-2. Find `clientEmailDomains` row matching `(companyId, domain)` joined to an `active` client. No match → `unknown_sender_domain`.
-3. Find `clientEmployees` row matching `(companyId, clientId, email)`. No match → `employee_not_registered` (triggers reply).
-4. Fuzzy-match subject/body against the active projects linked to the client. No match → `project_not_identified` (triggers reply and marks source seen). Ambiguous match → `project_match_ambiguous` (triggers reply and marks source seen so the sender can reply in the same thread).
-5. If `employee.projectScope === "selected_projects"`, require a `clientEmployeeProjectLinks` row for `(employee, matched clientProject)`. Missing → `project_not_authorized`.
+If inbound messages are captured by Mailgun Routes, pass Mailgun spam metadata into external intake metadata or headers.
 
-## Message status state machine
+Mapping:
 
-```
-persisted → processing → processed   (issue created)
-                       ↘ duplicate    (caught by findDuplicate)
-                       ↘ skipped      (auth failure; terminal)
-                       ↘ failed       (transient; retried via job)
-```
+- Provider says spam above configured threshold -> `spam_or_irrelevant`
+- Borderline score -> normal support classification plus low-confidence review evidence
 
-Terminal `processed` messages with an issue and terminal `skipped` messages that already sent a required reply also track source mailbox cleanup with `source_deleted_at` / `source_delete_error` or `source_seen_at` / `source_seen_error`.
+#### Cloudflare Email Security
 
-## Why this design
+Cloudflare Email Security is a stronger enterprise option for phishing, malware, BEC, vendor fraud, and spam, but it is operationally heavier than SES/Mailgun verdicts.
 
-- **Two stages, two jobs**: IMAP fetching is bursty and slow; issue creation is fast and DB-bound. Splitting them lets retries be cheap and lets the raw email survive even if issue creation breaks.
-- **Dedupe at three levels**: bucketed poll dedupe key (no thundering herd), `findDuplicate` for re-imports, and issue-level `originFingerprint`.
-- **Generic `background_jobs` queue** — the same infrastructure handles claim/retry/stale-requeue; this module just registers `email.*` kinds.
+Use it only if this project needs serious mailbox protection. Paperclip should consume Cloudflare verdicts as evidence, not duplicate its detection logic.
+
+#### Generic IMAP
+
+For plain IMAP mailboxes, inspect common headers added by upstream mail systems:
+
+- `X-Spam-Flag`
+- `X-Spam-Status`
+- `X-Spam-Score`
+- `X-Spam-Level`
+- `X-SES-Spam-Verdict`
+- `Authentication-Results`
+
+Mapping:
+
+- `X-Spam-Flag: YES` -> `spam_or_irrelevant`
+- Very high spam score -> `spam_or_irrelevant`
+- Borderline score -> normal classification plus evidence
+- Failed SPF/DKIM/DMARC alone -> evidence only, not automatic spam
+
+### Local Fallback Rules
+
+Add only conservative local spam rules. They should catch obvious junk without suppressing legitimate customer support messages.
+
+Good candidates:
+
+- Empty or near-empty body with suspicious links only.
+- Repeated casino, crypto giveaway, SEO backlink, loan, pharmacy, adult content, or fake invoice language.
+- Many unrelated external links from an unknown or unregistered sender.
+- Subject/body dominated by tracking URLs and no project/support language.
+- Known disposable sender domains, if the project maintains a list.
+
+Avoid broad rules that would catch real support mail:
+
+- Do not classify as spam just because the sender is unknown.
+- Do not classify as spam just because SPF/DKIM/DMARC failed.
+- Do not classify as spam just because the message contains billing, invoice, password, login, or token words; those overlap with real support.
+- Do not classify as spam from LLM output unless the model is operating as an advisory signal behind a threshold and provider evidence is absent.
+
+### API And UI Changes
+
+Email Ops should expose spam evidence clearly:
+
+- Show provider verdicts in the quarantine row/detail.
+- Add filter chips for `unsafe`, `spam`, and `provider verdict`.
+- Show whether the message was quarantined by provider evidence, local rule, or manual/operator action.
+- Add a retry/reclassify action only for board operators.
+
+Email Settings should eventually expose mailbox-level policy:
+
+- `Spam handling`: `quarantine`, `mark_seen_only`, or `allow_but_flag`.
+- `Provider spam verdict threshold`: for providers that expose scores.
+- `Treat virus/malware verdict as unsafe quarantine`: enabled by default.
+- `Authentication failure policy`: evidence only by default.
+
+### Tests
+
+Add focused tests for:
+
+- SES header `X-SES-Spam-Verdict: FAIL` classifies as `spam_or_irrelevant`.
+- SES `GRAY` does not quarantine by itself.
+- Virus/malware verdict quarantines with an unsafe safety flag.
+- `X-Spam-Flag: YES` classifies as spam.
+- Failed SPF/DKIM/DMARC alone does not classify as spam.
+- Spam messages do not create issues.
+- Spam messages do not send support replies.
+- Spam messages appear in the quarantine list.
+- External intake metadata can carry provider verdicts and produce the same result as headers.
+
+### Recommended V1 Implementation Plan
+
+1. Add a small `inbound-email-provider-verdicts.ts` parser that extracts normalized verdicts from parsed email headers and external intake metadata.
+2. Add a `classifyProviderSpamVerdict()` function that returns a classification only for high-confidence provider spam/virus signals.
+3. Call provider-verdict classification before the existing deterministic support classifier.
+4. Persist the same classification fields already used by normal messages.
+5. Add optional `classificationEvidence` JSON if the team wants durable structured evidence; otherwise start with summary and safety flags.
+6. Update Email Ops to show provider verdict evidence for quarantined messages.
+7. Add tests for provider spam signals and non-spam authentication failures.
+
+This keeps Paperclip's support classifier simple and auditable while making spam handling real enough for production use.
