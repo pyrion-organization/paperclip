@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { catalogManifest, catalogSkills, resolveCatalogSkillRef } from "./index.js";
 import type { CatalogSkill } from "./types.js";
@@ -70,6 +71,18 @@ describe("shipped skills catalog", () => {
     expect(catalogManifest.schemaVersion).toBe(1);
     expect(catalogManifest.packageName).toBe("@paperclipai/skills-catalog");
     expect(catalogSkills.length).toBe(EXPECTED_BUNDLED_KEYS.length + EXPECTED_OPTIONAL_KEYS.length);
+  });
+
+  it("publishes the generated catalog at the exported package subpath", () => {
+    const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      files?: string[];
+      publishConfig?: {
+        exports?: Record<string, unknown>;
+      };
+    };
+
+    expect(packageJson.files).toContain("generated");
+    expect(packageJson.publishConfig?.exports?.["./catalog.json"]).toBe("./generated/catalog.json");
   });
 
   it("resolves shipped skills by id, key, and unique slug", () => {
