@@ -65,6 +65,29 @@ async function assertRealPathWithinRoot(rootPath: string, targetPath: string): P
   return realTarget;
 }
 
+async function assertRemovablePathEntryWithinRoot(rootPath: string, targetPath: string): Promise<void> {
+  const absoluteRoot = path.resolve(rootPath);
+  const absolutePath = path.resolve(targetPath);
+  const relativeToRoot = path.relative(absoluteRoot, absolutePath);
+  if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) {
+    throw unprocessable("File path must stay within the project root");
+  }
+
+  const parentRelative = path.relative(absoluteRoot, path.dirname(absolutePath));
+  let currentPath = absoluteRoot;
+  for (const segment of parentRelative.split(path.sep).filter(Boolean)) {
+    currentPath = path.join(currentPath, segment);
+    const existing = await fs.lstat(currentPath).catch(() => null);
+    if (existing?.isSymbolicLink()) {
+      throw unprocessable("File path must stay within the project root");
+    }
+    if (existing) await assertRealPathWithinRoot(rootPath, currentPath);
+  }
+
+  const entry = await fs.lstat(absolutePath).catch(() => null);
+  if (!entry) return;
+}
+
 async function assertWritablePathWithinRoot(rootPath: string, targetPath: string): Promise<void> {
   const parentPath = path.dirname(targetPath);
   const absoluteRoot = path.resolve(rootPath);
@@ -997,7 +1020,7 @@ export function projectFilesService(db: Db) {
 
       for (const filePath of untracked) {
         const absPath = resolvePathWithinRoot(summary.repoRoot, filePath);
-        await assertRealPathWithinRoot(summary.repoRoot, absPath);
+        await assertRemovablePathEntryWithinRoot(summary.repoRoot, absPath);
         await fs.rm(absPath, { recursive: true, force: true });
       }
 

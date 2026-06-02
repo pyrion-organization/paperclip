@@ -148,6 +148,25 @@ describeEmbeddedPostgres("projectFilesService", () => {
     await expect(fs.access(path.join(outside, "nested"))).rejects.toBeTruthy();
   });
 
+  it("discards untracked symlink entries without following outside targets", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const { localRepo, tempDirs: repoDirs } = await createGitRepoWithOrigin();
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-project-files-outside-"));
+    for (const dir of repoDirs) tempDirs.add(dir);
+    tempDirs.add(outside);
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret", "utf8");
+    await fs.symlink(path.join(outside, "secret.txt"), path.join(localRepo, "outside-link"));
+
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localRepo });
+
+    await svc.discardFiles(projectId, ["outside-link"]);
+
+    await expect(fs.lstat(path.join(localRepo, "outside-link"))).rejects.toBeTruthy();
+    await expect(fs.readFile(path.join(outside, "secret.txt"), "utf8")).resolves.toBe("secret");
+  });
+
   it("returns raw JSON text for editable project files", async () => {
     const companyId = randomUUID();
     const projectId = randomUUID();
