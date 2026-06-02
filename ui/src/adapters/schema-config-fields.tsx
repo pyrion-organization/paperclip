@@ -271,6 +271,7 @@ export function SchemaConfigFields({
     for (const field of schema.fields) {
       if (Object.prototype.hasOwnProperty.call(existingValues, field.key)) {
         nextValues[field.key] = existingValues[field.key];
+        continue;
       }
       const def = getDefaultValue(field);
       if (def !== undefined && def !== "") {

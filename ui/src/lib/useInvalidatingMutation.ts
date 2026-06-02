@@ -36,8 +36,7 @@ export function useInvalidatingMutation<
   options: InvalidatingMutationOptions<TData, TError, TVariables, TOnMutateResult>,
   queryClient?: QueryClient,
 ): UseMutationResult<TData, TError, TVariables, TOnMutateResult> {
-  const defaultQueryClient = useQueryClient();
-  const invalidationClient = queryClient ?? defaultQueryClient;
+  const invalidationClient = useQueryClient(queryClient);
   const { invalidateQueryKeys, skipInvalidation, onSuccess, ...mutationOptions } = options;
 
   return useMutation<TData, TError, TVariables, TOnMutateResult>(

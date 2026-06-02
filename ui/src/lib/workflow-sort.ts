@@ -105,6 +105,8 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
       const nextIssue = readyById.get(nextId);
       if (!nextIssue) break;
       readyById.delete(nextId);
+      const readyIndex = ready.findIndex((issue) => issue.id === nextId);
+      if (readyIndex >= 0) ready.splice(readyIndex, 1);
       current = nextIssue;
     }
   }

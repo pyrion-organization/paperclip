@@ -28,6 +28,7 @@ const ACTIVITY_ROW_VERBS: Record<string, string> = {
   "issue.released": "released",
   "issue.comment_added": "commented on",
   "issue.comment_cancelled": "cancelled a queued comment on",
+  "issue.feedback_vote_saved": "saved feedback on",
   "issue.attachment_added": "attached file to",
   "issue.attachment_removed": "removed attachment from",
   "issue.document_created": "created document for",

@@ -318,16 +318,28 @@ async function findMatchingFile(
 async function readFullRunLog(run: {
   logStore: string | null;
   logRef: string | null;
+  logBytes?: number | null;
 }) {
   if (run.logStore !== "local_file" || !run.logRef) return null;
   const store = getRunLogStore();
+  const maxBytes = MAX_TRACE_FILE_CHARS;
+  const knownBytes = typeof run.logBytes === "number" && Number.isFinite(run.logBytes) ? run.logBytes : null;
+  if (knownBytes !== null && knownBytes > maxBytes) {
+    const result = await store.read({ store: "local_file", logRef: run.logRef }, {
+      offset: 0,
+      limitBytes: maxBytes,
+    }).catch(() => null);
+    return result?.content || null;
+  }
   let offset = 0;
   let combined = "";
 
   while (true) {
+    const remaining = maxBytes - Buffer.byteLength(combined, "utf8");
+    if (remaining <= 0) break;
     const result = await store.read({ store: "local_file", logRef: run.logRef }, {
       offset,
-      limitBytes: 512_000,
+      limitBytes: Math.min(512_000, remaining),
     }).catch(() => null);
     if (!result) return combined || null;
     combined += result.content;
@@ -1502,6 +1514,8 @@ async function buildFeedbackTraceBundleFromRow(
         .where(eq(heartbeatRunEvents.runId, run.id))
         .orderBy(asc(heartbeatRunEvents.seq));
       const logText = await readFullRunLog(run);
+      const logTruncated = !!run.logBytes && run.logBytes > MAX_TRACE_FILE_CHARS;
+      if (logTruncated) appendNote(notes, "run_log_truncated");
       const logEntries = parseRunLogEntries(logText);
       const stdoutText = logEntries
         .filter((entry) => entry.stream === "stdout")

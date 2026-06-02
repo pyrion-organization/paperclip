@@ -438,6 +438,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   });
 
   router.post("/:companyId/email/test", async (req, res) => {
+    assertBoard(req);
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const to = req.body?.to;

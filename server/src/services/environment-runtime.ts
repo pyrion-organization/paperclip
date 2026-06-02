@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { environmentLeases } from "@paperclipai/db";
 import type {
   Environment,
   EnvironmentLease,
+  EnvironmentLeaseCleanupStatus,
   EnvironmentLeaseStatus,
   ExecutionWorkspace,
   PluginEnvironmentConfig,
@@ -123,6 +124,130 @@ export interface EnvironmentDriverReleaseInput {
   environment: Environment;
   lease: EnvironmentLease;
   status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed">;
+}
+
+function toRuntimeEnvironmentLease(row: typeof environmentLeases.$inferSelect): EnvironmentLease {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    environmentId: row.environmentId,
+    executionWorkspaceId: row.executionWorkspaceId ?? null,
+    issueId: row.issueId ?? null,
+    heartbeatRunId: row.heartbeatRunId ?? null,
+    status: row.status as EnvironmentLease["status"],
+    leasePolicy: row.leasePolicy as EnvironmentLease["leasePolicy"],
+    provider: row.provider ?? null,
+    providerLeaseId: row.providerLeaseId ?? null,
+    acquiredAt: row.acquiredAt,
+    lastUsedAt: row.lastUsedAt,
+    expiresAt: row.expiresAt ?? null,
+    releasedAt: row.releasedAt ?? null,
+    failureReason: row.failureReason ?? null,
+    cleanupStatus: row.cleanupStatus as EnvironmentLeaseCleanupStatus | null,
+    metadata: row.metadata ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function updateLeaseCleanupStatus(
+  db: Db,
+  leaseId: string,
+  cleanupStatus: EnvironmentLeaseCleanupStatus,
+): Promise<EnvironmentLease | null> {
+  const row = await db
+    .update(environmentLeases)
+    .set({
+      cleanupStatus,
+      updatedAt: new Date(),
+    })
+    .where(eq(environmentLeases.id, leaseId))
+    .returning()
+    .then((rows) => rows[0] ?? null);
+
+  return row ? toRuntimeEnvironmentLease(row) : null;
+}
+
+async function releaseLeaseAndCheckProviderCleanup(input: {
+  db: Db;
+  lease: EnvironmentLease;
+  releaseStatus: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed" | "retained">;
+  failureReason?: string;
+}): Promise<{ lease: EnvironmentLease | null; shouldReleaseProviderLease: boolean }> {
+  return await input.db.transaction(async (tx) => {
+    if (input.lease.providerLeaseId) {
+      await tx.execute(sql`
+        select id
+        from ${environmentLeases}
+        where ${environmentLeases.companyId} = ${input.lease.companyId}
+          and ${environmentLeases.providerLeaseId} = ${input.lease.providerLeaseId}
+        for update
+      `);
+    } else {
+      await tx.execute(sql`
+        select id
+        from ${environmentLeases}
+        where ${environmentLeases.id} = ${input.lease.id}
+        for update
+      `);
+    }
+
+    const now = new Date();
+    const updatedRow = await tx
+      .update(environmentLeases)
+      .set({
+        status: input.releaseStatus,
+        releasedAt: input.releaseStatus === "retained" ? null : now,
+        lastUsedAt: now,
+        updatedAt: now,
+        cleanupStatus: null,
+        ...(input.failureReason !== undefined ? { failureReason: input.failureReason } : {}),
+      })
+      .where(eq(environmentLeases.id, input.lease.id))
+      .returning()
+      .then((rows) => rows[0] ?? null);
+
+    if (!updatedRow) {
+      return { lease: null, shouldReleaseProviderLease: false };
+    }
+
+    const hasRemainingActiveReference = input.lease.providerLeaseId
+      ? await tx
+        .select({ id: environmentLeases.id })
+        .from(environmentLeases)
+        .where(
+          and(
+            eq(environmentLeases.companyId, input.lease.companyId),
+            eq(environmentLeases.providerLeaseId, input.lease.providerLeaseId),
+            eq(environmentLeases.status, "active"),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows.length > 0)
+      : false;
+
+    if (!input.lease.providerLeaseId || hasRemainingActiveReference) {
+      const finalizedRow = await tx
+        .update(environmentLeases)
+        .set({
+          cleanupStatus: "success",
+          updatedAt: new Date(),
+        })
+        .where(eq(environmentLeases.id, input.lease.id))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+
+      return {
+        lease: finalizedRow ? toRuntimeEnvironmentLease(finalizedRow) : toRuntimeEnvironmentLease(updatedRow),
+        shouldReleaseProviderLease: false,
+      };
+    }
+
+    return {
+      lease: toRuntimeEnvironmentLease(updatedRow),
+      shouldReleaseProviderLease: true,
+    };
+  });
 }
 
 function resolvePluginSandboxRpcTimeoutMs(config: Record<string, unknown>): number | undefined {
@@ -605,7 +730,21 @@ function createSandboxEnvironmentDriver(
         throw new Error(`Expected sandbox environment config for lease "${input.lease.id}".`);
       }
 
-      let cleanupStatus: "success" | "failed" = "success";
+      const releaseStatus = input.lease.leasePolicy === "retain_on_failure" && input.status === "failed"
+        ? "retained" as const
+        : input.status;
+      const released = await releaseLeaseAndCheckProviderCleanup({
+        db,
+        lease: input.lease,
+        releaseStatus,
+        failureReason: input.status === "failed" ? "adapter_or_run_failure" : undefined,
+      });
+
+      if (!released.shouldReleaseProviderLease) {
+        return released.lease;
+      }
+
+      let cleanupStatus: EnvironmentLeaseCleanupStatus = "success";
       try {
         await releaseSandboxProviderLease({
           config: parsed.config,
@@ -615,13 +754,8 @@ function createSandboxEnvironmentDriver(
       } catch {
         cleanupStatus = "failed";
       }
-      const releaseStatus = input.lease.leasePolicy === "retain_on_failure" && input.status === "failed"
-        ? "retained" as const
-        : input.status;
-      return await environmentsSvc.releaseLease(input.lease.id, releaseStatus, {
-        failureReason: input.status === "failed" ? "adapter_or_run_failure" : undefined,
-        cleanupStatus,
-      });
+
+      return await updateLeaseCleanupStatus(db, input.lease.id, cleanupStatus);
     },
 
     async realizeWorkspace(input) {
@@ -718,7 +852,22 @@ function createSandboxEnvironmentDriver(
     const pluginId = readString(metadata.pluginId);
     const providerKey = readString(metadata.provider);
 
-    let cleanupStatus: "success" | "failed" = "success";
+    const releaseStatus =
+      input.lease.leasePolicy === "retain_on_failure" && input.status === "failed"
+        ? ("retained" as const)
+        : input.status;
+    const released = await releaseLeaseAndCheckProviderCleanup({
+      db,
+      lease: input.lease,
+      releaseStatus,
+      failureReason: input.status === "failed" ? "adapter_or_run_failure" : undefined,
+    });
+
+    if (!released.shouldReleaseProviderLease) {
+      return released.lease;
+    }
+
+    let cleanupStatus: EnvironmentLeaseCleanupStatus = "success";
     if (pluginId && providerKey && pluginWorkerManager?.isRunning(pluginId)) {
       try {
         const config = await resolvePluginSandboxRuntimeConfig({
@@ -742,14 +891,7 @@ function createSandboxEnvironmentDriver(
       cleanupStatus = "failed";
     }
 
-    const releaseStatus =
-      input.lease.leasePolicy === "retain_on_failure" && input.status === "failed"
-        ? ("retained" as const)
-        : input.status;
-    return await environmentsSvc.releaseLease(input.lease.id, releaseStatus, {
-      failureReason: input.status === "failed" ? "adapter_or_run_failure" : undefined,
-      cleanupStatus,
-    });
+    return await updateLeaseCleanupStatus(db, input.lease.id, cleanupStatus);
   }
 }
 

@@ -53,6 +53,17 @@ export interface SearchResultRowProps {
 const ROW_BASE =
   "group flex items-start gap-3 rounded-md px-3 transition-colors no-underline text-inherit hover:bg-muted/40";
 
+function safePreviewImageUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
 function SearchResultRowImpl({
   result,
   agentsById,
@@ -117,7 +128,7 @@ function SearchResultRowImpl({
   const updated = formatRelativeTime(result.updatedAt ?? issue.updatedAt);
   const titleSnippet = result.snippets.find((snippet) => snippet.field === "title");
   const bodySnippets = result.snippets.filter((snippet) => snippet.field !== "title").slice(0, 2);
-  const previewImageUrl = result.previewImageUrl;
+  const previewImageUrl = safePreviewImageUrl(result.previewImageUrl);
   const hasRightRail = previewImageUrl || assigneeName || updated;
 
   return (

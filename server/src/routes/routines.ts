@@ -398,6 +398,7 @@ export function routineRoutes(
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const deleted = await svc.deleteTrigger(trigger.id, {
       agentId: req.actor.type === "agent" ? req.actor.agentId : null,
       userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,

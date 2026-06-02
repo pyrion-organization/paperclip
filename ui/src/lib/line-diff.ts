@@ -7,9 +7,13 @@ export type DiffRow = {
   text: string;
 };
 
+function splitLines(text: string): string[] {
+  return text.length === 0 ? [] : text.split("\n");
+}
+
 export function buildLineDiff(oldText: string, newText: string): DiffRow[] {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
+  const oldLines = splitLines(oldText);
+  const newLines = splitLines(newText);
   const oldCount = oldLines.length;
   const newCount = newLines.length;
   const dp = Array.from({ length: oldCount + 1 }, () => Array<number>(newCount + 1).fill(0));

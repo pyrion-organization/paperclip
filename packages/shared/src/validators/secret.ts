@@ -47,6 +47,13 @@ export const createSecretSchema = z.object({
         message: "External reference secrets require externalRef",
       });
     }
+    if (value.value?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["value"],
+        message: "External reference secrets cannot include inline value",
+      });
+    }
     return;
   }
   if (value.externalRef?.trim()) {

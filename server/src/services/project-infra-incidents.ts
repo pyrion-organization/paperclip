@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   projectInfraIncidents,
@@ -171,7 +171,7 @@ export function projectInfraIncidentService(
             recommendedAction: escalated && escalationReason
               ? `Escalated: ${escalationReason}. ${recommendedAction ?? ""}`.trim()
               : recommendedAction,
-            occurrenceCount,
+            occurrenceCount: sql`${projectInfraIncidents.occurrenceCount} + 1`,
             lastOccurredAt: now,
             escalatedAt: existing.escalatedAt ?? (escalated ? now : null),
             escalationReason: existing.escalationReason ?? escalationReason,
@@ -181,7 +181,31 @@ export function projectInfraIncidentService(
           })
           .where(eq(projectInfraIncidents.id, existing.id))
           .returning();
-        return updated ? { incident: updated, disposition: "reused", escalated } : null;
+        if (!updated) return null;
+        if (!updated.escalationReason) {
+          const postIncrementEscalationReason = escalationReasonFor({
+            severity: updated.severity,
+            occurrenceCount: updated.occurrenceCount,
+            policy: escalationPolicy,
+          });
+          if (postIncrementEscalationReason) {
+            const [postEscalation] = await db
+              .update(projectInfraIncidents)
+              .set({
+                status: updated.status === "open" ? "investigating" : updated.status,
+                recommendedAction: `Escalated: ${postIncrementEscalationReason}. ${recommendedAction ?? ""}`.trim(),
+                escalatedAt: now,
+                escalationReason: postIncrementEscalationReason,
+                updatedAt: now,
+              })
+              .where(and(eq(projectInfraIncidents.id, updated.id), isNull(projectInfraIncidents.escalationReason)))
+              .returning();
+            if (postEscalation) {
+              return { incident: postEscalation, disposition: "reused", escalated: true };
+            }
+          }
+        }
+        return { incident: updated, disposition: "reused", escalated };
       }
 
       const { issueFactory: _issueFactory, ...incidentInput } = input;
