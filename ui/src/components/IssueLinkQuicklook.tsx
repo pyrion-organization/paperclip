@@ -77,6 +77,7 @@ export const IssueLinkQuicklook = React.forwardRef<
     issuePrefetch?: Issue | null;
     issueQuicklookSide?: React.ComponentProps<typeof PopoverContent>["side"];
     issueQuicklookAlign?: React.ComponentProps<typeof PopoverContent>["align"];
+    initialOpen?: boolean;
   }
 >(function IssueLinkQuicklookImpl(
   {
@@ -89,6 +90,7 @@ export const IssueLinkQuicklook = React.forwardRef<
     issuePrefetch = null,
     issueQuicklookSide = "top",
     issueQuicklookAlign = "start",
+    initialOpen = false,
     onClick,
     onClickCapture,
     onMouseEnter,
@@ -100,7 +102,7 @@ export const IssueLinkQuicklook = React.forwardRef<
   ref,
 ) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
   const { data, isLoading } = useQuery({
     ...getIssueDetailQueryOptions(queryClient, issuePathId, { placeholderIssue: issuePrefetch ?? undefined }),
@@ -112,6 +114,13 @@ export const IssueLinkQuicklook = React.forwardRef<
   const handlePrefetch = React.useCallback(() => {
     void prefetchIssueDetail(queryClient, issuePathId, { issue: issuePrefetch });
   }, [issuePathId, issuePrefetch, queryClient]);
+
+  React.useEffect(() => {
+    if (initialOpen) {
+      handlePrefetch();
+    }
+  }, [handlePrefetch, initialOpen]);
+
   const link = (
     <RouterDom.Link
       ref={ref}

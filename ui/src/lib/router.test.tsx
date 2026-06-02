@@ -47,4 +47,18 @@ describe("Link", () => {
     expect(link?.textContent).toBe("PAP-1");
     expect(link?.getAttribute("href")).toBe("/issues/PAP-1");
   });
+
+  it("keeps enabled issue quicklook links lazy until interaction", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <Link to="/issues/PAP-1">PAP-1</Link>
+        </MemoryRouter>,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link?.textContent).toBe("PAP-1");
+    expect(link?.getAttribute("href")).toBe("/issues/PAP-1");
+  });
 });
