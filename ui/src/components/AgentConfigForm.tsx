@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Agent,
@@ -252,18 +252,19 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
 
   // ---- Edit mode: overlay for dirty tracking ----
   const [overlay, setOverlay] = useState<AgentConfigOverlay>(emptyOverlay);
-  const agentRef = useRef<Agent | null>(null);
 
-  // Clear overlay when agent data refreshes (after save)
+  // Clear the dirty-tracking overlay during render whenever the agent instance
+  // changes (e.g. a save refetches it), instead of one stale commit later.
+  const [trackedAgent, setTrackedAgent] = useState<Agent | null>(isCreate ? null : props.agent);
+  if (!isCreate && props.agent !== trackedAgent) {
+    setTrackedAgent(props.agent);
+    setOverlay({ ...emptyOverlay });
+  }
+
+  // Tell the parent the edits were discarded when the agent instance changes.
   useEffect(() => {
-    if (!isCreate) {
-      if (agentRef.current !== null && props.agent !== agentRef.current) {
-        setOverlay({ ...emptyOverlay });
-        props.onDirtyChange?.(false);
-      }
-      agentRef.current = props.agent;
-    }
-  }, [isCreate, !isCreate ? props.agent : undefined, props.onDirtyChange]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isCreate) props.onDirtyChange?.(false);
+  }, [trackedAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isDirty = !isCreate && isOverlayDirty(overlay);
   const updateOverlay = useCallback((

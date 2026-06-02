@@ -100,7 +100,7 @@ export function IssueLinkQuicklook({
   ...props
 }: IssueLinkQuicklookProps) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
   const { data, isLoading } = useQuery({
     ...getIssueDetailQueryOptions(queryClient, issuePathId, { placeholderIssue: issuePrefetch ?? undefined }),
@@ -114,9 +114,7 @@ export function IssueLinkQuicklook({
   }, [issuePathId, issuePrefetch, queryClient]);
 
   React.useEffect(() => {
-    if (!initialOpen) return;
-    handlePrefetch();
-    setOpen(true);
+    if (initialOpen) handlePrefetch();
   }, [handlePrefetch, initialOpen]);
 
   const link = (

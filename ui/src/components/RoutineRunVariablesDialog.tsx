@@ -302,7 +302,6 @@ function RoutineRunVariablesDialogContent({
       lastAutoWorkspaceConfigRef.current = initialWorkspaceConfig;
       return workspaceConfigEquals(current, initialWorkspaceConfig) ? current : initialWorkspaceConfig;
     });
-    setWorkspaceConfigValid(true);
     setWorkspaceBranchName((current) => {
       const next = defaultExecutionWorkspace && defaultExecutionWorkspace.projectId === selectedProject?.id
         ? defaultExecutionWorkspace.branchName ?? null
@@ -310,6 +309,26 @@ function RoutineRunVariablesDialogContent({
       return current === next ? current : next;
     });
   }, [defaultExecutionWorkspace, initialWorkspaceConfig, selectedProject?.id]);
+
+  // Reset validity to its optimistic default during render when the workspace
+  // inputs change (a new project / default workspace seeds a fresh config).
+  const [prevWorkspaceInputs, setPrevWorkspaceInputs] = useState({
+    initialWorkspaceConfig,
+    defaultExecutionWorkspace,
+    projectId: selectedProject?.id,
+  });
+  if (
+    prevWorkspaceInputs.initialWorkspaceConfig !== initialWorkspaceConfig ||
+    prevWorkspaceInputs.defaultExecutionWorkspace !== defaultExecutionWorkspace ||
+    prevWorkspaceInputs.projectId !== selectedProject?.id
+  ) {
+    setPrevWorkspaceInputs({
+      initialWorkspaceConfig,
+      defaultExecutionWorkspace,
+      projectId: selectedProject?.id,
+    });
+    setWorkspaceConfigValid(true);
+  }
 
   const { data: experimentalSettings } = useQuery({
     queryKey: queryKeys.instance.experimentalSettings,

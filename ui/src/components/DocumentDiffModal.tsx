@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DocumentRevision } from "@paperclipai/shared";
 import { issuesApi } from "../api/issues";
@@ -68,10 +68,15 @@ export function DocumentDiffModal({
   const [leftRevisionId, setLeftRevisionId] = useState<string | null>(null);
   const [rightRevisionId, setRightRevisionId] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Clear the manual revision selection during render whenever the document
+  // (or its latest revision) changes, so the defaults below recompute.
+  const selectionResetKey = `${issueId}|${documentKey}|${latestRevisionNumber}|${open}`;
+  const [prevSelectionResetKey, setPrevSelectionResetKey] = useState(selectionResetKey);
+  if (selectionResetKey !== prevSelectionResetKey) {
+    setPrevSelectionResetKey(selectionResetKey);
     setLeftRevisionId(null);
     setRightRevisionId(null);
-  }, [issueId, documentKey, latestRevisionNumber, open]);
+  }
 
   const effectiveLeftId = leftRevisionId ?? sortedRevisions.find(
     (r) => r.revisionNumber === latestRevisionNumber - 1,

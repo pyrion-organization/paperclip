@@ -306,13 +306,14 @@ export function ProjectFilesTab({
     }
   }, [selectedFileQuery.data?.path, selectedFileQuery.data?.textContent]);
 
-  useEffect(() => {
-    if (selectedFileQuery.data?.previewType === "markdown") {
-      setMarkdownViewMode("preview");
-      return;
-    }
-    setMarkdownViewMode("source");
-  }, [selectedFileQuery.data?.path, selectedFileQuery.data?.previewType]);
+  // Default the markdown view mode from the file's preview type during render
+  // whenever the selected file changes (the user can still toggle it after).
+  const selectedFilePath = selectedFileQuery.data?.path;
+  const [prevViewModePath, setPrevViewModePath] = useState(selectedFilePath);
+  if (selectedFilePath !== prevViewModePath) {
+    setPrevViewModePath(selectedFilePath);
+    setMarkdownViewMode(selectedFileQuery.data?.previewType === "markdown" ? "preview" : "source");
+  }
 
   useEffect(() => {
     entriesByDirRef.current = entriesByDir;

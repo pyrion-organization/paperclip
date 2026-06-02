@@ -2,6 +2,36 @@
   "ignore": {
     "overrides": [
       {
+        "comment": "no-adjust-state-on-prop-change verified false positives: the synchronous setter is a reset-before-async or a disable/teardown guard inside an effect whose real job is async — data fetch, lazy import, debounce timer, EventSource subscription, ResizeObserver/DOM measurement, or imperative scroll/focus/highlight. The rule's own validation prompt exempts these. Paths listed both project-relative and root-relative to match either scan invocation.",
+        "files": [
+          "src/components/BreadcrumbBar.tsx",
+          "ui/src/components/BreadcrumbBar.tsx",
+          "src/plugins/launchers.tsx",
+          "ui/src/plugins/launchers.tsx",
+          "src/components/CommentThread.tsx",
+          "ui/src/components/CommentThread.tsx",
+          "src/components/IssueContinuationHandoff.tsx",
+          "ui/src/components/IssueContinuationHandoff.tsx",
+          "src/components/CompanyPatternIcon.tsx",
+          "ui/src/components/CompanyPatternIcon.tsx",
+          "src/components/IssueChatThread.tsx",
+          "ui/src/components/IssueChatThread.tsx",
+          "src/components/MarkdownBody.tsx",
+          "ui/src/components/MarkdownBody.tsx",
+          "src/components/InlineEditor.tsx",
+          "ui/src/components/InlineEditor.tsx",
+          "src/components/IssueDocumentAnnotations.tsx",
+          "ui/src/components/IssueDocumentAnnotations.tsx",
+          "src/components/IssueDocumentsSection.tsx",
+          "ui/src/components/IssueDocumentsSection.tsx",
+          "src/pages/AgentDetail.tsx",
+          "ui/src/pages/AgentDetail.tsx",
+          "src/plugins/bridge.ts",
+          "ui/src/plugins/bridge.ts"
+        ],
+        "rules": ["react-doctor/no-adjust-state-on-prop-change"]
+      },
+      {
         "comment": "prefer-tag-over-role on interactive/custom widgets or wrong semantic suggestions (rich-editor div, drag-handle separators, custom listbox option, nested-interactive rows) — verified false positives. Paths listed both project-relative and root-relative to match either scan invocation.",
         "files": [
           "src/components/InlineEditor.tsx",

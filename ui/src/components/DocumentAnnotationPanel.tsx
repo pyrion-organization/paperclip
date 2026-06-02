@@ -178,11 +178,12 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
     onSuccess: () => invalidateAll(),
   });
 
-  useEffect(() => {
-    if (!props.open) {
-      setComposerValue("");
-    }
-  }, [props.open]);
+  // Clear the composer during render when the panel closes.
+  const [prevOpen, setPrevOpen] = useState(props.open);
+  if (props.open !== prevOpen) {
+    setPrevOpen(props.open);
+    if (!props.open) setComposerValue("");
+  }
 
   useEffect(() => {
     if (props.pendingAnchor && props.open) {
@@ -190,15 +191,21 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
     }
   }, [props.open, props.pendingAnchor]);
 
-  useEffect(() => {
-    if (!props.focusedThreadId) return;
-    const focused = props.threads.find((thread) => thread.id === props.focusedThreadId);
-    if (!focused) return;
-    if (focused.anchorState === "orphaned") setFilter("orphan");
-    else if (focused.anchorState === "stale") setFilter("stale");
-    else if (focused.status === "resolved") setFilter("resolved");
-    else setFilter("open");
-  }, [props.focusedThreadId, props.threads]);
+  // Move the filter to the focused thread's bucket during render when the
+  // focused thread changes.
+  const [prevFocusedThreadId, setPrevFocusedThreadId] = useState(props.focusedThreadId);
+  if (props.focusedThreadId !== prevFocusedThreadId) {
+    setPrevFocusedThreadId(props.focusedThreadId);
+    const focused = props.focusedThreadId
+      ? props.threads.find((thread) => thread.id === props.focusedThreadId)
+      : undefined;
+    if (focused) {
+      if (focused.anchorState === "orphaned") setFilter("orphan");
+      else if (focused.anchorState === "stale") setFilter("stale");
+      else if (focused.status === "resolved") setFilter("resolved");
+      else setFilter("open");
+    }
+  }
 
   return (
     <>

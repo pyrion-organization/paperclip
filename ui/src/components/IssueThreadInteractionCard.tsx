@@ -360,13 +360,22 @@ function SuggestTasksCard({
     interaction.result?.rejectionReason ?? "",
   );
 
-  useEffect(() => {
-    setRejectReason(interaction.result?.rejectionReason ?? "");
+  // Resync the form to the interaction during render when its identity or
+  // status changes, instead of after a stale commit via an effect.
+  const incomingReason = interaction.result?.rejectionReason ?? "";
+  const [prevReason, setPrevReason] = useState(incomingReason);
+  const [prevStatus, setPrevStatus] = useState(interaction.status);
+  if (incomingReason !== prevReason) {
+    setPrevReason(incomingReason);
+    setRejectReason(incomingReason);
+  }
+  if (interaction.status !== prevStatus) {
+    setPrevStatus(interaction.status);
     if (interaction.status !== "pending") {
       setRejecting(false);
       setWorking(null);
     }
-  }, [interaction.result?.rejectionReason, interaction.status]);
+  }
 
   const roots = useMemo(
     () =>

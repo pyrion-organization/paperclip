@@ -372,17 +372,21 @@ function ImportFromVaultDialogContent({
   const [selection, setSelection] = useState<Map<string, DraftSelection>>(new Map());
   const [importResult, setImportResult] = useState<RemoteSecretImportResult | null>(null);
 
-  useEffect(() => {
-    const current = vaultId ? eligible.find((vault) => vault.id === vaultId) : null;
-    if (current) return;
+  // If the selected vault stops being eligible (provider configs changed),
+  // fall back to a default during render and clear the dependent selection.
+  // Self-converging: once vaultId is the default it is either eligible or
+  // equal to the fallback, so the branch stops firing.
+  const selectedVaultEligible = vaultId ? eligible.some((vault) => vault.id === vaultId) : false;
+  if (!selectedVaultEligible) {
     const nextVaultId = pickDefaultVault(providerConfigs);
-    if (nextVaultId === vaultId) return;
-    setVaultId(nextVaultId);
-    setSearchInput("");
-    setShowOnlySelected(false);
-    setSelection(new Map());
-    setExtraPreviewPages(null);
-  }, [eligible, providerConfigs, vaultId]);
+    if (nextVaultId !== vaultId) {
+      setVaultId(nextVaultId);
+      setSearchInput("");
+      setShowOnlySelected(false);
+      setSelection(new Map());
+      setExtraPreviewPages(null);
+    }
+  }
 
   const previewQuery = useQuery({
     queryKey: ["secrets", "remote-import-preview", companyId, vaultId, debouncedQuery || null],

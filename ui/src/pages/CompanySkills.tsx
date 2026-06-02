@@ -1066,13 +1066,16 @@ function AttachAgentsPopover({
 }) {
   const [filter, setFilter] = useState("");
   const [draft, setDraft] = useState<Set<string>>(new Set(attachedAgentIds));
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  useEffect(() => {
+  // Seed the draft from props each time the dialog opens, during render.
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setDraft(new Set(attachedAgentIds));
       setFilter("");
     }
-  }, [open, attachedAgentIds]);
+  }
 
   const filtered = agents.filter((agent) => agent.name.toLowerCase().includes(filter.toLowerCase()));
   const eligible = agents.filter((agent) => agent.supportsSkills);
