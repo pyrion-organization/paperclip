@@ -56,6 +56,8 @@ type OnboardOptions = {
 
 type OnboardDefaults = Pick<PaperclipConfig, "database" | "logging" | "server" | "auth" | "storage" | "secrets">;
 
+const LLM_VALIDATION_TIMEOUT_MS = 10_000;
+
 const TAILNET_BIND_WARNING =
   "No Tailscale address was detected during setup. The saved config will stay on loopback until Tailscale is available or PAPERCLIP_TAILNET_BIND_HOST is set.";
 
@@ -90,6 +92,16 @@ const ONBOARD_ENV_KEYS = [
   "PAPERCLIP_SECRETS_STRICT_MODE",
   "PAPERCLIP_SECRETS_MASTER_KEY_FILE",
 ] as const;
+
+async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_VALIDATION_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function parseBooleanFromEnv(rawValue: string | undefined): boolean | null {
   if (rawValue === undefined) return null;
@@ -528,7 +540,7 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
       s.start("Validating API key...");
       try {
         if (llm.provider === "claude") {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "x-api-key": llm.apiKey,
@@ -549,7 +561,7 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
             s.stop(pc.yellow("Could not validate API key — continuing anyway"));
           }
         } else {
-          const res = await fetch("https://api.openai.com/v1/models", {
+          const res = await fetchWithTimeout("https://api.openai.com/v1/models", {
             headers: { Authorization: `Bearer ${llm.apiKey}` },
           });
           if (res.ok) {

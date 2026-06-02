@@ -57,6 +57,16 @@ function getRunningRuntimeServiceUrl(
   return runningService?.url ?? null;
 }
 
+export function getSafeRuntimeCommandUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function requestMatchesPending(
   pendingRequest: WorkspaceRuntimeControlRequest | null | undefined,
   nextRequest: WorkspaceRuntimeControlRequest,
@@ -135,6 +145,19 @@ function CommandActionButtons({
   );
 }
 
+function RuntimeCommandLink({ url }: { url: string }) {
+  const safeUrl = getSafeRuntimeCommandUrl(url);
+  if (!safeUrl) {
+    return <span className="break-all font-mono">{url}</span>;
+  }
+  return (
+    <a href={safeUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
+      {url}
+      <ExternalLink className="size-3.5" />
+    </a>
+  );
+}
+
 function CommandSection({
   title,
   description,
@@ -190,10 +213,7 @@ function CommandSection({
                 </div>
                 <div className="space-y-1 text-xs text-muted-foreground">
                   {item.url ? (
-                    <a href={item.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
-                      {item.url}
-                      <ExternalLink className="size-3.5" />
-                    </a>
+                    <RuntimeCommandLink url={item.url} />
                   ) : null}
                   {item.port ? <div>Port {item.port}</div> : null}
                   {item.command ? <div className="break-all font-mono">{item.command}</div> : null}
@@ -330,7 +350,7 @@ export function WorkspaceRuntimeQuickControls({
   square?: boolean;
 }) {
   const controlItems = sections.services.length > 0 ? sections.services : sections.otherServices;
-  const serviceUrl = getRunningRuntimeServiceUrl(sections);
+  const serviceUrl = getSafeRuntimeCommandUrl(getRunningRuntimeServiceUrl(sections));
 
   if (controlItems.length === 0 && !serviceUrl) return null;
 

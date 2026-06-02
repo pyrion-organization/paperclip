@@ -31,12 +31,21 @@ export function createExternalIntakeRateLimiter(options: {
     return `${actor.mailboxId}:${actor.ip}`;
   }
 
+  function prune(cutoff: number) {
+    for (const [actorKey, hits] of hitsByKey) {
+      const recentHits = hits.filter((hit) => hit > cutoff);
+      if (recentHits.length > 0) hitsByKey.set(actorKey, recentHits);
+      else hitsByKey.delete(actorKey);
+    }
+  }
+
   return {
     consume(actor) {
       const currentTime = now();
       const cutoff = currentTime - windowMs;
+      prune(cutoff);
       const actorKey = key(actor);
-      const recentHits = (hitsByKey.get(actorKey) ?? []).filter((hit) => hit > cutoff);
+      const recentHits = hitsByKey.get(actorKey) ?? [];
 
       if (recentHits.length >= maxRequests) {
         const oldestHit = recentHits[0] ?? currentTime;

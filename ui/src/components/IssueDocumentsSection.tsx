@@ -14,6 +14,7 @@ import { useLocation } from "@/lib/router";
 import { ApiError } from "../api/client";
 import { issuesApi } from "../api/issues";
 import { useAutosaveIndicator } from "../hooks/useAutosaveIndicator";
+import { parseDocumentAnnotationHash } from "../lib/document-annotation-hash";
 import { deriveDocumentRevisionState } from "../lib/document-revisions";
 import type { CompanyUserProfile } from "../lib/company-members";
 import { queryKeys } from "../lib/queryKeys";
@@ -711,7 +712,7 @@ export function IssueDocumentsSection({
   useEffect(() => {
     const hash = routerLocation.hash;
     if (!hash.startsWith("#document-")) return;
-    const documentKey = decodeURIComponent(hash.slice("#document-".length));
+    const documentKey = parseDocumentAnnotationHash(hash)?.documentKey ?? decodeURIComponent(hash.slice("#document-".length));
     const targetExists = sortedDocuments.some((doc) => doc.key === documentKey)
       || (documentKey === "plan" && Boolean(issue.legacyPlanDocument));
     if (!targetExists || hasScrolledToHashRef.current) return;

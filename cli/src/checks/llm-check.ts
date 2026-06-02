@@ -1,6 +1,18 @@
 import type { PaperclipConfig } from "../config/schema.js";
 import type { CheckResult } from "./index.js";
 
+const LLM_CHECK_TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_CHECK_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function llmCheck(config: PaperclipConfig): Promise<CheckResult> {
   if (!config.llm) {
     return {
@@ -20,7 +32,7 @@ export async function llmCheck(config: PaperclipConfig): Promise<CheckResult> {
 
   try {
     if (config.llm.provider === "claude") {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "x-api-key": config.llm.apiKey,
@@ -51,7 +63,7 @@ export async function llmCheck(config: PaperclipConfig): Promise<CheckResult> {
         message: `Claude API returned status ${res.status}`,
       };
     } else {
-      const res = await fetch("https://api.openai.com/v1/models", {
+      const res = await fetchWithTimeout("https://api.openai.com/v1/models", {
         headers: { Authorization: `Bearer ${config.llm.apiKey}` },
       });
       if (res.ok) {

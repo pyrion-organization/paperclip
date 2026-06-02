@@ -32,6 +32,22 @@ describe("workspace command helpers", () => {
     ]);
   });
 
+  it("keeps generated duplicate IDs from colliding with explicit IDs", () => {
+    const commands = listWorkspaceCommandDefinitions({
+      commands: [
+        { id: "web-commands-3", name: "explicit", kind: "service", command: "pnpm explicit" },
+        { id: "web", name: "web", kind: "service", command: "pnpm dev" },
+        { id: "web", name: "web", kind: "service", command: "pnpm dev:alt" },
+      ],
+    });
+
+    expect(commands.map((command) => command.id)).toEqual([
+      "web-commands-3",
+      "web",
+      "web-commands-3-2",
+    ]);
+  });
+
   it("matches a configured service command to the current runtime service", () => {
     const workspaceRuntime = {
       commands: [

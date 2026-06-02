@@ -61,7 +61,17 @@ export async function fetchUnreadMessages(
 ): Promise<FetchUnreadResult> {
   const client = buildClient(config);
   await client.connect();
-  const lock = await client.getMailboxLock(config.folder);
+  let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>>;
+  try {
+    lock = await client.getMailboxLock(config.folder);
+  } catch (error) {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
   const messages: FetchedImapMessage[] = [];
   const close = async () => {
     try {

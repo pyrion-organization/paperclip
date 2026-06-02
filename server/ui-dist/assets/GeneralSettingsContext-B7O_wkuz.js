@@ -1,0 +1,1 @@
+import{j as s,r as e}from"./index-CIGnderT.js";const t=e.createContext({keyboardShortcutsEnabled:!1});function a({value:r,children:n}){return s.jsx(t.Provider,{value:r,children:n})}function i(){return e.use(t)}export{a as G,i as u};

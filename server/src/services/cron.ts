@@ -57,6 +57,24 @@ const FIELD_SPECS: FieldSpec[] = [
   { min: 0, max: 6, name: "day of week" },
 ];
 
+function fieldContainsEveryValue(values: number[], spec: FieldSpec): boolean {
+  if (values.length !== spec.max - spec.min + 1) return false;
+  for (let value = spec.min; value <= spec.max; value++) {
+    if (!values.includes(value)) return false;
+  }
+  return true;
+}
+
+function cronDayMatches(cron: ParsedCron, dayOfMonth: number, dayOfWeek: number): boolean {
+  const dayOfMonthMatches = cron.daysOfMonth.includes(dayOfMonth);
+  const dayOfWeekMatches = cron.daysOfWeek.includes(dayOfWeek);
+  const dayOfMonthWildcard = fieldContainsEveryValue(cron.daysOfMonth, FIELD_SPECS[2]!);
+  const dayOfWeekWildcard = fieldContainsEveryValue(cron.daysOfWeek, FIELD_SPECS[4]!);
+  return dayOfMonthWildcard || dayOfWeekWildcard
+    ? dayOfMonthMatches && dayOfWeekMatches
+    : dayOfMonthMatches || dayOfWeekMatches;
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -274,8 +292,8 @@ export function nextCronTick(cron: ParsedCron, after: Date): Date | null {
       continue;
     }
 
-    // Check day of month AND day of week (both must match)
-    if (!cron.daysOfMonth.includes(dayOfMonth) || !cron.daysOfWeek.includes(dayOfWeek)) {
+    // Standard cron uses OR semantics when both day fields are restricted.
+    if (!cronDayMatches(cron, dayOfMonth, dayOfWeek)) {
       // Advance one day
       d.setUTCDate(d.getUTCDate() + 1);
       d.setUTCHours(0, 0, 0, 0);

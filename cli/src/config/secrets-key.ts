@@ -10,6 +10,10 @@ export type EnsureSecretsKeyResult =
   | { status: "skipped_env"; path: null }
   | { status: "skipped_provider"; path: null };
 
+function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
+}
+
 export function ensureLocalSecretsKeyFile(
   config: Pick<PaperclipConfig, "secrets">,
   configPath?: string,
@@ -35,10 +39,20 @@ export function ensureLocalSecretsKeyFile(
   }
 
   fs.mkdirSync(path.dirname(keyFilePath), { recursive: true });
-  fs.writeFileSync(keyFilePath, randomBytes(32).toString("base64"), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  let handle: number;
+  try {
+    handle = fs.openSync(keyFilePath, "wx", 0o600);
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "EEXIST") {
+      return { status: "existing", path: keyFilePath };
+    }
+    throw err;
+  }
+  try {
+    fs.writeFileSync(handle, randomBytes(32).toString("base64"), "utf8");
+  } finally {
+    fs.closeSync(handle);
+  }
   try {
     fs.chmodSync(keyFilePath, 0o600);
   } catch {

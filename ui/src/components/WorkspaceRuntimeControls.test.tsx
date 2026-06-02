@@ -296,6 +296,40 @@ describe("WorkspaceRuntimeControls", () => {
     act(() => root.unmount());
   });
 
+  it("renders unsafe runtime URLs as text instead of links", () => {
+    const sections = buildWorkspaceRuntimeControlSections({
+      runtimeConfig: {
+        commands: [
+          { id: "web", name: "web", kind: "service", command: "pnpm dev" },
+        ],
+      },
+      runtimeServices: [
+        createRuntimeService({
+          id: "service-web",
+          serviceName: "web",
+          status: "running",
+          url: "javascript:alert(1)",
+        }),
+      ],
+      canStartServices: true,
+    });
+
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <WorkspaceRuntimeControls
+          sections={sections}
+          onAction={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("javascript:alert(1)");
+    expect(container.querySelector('a[href="javascript:alert(1)"]')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
   it("lets quick action buttons inherit the shared button shape tokens", () => {
     const sections = buildWorkspaceRuntimeControlSections({
       runtimeConfig: {

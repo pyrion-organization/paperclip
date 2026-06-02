@@ -635,7 +635,11 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  packages/skills-catalog: {}
+  packages/skills-catalog:
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
 
   server:
     dependencies:

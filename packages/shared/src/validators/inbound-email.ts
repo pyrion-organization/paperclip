@@ -70,8 +70,21 @@ const FORBIDDEN_EXTERNAL_INTAKE_METADATA_KEY_PATTERN =
   /(secret|token|password|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)/i;
 const FORBIDDEN_EXTERNAL_INTAKE_SOURCE_LOCATION_PARAM_PATTERN =
   /(?:^|[?&#;])[^=&#;]*(?:secret|token|signature|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)[^=&#;]*=/i;
+const FORBIDDEN_EXTERNAL_INTAKE_METADATA_STRING_PATTERN =
+  /(?:bearer|basic)\s+\S+|(?:^|[?&#;\s])[^=&#;\s]*(?:secret|token|signature|credential|authorization|cookie|session|api[-_]?key|private[-_]?key|access[-_]?key|client[-_]?secret)[^=&#;\s]*=/i;
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 function hasForbiddenExternalIntakeMetadataKey(value: unknown): boolean {
+  if (typeof value === "string") {
+    return FORBIDDEN_EXTERNAL_INTAKE_METADATA_STRING_PATTERN.test(value);
+  }
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some((entry) => hasForbiddenExternalIntakeMetadataKey(entry));
   return Object.entries(value as Record<string, unknown>).some(([key, entry]) =>
@@ -86,12 +99,28 @@ export const inboundEmailExternalIntakeMetadataSchema = z
     message: "External intake metadata must not contain credentials, tokens, passwords, cookies, or API keys",
   });
 
+function hasForbiddenExternalIntakeSourceLocation(value: string): boolean {
+  let current = value;
+  for (let i = 0; i < 4; i += 1) {
+    if (
+      FORBIDDEN_EXTERNAL_INTAKE_SOURCE_LOCATION_PARAM_PATTERN.test(current) ||
+      FORBIDDEN_EXTERNAL_INTAKE_METADATA_STRING_PATTERN.test(current)
+    ) {
+      return true;
+    }
+    const decoded = safeDecodeURIComponent(current);
+    if (decoded === current) return false;
+    current = decoded;
+  }
+  return false;
+}
+
 export const inboundEmailExternalIntakeSourceLocationSchema = z
   .string()
   .trim()
   .min(1)
   .max(2000)
-  .refine((value) => !FORBIDDEN_EXTERNAL_INTAKE_SOURCE_LOCATION_PARAM_PATTERN.test(value), {
+  .refine((value) => !hasForbiddenExternalIntakeSourceLocation(value), {
     message: "External intake source location must not include signed URLs, tokens, passwords, cookies, or API keys",
   })
   .nullable()

@@ -1,4 +1,5 @@
-import { asc, and, eq, lt, lte, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { asc, and, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import type {
   CalendarReminderEmailNotificationPayload,
   Db,
@@ -238,12 +239,25 @@ async function requeueStaleSendingNotifications(db: Db, now: Date, staleSendingM
     .set({
       status: "pending",
       scheduledAt: now,
+      claimToken: null,
+      claimedAt: null,
       updatedAt: now,
       lastError: "Requeued after stale sending state",
     })
-    .where(and(eq(emailNotifications.status, "sending"), lt(emailNotifications.updatedAt, cutoff)))
+    .where(and(
+      eq(emailNotifications.status, "sending"),
+      lt(emailNotifications.updatedAt, cutoff),
+      isNull(emailNotifications.claimToken),
+    ))
     .returning({ id: emailNotifications.id });
   return rows.length;
+}
+
+function claimedNotificationWhere(notification: typeof emailNotifications.$inferSelect) {
+  return and(
+    eq(emailNotifications.id, notification.id),
+    eq(emailNotifications.claimToken, notification.claimToken ?? ""),
+  );
 }
 
 async function markNotificationSkipped(db: Db, notification: typeof emailNotifications.$inferSelect, reason: string) {
@@ -254,9 +268,11 @@ async function markNotificationSkipped(db: Db, notification: typeof emailNotific
       status: "skipped",
       skippedAt: now,
       skipReason: reason,
+      claimToken: null,
+      claimedAt: null,
       updatedAt: now,
     })
-    .where(eq(emailNotifications.id, notification.id));
+    .where(claimedNotificationWhere(notification));
   await logNotificationActivity(db, {
     companyId: notification.companyId,
     issueId: notification.issueId ?? notification.id,
@@ -308,10 +324,12 @@ async function markNotificationSent(db: Db, notification: typeof emailNotificati
     .set({
       status: "sent",
       sentAt: now,
+      claimToken: null,
+      claimedAt: null,
       updatedAt: now,
       lastError: null,
     })
-    .where(eq(emailNotifications.id, notification.id));
+    .where(claimedNotificationWhere(notification));
   await logNotificationActivity(db, {
     companyId: notification.companyId,
     issueId: notification.issueId ?? notification.id,
@@ -343,10 +361,12 @@ async function markNotificationFailed(db: Db, notification: typeof emailNotifica
       .set({
         status: "failed",
         failedAt: now,
+        claimToken: null,
+        claimedAt: null,
         lastError,
         updatedAt: now,
       })
-      .where(eq(emailNotifications.id, notification.id));
+      .where(claimedNotificationWhere(notification));
     await logNotificationActivity(db, {
       companyId: notification.companyId,
       issueId: notification.issueId ?? notification.id,
@@ -375,23 +395,32 @@ async function markNotificationFailed(db: Db, notification: typeof emailNotifica
     .set({
       status: "pending",
       scheduledAt: new Date(now.getTime() + retryDelayMs),
+      claimToken: null,
+      claimedAt: null,
       lastError,
       updatedAt: now,
     })
-    .where(eq(emailNotifications.id, notification.id));
+    .where(claimedNotificationWhere(notification));
   return "requeued";
 }
 
 async function claimNotification(db: Db, id: string, now: Date): Promise<typeof emailNotifications.$inferSelect | null> {
+  const claimToken = randomUUID();
   const [notification] = await db
     .update(emailNotifications)
     .set({
       status: "sending",
       attempts: sql`${emailNotifications.attempts} + 1`,
+      claimToken,
+      claimedAt: now,
       lastAttemptAt: now,
       updatedAt: now,
     })
-    .where(and(eq(emailNotifications.id, id), eq(emailNotifications.status, "pending")))
+    .where(and(
+      eq(emailNotifications.id, id),
+      eq(emailNotifications.status, "pending"),
+      isNull(emailNotifications.claimToken),
+    ))
     .returning();
   return notification ?? null;
 }

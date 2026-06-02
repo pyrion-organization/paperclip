@@ -102,10 +102,12 @@ export function secretsCheck(config: PaperclipConfig, configPath?: string): Chec
         canRepair: true,
         repair: () => {
           fs.mkdirSync(path.dirname(keyFilePath), { recursive: true });
-          fs.writeFileSync(keyFilePath, randomBytes(32).toString("base64"), {
-            encoding: "utf8",
-            mode: 0o600,
-          });
+          const handle = fs.openSync(keyFilePath, "wx", 0o600);
+          try {
+            fs.writeFileSync(handle, randomBytes(32).toString("base64"), "utf8");
+          } finally {
+            fs.closeSync(handle);
+          }
           try {
             fs.chmodSync(keyFilePath, 0o600);
           } catch {

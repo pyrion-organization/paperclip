@@ -86,7 +86,12 @@ function uniqueWorkspaceCommandId(
     seen.add(commandId);
     return commandId;
   }
-  const fallbackId = `${commandId}-${sourceKey}-${sourceIndex + 1}`;
+  const fallbackPrefix = `${commandId}-${sourceKey}-${sourceIndex + 1}`;
+  let fallbackId = fallbackPrefix;
+  let collisionIndex = 2;
+  while (seen.has(fallbackId)) {
+    fallbackId = `${fallbackPrefix}-${collisionIndex++}`;
+  }
   seen.add(fallbackId);
   return fallbackId;
 }

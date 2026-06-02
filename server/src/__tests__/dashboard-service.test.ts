@@ -171,6 +171,28 @@ describeEmbeddedPostgres("dashboard service", () => {
       },
       {
         id: randomUUID(),
+        companyId,
+        title: "Hidden cancelled work",
+        status: "cancelled",
+        priority: "medium",
+        identifier: "PAP-4",
+        hiddenAt: today,
+        createdAt: today,
+        updatedAt: today,
+      },
+      {
+        id: randomUUID(),
+        companyId,
+        title: "Hidden blocked work",
+        status: "blocked",
+        priority: "medium",
+        identifier: "PAP-5",
+        hiddenAt: today,
+        createdAt: today,
+        updatedAt: today,
+      },
+      {
+        id: randomUUID(),
         companyId: otherCompanyId,
         title: "Other company work",
         status: "in_progress",
@@ -198,6 +220,12 @@ describeEmbeddedPostgres("dashboard service", () => {
       failed: 2,
       other: 1,
       total: 3,
+    });
+    expect(summary.tasks).toMatchObject({
+      open: 2,
+      inProgress: 1,
+      blocked: 1,
+      done: 0,
     });
 
     expect(summary.issueActivity).toHaveLength(14);

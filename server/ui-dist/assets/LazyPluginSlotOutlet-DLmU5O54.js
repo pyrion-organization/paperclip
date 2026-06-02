@@ -1,0 +1,1 @@
+import{j as o}from"./index-CIGnderT.js";import{a as r}from"./slots-BHESieuH.js";import"./sidebar-runtime-D57EFm4H.js";import"./plugins-i5XMPVlj.js";import"./auth-TOqQre6L.js";import"./bridge-zUTNDgk0.js";import"./slots-registry-Cy4YZiJy.js";import"./slots-loader-CjUMiv-M.js";function a(t){return o.jsx(r,{...t})}export{a as LazyPluginSlotOutlet};

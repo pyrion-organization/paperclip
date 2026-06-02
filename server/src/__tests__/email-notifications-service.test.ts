@@ -210,9 +210,50 @@ describeEmbeddedPostgres("email notification outbox", () => {
     const [row] = await db.select().from(emailNotifications).where(eq(emailNotifications.id, notification.id));
     expect(row?.status).toBe("sent");
     expect(row?.attempts).toBe(1);
+    expect(row?.claimToken).toBeNull();
+    expect(row?.claimedAt).toBeNull();
     const activities = await db.select().from(activityLog).where(eq(activityLog.entityId, seeded.issueId));
     expect(activities.map((activity) => activity.action)).toContain("issue.email_notification_attempted");
     expect(activities.map((activity) => activity.action)).toContain("issue.email_notification_sent");
+  });
+
+  it("does not requeue stale sending notifications with an active claim token", async () => {
+    const seeded = await seedIssue(db, { companySmtp: true });
+    const notification = await enqueueIssueCompletionEmailNotification(db, {
+      issue: {
+        id: seeded.issueId,
+        companyId: seeded.companyId,
+        title: "Ship report",
+        identifier: "ACME-1",
+        description: null,
+        completedAt: seeded.now,
+      },
+      creatorUserId: seeded.creatorUserId,
+      actor: { actorType: "user", actorId: "local-board" },
+      processAfterEnqueue: false,
+    });
+    const oldDate = new Date("2026-01-01T00:00:00.000Z");
+    await db
+      .update(emailNotifications)
+      .set({
+        status: "sending",
+        claimToken: "worker-claim",
+        claimedAt: oldDate,
+        updatedAt: oldDate,
+      })
+      .where(eq(emailNotifications.id, notification.id));
+
+    const result = await processEmailNotificationOutbox(db, {
+      limit: 1,
+      now: new Date("2026-01-01T00:10:00.000Z"),
+      staleSendingMs: 60_000,
+    });
+
+    expect(result.requeued).toBe(0);
+    expect(sendMailMock).not.toHaveBeenCalled();
+    const [row] = await db.select().from(emailNotifications).where(eq(emailNotifications.id, notification.id));
+    expect(row?.status).toBe("sending");
+    expect(row?.claimToken).toBe("worker-claim");
   });
 
   it("marks notifications skipped when SMTP is not configured", async () => {

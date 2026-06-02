@@ -24,6 +24,9 @@ const mockIssuesApi = vi.hoisted(() => ({
 const markdownEditorMockState = vi.hoisted(() => ({
   emitMountEmptyChange: false,
 }));
+const routerMockState = vi.hoisted(() => ({
+  hash: "",
+}));
 
 vi.mock("../api/issues", () => ({
   issuesApi: mockIssuesApi,
@@ -39,7 +42,7 @@ vi.mock("../hooks/useAutosaveIndicator", () => ({
 }));
 
 vi.mock("@/lib/router", () => ({
-  useLocation: () => ({ hash: "" }),
+  useLocation: () => ({ hash: routerMockState.hash }),
 }));
 
 vi.mock("./MarkdownBody", () => ({
@@ -260,8 +263,10 @@ describe("IssueDocumentsSection", () => {
     document.body.appendChild(container);
     ensureLocalStorageMock();
     window.localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
     vi.clearAllMocks();
     markdownEditorMockState.emitMountEmptyChange = false;
+    routerMockState.hash = "";
   });
 
   afterEach(() => {
@@ -725,6 +730,43 @@ describe("IssueDocumentsSection", () => {
     expect(heading).toBeTruthy();
     expect(heading?.parentElement?.className).toContain("flex-wrap");
     expect(heading?.nextElementSibling?.className).toContain("flex-wrap");
+
+    await act(async () => {
+      root.unmount();
+    });
+    queryClient.clear();
+  });
+
+  it("unfolds documents for annotation thread deep links", async () => {
+    const issue = createIssue();
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+        mutations: {
+          retry: false,
+        },
+      },
+    });
+
+    routerMockState.hash = "#document-plan&thread=thread-1";
+    window.localStorage.setItem(`paperclip:issue-document-folds:${issue.id}`, JSON.stringify(["plan"]));
+    mockIssuesApi.listDocuments.mockResolvedValue([createIssueDocument({ body: "Linked plan body" })]);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IssueDocumentsSection issue={issue} canDeleteDocuments={false} />
+        </QueryClientProvider>,
+      );
+    });
+
+    await flush();
+    await flush();
+
+    expect(container.textContent).toContain("Linked plan body");
 
     await act(async () => {
       root.unmount();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCron, validateCron } from "../services/cron.js";
+import { nextCronTickFromExpression, parseCron, validateCron } from "../services/cron.js";
 
 describe("cron service", () => {
   it("rejects numeric tokens with trailing characters", () => {
@@ -18,5 +18,11 @@ describe("cron service", () => {
       daysOfMonth: [1, 2, 3, 4, 5],
       daysOfWeek: [1, 3, 5],
     });
+  });
+
+  it("uses standard OR semantics when both day fields are restricted", () => {
+    expect(nextCronTickFromExpression("0 9 15 * 1", new Date("2026-06-01T09:00:00.000Z"))?.toISOString()).toBe(
+      "2026-06-08T09:00:00.000Z",
+    );
   });
 });

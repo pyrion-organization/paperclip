@@ -55,6 +55,8 @@ export const emailNotifications = pgTable(
     requestedByRunId: uuid("requested_by_run_id").references(() => heartbeatRuns.id, { onDelete: "set null" }),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
+    claimToken: text("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull().defaultNow(),
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
