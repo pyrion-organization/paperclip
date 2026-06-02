@@ -115,7 +115,14 @@ function readIssueDetailBreadcrumbHrefFromSearch(search?: string): string | null
   if (!search) return null;
   const params = new URLSearchParams(search);
   const href = params.get(ISSUE_DETAIL_BREADCRUMB_HREF_QUERY_PARAM);
-  return href && href.startsWith("/") ? href : null;
+  if (!href || !href.startsWith("/") || href.startsWith("//") || href.includes("\\")) return null;
+  try {
+    const url = new URL(href, "https://paperclip.local");
+    if (url.origin !== "https://paperclip.local") return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 function inferIssueDetailSource(

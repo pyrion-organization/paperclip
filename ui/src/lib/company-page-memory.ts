@@ -1,18 +1,14 @@
 import {
   extractCompanyPrefixFromPath,
+  isGlobalPath,
   normalizeCompanyPrefix,
   toCompanyRelativePath,
 } from "./company-routes";
 
-const GLOBAL_SEGMENTS = new Set(["auth", "invite", "board-claim", "cli-auth", "docs"]);
-
 export function isRememberableCompanyPath(path: string): boolean {
   const pathname = path.split("?")[0] ?? "";
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0) return true;
-  const [root] = segments;
-  if (GLOBAL_SEGMENTS.has(root!)) return false;
-  return true;
+  if (pathname === "/") return true;
+  return !isGlobalPath(pathname);
 }
 
 function findCompanyByPrefix<T extends { id: string; issuePrefix: string }>(params: {

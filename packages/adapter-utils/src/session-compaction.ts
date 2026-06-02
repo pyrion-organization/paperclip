@@ -123,7 +123,9 @@ function readNumber(value: unknown): number | undefined {
     return Math.max(0, Math.floor(value));
   }
   if (typeof value !== "string") return undefined;
-  const parsed = Number(value.trim());
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : undefined;
 }
 

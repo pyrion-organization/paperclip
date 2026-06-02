@@ -154,6 +154,15 @@ describe("issueDetailBreadcrumb", () => {
     });
   });
 
+  it("rejects protocol-relative breadcrumb hrefs from legacy query params", () => {
+    expect(
+      readIssueDetailBreadcrumb("PAP-465", null, "?from=inbox&fromHref=%2F%2Fevil.example%2Fphish"),
+    ).toEqual({
+      label: "Inbox",
+      href: "/inbox",
+    });
+  });
+
   it("reads hidden breadcrumb context from session storage when route state is unavailable", () => {
     const state = createIssueDetailLocationState("Inbox", "/inbox/mine", "inbox");
     sessionStorageMock.clear();

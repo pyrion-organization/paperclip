@@ -87,4 +87,13 @@ describe("sanitizeRememberedPathForCompany", () => {
       }),
     ).toBe("/skills/skill-123/files/SKILL.md");
   });
+
+  it("falls back to dashboard for global instance settings paths", () => {
+    expect(
+      sanitizeRememberedPathForCompany({
+        path: "/instance/settings/general",
+        companyPrefix: "PAP",
+      }),
+    ).toBe("/dashboard");
+  });
 });

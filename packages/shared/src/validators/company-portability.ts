@@ -6,6 +6,7 @@ import {
   issueCommentPresentationSchema,
 } from "./issue.js";
 import { routineVariableSchema } from "./routine.js";
+import { envConfigSchema } from "./secret.js";
 
 export const portabilityIncludeSchema = z
   .object({
@@ -102,6 +103,7 @@ export const portabilityProjectManifestEntrySchema = z.object({
   targetDate: z.string().nullable(),
   color: z.string().nullable(),
   status: z.string().nullable(),
+  env: envConfigSchema.nullable().default(null),
   executionWorkspacePolicy: z.record(z.string(), z.unknown()).nullable(),
   workspaces: z.array(z.object({
     key: z.string().min(1),
@@ -127,6 +129,13 @@ export const portabilityIssueRoutineTriggerManifestEntrySchema = z.object({
   timezone: z.string().nullable(),
   signingMode: z.string().nullable(),
   replayWindowSec: z.number().int().nullable(),
+  minIntervalSec: z.number().int().min(60).max(604_800).nullable().default(null),
+  maxIntervalSec: z.number().int().min(60).max(604_800).nullable().default(null),
+  allowedWeekdays: z.array(z.number().int().min(0).max(6)).max(7).nullable().default(null),
+  minTimeOfDayMin: z.number().int().min(0).max(1439).nullable().default(null),
+  maxTimeOfDayMin: z.number().int().min(0).max(1439).nullable().default(null),
+  minDaysAhead: z.number().int().min(0).max(30).nullable().default(null),
+  maxDaysAhead: z.number().int().min(1).max(30).nullable().default(null),
 });
 
 export const portabilityIssueRoutineManifestEntrySchema = z.object({

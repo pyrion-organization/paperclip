@@ -27,6 +27,7 @@ import { useDisabledAdaptersSync } from "../adapters/use-disabled-adapters";
 import { isValidAdapterType } from "../adapters/metadata";
 import { ReportsToPicker } from "../components/ReportsToPicker";
 import { buildNewAgentHirePayload } from "../lib/new-agent-hire-payload";
+import { isLoadedFirstAgentList } from "../lib/new-agent-role-state";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
@@ -83,7 +84,7 @@ export function NewAgent() {
     enabled: Boolean(selectedCompanyId),
   });
 
-  const isFirstAgent = !agents || agents.length === 0;
+  const isFirstAgent = isLoadedFirstAgentList(agents);
   const effectiveRole = isFirstAgent ? "ceo" : role;
 
   useEffect(() => {

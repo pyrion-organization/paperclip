@@ -113,6 +113,13 @@ export function supportsAdapterModelRefresh(adapterType: string): boolean {
   return adapterType === "claude_local" || adapterType === "codex_local" || adapterType === "acpx_local";
 }
 
+export function buildAdapterModelRefreshOptions(environmentId: string | null | undefined) {
+  return {
+    refresh: true,
+    environmentId: environmentId || null,
+  };
+}
+
 function isOverlayDirty(o: AgentConfigOverlay): boolean {
   return (
     Object.keys(o.identity).length > 0 ||
@@ -496,7 +503,11 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     setRefreshingModels(true);
     setRefreshModelsError(null);
     try {
-      const refreshed = await agentsApi.adapterModels(selectedCompanyId, adapterType, { refresh: true });
+      const refreshed = await agentsApi.adapterModels(
+        selectedCompanyId,
+        adapterType,
+        buildAdapterModelRefreshOptions(currentDefaultEnvironmentId),
+      );
       queryClient.setQueryData(modelQueryKey, refreshed);
     } catch (error) {
       setRefreshModelsError(error instanceof Error ? error.message : "Failed to refresh adapter models.");
