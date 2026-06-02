@@ -1,15 +1,14 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
-import { useLazyRef } from "../hooks/useLazyRef";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode, type Ref } from "react";
 import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from "@/lib/router";
-import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import { issuesApi } from "../api/issues";
 import { approvalsApi } from "../api/approvals";
 import { activityApi, type RunForIssue } from "../api/activity";
 import { heartbeatsApi, type ActiveRunForIssue, type LiveRunForIssue } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
-import { accessApi } from "../api/access";
+import { accessApi, type CurrentBoardAccess } from "../api/access";
 import { agentsApi } from "../api/agents";
 import { authApi } from "../api/auth";
 import { projectsApi } from "../api/projects";
@@ -34,7 +33,6 @@ import {
   rememberIssueDetailLocationState,
 } from "../lib/issueDetailBreadcrumb";
 import { resolveIssueActiveRun, shouldTrackIssueActiveRun } from "../lib/issueActiveRun";
-import { canBoardResolveRecoveryAction } from "./issue-detail-utils";
 import { getIssueDetailQueryOptions } from "../lib/issueDetailCache";
 import {
   hasBlockingShortcutDialog,
@@ -62,17 +60,32 @@ import {
 } from "../lib/optimistic-issue-comments";
 import { clearIssueExecutionRun, removeLiveRunById, upsertInterruptedRun } from "../lib/optimistic-issue-runs";
 import { useProjectOrder } from "../hooks/useProjectOrder";
-import { relativeTime, cn } from "../lib/utils";
+import { relativeTime, cn, formatDurationMs, formatTokens, visibleRunCostUsd } from "../lib/utils";
+import { ApprovalCard } from "../components/ApprovalCard";
 import { InlineEditor } from "../components/InlineEditor";
-import type { IssueChatComposerHandle } from "../components/IssueChatThread";
-import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
+import { IssueChatThread, type IssueChatComposerHandle } from "../components/IssueChatThread";
+import { IssueContinuationHandoff } from "../components/IssueContinuationHandoff";
+import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssuePlanDecompositionsSection } from "../components/IssuePlanDecompositionsSection";
-import { AgentIcon } from "../components/AgentIcon";
+import { IssueSiblingNavigation } from "../components/IssueSiblingNavigation";
+import { IssuesList } from "../components/IssuesList";
+import { AgentIcon } from "../components/AgentIconPicker";
+import { IssueReferenceActivitySummary } from "../components/IssueReferenceActivitySummary";
+import { IssueRelatedWorkPanel } from "../components/IssueRelatedWorkPanel";
+import { IssueMonitorActivityCard } from "../components/IssueMonitorActivityCard";
+import { IssueScheduledRetryCard } from "../components/IssueScheduledRetryCard";
+import { IssueProperties } from "../components/IssueProperties";
+import { IssueRunLedger } from "../components/IssueRunLedger";
+import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import type { MentionOption } from "../components/MarkdownEditor";
+import { ImageGalleryModal } from "../components/ImageGalleryModal";
 import { ScrollToBottom } from "../components/ScrollToBottom";
 import { StatusIcon } from "../components/StatusIcon";
 import { PriorityIcon } from "../components/PriorityIcon";
 import { ProductivityReviewBadge } from "../components/ProductivityReviewBadge";
+import { Identity } from "../components/Identity";
+import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
+import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -89,13 +102,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { formatIssueActivityAction } from "@/lib/activity-format";
 import { buildIssuePropertiesPanelKey } from "../lib/issue-properties-panel-key";
 import { buildIssueSiblingNavigation, shouldRenderRichSubIssuesSection } from "../lib/issue-detail-subissues";
 import { filterIssueDescendants } from "../lib/issue-tree";
 import { buildSubIssueDefaultsForViewer } from "../lib/subIssueDefaults";
+import {
+  SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION,
+  SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION,
+  successfulRunHandoffActivityTone,
+} from "../lib/successful-run-handoff";
 import { hasAssignedBacklogBlocker } from "../lib/issue-blockers";
 import {
   Activity as ActivityIcon,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   Check,
@@ -118,27 +138,24 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import type {
-  AskUserQuestionsAnswer,
-  AskUserQuestionsInteraction,
-  ActivityEvent,
-  Agent,
-  FeedbackVote,
-  Issue,
-  IssueAttachment,
-  IssueComment,
-  IssueWorkMode,
-  IssueThreadInteraction,
-  RequestConfirmationInteraction,
-  SuggestTasksInteraction,
-  IssueTreeControlMode,
-} from "@paperclipai/shared";
-import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared/constants";
-import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 import {
   getClosedIsolatedExecutionWorkspaceMessage,
   isClosedIsolatedExecutionWorkspace,
-} from "@paperclipai/shared/execution-workspace-guards";
+  ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY,
+  type AskUserQuestionsAnswer,
+  type AskUserQuestionsInteraction,
+  type ActivityEvent,
+  type Agent,
+  type FeedbackVote,
+  type Issue,
+  type IssueAttachment,
+  type IssueComment,
+  type IssueWorkMode,
+  type IssueThreadInteraction,
+  type RequestConfirmationInteraction,
+  type SuggestTasksInteraction,
+  type IssueTreeControlMode,
+} from "@paperclipai/shared";
 
 type CommentReassignment = IssueCommentReassignment;
 type ActionableIssueThreadInteraction = SuggestTasksInteraction | RequestConfirmationInteraction;
@@ -156,57 +173,6 @@ const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "h
 const ISSUE_COMMENT_PAGE_SIZE = 50;
 const ISSUE_COMMENT_AUTOLOAD_LIMIT = ISSUE_COMMENT_PAGE_SIZE * 3;
 const JUMP_TO_LATEST_MAX_COMMENT_PAGES = 10;
-const EMPTY_ACTIVITY_EVENTS: ActivityEvent[] = [];
-const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
-const EMPTY_RUNS_FOR_ISSUE: RunForIssue[] = [];
-const EMPTY_ISSUE_ATTACHMENTS: IssueAttachment[] = [];
-const EMPTY_ISSUE_INTERACTIONS: IssueThreadInteraction[] = [];
-const EMPTY_BLOCKED_BY: NonNullable<Issue["blockedBy"]> = [];
-const IssueChatThread = lazy(() =>
-  import("../components/IssueChatThread").then(({ IssueChatThread }) => ({ default: IssueChatThread })),
-);
-const IssuesList = lazy(() =>
-  import("../components/IssuesList").then(({ IssuesList }) => ({ default: IssuesList })),
-);
-const IssueDocumentsSection = lazy(() =>
-  import("../components/IssueDocumentsSection").then(({ IssueDocumentsSection }) => ({
-    default: IssueDocumentsSection,
-  })),
-);
-const IssueProperties = lazy(() =>
-  import("../components/IssueProperties").then(({ IssueProperties }) => ({ default: IssueProperties })),
-);
-const IssueDetailActivityTab = lazy(() =>
-  import("../components/IssueDetailActivityTab").then(({ IssueDetailActivityTab }) => ({ default: IssueDetailActivityTab })),
-);
-const IssueWorkspaceCard = lazy(() =>
-  import("../components/IssueWorkspaceCard").then(({ IssueWorkspaceCard }) => ({ default: IssueWorkspaceCard })),
-);
-const ImageGalleryModal = lazy(() =>
-  import("../components/ImageGalleryModal").then(({ ImageGalleryModal }) => ({ default: ImageGalleryModal })),
-);
-const IssueRelatedWorkPanel = lazy(() =>
-  import("../components/IssueRelatedWorkPanel").then(({ IssueRelatedWorkPanel }) => ({ default: IssueRelatedWorkPanel })),
-);
-const IssueDetailPluginToolbarExtensions = lazy(() =>
-  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginToolbarExtensions }) => ({
-    default: IssueDetailPluginToolbarExtensions,
-  })),
-);
-const IssueDetailPluginTabTriggers = lazy(() =>
-  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginTabTriggers }) => ({
-    default: IssueDetailPluginTabTriggers,
-  })),
-);
-const IssueDetailPluginTabContents = lazy(() =>
-  import("../components/IssueDetailPluginExtensions").then(({ IssueDetailPluginTabContents }) => ({
-    default: IssueDetailPluginTabContents,
-  })),
-);
-type IssueDetailIdleWindow = Window & {
-  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-  cancelIdleCallback?: (handle: number) => void;
-};
 const TREE_CONTROL_MODE_LABEL: Record<IssueTreeControlMode, string> = {
   pause: "Pause subtree",
   resume: "Resume subtree",
@@ -227,8 +193,6 @@ const LEAF_WORK_CONTROL_MODE_HELP_TEXT: Partial<Record<IssueTreeControlMode, str
   pause: "Pause active execution on this issue until an explicit resume.",
   resume: "Release the active pause hold so this issue can continue.",
 };
-const EMPTY_ARRAY: never[] = [];
-
 function issueTreeControlLabel(mode: IssueTreeControlMode, scope: "leaf" | "subtree") {
   return scope === "leaf"
     ? LEAF_WORK_CONTROL_MODE_LABEL[mode] ?? TREE_CONTROL_MODE_LABEL[mode]
@@ -250,23 +214,21 @@ function treeControlPreviewErrorCopy(error: unknown): string {
   return error instanceof Error ? error.message : "Unable to load preview.";
 }
 
-function useIssueDetailPluginsReady() {
-  const [ready, setReady] = useState(() => typeof window === "undefined");
+export function canBoardResolveRecoveryAction(
+  companyId: string | null | undefined,
+  boardAccess: CurrentBoardAccess | undefined,
+) {
+  if (!companyId || !boardAccess) return false;
+  if (boardAccess.source === "local_implicit" || boardAccess.isInstanceAdmin) return true;
+  if (!boardAccess.memberships || boardAccess.memberships.length === 0) {
+    return boardAccess.companyIds.includes(companyId);
+  }
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const idleWindow = window as IssueDetailIdleWindow;
-    if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(() => setReady(true), { timeout: 2_000 });
-      return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-
-    const timeout = window.setTimeout(() => setReady(true), 750);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
-  return ready;
+  const membership = boardAccess.memberships.find(
+    (item) => item.companyId === companyId && item.status === "active",
+  );
+  if (!membership) return false;
+  return membership.membershipRole !== "viewer" && membership.membershipRole !== null;
 }
 
 function resolveRunningIssueRun(
@@ -299,6 +261,20 @@ function readIssueRunStateFromCache(queryClient: QueryClient, issueId: string) {
     activeRun,
     runningIssueRun: resolveRunningIssueRun(activeRun, liveRuns),
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function usageNumber(usage: Record<string, unknown> | null, ...keys: string[]) {
+  if (!usage) return 0;
+  for (const key of keys) {
+    const value = usage[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return 0;
 }
 
 function truncate(text: string, max: number): string {
@@ -393,6 +369,20 @@ function mergeOptimisticFeedbackVote(
   ];
 }
 
+function ActorIdentity({ evt, agentMap, userProfileMap }: { evt: ActivityEvent; agentMap: Map<string, Agent>; userProfileMap?: Map<string, import("../lib/company-members").CompanyUserProfile> }) {
+  const id = evt.actorId;
+  if (evt.actorType === "agent") {
+    const agent = agentMap.get(id);
+    return <Identity name={agent?.name ?? id.slice(0, 8)} size="sm" />;
+  }
+  if (evt.actorType === "system") return <Identity name="System" size="sm" />;
+  if (evt.actorType === "user") {
+    const profile = userProfileMap?.get(id);
+    return <Identity name={profile?.label ?? "Board"} avatarUrl={profile?.image} size="sm" />;
+  }
+  return <Identity name={id || "Unknown"} size="sm" />;
+}
+
 function IssueSectionSkeleton({
   titleWidth = "w-28",
   rows = 3,
@@ -417,7 +407,7 @@ function IssueChatSkeleton() {
     <div className="space-y-3 rounded-lg border border-border p-3">
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Skeleton className="size-8 rounded-full" />
+          <Skeleton className="h-8 w-8 rounded-full" />
           <div className="space-y-2">
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-3 w-16" />
@@ -431,7 +421,7 @@ function IssueChatSkeleton() {
             <Skeleton className="ml-auto h-3 w-20" />
             <Skeleton className="ml-auto h-3 w-14" />
           </div>
-          <Skeleton className="size-8 rounded-full" />
+          <Skeleton className="h-8 w-8 rounded-full" />
         </div>
         <Skeleton className="ml-auto h-16 w-[85%] rounded-xl" />
       </div>
@@ -465,28 +455,28 @@ function IssueDetailLoadingState({
               ) : null}
               {headerSeed.originKind === "routine_execution" && headerSeed.originId ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0">
-                  <Repeat className="size-3" />
+                  <Repeat className="h-3 w-3" />
                   Routine
                 </span>
               ) : null}
               {headerSeed.projectId ? (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground rounded px-1 -mx-1 py-0.5 min-w-0">
-                  <Hexagon className="size-3 shrink-0" />
+                  <Hexagon className="h-3 w-3 shrink-0" />
                   <span className="truncate">
                     {headerSeed.projectName ?? headerSeed.projectId.slice(0, 8)}
                   </span>
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground opacity-50 px-1 -mx-1 py-0.5">
-                  <Hexagon className="size-3 shrink-0" />
+                  <Hexagon className="h-3 w-3 shrink-0" />
                   No project
                 </span>
               )}
             </>
           ) : (
             <>
-              <Skeleton className="size-6" />
-              <Skeleton className="size-6" />
+              <Skeleton className="h-6 w-6" />
+              <Skeleton className="h-6 w-6" />
               <Skeleton className="h-4 w-20" />
               <Skeleton className="h-4 w-28" />
             </>
@@ -565,7 +555,7 @@ function InboxMobileToolbar({
         }}
         aria-label="Back to inbox"
       >
-        <ArrowLeft className="size-5" />
+        <ArrowLeft className="h-5 w-5" />
       </Button>
 
       <div className="ml-auto flex items-center gap-0.5">
@@ -577,37 +567,37 @@ function InboxMobileToolbar({
             disabled={archivePending}
             aria-label="Archive from inbox"
           >
-            <Archive className="size-5" />
+            <Archive className="h-5 w-5" />
           </Button>
         )}
 
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="More actions">
-              <MoreVertical className="size-5" />
+              <MoreVertical className="h-5 w-5" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-44 p-1" align="end">
-            <button type="button"
+            <button
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onCopy(); setMenuOpen(false); }}
             >
-              <Copy className="size-3" />
+              <Copy className="h-3 w-3" />
               Copy as markdown
             </button>
-            <button type="button"
+            <button
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onProperties(); setMenuOpen(false); }}
             >
-              <SlidersHorizontal className="size-3" />
+              <SlidersHorizontal className="h-3 w-3" />
               Properties
             </button>
             {issueIdProp && (
-              <button type="button"
+              <button
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                 onClick={() => { onHide(); setMenuOpen(false); }}
               >
-                <EyeOff className="size-3" />
+                <EyeOff className="h-3 w-3" />
                 Hide this issue
               </button>
             )}
@@ -760,7 +750,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     refetchInterval: 3000,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
-  const resolvedLiveRuns = liveRuns ?? EMPTY_LIVE_RUNS;
+  const resolvedLiveRuns = liveRuns ?? [];
   const liveRunCount = resolvedLiveRuns.length;
   const { data: activeRun = null } = useQuery({
     queryKey: queryKeys.issues.activeRun(issueId),
@@ -780,8 +770,8 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
     refetchInterval: hasLiveRuns ? 5000 : false,
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
-  const resolvedActivity = activity ?? EMPTY_ACTIVITY_EVENTS;
-  const resolvedLinkedRuns = linkedRuns ?? EMPTY_RUNS_FOR_ISSUE;
+  const resolvedActivity = activity ?? [];
+  const resolvedLinkedRuns = linkedRuns ?? [];
 
   const runningIssueRun = useMemo(
     () => resolveRunningIssueRun(resolvedActiveRun, resolvedLiveRuns),
@@ -899,78 +889,340 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
           </Button>
         </div>
       ) : null}
-      <Suspense fallback={<Skeleton className="h-56 w-full" />}>
-        <IssueChatThread
-          composerRef={composerRef}
-          comments={commentsWithRunMeta}
-          interactions={interactions}
-          feedbackVotes={feedbackVotes}
-          feedbackDataSharingPreference={feedbackDataSharingPreference}
-          feedbackTermsUrl={feedbackTermsUrl}
-          linkedRuns={timelineRuns}
-          timelineEvents={timelineEvents}
-          liveRuns={resolvedLiveRuns}
-          activeRun={resolvedActiveRun}
-          issueId={issueId}
-          blockedBy={blockedBy ?? EMPTY_ARRAY}
-          blockerAttention={blockerAttention}
-          successfulRunHandoff={successfulRunHandoff}
-          scheduledRetry={scheduledRetry}
-          recoveryAction={recoveryAction ?? null}
-          onResolveRecoveryAction={onResolveRecoveryAction}
-          canFalsePositiveRecoveryAction={canFalsePositiveRecoveryAction}
-          legacyRecoverySourceIssue={legacyRecoverySourceIssue ?? null}
-          companyId={companyId}
-          projectId={projectId}
-          issueStatus={issueStatus}
-          agentMap={agentMap}
-          currentUserId={currentUserId}
-          userLabelMap={userLabelMap}
-          userProfileMap={userProfileMap}
-          draftKey={draftKey}
-          enableReassign
-          reassignOptions={reassignOptions}
-          currentAssigneeValue={currentAssigneeValue}
-          suggestedAssigneeValue={suggestedAssigneeValue}
-          mentions={mentions}
-          composerDisabledReason={composerDisabledReason}
-          composerHint={composerHint}
-          onVote={onVote}
-          onAdd={onAdd}
-          imageUploadHandler={onImageUpload}
-          onAttachImage={onAttachImage}
-          onInterruptQueued={onInterruptQueued}
-          onCancelQueued={onCancelQueued}
-          interruptingQueuedRunId={interruptingQueuedRunId}
-          stoppingRunId={pausingWorkRunId}
-          onStopRun={onPauseWorkRun}
-          stopRunLabel="Pause work"
-          stoppingRunLabel="Pausing..."
-          stopRunVariant="pause"
-          onAcceptInteraction={onAcceptInteraction}
-          onRejectInteraction={onRejectInteraction}
-          onSubmitInteractionAnswers={(interaction, answers) =>
-            onSubmitInteractionAnswers(interaction, answers)
-          }
-          onCancelInteraction={onCancelInteraction}
-          issueWorkMode={issueWorkMode}
-          onWorkModeChange={onWorkModeChange}
-          onCancelRun={runningIssueRun && onPauseWorkRun
-            ? async () => {
-                await onPauseWorkRun(runningIssueRun.id);
-              }
-            : undefined}
-          onImageClick={onImageClick}
-          onRefreshLatestComments={onRefreshLatestComments}
-          assigneeUserId={assigneeUserId}
-          onResumeFromBacklog={onResumeFromBacklog}
-          resumeFromBacklogPending={resumeFromBacklogPending}
-          footer={footer}
-        />
-      </Suspense>
+      <IssueChatThread
+        composerRef={composerRef}
+        comments={commentsWithRunMeta}
+        interactions={interactions}
+        feedbackVotes={feedbackVotes}
+        feedbackDataSharingPreference={feedbackDataSharingPreference}
+        feedbackTermsUrl={feedbackTermsUrl}
+        linkedRuns={timelineRuns}
+        timelineEvents={timelineEvents}
+        liveRuns={resolvedLiveRuns}
+        activeRun={resolvedActiveRun}
+        issueId={issueId}
+        blockedBy={blockedBy ?? []}
+        blockerAttention={blockerAttention}
+        successfulRunHandoff={successfulRunHandoff}
+        scheduledRetry={scheduledRetry}
+        recoveryAction={recoveryAction ?? null}
+        onResolveRecoveryAction={onResolveRecoveryAction}
+        canFalsePositiveRecoveryAction={canFalsePositiveRecoveryAction}
+        legacyRecoverySourceIssue={legacyRecoverySourceIssue ?? null}
+        companyId={companyId}
+        projectId={projectId}
+        issueStatus={issueStatus}
+        agentMap={agentMap}
+        currentUserId={currentUserId}
+        userLabelMap={userLabelMap}
+        userProfileMap={userProfileMap}
+        draftKey={draftKey}
+        enableReassign
+        reassignOptions={reassignOptions}
+        currentAssigneeValue={currentAssigneeValue}
+        suggestedAssigneeValue={suggestedAssigneeValue}
+        mentions={mentions}
+        composerDisabledReason={composerDisabledReason}
+        composerHint={composerHint}
+        onVote={onVote}
+        onAdd={onAdd}
+        imageUploadHandler={onImageUpload}
+        onAttachImage={onAttachImage}
+        onInterruptQueued={onInterruptQueued}
+        onCancelQueued={onCancelQueued}
+        interruptingQueuedRunId={interruptingQueuedRunId}
+        stoppingRunId={pausingWorkRunId}
+        onStopRun={onPauseWorkRun}
+        stopRunLabel="Pause work"
+        stoppingRunLabel="Pausing..."
+        stopRunVariant="pause"
+        onAcceptInteraction={onAcceptInteraction}
+        onRejectInteraction={onRejectInteraction}
+        onSubmitInteractionAnswers={(interaction, answers) =>
+          onSubmitInteractionAnswers(interaction, answers)
+        }
+        onCancelInteraction={onCancelInteraction}
+        issueWorkMode={issueWorkMode}
+        onWorkModeChange={onWorkModeChange}
+        onCancelRun={runningIssueRun && onPauseWorkRun
+          ? async () => {
+              await onPauseWorkRun(runningIssueRun.id);
+            }
+          : undefined}
+        onImageClick={onImageClick}
+        onRefreshLatestComments={onRefreshLatestComments}
+        assigneeUserId={assigneeUserId}
+        onResumeFromBacklog={onResumeFromBacklog}
+        resumeFromBacklogPending={resumeFromBacklogPending}
+        footer={footer}
+      />
     </div>
   );
 });
+
+type IssueDetailActivityTabProps = {
+  issue: Issue;
+  issueId: string;
+  companyId: string;
+  issueStatus: Issue["status"];
+  childIssues: Issue[];
+  agentMap: Map<string, Agent>;
+  hasLiveRuns: boolean;
+  currentUserId: string | null;
+  userProfileMap: Map<string, import("../lib/company-members").CompanyUserProfile>;
+  pendingApprovalAction: { approvalId: string; action: "approve" | "reject" } | null;
+  onApprovalAction: (approvalId: string, action: "approve" | "reject") => void;
+  onCheckMonitorNow: () => void;
+  checkingMonitorNow: boolean;
+  handoffFocusSignal?: number;
+};
+
+function IssueDetailActivityTab({
+  issue,
+  issueId,
+  companyId,
+  issueStatus,
+  childIssues,
+  agentMap,
+  hasLiveRuns,
+  currentUserId,
+  userProfileMap,
+  pendingApprovalAction,
+  onApprovalAction,
+  onCheckMonitorNow,
+  checkingMonitorNow,
+  handoffFocusSignal = 0,
+}: IssueDetailActivityTabProps) {
+  const { data: activity, isLoading: activityLoading } = useQuery({
+    queryKey: queryKeys.issues.activity(issueId),
+    queryFn: () => activityApi.forIssue(issueId),
+    placeholderData: keepPreviousDataForSameQueryTail<ActivityEvent[]>(issueId),
+  });
+  const { data: linkedRuns, isLoading: linkedRunsLoading } = useQuery({
+    queryKey: queryKeys.issues.runs(issueId),
+    queryFn: () => activityApi.runsForIssue(issueId),
+    placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
+  });
+  const { data: linkedApprovals } = useQuery({
+    queryKey: queryKeys.issues.approvals(issueId),
+    queryFn: () => issuesApi.listApprovals(issueId),
+    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.listApprovals>>>(issueId),
+  });
+  const { data: continuationHandoff } = useQuery({
+    queryKey: queryKeys.issues.document(issueId, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY),
+    queryFn: async () => {
+      try {
+        return await issuesApi.getDocument(issueId, ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+      }
+    },
+    retry: false,
+    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.getDocument>> | null>(
+      issueId,
+    ),
+  });
+  const { data: issueTreeCostSummary } = useQuery({
+    queryKey: queryKeys.issues.costSummary(issueId),
+    queryFn: () => issuesApi.getCostSummary(issueId),
+    placeholderData: keepPreviousDataForSameQueryTail<Awaited<ReturnType<typeof issuesApi.getCostSummary>>>(issueId),
+  });
+  const initialLoading =
+    (activityLoading && activity === undefined)
+    || (linkedRunsLoading && linkedRuns === undefined);
+  const issueCostSummary = useMemo(() => {
+    let input = 0;
+    let output = 0;
+    let cached = 0;
+    let cost = 0;
+    let runtimeMs = 0;
+    let runCount = 0;
+    let hasCost = false;
+    let hasTokens = false;
+    const nowMs = Date.now();
+
+    for (const run of linkedRuns ?? []) {
+      const usage = asRecord(run.usageJson);
+      const result = asRecord(run.resultJson);
+      const runInput = usageNumber(usage, "inputTokens", "input_tokens");
+      const runOutput = usageNumber(usage, "outputTokens", "output_tokens");
+      const runCached = usageNumber(
+        usage,
+        "cachedInputTokens",
+        "cached_input_tokens",
+        "cache_read_input_tokens",
+      );
+      const runCost = visibleRunCostUsd(usage, result);
+      if (runCost > 0) hasCost = true;
+      if (runInput + runOutput + runCached > 0) hasTokens = true;
+      input += runInput;
+      output += runOutput;
+      cached += runCached;
+      cost += runCost;
+
+      if (run.startedAt) {
+        const startMs = new Date(run.startedAt).getTime();
+        const endMs = run.finishedAt ? new Date(run.finishedAt).getTime() : nowMs;
+        if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
+          runtimeMs += endMs - startMs;
+          runCount += 1;
+        }
+      }
+    }
+
+    return {
+      input,
+      output,
+      cached,
+      cost,
+      totalTokens: input + output,
+      hasCost,
+      hasTokens,
+      runtimeMs,
+      runCount,
+      hasRuntime: runtimeMs > 0,
+    };
+  }, [linkedRuns]);
+  const issueTreeCostTokens =
+    (issueTreeCostSummary?.inputTokens ?? 0) + (issueTreeCostSummary?.outputTokens ?? 0);
+  const hasIssueTreeCost =
+    !!issueTreeCostSummary
+    && (issueTreeCostSummary.costCents > 0
+      || issueTreeCostTokens > 0
+      || issueTreeCostSummary.cachedInputTokens > 0
+      || issueTreeCostSummary.runtimeMs > 0
+      || issueTreeCostSummary.issueCount > 1);
+  const shouldShowCostSummary =
+    (linkedRuns && linkedRuns.length > 0) || hasIssueTreeCost;
+
+  if (initialLoading) {
+    return <IssueSectionSkeleton titleWidth="w-20" rows={4} />;
+  }
+
+  return (
+    <>
+      {shouldShowCostSummary && (
+        <div className="mb-3 px-3 py-2 rounded-lg border border-border">
+          <div className="text-sm font-medium text-muted-foreground mb-1">Cost Summary</div>
+          {!issueCostSummary.hasCost && !issueCostSummary.hasTokens && !hasIssueTreeCost ? (
+            <div className="text-xs text-muted-foreground">No cost data yet.</div>
+          ) : (
+            <div className="space-y-1 text-xs text-muted-foreground tabular-nums">
+              <div className="flex flex-wrap gap-3">
+                <span className="font-medium text-foreground">This issue</span>
+                {issueCostSummary.hasCost ? (
+                  <span className="font-medium text-foreground">
+                    ${issueCostSummary.cost.toFixed(4)}
+                  </span>
+                ) : null}
+                {issueCostSummary.hasTokens ? (
+                  <span>
+                    Tokens {formatTokens(issueCostSummary.totalTokens)}
+                    {issueCostSummary.cached > 0
+                      ? ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)}, cached ${formatTokens(issueCostSummary.cached)})`
+                      : ` (in ${formatTokens(issueCostSummary.input)}, out ${formatTokens(issueCostSummary.output)})`}
+                  </span>
+                ) : null}
+                {issueCostSummary.hasRuntime ? (
+                  <span>
+                    Runtime {formatDurationMs(issueCostSummary.runtimeMs)}
+                    {` (${issueCostSummary.runCount} run${issueCostSummary.runCount === 1 ? "" : "s"})`}
+                  </span>
+                ) : null}
+                {!issueCostSummary.hasCost && !issueCostSummary.hasTokens && !issueCostSummary.hasRuntime ? (
+                  <span>No direct cost data.</span>
+                ) : null}
+              </div>
+              {hasIssueTreeCost && issueTreeCostSummary ? (
+                <div className="flex flex-wrap gap-3">
+                  <span className="font-medium text-foreground">
+                    Including sub-issues {(issueTreeCostSummary.costCents / 100).toLocaleString(undefined, {
+                      style: "currency",
+                      currency: "USD",
+                      minimumFractionDigits: 4,
+                      maximumFractionDigits: 4,
+                    })}
+                  </span>
+                  <span>
+                    Tokens {formatTokens(issueTreeCostTokens)}
+                    {issueTreeCostSummary.cachedInputTokens > 0
+                      ? ` (in ${formatTokens(issueTreeCostSummary.inputTokens)}, out ${formatTokens(issueTreeCostSummary.outputTokens)}, cached ${formatTokens(issueTreeCostSummary.cachedInputTokens)})`
+                      : ` (in ${formatTokens(issueTreeCostSummary.inputTokens)}, out ${formatTokens(issueTreeCostSummary.outputTokens)})`}
+                  </span>
+                  {issueTreeCostSummary.runCount > 0 ? (
+                    <span>
+                      Runtime {formatDurationMs(issueTreeCostSummary.runtimeMs)}
+                      {` (${issueTreeCostSummary.runCount} run${issueTreeCostSummary.runCount === 1 ? "" : "s"})`}
+                    </span>
+                  ) : null}
+                  <span>{issueTreeCostSummary.issueCount} issue{issueTreeCostSummary.issueCount === 1 ? "" : "s"}</span>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="mb-3">
+        <IssueRunLedger
+          issueId={issueId}
+          companyId={companyId}
+          issueStatus={issueStatus}
+          childIssues={childIssues}
+          agentMap={agentMap}
+          hasLiveRuns={hasLiveRuns}
+          activityEvents={activity ?? []}
+          renderActivityEvent={(evt) => {
+            const tone = successfulRunHandoffActivityTone(evt.action);
+            const isHandoffWarning =
+              evt.action === SUCCESSFUL_RUN_HANDOFF_REQUIRED_ACTION
+              || evt.action === SUCCESSFUL_RUN_HANDOFF_ESCALATED_ACTION;
+            return (
+              <div className={cn("space-y-1.5 rounded-lg border px-3 py-2 text-xs", tone.className)}>
+                <div className="flex items-center gap-1.5">
+                  {isHandoffWarning ? (
+                    <AlertTriangle className={cn("h-3.5 w-3.5 shrink-0", tone.iconClassName)} />
+                  ) : null}
+                  <ActorIdentity evt={evt} agentMap={agentMap} userProfileMap={userProfileMap} />
+                  <span>{formatIssueActivityAction(evt.action, evt.details, { agentMap, userProfileMap, currentUserId })}</span>
+                  <span className="ml-auto shrink-0">{relativeTime(evt.createdAt)}</span>
+                </div>
+                <IssueReferenceActivitySummary event={evt} />
+              </div>
+            );
+          }}
+        />
+      </div>
+      {linkedApprovals && linkedApprovals.length > 0 && (
+        <div className="mb-3 space-y-3">
+          {linkedApprovals.map((approval) => (
+            <ApprovalCard
+              key={approval.id}
+              approval={approval}
+              requesterAgent={approval.requestedByAgentId ? agentMap.get(approval.requestedByAgentId) ?? null : null}
+              onApprove={() => onApprovalAction(approval.id, "approve")}
+              onReject={() => onApprovalAction(approval.id, "reject")}
+              detailLink={`/approvals/${approval.id}`}
+              isPending={pendingApprovalAction?.approvalId === approval.id}
+              pendingAction={
+                pendingApprovalAction?.approvalId === approval.id
+                  ? pendingApprovalAction.action
+                  : null
+              }
+            />
+          ))}
+        </div>
+      )}
+      <IssueContinuationHandoff document={continuationHandoff} focusSignal={handoffFocusSignal} />
+      <IssueScheduledRetryCard issueId={issue.id} scheduledRetry={issue.scheduledRetry ?? null} />
+      <IssueMonitorActivityCard
+        issue={issue}
+        onCheckNow={onCheckMonitorNow}
+        checkingNow={checkingMonitorNow}
+      />
+    </>
+  );
+}
 
 export function IssueDetail() {
   const { issueId } = useParams<{ issueId: string }>();
@@ -981,7 +1233,7 @@ export function IssueDetail() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
-  const routerLocation = useLocation();
+  const location = useLocation();
   const { pushToast } = useToastActions();
   const { isMobile } = useSidebar();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1005,18 +1257,18 @@ export function IssueDetail() {
   const [treeControlCancelConfirmed, setTreeControlCancelConfirmed] = useState(false);
   const [optimisticComments, setOptimisticComments] = useState<OptimisticIssueComment[]>([]);
   const [locallyQueuedCommentRunIds, setLocallyQueuedCommentRunIds] = useState<Map<string, string>>(() => new Map());
-  const pendingCommentComposerFocusRef = useRef(false);
+  const [pendingCommentComposerFocusKey, setPendingCommentComposerFocusKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
-  const cancelledQueuedOptimisticCommentIdsRef = useLazyRef(() => new Set<string>());
+  const cancelledQueuedOptimisticCommentIdsRef = useRef(new Set<string>());
   const resolvedIssueDetailState = useMemo(
-    () => readIssueDetailLocationState(issueId, routerLocation.state, routerLocation.search),
-    [issueId, routerLocation.state, routerLocation.search],
+    () => readIssueDetailLocationState(issueId, location.state, location.search),
+    [issueId, location.state, location.search],
   );
   const issueHeaderSeed = useMemo(
-    () => readIssueDetailHeaderSeed(routerLocation.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
-    [routerLocation.state, resolvedIssueDetailState],
+    () => readIssueDetailHeaderSeed(location.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
+    [location.state, resolvedIssueDetailState],
   );
 
   const { data: issue, isLoading, error } = useQuery({
@@ -1073,13 +1325,12 @@ export function IssueDetail() {
       }),
     [comments.length, commentsLoading, commentsLoadingOlder, detailTab, hasOlderComments],
   );
-  const { data: interactionsData } = useQuery({
+  const { data: interactions = [] } = useQuery({
     queryKey: queryKeys.issues.interactions(issueId!),
     queryFn: () => issuesApi.listInteractions(issueId!),
     enabled: !!issueId,
     placeholderData: keepPreviousDataForSameQueryTail<IssueThreadInteraction[]>(issueId ?? "pending"),
   });
-  const interactions = interactionsData ?? EMPTY_ISSUE_INTERACTIONS;
 
   const { data: attachments, isLoading: attachmentsLoading } = useQuery({
     queryKey: queryKeys.issues.attachments(issueId!),
@@ -1113,8 +1364,8 @@ export function IssueDetail() {
     }
   }, [hasLiveRuns, locallyQueuedCommentRunIds.size]);
   const sourceBreadcrumb = useMemo(
-    () => readIssueDetailBreadcrumb(issueId, routerLocation.state, routerLocation.search) ?? { label: "Issues", href: "/issues" },
-    [issueId, routerLocation.state, routerLocation.search],
+    () => readIssueDetailBreadcrumb(issueId, location.state, location.search) ?? { label: "Issues", href: "/issues" },
+    [issueId, location.state, location.search],
   );
 
   const { data: rawChildIssues = [], isLoading: childIssuesLoading } = useQuery({
@@ -1198,7 +1449,6 @@ export function IssueDetail() {
   });
   const keyboardShortcutsEnabled = instanceGeneralSettings?.keyboardShortcuts === true;
   const feedbackDataSharingPreference = instanceGeneralSettings?.feedbackDataSharingPreference ?? "prompt";
-  const issueDetailPluginsReady = useIssueDetailPluginsReady();
   const showPlanDecompositionsSection =
     instanceExperimentalSettings?.enableIssuePlanDecompositions === true;
   const { orderedProjects } = useProjectOrder({
@@ -1206,6 +1456,21 @@ export function IssueDetail() {
     companyId: selectedCompanyId,
     userId: currentUserId,
   });
+  const { slots: issuePluginDetailSlots } = usePluginSlots({
+    slotTypes: ["detailTab"],
+    entityType: "issue",
+    companyId: resolvedCompanyId,
+    enabled: !!resolvedCompanyId,
+  });
+  const issuePluginTabItems = useMemo(
+    () => issuePluginDetailSlots.map((slot) => ({
+      value: `plugin:${slot.pluginKey}:${slot.id}`,
+      label: slot.displayName,
+      slot,
+    })),
+    [issuePluginDetailSlots],
+  );
+  const activePluginTab = issuePluginTabItems.find((item) => item.value === detailTab) ?? null;
   const {
     data: treeControlPreview,
     isFetching: treeControlPreviewLoading,
@@ -1283,7 +1548,7 @@ export function IssueDetail() {
   const childIssues = useMemo(
     () => {
       const descendants = issue?.id ? filterIssueDescendants(issue.id, rawChildIssues) : rawChildIssues;
-      return descendants.toSorted((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      return [...descendants].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     },
     [issue?.id, rawChildIssues],
   );
@@ -1294,11 +1559,11 @@ export function IssueDetail() {
   );
   const panelIssue = useMemo(
     () => issue ?? null,
-    [issue, issuePanelKey],
+    [issue?.id, issuePanelKey],
   );
   const panelChildIssues = useMemo(
     () => childIssues,
-    [childIssues, issuePanelKey],
+    [issuePanelKey],
   );
   const showRichSubIssuesSection = shouldRenderRichSubIssuesSection(childIssuesLoading, childIssues.length);
   const siblingNavigation = useMemo(
@@ -1451,7 +1716,7 @@ export function IssueDetail() {
     );
   }, [queryClient, selectedCompanyId]);
 
-  const markIssueRead = useInvalidatingMutation({
+  const markIssueRead = useMutation({
     mutationFn: (id: string) => issuesApi.markRead(id),
     onSuccess: () => {
       if (selectedCompanyId) {
@@ -1463,7 +1728,7 @@ export function IssueDetail() {
     },
   });
 
-  const updateIssue = useInvalidatingMutation({
+  const updateIssue = useMutation({
     mutationFn: (data: Record<string, unknown>) => issuesApi.update(issueId!, data),
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
@@ -1514,7 +1779,7 @@ export function IssueDetail() {
       }
     },
   });
-  const resolveRecoveryAction = useInvalidatingMutation({
+  const resolveRecoveryAction = useMutation({
     mutationFn: (data: {
       actionId?: string;
       outcome: ResolveRecoveryActionOutcome;
@@ -1542,7 +1807,7 @@ export function IssueDetail() {
       }
     },
   });
-  const executeTreeControl = useInvalidatingMutation({
+  const executeTreeControl = useMutation({
     mutationFn: async () => {
       if (treeControlMode === "resume") {
         const pauseHoldId = treeControlState?.activePauseHold?.holdId;
@@ -1623,7 +1888,7 @@ export function IssueDetail() {
       });
     },
   });
-  const pauseIssueWorkRun = useInvalidatingMutation({
+  const pauseIssueWorkRun = useMutation({
     mutationFn: async ({ runId, scope }: { runId: string; scope: "leaf" | "subtree" }) => {
       const created = await issuesApi.createTreeHold(issueId!, {
         mode: "pause",
@@ -1666,7 +1931,7 @@ export function IssueDetail() {
     updateIssue.mutate(data);
   }, [updateIssue.mutate]);
 
-  const updateChildIssue = useInvalidatingMutation({
+  const updateChildIssue = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => issuesApi.update(id, data),
     onSuccess: () => {
       if (resolvedCompanyId) {
@@ -1686,7 +1951,7 @@ export function IssueDetail() {
     updateChildIssue.mutate({ id, data });
   }, [updateChildIssue]);
 
-  const checkIssueMonitorNow = useInvalidatingMutation({
+  const checkIssueMonitorNow = useMutation({
     mutationFn: () => issuesApi.checkMonitorNow(issueId!),
     onSuccess: () => {
       invalidateIssueDetail();
@@ -1706,7 +1971,7 @@ export function IssueDetail() {
     },
   });
 
-  const approvalDecision = useInvalidatingMutation({
+  const approvalDecision = useMutation({
     mutationFn: async ({ approvalId, action }: { approvalId: string; action: "approve" | "reject" }) => {
       if (action === "approve") {
         return approvalsApi.approve(approvalId);
@@ -1741,7 +2006,7 @@ export function IssueDetail() {
     },
   });
 
-  const addComment = useInvalidatingMutation({
+  const addComment = useMutation({
     mutationFn: ({ body, reopen, interrupt }: { body: string; reopen?: boolean; interrupt?: boolean }) =>
       issuesApi.addComment(issueId!, body, reopen, interrupt),
     onMutate: async ({ body, reopen, interrupt }) => {
@@ -1842,7 +2107,7 @@ export function IssueDetail() {
       }
     },
   });
-  const acceptInteraction = useInvalidatingMutation({
+  const acceptInteraction = useMutation({
     mutationFn: ({
       interaction,
       selectedClientKeys,
@@ -1880,7 +2145,7 @@ export function IssueDetail() {
       });
     },
   });
-  const rejectInteraction = useInvalidatingMutation({
+  const rejectInteraction = useMutation({
     mutationFn: ({ interaction, reason }: { interaction: ActionableIssueThreadInteraction; reason?: string }) =>
       issuesApi.rejectInteraction(issueId!, interaction.id, reason),
     onSuccess: (interaction) => {
@@ -1900,7 +2165,7 @@ export function IssueDetail() {
       });
     },
   });
-  const answerInteraction = useInvalidatingMutation({
+  const answerInteraction = useMutation({
     mutationFn: ({
       interaction,
       answers,
@@ -1926,7 +2191,7 @@ export function IssueDetail() {
     },
   });
 
-  const cancelInteraction = useInvalidatingMutation({
+  const cancelInteraction = useMutation({
     mutationFn: ({ interaction }: { interaction: AskUserQuestionsInteraction }) =>
       issuesApi.cancelInteraction(issueId!, interaction.id),
     onSuccess: (interaction) => {
@@ -1947,7 +2212,7 @@ export function IssueDetail() {
     },
   });
 
-  const addCommentAndReassign = useInvalidatingMutation({
+  const addCommentAndReassign = useMutation({
     mutationFn: ({
       body,
       reopen,
@@ -2068,7 +2333,7 @@ export function IssueDetail() {
     },
   });
 
-  const interruptQueuedComment = useInvalidatingMutation({
+  const interruptQueuedComment = useMutation({
     mutationFn: (runId: string) => heartbeatsApi.cancel(runId),
     onMutate: async (runId) => {
       await Promise.all(issueCacheRefs.flatMap((ref) => [
@@ -2158,7 +2423,7 @@ export function IssueDetail() {
     },
   });
 
-  const cancelQueuedComment = useInvalidatingMutation({
+  const cancelQueuedComment = useMutation({
     mutationFn: async ({ commentId }: { commentId: string }) => issuesApi.cancelComment(issueId!, commentId),
     onSuccess: (comment) => {
       setLocallyQueuedCommentRunIds((current) => {
@@ -2210,7 +2475,7 @@ export function IssueDetail() {
     void cancelQueuedComment.mutateAsync({ commentId });
   }, [cancelQueuedComment, restoreQueuedCommentDraft, pushToast]);
 
-  const feedbackVoteMutation = useInvalidatingMutation({
+  const feedbackVoteMutation = useMutation({
     mutationFn: (variables: {
       targetType: "issue_comment" | "issue_document_revision";
       targetId: string;
@@ -2275,7 +2540,7 @@ export function IssueDetail() {
     },
   });
 
-  const uploadAttachment = useInvalidatingMutation({
+  const uploadAttachment = useMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) throw new Error("No company selected");
       return issuesApi.uploadAttachment(selectedCompanyId, issueId!, file);
@@ -2290,7 +2555,7 @@ export function IssueDetail() {
     },
   });
 
-  const importMarkdownDocument = useInvalidatingMutation({
+  const importMarkdownDocument = useMutation({
     mutationFn: async (file: File) => {
       const baseName = fileBaseName(file.name);
       const key = slugifyDocumentKey(baseName);
@@ -2315,7 +2580,7 @@ export function IssueDetail() {
     },
   });
 
-  const deleteAttachment = useInvalidatingMutation({
+  const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => issuesApi.deleteAttachment(attachmentId),
     onSuccess: () => {
       setAttachmentError(null);
@@ -2327,7 +2592,7 @@ export function IssueDetail() {
     },
   });
 
-  const archiveFromInbox = useInvalidatingMutation({
+  const archiveFromInbox = useMutation({
     mutationFn: (id: string) => issuesApi.archiveFromInbox(id),
     onSuccess: () => {
       invalidateIssueCollections();
@@ -2369,9 +2634,9 @@ export function IssueDetail() {
 
   // Redirect to identifier-based URL if navigated via UUID
   useEffect(() => {
-    const nextState = resolvedIssueDetailState ?? routerLocation.state;
+    const nextState = resolvedIssueDetailState ?? location.state;
     if (issue?.identifier && issueId !== issue.identifier) {
-      rememberIssueDetailLocationState(issue.identifier, nextState, routerLocation.search);
+      rememberIssueDetailLocationState(issue.identifier, nextState, location.search);
       navigate(createIssueDetailPath(issue.identifier), {
         replace: true,
         state: nextState,
@@ -2379,14 +2644,14 @@ export function IssueDetail() {
       return;
     }
 
-    if (issueId && hasLegacyIssueDetailQuery(routerLocation.search)) {
-      rememberIssueDetailLocationState(issueId, nextState, routerLocation.search);
+    if (issueId && hasLegacyIssueDetailQuery(location.search)) {
+      rememberIssueDetailLocationState(issueId, nextState, location.search);
       navigate(createIssueDetailPath(issueId), {
         replace: true,
         state: nextState,
       });
     }
-  }, [issue, issueId, navigate, routerLocation.state, routerLocation.search, resolvedIssueDetailState]);
+  }, [issue, issueId, navigate, location.state, location.search, resolvedIssueDetailState]);
 
   useEffect(() => {
     if (!issue?.id) return;
@@ -2401,14 +2666,12 @@ export function IssueDetail() {
       return;
     }
     openPanel(
-      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={5} />}>
-        <IssueProperties
-          issue={panelIssue}
-          childIssues={panelChildIssues}
-          onAddSubIssue={openNewSubIssue}
-          onUpdate={handleIssuePropertiesUpdate}
-        />
-      </Suspense>
+      <IssueProperties
+        issue={panelIssue}
+        childIssues={panelChildIssues}
+        onAddSubIssue={openNewSubIssue}
+        onUpdate={handleIssuePropertiesUpdate}
+      />
     );
     return () => closePanel();
   }, [
@@ -2524,15 +2787,8 @@ export function IssueDetail() {
       if (action === "focus_comment") {
         event.preventDefault();
         event.stopPropagation();
-        pendingCommentComposerFocusRef.current = true;
         setDetailTab("chat");
-        if (detailTab === "chat") {
-          requestAnimationFrame(() => {
-            if (!pendingCommentComposerFocusRef.current) return;
-            pendingCommentComposerFocusRef.current = false;
-            commentComposerRef.current?.focus();
-          });
-        }
+        setPendingCommentComposerFocusKey((current) => current + 1);
       }
     };
 
@@ -2545,33 +2801,27 @@ export function IssueDetail() {
       document.removeEventListener("focusin", handleFocusIn, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [detailTab, keyboardShortcutsEnabled, navigate, sourceBreadcrumb.href]);
+  }, [keyboardShortcutsEnabled, navigate, sourceBreadcrumb.href]);
 
   useEffect(() => {
-    const hash = routerLocation.hash;
+    const hash = location.hash;
     if (!hash.startsWith("#document-")) return;
     const documentKey = decodeURIComponent(hash.slice("#document-".length));
     if (documentKey !== ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY) return;
     setDetailTab("activity");
     setHandoffFocusSignal((current) => current + 1);
-  }, [routerLocation.hash]);
+  }, [location.hash]);
 
   useEffect(() => {
-    if (!pendingCommentComposerFocusRef.current) return;
+    if (pendingCommentComposerFocusKey === 0) return;
     if (detailTab !== "chat") return;
-    pendingCommentComposerFocusRef.current = false;
     commentComposerRef.current?.focus();
-  }, [detailTab]);
+  }, [detailTab, pendingCommentComposerFocusKey]);
 
-  const attachmentList = attachments ?? EMPTY_ISSUE_ATTACHMENTS;
-  const imageAttachments = useMemo(
-    () => attachmentList.filter((attachment) => attachment.contentType.startsWith("image/")),
-    [attachmentList],
-  );
-  const nonImageAttachments = useMemo(
-    () => attachmentList.filter((attachment) => !attachment.contentType.startsWith("image/")),
-    [attachmentList],
-  );
+  const isImageAttachment = (attachment: IssueAttachment) => attachment.contentType.startsWith("image/");
+  const attachmentList = attachments ?? [];
+  const imageAttachments = attachmentList.filter(isImageAttachment);
+  const nonImageAttachments = attachmentList.filter((a) => !isImageAttachment(a));
 
   const handleChatImageClick = useCallback(
     (src: string) => {
@@ -2732,40 +2982,9 @@ export function IssueDetail() {
   const handleCommentAttachImage = useCallback(async (file: File) => {
     return uploadAttachment.mutateAsync(file);
   }, [uploadAttachment]);
-  const handleDocumentImageUpload = useCallback(async (file: File) => {
-    const attachment = await uploadAttachment.mutateAsync(file);
-    return attachment.contentPath;
-  }, [uploadAttachment]);
-  const handleDocumentVote = useCallback(async (revisionId: string, vote: "up" | "down", options?: { allowSharing?: boolean; reason?: string }) => {
-    await feedbackVoteMutation.mutateAsync({
-      targetType: "issue_document_revision",
-      targetId: revisionId,
-      vote,
-      reason: options?.reason,
-      allowSharing: options?.allowSharing,
-      sharingPreferenceAtSubmit: feedbackDataSharingPreference,
-    });
-  }, [feedbackDataSharingPreference, feedbackVoteMutation]);
   const handleInterruptQueuedRun = useCallback(async (runId: string) => {
     await interruptQueuedComment.mutateAsync(runId);
   }, [interruptQueuedComment]);
-  const handlePauseWorkRun = useCallback(
-    async (runId: string) => {
-      await pauseIssueWorkRun.mutateAsync({
-        runId,
-        scope: childIssues.length === 0 ? "leaf" : "subtree",
-      });
-    },
-    [childIssues.length, pauseIssueWorkRun],
-  );
-  const handleIssueWorkModeChange = useCallback(
-    async (nextMode: IssueWorkMode) => {
-      const currentMode: IssueWorkMode = issue?.workMode ?? "standard";
-      if (currentMode === nextMode) return;
-      await updateIssue.mutateAsync({ workMode: nextMode });
-    },
-    [issue?.workMode, updateIssue],
-  );
   const handleAcceptInteraction = useCallback(async (
     interaction: ActionableIssueThreadInteraction,
     selectedClientKeys?: string[],
@@ -2858,14 +3077,6 @@ export function IssueDetail() {
     }
     return badges;
   }, [childIssues, heldIssueIds]);
-  const subIssueSearchFilters = useMemo(
-    () => ({ descendantOf: issue?.id ?? "", includeBlockedBy: true }),
-    [issue?.id],
-  );
-  const subIssueCreateDefaults = useMemo(
-    () => (issue ? buildSubIssueDefaultsForViewer(issue, currentUserId) : undefined),
-    [currentUserId, issue],
-  );
   const activePauseHoldRoot = useMemo(() => {
     if (!activePauseHold) return null;
     if (activePauseHold.rootIssueId === issue?.id) return issue ?? null;
@@ -2994,7 +3205,7 @@ export function IssueDetail() {
         className="hidden"
         onChange={handleFilePicked}
         multiple
-       aria-label="Select file"/>
+      />
       <Button
         variant="outline"
         size="sm"
@@ -3005,7 +3216,7 @@ export function IssueDetail() {
           attachmentDragActive && "border-primary bg-primary/5",
         )}
       >
-        <Paperclip className="size-3.5 mr-1.5" />
+        <Paperclip className="h-3.5 w-3.5 mr-1.5" />
         {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : (
           <>
             <span className="hidden sm:inline">Upload attachment</span>
@@ -3023,15 +3234,15 @@ export function IssueDetail() {
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
           {[...ancestors].reverse().map((ancestor, i) => (
             <span key={ancestor.id} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="size-3 shrink-0" />}
+              {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
               <Link
                 to={createIssueDetailPath(ancestor.identifier ?? ancestor.id)}
-                state={resolvedIssueDetailState ?? routerLocation.state}
+                state={resolvedIssueDetailState ?? location.state}
                 onClickCapture={() =>
                   rememberIssueDetailLocationState(
                     ancestor.identifier ?? ancestor.id,
-                    resolvedIssueDetailState ?? routerLocation.state,
-                    routerLocation.search,
+                    resolvedIssueDetailState ?? location.state,
+                    location.search,
                   )}
                 className="hover:text-foreground transition-colors truncate max-w-[200px]"
                 title={ancestor.title}
@@ -3040,14 +3251,14 @@ export function IssueDetail() {
               </Link>
             </span>
           ))}
-          <ChevronRight className="size-3 shrink-0" />
+          <ChevronRight className="h-3 w-3 shrink-0" />
           <span className="text-foreground/60 truncate max-w-[200px]">{issue.title}</span>
         </nav>
       )}
 
       {issue.hiddenAt && (
         <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <EyeOff className="size-4 shrink-0" />
+          <EyeOff className="h-4 w-4 shrink-0" />
           This issue is hidden
         </div>
       )}
@@ -3105,7 +3316,7 @@ export function IssueDetail() {
                         setTreeControlOpen(true);
                       }}
                     >
-                      Cancel subtree&hellip;
+                      Cancel subtree...
                     </Button>
                   ) : null}
                 </div>
@@ -3142,9 +3353,9 @@ export function IssueDetail() {
 
           {hasLiveRuns && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-medium text-cyan-600 dark:text-cyan-400 shrink-0">
-              <span className="relative flex size-1.5">
-                <span className="animate-pulse absolute inline-flex size-full rounded-full bg-cyan-400 opacity-75" />
-                <span className="relative inline-flex rounded-full size-1.5 bg-cyan-400" />
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-400" />
               </span>
               Live
             </span>
@@ -3155,7 +3366,7 @@ export function IssueDetail() {
               to={`/routines/${issue.originId}`}
               className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors"
             >
-              <Repeat className="size-3" />
+              <Repeat className="h-3 w-3" />
               Routine
             </Link>
           )}
@@ -3169,7 +3380,7 @@ export function IssueDetail() {
               className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 shrink-0"
               title="This task is a productivity review."
             >
-              <Eye className="size-3" />
+              <Eye className="h-3 w-3" />
               Productivity review
             </span>
           ) : null}
@@ -3189,7 +3400,7 @@ export function IssueDetail() {
               className="inline-flex items-center gap-1 rounded-full border border-amber-500/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300 shrink-0"
               title="Blocked by parked work — at least one assigned blocker is in backlog and will not wake its assignee."
             >
-              <Flag className="size-3" />
+              <Flag className="h-3 w-3" />
               Blocked by parked work
             </span>
           ) : null}
@@ -3199,12 +3410,12 @@ export function IssueDetail() {
               to={`/projects/${issue.projectId}`}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded px-1 -mx-1 py-0.5 min-w-0"
             >
-              <Hexagon className="size-3 shrink-0" />
+              <Hexagon className="h-3 w-3 shrink-0" />
               <span className="truncate">{resolvedProject?.name ?? issue.project?.name ?? issue.projectId.slice(0, 8)}</span>
             </Link>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground opacity-50 px-1 -mx-1 py-0.5">
-              <Hexagon className="size-3 shrink-0" />
+              <Hexagon className="h-3 w-3 shrink-0" />
               No project
             </span>
           )}
@@ -3238,7 +3449,7 @@ export function IssueDetail() {
                 onClick={copyIssueToClipboard}
                 title="Copy issue as markdown"
               >
-                {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
               </Button>
               <Button
                 variant="ghost"
@@ -3246,7 +3457,7 @@ export function IssueDetail() {
                 onClick={() => setMobilePropsOpen(true)}
                 title="Properties"
               >
-                <SlidersHorizontal className="size-4" />
+                <SlidersHorizontal className="h-4 w-4" />
               </Button>
             </div>
           )}
@@ -3263,7 +3474,7 @@ export function IssueDetail() {
                 title="Archive from inbox"
                 aria-label="Archive from inbox"
               >
-                <Archive className="size-4" />
+                <Archive className="h-4 w-4" />
               </Button>
             )}
             <Button
@@ -3272,7 +3483,7 @@ export function IssueDetail() {
               onClick={copyIssueToClipboard}
               title="Copy issue as markdown"
             >
-              {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+              {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
             </Button>
             <Button
               variant="ghost"
@@ -3284,7 +3495,7 @@ export function IssueDetail() {
               onClick={() => setPanelVisible(true)}
               title="Show properties"
             >
-              <SlidersHorizontal className="size-4" />
+              <SlidersHorizontal className="h-4 w-4" />
             </Button>
 
             <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -3302,12 +3513,12 @@ export function IssueDetail() {
                     }
                   }}
                 >
-                  <MoreHorizontal className="size-4" />
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
             <PopoverContent className="w-52 p-1" align="end">
               {canPauseLeafWork ? (
-                <button type="button"
+                <button
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("pause");
@@ -3316,12 +3527,12 @@ export function IssueDetail() {
                     setMoreOpen(false);
                   }}
                 >
-                  <PauseCircle className="size-3" />
-                  Pause work&hellip;
+                  <PauseCircle className="h-3 w-3" />
+                  Pause work...
                 </button>
               ) : null}
               {canResumeLeafWork ? (
-                <button type="button"
+                <button
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("resume");
@@ -3330,13 +3541,13 @@ export function IssueDetail() {
                     setMoreOpen(false);
                   }}
                 >
-                  <PlayCircle className="size-3" />
+                  <PlayCircle className="h-3 w-3" />
                   Resume work
                 </button>
               ) : null}
               {canShowSubtreeControls ? (
                 <>
-                  <button type="button"
+                  <button
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                     onClick={() => {
                       setTreeControlMode("pause");
@@ -3345,11 +3556,11 @@ export function IssueDetail() {
                       setMoreOpen(false);
                     }}
                   >
-                    <PauseCircle className="size-3" />
-                    Pause subtree&hellip;
+                    <PauseCircle className="h-3 w-3" />
+                    Pause subtree...
                   </button>
                   {canResumeSubtree ? (
-                    <button type="button"
+                    <button
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("resume");
@@ -3358,11 +3569,11 @@ export function IssueDetail() {
                         setMoreOpen(false);
                       }}
                     >
-                      <PlayCircle className="size-3" />
+                      <PlayCircle className="h-3 w-3" />
                       Resume subtree
                     </button>
                   ) : null}
-                  <button type="button"
+                  <button
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                     onClick={() => {
                       setTreeControlMode("cancel");
@@ -3371,11 +3582,11 @@ export function IssueDetail() {
                       setMoreOpen(false);
                     }}
                   >
-                    <XCircle className="size-3" />
-                    Cancel subtree&hellip;
+                    <XCircle className="h-3 w-3" />
+                    Cancel subtree...
                   </button>
                   {canRestoreSubtree ? (
-                    <button type="button"
+                    <button
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("restore");
@@ -3385,23 +3596,23 @@ export function IssueDetail() {
                         setMoreOpen(false);
                       }}
                     >
-                      <Repeat className="size-3" />
-                      Restore subtree&hellip;
+                      <Repeat className="h-3 w-3" />
+                      Restore subtree...
                     </button>
                   ) : null}
                 </>
               ) : null}
-              <button type="button"
+              <button
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
-                onClick={(event) => {
+                onClick={() => {
                   updateIssue.mutate(
-                    { hiddenAt: new Date(window.performance.timeOrigin + event.timeStamp).toISOString() },
+                    { hiddenAt: new Date().toISOString() },
                     { onSuccess: () => navigate("/issues/all") },
                   );
                   setMoreOpen(false);
                 }}
               >
-                <EyeOff className="size-3" />
+                <EyeOff className="h-3 w-3" />
                 Hide this Issue
               </button>
             </PopoverContent>
@@ -3435,75 +3646,116 @@ export function IssueDetail() {
         />
       </div>
 
-      {issueDetailPluginsReady ? (
-        <Suspense fallback={null}>
-          <IssueDetailPluginToolbarExtensions issue={issue} />
-        </Suspense>
-      ) : null}
+      <PluginSlotOutlet
+        slotTypes={["toolbarButton", "contextMenuItem"]}
+        entityType="issue"
+        context={{
+          companyId: issue.companyId,
+          projectId: issue.projectId ?? null,
+          entityId: issue.id,
+          entityType: "issue",
+        }}
+        className="flex flex-wrap gap-2"
+        itemClassName="inline-flex"
+        missingBehavior="placeholder"
+      />
+
+      <PluginLauncherOutlet
+        placementZones={["toolbarButton"]}
+        entityType="issue"
+        context={{
+          companyId: issue.companyId,
+          projectId: issue.projectId ?? null,
+          entityId: issue.id,
+          entityType: "issue",
+        }}
+        className="flex flex-wrap gap-2"
+        itemClassName="inline-flex"
+      />
+
+      <PluginSlotOutlet
+        slotTypes={["taskDetailView"]}
+        entityType="issue"
+        context={{
+          companyId: issue.companyId,
+          projectId: issue.projectId ?? null,
+          entityId: issue.id,
+          entityType: "issue",
+        }}
+        className="space-y-3"
+        itemClassName="rounded-lg border border-border p-3"
+        missingBehavior="placeholder"
+      />
 
       {showRichSubIssuesSection ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-medium text-muted-foreground">Sub-issues</h3>
           </div>
-          <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={4} />}>
-            <IssuesList
-              issues={childIssues}
-              isLoading={childIssuesLoading}
-              agents={agents}
-              projects={projects}
-              liveIssueIds={liveIssueIds}
-              mutedIssueIds={mutedChildIssueIds}
-              issueBadgeById={childPauseBadgeById}
-              projectId={issue.projectId ?? undefined}
-              viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
-              issueLinkState={resolvedIssueDetailState ?? routerLocation.state}
-              searchFilters={subIssueSearchFilters}
-              searchWithinLoadedIssues
-              baseCreateIssueDefaults={subIssueCreateDefaults}
-              createIssueLabel="Sub-issue"
-              defaultSortField="workflow"
-              showProgressSummary
-              parentIssueIdForCostSummary={issue.id}
-              onUpdateIssue={handleChildIssueUpdate}
-            />
-          </Suspense>
+          <IssuesList
+            issues={childIssues}
+            isLoading={childIssuesLoading}
+            agents={agents}
+            projects={projects}
+            liveIssueIds={liveIssueIds}
+            mutedIssueIds={mutedChildIssueIds}
+            issueBadgeById={childPauseBadgeById}
+            projectId={issue.projectId ?? undefined}
+            viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
+            issueLinkState={resolvedIssueDetailState ?? location.state}
+            searchFilters={{ descendantOf: issue.id, includeBlockedBy: true }}
+            searchWithinLoadedIssues
+            baseCreateIssueDefaults={buildSubIssueDefaultsForViewer(issue, currentUserId)}
+            createIssueLabel="Sub-issue"
+            defaultSortField="workflow"
+            showProgressSummary
+            parentIssueIdForCostSummary={issue.id}
+            onUpdateIssue={handleChildIssueUpdate}
+          />
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
           <Button variant="outline" size="sm" onClick={openNewSubIssue} className="shrink-0 shadow-none">
-            <Plus className="mr-1.5 size-3.5" />
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
             New Sub-issue
           </Button>
         </div>
       )}
 
       {showPlanDecompositionsSection ? (
-        <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={1} />}>
-          <IssuePlanDecompositionsSection
-            issueId={issue.id}
-            issueIdentifier={issue.identifier}
-            agentMap={agentMap}
-          />
-        </Suspense>
+        <IssuePlanDecompositionsSection
+          issueId={issue.id}
+          issueIdentifier={issue.identifier}
+          agentMap={agentMap}
+        />
       ) : null}
 
-      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={2} />}>
-        <IssueDocumentsSection
-          issue={issue}
-          canDeleteDocuments={Boolean(session?.user?.id)}
-          canManageDocumentLocks={Boolean(session?.user?.id)}
-          feedbackVotes={feedbackVotes}
-          feedbackDataSharingPreference={feedbackDataSharingPreference}
-          feedbackTermsUrl={FEEDBACK_TERMS_URL}
-          mentions={mentionOptions}
-          imageUploadHandler={handleDocumentImageUpload}
-          onVote={handleDocumentVote}
-          extraActions={!hasAttachments ? attachmentUploadButton : null}
-          agentMap={agentMap}
-          userProfileMap={userProfileMap}
-        />
-      </Suspense>
+      <IssueDocumentsSection
+        issue={issue}
+        canDeleteDocuments={Boolean(session?.user?.id)}
+        canManageDocumentLocks={Boolean(session?.user?.id)}
+        feedbackVotes={feedbackVotes}
+        feedbackDataSharingPreference={feedbackDataSharingPreference}
+        feedbackTermsUrl={FEEDBACK_TERMS_URL}
+        mentions={mentionOptions}
+        imageUploadHandler={async (file) => {
+          const attachment = await uploadAttachment.mutateAsync(file);
+          return attachment.contentPath;
+        }}
+        onVote={async (revisionId, vote, options) => {
+          await feedbackVoteMutation.mutateAsync({
+            targetType: "issue_document_revision",
+            targetId: revisionId,
+            vote,
+            reason: options?.reason,
+            allowSharing: options?.allowSharing,
+            sharingPreferenceAtSubmit: feedbackDataSharingPreference,
+          });
+        }}
+        extraActions={!hasAttachments ? attachmentUploadButton : null}
+        agentMap={agentMap}
+        userProfileMap={userProfileMap}
+      />
 
       {attachmentsInitialLoading ? (
         <IssueSectionSkeleton titleWidth="w-24" rows={2} />
@@ -3540,48 +3792,48 @@ export function IssueDetail() {
             {imageAttachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-accent/10"
+                className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-accent/10 cursor-pointer"
+                onClick={() => {
+                  const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
+                  setGalleryIndex(idx >= 0 ? idx : 0);
+                  setGalleryOpen(true);
+                }}
               >
-                <button
-                  type="button"
-                  className="absolute inset-0 size-full cursor-pointer overflow-hidden bg-transparent p-0 text-left"
-                  onClick={() => {
-                    const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
-                    setGalleryIndex(idx >= 0 ? idx : 0);
-                    setGalleryOpen(true);
-                  }}
-                >
-                  <img
-                    src={attachment.contentPath}
-                    alt={attachment.originalFilename ?? "attachment"}
-                    className="size-full object-cover"
-                    loading="lazy"
-                  />
-                  <span className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/30" />
-                </button>
+                <img
+                  src={attachment.contentPath}
+                  alt={attachment.originalFilename ?? "attachment"}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
                 {confirmDeleteId === attachment.id ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60">
+                  <div
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <p className="text-xs text-white font-medium">Delete?</p>
                     <div className="flex gap-1.5">
                       <button
                         type="button"
                         className="rounded bg-destructive px-2 py-0.5 text-xs text-white hover:bg-destructive/80"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           deleteAttachment.mutate(attachment.id);
                           setConfirmDeleteId(null);
                         }}
                         disabled={deleteAttachment.isPending}
                       >
-                        Delete
+                        Yes
                       </button>
                       <button
                         type="button"
                         className="rounded bg-muted px-2 py-0.5 text-xs hover:bg-muted/80"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setConfirmDeleteId(null);
                         }}
                       >
-                        Cancel
+                        No
                       </button>
                     </div>
                   </div>
@@ -3589,12 +3841,13 @@ export function IssueDetail() {
                   <button
                     type="button"
                     className="absolute top-1.5 right-1.5 rounded-md bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setConfirmDeleteId(attachment.id);
                     }}
                     title="Delete attachment"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
@@ -3623,7 +3876,7 @@ export function IssueDetail() {
                     disabled={deleteAttachment.isPending}
                     title="Delete attachment"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
@@ -3636,47 +3889,40 @@ export function IssueDetail() {
         </div>
       ) : null}
 
-      {galleryOpen ? (
-        <Suspense fallback={null}>
-          <ImageGalleryModal
-            key={`${galleryIndex}:${imageAttachments.map((image) => image.id).join(",")}`}
-            images={imageAttachments}
-            initialIndex={galleryIndex}
-            open={galleryOpen}
-            onOpenChange={setGalleryOpen}
-          />
-        </Suspense>
-      ) : null}
+      <ImageGalleryModal
+        images={imageAttachments}
+        initialIndex={galleryIndex}
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+      />
 
-      <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={2} />}>
-        <IssueWorkspaceCard
-          issue={issue}
-          project={resolvedProject}
-          onUpdate={(data) => updateIssue.mutate(data)}
-        />
-      </Suspense>
+      <IssueWorkspaceCard
+        issue={issue}
+        project={resolvedProject}
+        onUpdate={(data) => updateIssue.mutate(data)}
+      />
 
       <Separator />
 
       <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-3">
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="chat" className="gap-1.5">
-            <MessageSquare className="size-3.5" />
+            <MessageSquare className="h-3.5 w-3.5" />
             Chat
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
-            <ActivityIcon className="size-3.5" />
+            <ActivityIcon className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
           <TabsTrigger value="related-work" className="gap-1.5">
-            <ListTree className="size-3.5" />
+            <ListTree className="h-3.5 w-3.5" />
             Related work
           </TabsTrigger>
-          {issueDetailPluginsReady ? (
-            <Suspense fallback={null}>
-              <IssueDetailPluginTabTriggers companyId={resolvedCompanyId} />
-            </Suspense>
-          ) : null}
+          {issuePluginTabItems.map((item) => (
+            <TabsTrigger key={item.value} value={item.value}>
+              {item.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="chat">
@@ -3688,7 +3934,7 @@ export function IssueDetail() {
               issueStatus={issue.status}
               issueWorkMode={issue.workMode ?? "standard"}
               executionRunId={issue.executionRunId ?? null}
-              blockedBy={issue.blockedBy ?? EMPTY_BLOCKED_BY}
+              blockedBy={issue.blockedBy ?? []}
               blockerAttention={issue.blockerAttention ?? null}
               successfulRunHandoff={issue.successfulRunHandoff ?? null}
               scheduledRetry={issue.scheduledRetry ?? null}
@@ -3708,7 +3954,7 @@ export function IssueDetail() {
                 siblingNavigation ? (
                   <IssueSiblingNavigation
                     navigation={siblingNavigation}
-                    linkState={resolvedIssueDetailState ?? routerLocation.state}
+                    linkState={resolvedIssueDetailState ?? location.state}
                   />
                 ) : null
               }
@@ -3732,8 +3978,14 @@ export function IssueDetail() {
               onImageUpload={handleCommentImageUpload}
               onAttachImage={handleCommentAttachImage}
               onInterruptQueued={handleInterruptQueuedRun}
-              onPauseWorkRun={canManageTreeControl ? handlePauseWorkRun : undefined}
-              onWorkModeChange={handleIssueWorkModeChange}
+              onPauseWorkRun={canManageTreeControl
+                ? (runId) => pauseIssueWorkRun.mutateAsync({ runId, scope: treeControlScope }).then(() => undefined)
+                : undefined}
+              onWorkModeChange={(nextMode) => {
+                const currentMode: IssueWorkMode = issue.workMode ?? "standard";
+                if (currentMode === nextMode) return;
+                return updateIssue.mutateAsync({ workMode: nextMode }).then(() => undefined);
+              }}
               onCancelQueued={handleCancelQueuedComment}
               interruptingQueuedRunId={interruptQueuedComment.isPending ? interruptQueuedComment.variables ?? null : null}
               pausingWorkRunId={pauseIssueWorkRun.isPending ? pauseIssueWorkRun.variables?.runId ?? null : null}
@@ -3753,42 +4005,45 @@ export function IssueDetail() {
 
         <TabsContent value="activity">
           {detailTab === "activity" ? (
-            <Suspense fallback={<IssueSectionSkeleton titleWidth="w-20" rows={4} />}>
-              <IssueDetailActivityTab
-                issue={issue}
-                issueId={issue.id}
-                companyId={issue.companyId}
-                issueStatus={issue.status}
-                childIssues={childIssues}
-                agentMap={agentMap}
-                hasLiveRuns={hasLiveRuns}
-                currentUserId={currentUserId}
-                userProfileMap={userProfileMap}
-                pendingApprovalAction={pendingApprovalAction}
-                handoffFocusSignal={handoffFocusSignal}
-                onApprovalAction={(approvalId, action) => {
-                  approvalDecision.mutate({ approvalId, action });
-                }}
-                onCheckMonitorNow={() => checkIssueMonitorNow.mutate()}
-                checkingMonitorNow={checkIssueMonitorNow.isPending}
-              />
-            </Suspense>
+            <IssueDetailActivityTab
+              issue={issue}
+              issueId={issue.id}
+              companyId={issue.companyId}
+              issueStatus={issue.status}
+              childIssues={childIssues}
+              agentMap={agentMap}
+              hasLiveRuns={hasLiveRuns}
+              currentUserId={currentUserId}
+              userProfileMap={userProfileMap}
+              pendingApprovalAction={pendingApprovalAction}
+              handoffFocusSignal={handoffFocusSignal}
+              onApprovalAction={(approvalId, action) => {
+                approvalDecision.mutate({ approvalId, action });
+              }}
+              onCheckMonitorNow={() => checkIssueMonitorNow.mutate()}
+              checkingMonitorNow={checkIssueMonitorNow.isPending}
+            />
           ) : null}
         </TabsContent>
 
         <TabsContent value="related-work">
-          {detailTab === "related-work" ? (
-            <Suspense fallback={<IssueSectionSkeleton titleWidth="w-28" rows={2} />}>
-              <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
-            </Suspense>
-          ) : null}
+          <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
         </TabsContent>
 
-        {issueDetailPluginsReady ? (
-          <Suspense fallback={null}>
-            <IssueDetailPluginTabContents issue={issue} />
-          </Suspense>
-        ) : null}
+        {activePluginTab && (
+          <TabsContent value={activePluginTab.value}>
+            <PluginSlotMount
+              slot={activePluginTab.slot}
+              context={{
+                companyId: issue.companyId,
+                projectId: issue.projectId ?? null,
+                entityId: issue.id,
+                entityType: "issue",
+              }}
+              missingBehavior="placeholder"
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={treeControlOpen} onOpenChange={setTreeControlOpen}>
@@ -3807,11 +4062,10 @@ export function IssueDetail() {
             ) : null}
 
             <div className="space-y-1.5">
-              <label htmlFor="issue-tree-control-reason" className="text-xs text-muted-foreground">
+              <label className="text-xs text-muted-foreground">
                 Reason (optional)
               </label>
               <Textarea
-                id="issue-tree-control-reason"
                 value={treeControlReason}
                 onChange={(event) => setTreeControlReason(event.target.value)}
                 placeholder="Explain why this subtree control is being applied..."
@@ -3828,7 +4082,7 @@ export function IssueDetail() {
                     disabled={previewAffectedAgentCount === 0}
                     checked={treeControlWakeAgentsOnResume}
                     onChange={(event) => setTreeControlWakeAgentsOnResume(event.target.checked)}
-                   aria-label="Tree Control Wake Agents On Resume"/>
+                  />
                   <span>
                     <span className="block font-medium">Wake affected agents ({previewAffectedAgentCount})</span>
                     <span className="text-xs text-muted-foreground">
@@ -3841,9 +4095,9 @@ export function IssueDetail() {
                 {treeControlWakeAgentsOnResume && treePreviewAffectedAgentRows.length > 0 ? (
                   <div className="max-h-32 space-y-1 overflow-y-auto overscroll-contain">
                     {treePreviewAffectedAgentRows.map(({ agentId, agent }) => (
-                      <div key={agentId} className="flex items-center gap-2 rounded-sm p-1 text-sm hover:bg-accent/50">
-                        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-                          <AgentIcon icon={agent?.icon} className="size-3.5 text-muted-foreground" />
+                      <div key={agentId} className="flex items-center gap-2 rounded-sm px-1 py-1 text-sm hover:bg-accent/50">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+                          <AgentIcon icon={agent?.icon} className="h-3.5 w-3.5 text-muted-foreground" />
                         </span>
                         <span className="min-w-0 flex-1 truncate">{agent?.name ?? agentId.slice(0, 8)}</span>
                       </div>
@@ -3860,7 +4114,7 @@ export function IssueDetail() {
                   className="mt-0.5"
                   checked={treeControlCancelConfirmed}
                   onChange={(event) => setTreeControlCancelConfirmed(event.target.checked)}
-                 aria-label="Tree Control Cancel Confirmed"/>
+                />
                 <span>I understand this will cancel {previewAffectedIssueCount} issues.</span>
               </label>
             ) : null}
@@ -3951,15 +4205,13 @@ export function IssueDetail() {
           </SheetHeader>
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="px-4 pb-4">
-              <Suspense fallback={<IssueSectionSkeleton titleWidth="w-24" rows={5} />}>
-                <IssueProperties
-                  issue={issue}
-                  childIssues={childIssues}
-                  onAddSubIssue={openNewSubIssue}
-                  onUpdate={(data) => updateIssue.mutate(data)}
-                  inline
-                />
-              </Suspense>
+              <IssueProperties
+                issue={issue}
+                childIssues={childIssues}
+                onAddSubIssue={openNewSubIssue}
+                onUpdate={(data) => updateIssue.mutate(data)}
+                inline
+              />
             </div>
           </ScrollArea>
         </SheetContent>

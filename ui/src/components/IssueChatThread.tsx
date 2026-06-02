@@ -1,18 +1,20 @@
+import {
+  AssistantRuntimeProvider,
+  useAui,
+} from "@assistant-ui/react";
 import type {
   ReasoningMessagePart,
   TextMessagePart,
   ThreadMessage,
   ToolCallMessagePart,
 } from "@assistant-ui/react";
-import { useLazyRef } from "../hooks/useLazyRef";
 import {
   createContext,
   Component,
-  lazy,
+  forwardRef,
   memo,
-  Suspense,
   useCallback,
-  use,
+  useContext,
   useEffect,
   useId,
   useImperativeHandle,
@@ -25,9 +27,6 @@ import {
   type ErrorInfo,
   type Ref,
   type ReactNode,
-  type CSSProperties,
-  type ComponentType,
-  type ComponentProps,
 } from "react";
 import { Link, useLocation } from "@/lib/router";
 import type {
@@ -45,6 +44,7 @@ import type {
 } from "@paperclipai/shared";
 import type { ActiveRunForIssue, LiveRunForIssue } from "../api/heartbeats";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
+import { usePaperclipIssueRuntime, type PaperclipIssueRuntimeReassignment } from "../hooks/usePaperclipIssueRuntime";
 import {
   buildIssueChatMessages,
   formatDurationWords,
@@ -87,10 +87,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { MentionOption, MarkdownEditorRef } from "./MarkdownEditor";
+import { MarkdownBody } from "./MarkdownBody";
+import { MarkdownEditor, type MentionOption, type MarkdownEditorRef } from "./MarkdownEditor";
 import { Identity } from "./Identity";
 import { InlineEntitySelector, type InlineEntityOption } from "./InlineEntitySelector";
-import { AgentIcon } from "./AgentIcon";
+import { IssueThreadInteractionCard } from "./IssueThreadInteractionCard";
+import { AgentIcon } from "./AgentIconPicker";
 import { restoreSubmittedCommentDraft } from "../lib/comment-submit-draft";
 import {
   captureComposerViewportSnapshot,
@@ -132,98 +134,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, ArrowRight, Brain, Check, ChevronDown, ClipboardList, Copy, Hammer, Loader2, MoreHorizontal, Paperclip, PauseCircle, Search, Square, ThumbsDown, ThumbsUp } from "lucide-react";
-import type { RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
-import {
-  VIRTUALIZED_THREAD_ROW_THRESHOLD,
-  canStopIssueChatRun,
-  findLatestCommentMessageIndex,
-  resolveAssistantMessageFoldedState,
-  resolveIssueChatHumanAuthor,
-} from "./issue-chat-thread-utils";
-
-const LazyMarkdownEditor = lazy(() =>
-  import("./MarkdownEditor").then(({ MarkdownEditor }) => ({ default: MarkdownEditor })),
-);
-const LazyIssueThreadInteractionCard = lazy(() =>
-  import("./IssueThreadInteractionCard").then(({ IssueThreadInteractionCard }) => ({
-    default: IssueThreadInteractionCard,
-  })),
-);
-const LazyIssueBlockedNotice = lazy(() =>
-  import("./IssueBlockedNotice").then(({ IssueBlockedNotice }) => ({
-    default: IssueBlockedNotice,
-  })),
-);
-const LazyIssueAssignedBacklogNotice = lazy(() =>
-  import("./IssueAssignedBacklogNotice").then(({ IssueAssignedBacklogNotice }) => ({
-    default: IssueAssignedBacklogNotice,
-  })),
-);
-const LazyIssueRecoveryActionCard = lazy(() =>
-  import("./IssueRecoveryActionCard").then(({ IssueRecoveryActionCard }) => ({
-    default: IssueRecoveryActionCard,
-  })),
-);
-
-type IssueThreadInteractionCardProps = ComponentProps<
-  typeof import("./IssueThreadInteractionCard")["IssueThreadInteractionCard"]
->;
-type IssueBlockedNoticeProps = ComponentProps<
-  typeof import("./IssueBlockedNotice")["IssueBlockedNotice"]
->;
-type IssueAssignedBacklogNoticeProps = ComponentProps<
-  typeof import("./IssueAssignedBacklogNotice")["IssueAssignedBacklogNotice"]
->;
-type IssueRecoveryActionCardProps = ComponentProps<
-  typeof import("./IssueRecoveryActionCard")["IssueRecoveryActionCard"]
->;
-
-function DeferredNoticeFallback({ className }: { className?: string }) {
-  return (
-    <div
-      className={cn(
-        "animate-pulse rounded-md border border-border/60 bg-muted/20 px-3 py-2.5",
-        className,
-      )}
-      aria-hidden="true"
-    >
-      <div className="h-3 w-28 rounded-sm bg-muted-foreground/15" />
-      <div className="mt-2 h-3 w-2/3 rounded-sm bg-muted-foreground/10" />
-    </div>
-  );
-}
-
-function DeferredIssueThreadInteractionCard(props: IssueThreadInteractionCardProps) {
-  return (
-    <Suspense fallback={<DeferredNoticeFallback />}>
-      <LazyIssueThreadInteractionCard {...props} />
-    </Suspense>
-  );
-}
-
-function DeferredIssueBlockedNotice(props: IssueBlockedNoticeProps) {
-  return (
-    <Suspense fallback={<DeferredNoticeFallback />}>
-      <LazyIssueBlockedNotice {...props} />
-    </Suspense>
-  );
-}
-
-function DeferredIssueAssignedBacklogNotice(props: IssueAssignedBacklogNoticeProps) {
-  return (
-    <Suspense fallback={<DeferredNoticeFallback />}>
-      <LazyIssueAssignedBacklogNotice {...props} />
-    </Suspense>
-  );
-}
-
-function DeferredIssueRecoveryActionCard(props: IssueRecoveryActionCardProps) {
-  return (
-    <Suspense fallback={<DeferredNoticeFallback />}>
-      <LazyIssueRecoveryActionCard {...props} />
-    </Suspense>
-  );
-}
+import { IssueBlockedNotice } from "./IssueBlockedNotice";
+import { IssueAssignedBacklogNotice } from "./IssueAssignedBacklogNotice";
+import { IssueRecoveryActionCard, type RecoveryResolveOutcome } from "./IssueRecoveryActionCard";
 
 interface IssueChatMessageContext {
   feedbackDataSharingPreference: FeedbackDataSharingPreference;
@@ -269,6 +182,38 @@ const IssueChatCtx = createContext<IssueChatMessageContext>({
   issueStatus: undefined,
   successfulRunHandoff: null,
 });
+
+export function resolveAssistantMessageFoldedState(args: {
+  messageId: string;
+  currentFolded: boolean;
+  isFoldable: boolean;
+  previousMessageId: string | null;
+  previousIsFoldable: boolean;
+}) {
+  const {
+    messageId,
+    currentFolded,
+    isFoldable,
+    previousMessageId,
+    previousIsFoldable,
+  } = args;
+
+  if (messageId !== previousMessageId) return isFoldable;
+  if (!isFoldable) return false;
+  if (!previousIsFoldable) return true;
+  return currentFolded;
+}
+
+export function canStopIssueChatRun(args: {
+  runId: string | null;
+  runStatus: string | null;
+  activeRunIds: ReadonlySet<string>;
+}) {
+  const { runId, runStatus, activeRunIds } = args;
+  if (!runId) return false;
+  if (activeRunIds.has(runId)) return true;
+  return runStatus === "queued" || runStatus === "running";
+}
 
 function findCoTSegmentIndex(
   messageParts: ReadonlyArray<{ type: string }>,
@@ -326,7 +271,6 @@ export interface IssueChatComposerHandle {
 }
 
 interface IssueChatComposerProps {
-  onAdd: (body: string, reopen?: boolean, reassignment?: CommentReassignment) => Promise<void>;
   onImageUpload?: (file: File) => Promise<string>;
   onAttachImage?: (file: File) => Promise<IssueAttachment | void>;
   draftKey?: string;
@@ -437,15 +381,6 @@ interface IssueChatThreadProps {
   onRefreshLatestComments?: () => Promise<unknown> | void;
 }
 
-const EMPTY_INLINE_ENTITY_OPTIONS: InlineEntityOption[] = [];
-const EMPTY_MENTION_OPTIONS: MentionOption[] = [];
-const EMPTY_INTERACTIONS: IssueThreadInteraction[] = [];
-const EMPTY_FEEDBACK_VOTES: FeedbackVote[] = [];
-const EMPTY_LINKED_RUNS: IssueChatLinkedRun[] = [];
-const EMPTY_TIMELINE_EVENTS: IssueTimelineEvent[] = [];
-const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
-const EMPTY_BLOCKED_BY: IssueRelationIssueSummary[] = [];
-
 type IssueChatErrorBoundaryProps = {
   resetKey: string;
   messages: readonly ThreadMessage[];
@@ -456,28 +391,13 @@ type IssueChatErrorBoundaryProps = {
 
 type IssueChatErrorBoundaryState = {
   hasError: boolean;
-  resetKey: string;
 };
 
 class IssueChatErrorBoundary extends Component<IssueChatErrorBoundaryProps, IssueChatErrorBoundaryState> {
-  override state: IssueChatErrorBoundaryState = {
-    hasError: false,
-    resetKey: this.props.resetKey,
-  };
+  override state: IssueChatErrorBoundaryState = { hasError: false };
 
-  static getDerivedStateFromError(): Partial<IssueChatErrorBoundaryState> {
+  static getDerivedStateFromError(): IssueChatErrorBoundaryState {
     return { hasError: true };
-  }
-
-  static getDerivedStateFromProps(
-    props: IssueChatErrorBoundaryProps,
-    state: IssueChatErrorBoundaryState,
-  ): Partial<IssueChatErrorBoundaryState> | null {
-    if (props.resetKey === state.resetKey) return null;
-    return {
-      hasError: false,
-      resetKey: props.resetKey,
-    };
   }
 
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
@@ -485,6 +405,12 @@ class IssueChatErrorBoundary extends Component<IssueChatErrorBoundaryProps, Issu
       error,
       info: info.componentStack,
     });
+  }
+
+  override componentDidUpdate(prevProps: IssueChatErrorBoundaryProps): void {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   override render() {
@@ -514,7 +440,7 @@ function IssueAssigneePausedNotice({ agent }: { agent: Agent | null }) {
   return (
     <div className="mb-3 rounded-md border border-orange-300/70 bg-orange-50/90 px-3 py-2.5 text-sm text-orange-950 shadow-sm dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-100">
       <div className="flex items-start gap-2">
-        <PauseCircle className="mt-0.5 size-4 shrink-0 text-orange-600 dark:text-orange-300" />
+        <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
         <p className="min-w-0 leading-5">
           <span className="font-medium">{agent.name}</span> is paused. New runs will not start until the agent is resumed. {pauseDetail}
         </p>
@@ -567,7 +493,7 @@ function IssueChatFallbackThread({
     <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
       <div className="rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/20 dark:text-amber-200">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="space-y-1">
             <p className="font-medium">Chat renderer hit an internal state error.</p>
             <p className="text-xs opacity-80">
@@ -601,8 +527,8 @@ function IssueChatFallbackThread({
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  {lines.length > 0 ? lines.map((line) => (
-                    <DeferredMarkdownBody key={`${message.id}:fallback:${line}`}>{line}</DeferredMarkdownBody>
+                  {lines.length > 0 ? lines.map((line, index) => (
+                    <MarkdownBody key={`${message.id}:fallback:${index}`}>{line}</MarkdownBody>
                   )) : (
                     <p className="text-sm text-muted-foreground">No message content.</p>
                   )}
@@ -674,7 +600,7 @@ function clearDraft(draftKey: string) {
   }
 }
 
-function parseReassignment(target: string): CommentReassignment | null {
+function parseReassignment(target: string): PaperclipIssueRuntimeReassignment | null {
   if (!target || target === "__none__") {
     return { assigneeAgentId: null, assigneeUserId: null };
   }
@@ -707,96 +633,20 @@ function commentDateLabel(date: Date | string | undefined): string {
   return formatShortDate(date);
 }
 
-type DeferredMarkdownBodyProps = {
-  children: string;
-  className?: string;
-  style?: CSSProperties;
-  softBreaks?: boolean;
-  linkIssueReferences?: boolean;
-  enableWikiLinks?: boolean;
-  wikiLinkRoot?: string;
-  resolveWikiLinkHref?: (target: string, label: string) => string | null | undefined;
-  resolveImageSrc?: (src: string) => string | null;
-  onImageClick?: (src: string) => void;
-};
-
-let markdownBodyLoaderPromise: Promise<ComponentType<DeferredMarkdownBodyProps>> | null = null;
-
-function loadMarkdownBodyComponent() {
-  markdownBodyLoaderPromise ??= import("./MarkdownBody").then(({ MarkdownBody }) =>
-    MarkdownBody as ComponentType<DeferredMarkdownBodyProps>
-  );
-  return markdownBodyLoaderPromise;
-}
-
-function MarkdownTextFallback({
-  children,
-  className,
-  style,
-}: Pick<DeferredMarkdownBodyProps, "children" | "className" | "style">) {
-  return (
-    <div
-      className={cn("whitespace-pre-wrap break-words", className)}
-      style={style}
-    >
-      {children}
-    </div>
-  );
-}
-
-function DeferredMarkdownBody(props: DeferredMarkdownBodyProps) {
-  const [MarkdownBodyComponent, setMarkdownBodyComponent] =
-    useState<ComponentType<DeferredMarkdownBodyProps> | null>(null);
-
-  useEffect(() => {
-    setMarkdownBodyComponent(null);
-    if (!props.children.trim()) return;
-    let cancelled = false;
-    const load = () => {
-      void loadMarkdownBodyComponent().then((Component) => {
-        if (!cancelled) setMarkdownBodyComponent(() => Component);
-      });
-    };
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const idleId = window.requestIdleCallback(load, { timeout: 1200 });
-      return () => {
-        cancelled = true;
-        window.cancelIdleCallback(idleId);
-      };
-    }
-    const timeoutId = globalThis.setTimeout(load, 0);
-    return () => {
-      cancelled = true;
-      globalThis.clearTimeout(timeoutId);
-    };
-  }, [props.children]);
-
-  const fallback = (
-    <MarkdownTextFallback
-      className={props.className}
-      style={props.style}
-    >
-      {props.children}
-    </MarkdownTextFallback>
-  );
-
-  return MarkdownBodyComponent ? <MarkdownBodyComponent {...props} /> : fallback;
-}
-
 const IssueChatTextPart = memo(function IssueChatTextPart({ text, recessed }: { text: string; recessed?: boolean }) {
-  const { onImageClick } = use(IssueChatCtx);
+  const { onImageClick } = useContext(IssueChatCtx);
   if (isSuccessfulRunHandoffComment(text)) {
     return <SuccessfulRunHandoffCommentCallout text={text} recessed={recessed} onImageClick={onImageClick} />;
   }
   return (
-    <DeferredMarkdownBody
+    <MarkdownBody
       className="text-sm leading-6"
       style={recessed ? { opacity: 0.55 } : undefined}
       softBreaks
       onImageClick={onImageClick}
     >
       {text}
-    </DeferredMarkdownBody>
+    </MarkdownBody>
   );
 });
 
@@ -823,13 +673,13 @@ export function SuccessfulRunHandoffCommentCallout({
       <div className="flex items-start gap-2">
         <AlertTriangle
           className={cn(
-            "mt-1 size-4 shrink-0",
+            "mt-1 h-4 w-4 shrink-0",
             escalated ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300",
           )}
         />
-        <DeferredMarkdownBody className="min-w-0 text-sm leading-6" softBreaks onImageClick={onImageClick}>
+        <MarkdownBody className="min-w-0 text-sm leading-6" softBreaks onImageClick={onImageClick}>
           {text}
-        </DeferredMarkdownBody>
+        </MarkdownBody>
       </div>
     </div>
   );
@@ -878,6 +728,26 @@ function formatInteractionActorLabel(args: {
       ?? "Board";
   }
   return "System";
+}
+
+export function resolveIssueChatHumanAuthor(args: {
+  authorName?: string | null;
+  authorUserId?: string | null;
+  currentUserId?: string | null;
+  userProfileMap?: ReadonlyMap<string, CompanyUserProfile> | null;
+}) {
+  const { authorName, authorUserId, currentUserId, userProfileMap } = args;
+  const profile = authorUserId ? userProfileMap?.get(authorUserId) ?? null : null;
+  const isCurrentUser = Boolean(authorUserId && currentUserId && authorUserId === currentUserId);
+  const resolvedAuthorName = profile?.label?.trim()
+    || authorName?.trim()
+    || (authorUserId === "local-board" ? "Board" : (isCurrentUser ? "You" : "User"));
+
+  return {
+    isCurrentUser,
+    authorName: resolvedAuthorName,
+    avatarUrl: profile?.image ?? null,
+  };
 }
 
 function formatRunStatusLabel(status: string) {
@@ -942,7 +812,7 @@ function IssueChatChainOfThought({
   message: ThreadMessage;
   cotParts: readonly IssueChatCoTPart[];
 }) {
-  const { agentMap } = use(IssueChatCtx);
+  const { agentMap } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const runAgentId = typeof custom.runAgentId === "string" ? custom.runAgentId : null;
   const authorAgentId = typeof custom.authorAgentId === "string" ? custom.authorAgentId : null;
@@ -1002,12 +872,12 @@ function IssueChatChainOfThought({
       >
         <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80">
           {agentIcon ? (
-            <AgentIcon icon={agentIcon} className="size-4 shrink-0" />
+            <AgentIcon icon={agentIcon} className="h-4 w-4 shrink-0" />
           ) : isActive ? (
-            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
           ) : (
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              <span className="size-1.5 rounded-full bg-emerald-500/70" />
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/70" />
             </span>
           )}
           {isActive ? (
@@ -1023,7 +893,7 @@ function IssueChatChainOfThought({
           <span className="text-xs text-muted-foreground/40">· {toolSummary}</span>
         ) : null}
         {hasContent ? (
-          <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-180")} />
         ) : null}
       </button>
       {expanded && hasContent ? (
@@ -1075,7 +945,7 @@ function IssueChatReasoningPart({ text }: { text: string }) {
   return (
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-0.5">
-        <Brain className="size-3.5 shrink-0 text-muted-foreground/50" />
+        <Brain className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
       </div>
       <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
         {ticker.exiting !== null && (
@@ -1129,9 +999,9 @@ function IssueChatRollingToolPart({ toolParts }: { toolParts: ToolCallMessagePar
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-0.5">
         {isRunning ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground/50" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/50" />
         ) : (
-          <ToolIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
+          <ToolIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
         )}
       </div>
       <div className="relative h-5 min-w-0 flex-1 overflow-hidden">
@@ -1166,7 +1036,7 @@ function CopyablePreBlock({ children, className }: { children: string; className
       <button
         type="button"
         className={cn(
-          "absolute right-1.5 top-1.5 inline-flex size-6 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/pre:opacity-100",
+          "absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/pre:opacity-100",
           copied && "opacity-100",
         )}
         title="Copy"
@@ -1178,7 +1048,7 @@ function CopyablePreBlock({ children, className }: { children: string; className
           });
         }}
       >
-        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
       </button>
     </div>
   );
@@ -1231,7 +1101,7 @@ function IssueChatToolPart({
   return (
     <div className="flex gap-2 px-1">
       <div className="flex flex-col items-center pt-1">
-        <ToolIcon className="size-3.5 shrink-0 text-muted-foreground/50" />
+        <ToolIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
         {open ? <div className="mt-1 w-px flex-1 bg-border/40" /> : null}
       </div>
 
@@ -1246,9 +1116,9 @@ function IssueChatToolPart({
             {!intentDetail && summary ? <span className="ml-1.5 text-muted-foreground/50">{summary}</span> : null}
           </span>
           {result === undefined ? (
-            <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/50" />
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/50" />
           ) : null}
-          <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
         </button>
 
         {open ? (
@@ -1312,9 +1182,9 @@ const IssueChatTextParts = memo(function IssueChatTextParts({
     <>
       {message.content
         .filter((part): part is TextMessagePart => part.type === "text")
-        .map((part) => (
+        .map((part, index) => (
           <IssueChatTextPart
-            key={`${message.id}:text:${part.text}`}
+            key={`${message.id}:text:${index}`}
             text={part.text}
             recessed={recessed}
           />
@@ -1403,7 +1273,7 @@ function IssueChatUserMessage({
     onCancelQueued,
     currentUserId,
     userProfileMap,
-  } = use(IssueChatCtx);
+  } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const commentId = typeof custom.commentId === "string" ? custom.commentId : message.id;
@@ -1486,7 +1356,7 @@ function IssueChatUserMessage({
 
       {pending ? (
         <div className={cn("mt-1 flex px-1 text-[11px] text-muted-foreground", isCurrentUser ? "justify-end" : "justify-start")}>
-          Sending&hellip;
+          Sending...
         </div>
       ) : (
         <div
@@ -1510,7 +1380,7 @@ function IssueChatUserMessage({
           </Tooltip>
           <button
             type="button"
-            className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             title="Copy message"
             aria-label="Copy message"
             onClick={() => {
@@ -1524,7 +1394,7 @@ function IssueChatUserMessage({
               });
             }}
           >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
       )}
@@ -1570,7 +1440,7 @@ function IssueChatAssistantMessage({
     stopRunLabel = "Stop run",
     stoppingRunLabel = "Stopping...",
     stopRunVariant = "stop",
-  } = use(IssueChatCtx);
+  } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const authorName = typeof custom.authorName === "string"
@@ -1596,14 +1466,13 @@ function IssueChatAssistantMessage({
   const hasCoT = message.content.some((p) => p.type === "reasoning" || p.type === "tool-call");
   const isFoldable = !isRunning && !!chainOfThoughtLabel;
   const [folded, setFolded] = useState(isFoldable);
-  const prevFoldKeyRef = useRef({ messageId: message.id, isFoldable });
+  const [prevFoldKey, setPrevFoldKey] = useState({ messageId: message.id, isFoldable });
   const [copied, setCopied] = useState(false);
   const copyText = getThreadMessageCopyText(message);
 
   // Derive fold state synchronously during render (not in useEffect) so the
   // browser never paints the un-folded intermediate state — prevents the
   // visible "jump" when loading a page with already-folded work sections.
-  const prevFoldKey = prevFoldKeyRef.current;
   if (message.id !== prevFoldKey.messageId || isFoldable !== prevFoldKey.isFoldable) {
     const nextFolded = resolveAssistantMessageFoldedState({
       messageId: message.id,
@@ -1612,7 +1481,7 @@ function IssueChatAssistantMessage({
       previousMessageId: prevFoldKey.messageId,
       previousIsFoldable: prevFoldKey.isFoldable,
     });
-    prevFoldKeyRef.current = { messageId: message.id, isFoldable };
+    setPrevFoldKey({ messageId: message.id, isFoldable });
     if (nextFolded !== folded) {
       setFolded(nextFolded);
     }
@@ -1633,7 +1502,7 @@ function IssueChatAssistantMessage({
       <div className="flex items-start gap-2.5 py-1.5">
         <Avatar size="sm" className="shrink-0">
           {agentIcon ? (
-            <AvatarFallback><AgentIcon icon={agentIcon} className="size-3.5" /></AvatarFallback>
+            <AvatarFallback><AgentIcon icon={agentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
           ) : (
             <AvatarFallback>{initialsForName(authorName)}</AvatarFallback>
           )}
@@ -1654,7 +1523,7 @@ function IssueChatAssistantMessage({
                     {commentDateLabel(message.createdAt)}
                   </span>
                 ) : null}
-                <ChevronDown className={cn("size-3.5 text-muted-foreground/40 transition-transform", !folded && "rotate-180")} />
+                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", !folded && "rotate-180")} />
               </span>
             </button>
           ) : (
@@ -1667,7 +1536,7 @@ function IssueChatAssistantMessage({
               ) : null}
               {isRunning ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
-                  <Loader2 className="size-3 animate-spin" />
+                  <Loader2 className="h-3 w-3 animate-spin" />
                   Running
                 </span>
               ) : null}
@@ -1682,9 +1551,9 @@ function IssueChatAssistantMessage({
                   <div className="flex items-center gap-2.5 rounded-lg px-1 py-2">
                     <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground/80">
                       {agentIcon ? (
-                        <AgentIcon icon={agentIcon} className="size-4 shrink-0" />
+                        <AgentIcon icon={agentIcon} className="h-4 w-4 shrink-0" />
                       ) : (
-                        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
                       )}
                       <span className="shimmer-text">{waitingText}</span>
                     </span>
@@ -1692,9 +1561,9 @@ function IssueChatAssistantMessage({
                 ) : null}
                 {notices.length > 0 ? (
                   <div className="space-y-2">
-                    {notices.map((notice) => (
+                    {notices.map((notice, index) => (
                       <div
-                        key={`${message.id}:notice:${notice}`}
+                        key={`${message.id}:notice:${index}`}
                         className="rounded-sm border border-border/60 bg-accent/20 px-3 py-2 text-sm text-muted-foreground"
                       >
                         {notice}
@@ -1707,7 +1576,7 @@ function IssueChatAssistantMessage({
               <div className="mt-2 flex items-center gap-1">
                 <button
                   type="button"
-                  className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   title="Copy message"
                   aria-label="Copy message"
                   onClick={() => {
@@ -1717,7 +1586,7 @@ function IssueChatAssistantMessage({
                     });
                   }}
                 >
-                  {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>
                 {commentId && onVote ? (
                   <IssueChatFeedbackButtons
@@ -1749,7 +1618,7 @@ function IssueChatAssistantMessage({
                       title="More actions"
                       aria-label="More actions"
                     >
-                      <MoreHorizontal className="size-3.5" />
+                      <MoreHorizontal className="h-3.5 w-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -1758,7 +1627,7 @@ function IssueChatAssistantMessage({
                         void navigator.clipboard.writeText(copyText);
                       }}
                     >
-                      <Copy className="mr-2 size-3.5" />
+                      <Copy className="mr-2 h-3.5 w-3.5" />
                       Copy message
                     </DropdownMenuItem>
                     {canStopRun && onStopRun && runId ? (
@@ -1774,9 +1643,9 @@ function IssueChatAssistantMessage({
                         }}
                       >
                         {stopRunVariant === "pause" ? (
-                          <PauseCircle className="mr-2 size-3.5" />
+                          <PauseCircle className="mr-2 h-3.5 w-3.5" />
                         ) : (
-                          <Square className="mr-2 size-3.5 fill-current" />
+                          <Square className="mr-2 h-3.5 w-3.5 fill-current" />
                         )}
                         {isStoppingRun ? stoppingRunLabel : stopRunLabel}
                       </DropdownMenuItem>
@@ -1784,7 +1653,7 @@ function IssueChatAssistantMessage({
                     {runHref ? (
                       <DropdownMenuItem asChild>
                         <Link to={runHref} target="_blank" rel="noreferrer noopener">
-                          <Search className="mr-2 size-3.5" />
+                          <Search className="mr-2 h-3.5 w-3.5" />
                           View run
                         </Link>
                       </DropdownMenuItem>
@@ -1885,7 +1754,7 @@ function IssueChatFeedbackButtons({
         type="button"
         disabled={isSaving}
         className={cn(
-          "inline-flex size-7 items-center justify-center rounded-md transition-colors",
+          "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
           visibleVote === "up"
             ? "text-green-600 dark:text-green-400"
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1894,7 +1763,7 @@ function IssueChatFeedbackButtons({
         aria-label="Helpful"
         onClick={handleThumbsUp}
       >
-        <ThumbsUp className="size-3.5" />
+        <ThumbsUp className="h-3.5 w-3.5" />
       </button>
       <Popover open={reasonOpen} onOpenChange={setReasonOpen}>
         <PopoverTrigger asChild>
@@ -1902,7 +1771,7 @@ function IssueChatFeedbackButtons({
             type="button"
             disabled={isSaving}
             className={cn(
-              "inline-flex size-7 items-center justify-center rounded-md transition-colors",
+              "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
               visibleVote === "down"
                 ? "text-amber-600 dark:text-amber-400"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1911,7 +1780,7 @@ function IssueChatFeedbackButtons({
             aria-label="Needs work"
             onClick={handleThumbsDown}
           >
-            <ThumbsDown className="size-3.5" />
+            <ThumbsDown className="h-3.5 w-3.5" />
           </button>
         </PopoverTrigger>
         <PopoverContent side="top" align="start" className="w-80 p-3">
@@ -2036,7 +1905,7 @@ function ExpiredRequestConfirmationActivity({
     onAcceptInteraction,
     onRejectInteraction,
     onCancelInteraction,
-  } = use(IssueChatCtx);
+  } = useContext(IssueChatCtx);
   const [expanded, setExpanded] = useState(false);
   const hasResolvedActor = Boolean(interaction.resolvedByAgentId || interaction.resolvedByUserId);
   const actorAgentId = hasResolvedActor
@@ -2075,7 +1944,7 @@ function ExpiredRequestConfirmationActivity({
           aria-controls={detailsId}
           onClick={() => setExpanded((current) => !current)}
         >
-          <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
           {expanded ? "Hide confirmation" : "Expired confirmation"}
         </button>
       </div>
@@ -2097,7 +1966,7 @@ function ExpiredRequestConfirmationActivity({
         <div className="flex items-start gap-2.5 py-1">
           <Avatar size="sm" className="mt-0.5">
             {actorIcon ? (
-              <AvatarFallback><AgentIcon icon={actorIcon} className="size-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={actorIcon} className="h-3.5 w-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(actorName)}</AvatarFallback>
             )}
@@ -2107,7 +1976,7 @@ function ExpiredRequestConfirmationActivity({
       )}
       {expanded ? (
         <div id={detailsId} className="mt-2">
-          <DeferredIssueThreadInteractionCard
+          <IssueThreadInteractionCard
             interaction={interaction}
             agentMap={agentMap}
             currentUserId={currentUserId}
@@ -2343,7 +2212,7 @@ function StaleDispositionWarningRow({
                   {commentDateLabel(message.createdAt)}
                 </span>
               ) : null}
-              <ChevronDown className={cn("size-3.5 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", open && "rotate-180")} />
             </span>
           </button>
           <div id={detailsId} hidden={!open} className="space-y-1 py-1">
@@ -2362,7 +2231,7 @@ function SystemNoticeCommentRow({
   message: ThreadMessage;
   anchorId?: string;
 }) {
-  const { onImageClick, agentMap, issueStatus, successfulRunHandoff } = use(IssueChatCtx);
+  const { onImageClick, agentMap, issueStatus, successfulRunHandoff } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const presentation = isIssueCommentPresentation(custom.presentation) ? custom.presentation : null;
   const commentMetadata = isIssueCommentMetadata(custom.commentMetadata) ? custom.commentMetadata : null;
@@ -2402,9 +2271,9 @@ function SystemNoticeCommentRow({
     presentation,
     metadata: commentMetadata,
     body: (
-      <DeferredMarkdownBody className="text-sm leading-6" softBreaks onImageClick={onImageClick}>
+      <MarkdownBody className="text-sm leading-6" softBreaks onImageClick={onImageClick}>
         {bodyText}
-      </DeferredMarkdownBody>
+      </MarkdownBody>
     ),
     timestamp: message.createdAt ? new Date(message.createdAt).toISOString() : undefined,
     source,
@@ -2459,22 +2328,22 @@ function SystemNoticeCommentRow({
           {anchorId ? (
             <button
               type="button"
-              className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
               title="Copy link"
               aria-label="Copy link to system notice"
               onClick={handleCopyLink}
             >
-              {copiedLink ? <Check className="size-3.5" /> : <Paperclip className="size-3.5" />}
+              {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Paperclip className="h-3.5 w-3.5" />}
             </button>
           ) : null}
           <button
             type="button"
-            className="inline-flex size-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             title="Copy notice text"
             aria-label="Copy system notice"
             onClick={handleCopy}
           >
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -2491,7 +2360,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
     onRejectInteraction,
     onSubmitInteractionAnswers,
     onCancelInteraction,
-  } = use(IssueChatCtx);
+  } = useContext(IssueChatCtx);
   const custom = message.metadata.custom as Record<string, unknown>;
   const anchorId = typeof custom.anchorId === "string" ? custom.anchorId : undefined;
   const runId = typeof custom.runId === "string" ? custom.runId : null;
@@ -2538,7 +2407,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
     return (
       <div id={anchorId}>
         <div className="py-1.5">
-          <DeferredIssueThreadInteractionCard
+          <IssueThreadInteractionCard
             interaction={interaction}
             agentMap={agentMap}
             currentUserId={currentUserId}
@@ -2579,7 +2448,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
               Status
             </span>
             <span className="text-muted-foreground">{humanizeValue(statusChange.from)}</span>
-            <ArrowRight className="size-3 text-muted-foreground" />
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
             <span className="font-medium text-foreground">{humanizeValue(statusChange.to)}</span>
           </div>
         ) : null}
@@ -2592,7 +2461,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
             <span className="text-muted-foreground">
               {formatTimelineAssigneeLabel(assigneeChange.from, agentMap, currentUserId, userLabelMap)}
             </span>
-            <ArrowRight className="size-3 text-muted-foreground" />
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineAssigneeLabel(assigneeChange.to, agentMap, currentUserId, userLabelMap)}
             </span>
@@ -2607,7 +2476,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
             <span className="text-muted-foreground">
               {formatTimelineWorkspaceLabel(workspaceChange.from)}
             </span>
-            <ArrowRight className="size-3 text-muted-foreground" />
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
             <span className="font-medium text-foreground">
               {formatTimelineWorkspaceLabel(workspaceChange.to)}
             </span>
@@ -2631,7 +2500,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
         <div className="flex items-start gap-2.5 py-1">
           <Avatar size="sm" className="mt-0.5">
             {agentIcon ? (
-              <AvatarFallback><AgentIcon icon={agentIcon} className="size-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={agentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(actorName)}</AvatarFallback>
             )}
@@ -2652,7 +2521,7 @@ function IssueChatSystemMessage({ message }: { message: ThreadMessage }) {
         <div className="flex items-center gap-2.5 py-1">
           <Avatar size="sm">
             {runAgentIcon ? (
-              <AvatarFallback><AgentIcon icon={runAgentIcon} className="size-3.5" /></AvatarFallback>
+              <AvatarFallback><AgentIcon icon={runAgentIcon} className="h-3.5 w-3.5" /></AvatarFallback>
             ) : (
               <AvatarFallback>{initialsForName(displayedRunAgentName)}</AvatarFallback>
             )}
@@ -2749,6 +2618,7 @@ function issueChatMessageQueuedRunIsInterrupting(
 // re-render hundreds of Markdown bodies, feedback controls, and avatars on
 // unrelated parent updates. Above this threshold we switch to a windowed
 // render path so only visible rows plus overscan stay mounted.
+export const VIRTUALIZED_THREAD_ROW_THRESHOLD = 150;
 const VIRTUALIZED_THREAD_OVERSCAN = 6;
 // Rough "average row" estimate. The virtualizer measures real heights as
 // rows mount, so this only affects offscreen rows it has not seen yet.
@@ -2781,6 +2651,14 @@ function issueChatMessageAnchorId(message: ThreadMessage): string | null {
 
 function findMessageAnchorIndex(messages: readonly ThreadMessage[], anchorId: string): number {
   return messages.findIndex((message) => issueChatMessageAnchorId(message) === anchorId);
+}
+
+export function findLatestCommentMessageIndex(messages: readonly ThreadMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const anchorId = issueChatMessageAnchorId(messages[index]);
+    if (anchorId && anchorId.startsWith("comment-")) return index;
+  }
+  return -1;
 }
 
 type VirtualizedVisibleAnchorSnapshot = {
@@ -2817,7 +2695,7 @@ function useIssueThreadVirtualizer({
   getItemKey: (index: number) => React.Key;
   mode: VirtualizedScrollMode;
 }) {
-  const measuredSizeByKeyRef = useLazyRef(() => new Map<React.Key, number>());
+  const measuredSizeByKeyRef = useRef(new Map<React.Key, number>());
   const [, rerender] = useState(0);
   const estimatedSize = estimateSize();
 
@@ -2939,10 +2817,7 @@ function findScrollContainer(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
-function VirtualizedIssueChatThreadList({
-  ref,
-  ...props
-}: VirtualizedIssueChatThreadListProps & { ref?: Ref<VirtualizedIssueChatThreadListHandle> }) {
+const VirtualizedIssueChatThreadList = forwardRef<VirtualizedIssueChatThreadListHandle, VirtualizedIssueChatThreadListProps>(function VirtualizedIssueChatThreadList(props, ref) {
   const probeRef = useRef<HTMLDivElement | null>(null);
   // Default to window scroll on first render so the imperative handle is
   // available immediately for hash-target / submit-scroll effects. After mount
@@ -2980,15 +2855,17 @@ function VirtualizedIssueChatThreadList({
       {...props}
     />
   );
-}
+});
 
 interface VirtualizedIssueChatThreadListInnerProps extends VirtualizedIssueChatThreadListProps {
   mode: VirtualizedScrollMode;
   probeRef: React.MutableRefObject<HTMLDivElement | null>;
-  ref?: Ref<VirtualizedIssueChatThreadListHandle>;
 }
 
-function VirtualizedIssueChatThreadListInner({
+const VirtualizedIssueChatThreadListInner = forwardRef<
+  VirtualizedIssueChatThreadListHandle,
+  VirtualizedIssueChatThreadListInnerProps
+>(function VirtualizedIssueChatThreadListInner({
   messages,
   feedbackVoteByTargetId,
   activeRunIds,
@@ -2997,8 +2874,7 @@ function VirtualizedIssueChatThreadListInner({
   variant,
   mode,
   probeRef,
-  ref,
-}: VirtualizedIssueChatThreadListInnerProps) {
+}, ref) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const pendingPrependAnchorRef = useRef<VirtualizedVisibleAnchorSnapshot | null>(null);
@@ -3159,7 +3035,7 @@ function VirtualizedIssueChatThreadListInner({
       })}
     </div>
   );
-}
+});
 
 interface IssueChatMessageRowProps {
   message: ThreadMessage;
@@ -3222,116 +3098,23 @@ function areIssueChatMessageRowPropsEqual(
   return true;
 }
 
-type DeferredIssueChatEditorProps = {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  mentions: MentionOption[];
-  onSubmit: () => void;
-  imageUploadHandler?: (file: File) => Promise<string>;
-  contentClassName?: string;
-  ref?: Ref<MarkdownEditorRef>;
-};
-
-function DeferredIssueChatEditor({
-  value,
-  onChange,
-  placeholder,
-  mentions,
-  onSubmit,
-  imageUploadHandler,
-  contentClassName,
-  ref: forwardedRef,
-}: DeferredIssueChatEditorProps) {
-    const [loadRichEditor, setLoadRichEditor] = useState(false);
-    const richEditorRef = useRef<MarkdownEditorRef | null>(null);
-    const fallbackTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const focusRichEditorWhenReadyRef = useRef(false);
-
-    const activateRichEditor = useCallback((focusWhenReady = false) => {
-      focusRichEditorWhenReadyRef.current = focusWhenReady;
-      setLoadRichEditor(true);
-    }, []);
-
-    const setRichEditorRef = useCallback((instance: MarkdownEditorRef | null) => {
-      richEditorRef.current = instance;
-      if (!instance || !focusRichEditorWhenReadyRef.current) return;
-      focusRichEditorWhenReadyRef.current = false;
-      requestAnimationFrame(() => instance.focus());
-    }, []);
-
-    useImperativeHandle(forwardedRef, () => ({
-      focus: () => {
-        if (richEditorRef.current) {
-          richEditorRef.current.focus();
-          return;
-        }
-        activateRichEditor(true);
-        fallbackTextareaRef.current?.focus();
-      },
-    }), [activateRichEditor]);
-
-    const fallbackEditor = (
-      <Textarea
-        ref={fallbackTextareaRef}
-        aria-label="Issue chat editor"
-        data-content-class-name={contentClassName}
-        data-file-drop-target="parent"
-        value={value}
-        onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onChange(event.target.value)}
-        onFocus={() => activateRichEditor(true)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            onSubmit();
-          }
-        }}
-        placeholder={placeholder}
-        className={cn(
-          "min-h-[5.5rem] w-full resize-none border-0 bg-transparent p-0 text-sm shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0",
-          contentClassName,
-        )}
-      />
-    );
-
-    if (!loadRichEditor) return fallbackEditor;
-
-    return (
-      <Suspense fallback={fallbackEditor}>
-        <LazyMarkdownEditor
-          ref={setRichEditorRef}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          mentions={mentions}
-          onSubmit={onSubmit}
-          imageUploadHandler={imageUploadHandler}
-          fileDropTarget="parent"
-          bordered={false}
-          contentClassName={contentClassName}
-        />
-      </Suspense>
-    );
-}
-
-function IssueChatComposer({
-  onAdd,
+const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerProps>(function IssueChatComposer({
   onImageUpload,
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
+  reassignOptions = [],
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = EMPTY_MENTION_OPTIONS,
+  mentions = [],
   agentMap,
   composerDisabledReason = null,
   composerHint = null,
   issueStatus,
   issueWorkMode,
   onWorkModeChange,
-  ref: forwardedRef,
-}: IssueChatComposerProps & { ref?: Ref<IssueChatComposerHandle> }) {
+}, forwardedRef) {
+  const api = useAui();
   const toastActions = useOptionalToastActions();
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -3341,7 +3124,7 @@ function IssueChatComposer({
   const dragDepthRef = useRef(0);
   const effectiveSuggestedAssigneeValue = suggestedAssigneeValue ?? currentAssigneeValue;
   const [reassignTarget, setReassignTarget] = useState(effectiveSuggestedAssigneeValue);
-  const unassignedConfirmedRef = useRef(false);
+  const [unassignedConfirmed, setUnassignedConfirmed] = useState(false);
   const resolvedIssueWorkMode: IssueWorkMode = issueWorkMode ?? "standard";
   const [pendingWorkMode, setPendingWorkMode] = useState<IssueWorkMode>(resolvedIssueWorkMode);
   const [workModeMenuOpen, setWorkModeMenuOpen] = useState(false);
@@ -3377,11 +3160,16 @@ function IssueChatComposer({
   useEffect(() => {
     if (!draftKey) return;
     if (draftTimer.current) clearTimeout(draftTimer.current);
-    const timer = setTimeout(() => {
+    const timeout = setTimeout(() => {
       saveDraft(draftKey, body);
     }, DRAFT_DEBOUNCE_MS);
-    draftTimer.current = timer;
-    return () => clearTimeout(timer);
+    draftTimer.current = timeout;
+    return () => {
+      clearTimeout(timeout);
+      if (draftTimer.current === timeout) {
+        draftTimer.current = null;
+      }
+    };
   }, [body, draftKey]);
 
   useEffect(() => {
@@ -3390,23 +3178,17 @@ function IssueChatComposer({
     };
   }, []);
 
-  // Re-sync the reassign target when the suggested assignee changes.
-  const prevSuggestedAssigneeRef = useRef(effectiveSuggestedAssigneeValue);
-  if (effectiveSuggestedAssigneeValue !== prevSuggestedAssigneeRef.current) {
-    prevSuggestedAssigneeRef.current = effectiveSuggestedAssigneeValue;
+  useEffect(() => {
     setReassignTarget(effectiveSuggestedAssigneeValue);
-  }
+  }, [effectiveSuggestedAssigneeValue]);
 
   useEffect(() => {
-    unassignedConfirmedRef.current = false;
+    setUnassignedConfirmed(false);
   }, [reassignTarget]);
 
-  // Re-sync the pending work mode when the resolved issue work mode changes.
-  const prevResolvedWorkModeRef = useRef(resolvedIssueWorkMode);
-  if (resolvedIssueWorkMode !== prevResolvedWorkModeRef.current) {
-    prevResolvedWorkModeRef.current = resolvedIssueWorkMode;
+  useEffect(() => {
     setPendingWorkMode(resolvedIssueWorkMode);
-  }
+  }, [resolvedIssueWorkMode]);
 
   useImperativeHandle(forwardedRef, () => ({
     focus: focusComposer,
@@ -3429,7 +3211,7 @@ function IssueChatComposer({
     if (
       composerHasAssigneePicker
       && isUnassignedReassignValue(reassignTarget)
-      && !unassignedConfirmedRef.current
+      && !unassignedConfirmed
     ) {
       toastActions?.pushToast({
         title: "No assignee selected",
@@ -3437,12 +3219,12 @@ function IssueChatComposer({
         tone: "warn",
         dedupeKey: `issue-chat-no-assignee:${draftKey ?? ""}`,
       });
-      unassignedConfirmedRef.current = true;
+      setUnassignedConfirmed(true);
       return;
     }
 
     const hasReassignment = enableReassign && reassignTarget !== currentAssigneeValue;
-    const reassignment = hasReassignment ? parseReassignment(reassignTarget) ?? undefined : undefined;
+    const reassignment = hasReassignment ? parseReassignment(reassignTarget) : undefined;
     const reopen = shouldImplicitlyReopenComment(
       issueStatus,
       hasReassignment ? reassignTarget : currentAssigneeValue,
@@ -3453,14 +3235,25 @@ function IssueChatComposer({
     const workModeChanged = pendingWorkMode !== resolvedIssueWorkMode;
     setSubmitting(true);
     setBody("");
-    unassignedConfirmedRef.current = false;
+    setUnassignedConfirmed(false);
     try {
       if (workModeChanged && onWorkModeChange) {
         await onWorkModeChange(pendingWorkMode);
       }
-      const addPromise = onAdd(submittedBody, reopen, reassignment);
+      const appendPromise = api.thread().append({
+        role: "user",
+        content: [{ type: "text", text: submittedBody }],
+        metadata: { custom: {} },
+        attachments: [],
+        runConfig: {
+          custom: {
+            ...(reopen ? { reopen: true } : {}),
+            ...(reassignment ? { reassignment } : {}),
+          },
+        },
+      });
       queueViewportRestore(viewportSnapshot);
-      await addPromise;
+      await appendPromise;
       if (draftKey) clearDraft(draftKey);
       setComposerAttachments([]);
       setReassignTarget(effectiveSuggestedAssigneeValue);
@@ -3550,7 +3343,9 @@ function IssueChatComposer({
     if (!files || files.length === 0) return;
     setAttaching(true);
     try {
-      await Promise.all(Array.from(files, attachFile));
+      for (const file of Array.from(files)) {
+        await attachFile(file);
+      }
     } finally {
       setAttaching(false);
     }
@@ -3625,8 +3420,8 @@ function IssueChatComposer({
           className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-sm border border-dashed border-primary/55 bg-background/75 px-4 py-3 text-center shadow-sm backdrop-blur-[2px] dark:bg-background/65"
         >
           <div className="flex max-w-md items-center gap-3 rounded-md bg-background/80 px-3 py-2 text-left shadow-sm ring-1 ring-border/60">
-            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <Paperclip className="size-4" />
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Paperclip className="h-4 w-4" />
             </span>
             <div className="min-w-0">
               <div className="text-sm font-medium text-foreground">Drop to upload</div>
@@ -3638,7 +3433,7 @@ function IssueChatComposer({
         </div>
       ) : null}
 
-      <DeferredIssueChatEditor
+      <MarkdownEditor
         ref={editorRef}
         value={body}
         onChange={setBody}
@@ -3646,6 +3441,8 @@ function IssueChatComposer({
         mentions={mentions}
         onSubmit={handleSubmit}
         imageUploadHandler={onImageUpload}
+        fileDropTarget="parent"
+        bordered={false}
         contentClassName="max-h-[28dvh] overflow-y-auto pr-1 pb-2 text-sm scrollbar-auto-hide"
       />
 
@@ -3681,11 +3478,11 @@ function IssueChatComposer({
                 )}
               >
                 {attachment.status === "uploading" ? (
-                  <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                 ) : attachment.status === "attached" ? (
-                  <Check className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                  <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
                 ) : (
-                  <AlertTriangle className="size-3.5 shrink-0" />
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 )}
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                   {attachment.name}
@@ -3709,7 +3506,7 @@ function IssueChatComposer({
                 type="file"
                 className="hidden"
                 onChange={handleAttachFile}
-               aria-label="Attach file"/>
+              />
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -3717,7 +3514,7 @@ function IssueChatComposer({
                 disabled={attaching}
                 title="Attach file"
               >
-                <Paperclip className="size-4" />
+                <Paperclip className="h-4 w-4" />
               </Button>
             </>
           ) : null}
@@ -3730,7 +3527,7 @@ function IssueChatComposer({
                   data-testid="issue-chat-composer-work-mode-menu"
                   title="More composer options"
                 >
-                  <MoreHorizontal className="size-4" />
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-44 p-1" align="start">
@@ -3748,9 +3545,9 @@ function IssueChatComposer({
                   }}
                 >
                   {isPlanning ? (
-                    <Hammer className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <Hammer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   ) : (
-                    <ClipboardList className="size-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
+                    <ClipboardList className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
                   )}
                   <span>{isPlanning ? "Switch to standard" : "Switch to planning"}</span>
                 </button>
@@ -3767,7 +3564,7 @@ function IssueChatComposer({
               onClick={() => setPendingWorkMode("standard")}
               className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/60 bg-amber-500/15 px-2 py-1 text-xs text-amber-800 transition-colors hover:bg-amber-500/25 dark:border-amber-500/50 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/25"
             >
-              <ClipboardList className="size-3.5" aria-hidden />
+              <ClipboardList className="h-3.5 w-3.5" aria-hidden />
               <span>Planning</span>
             </button>
           ) : null}
@@ -3790,7 +3587,7 @@ function IssueChatComposer({
               return (
                 <>
                   {agent ? (
-                    <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+                    <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   ) : null}
                   <span className="truncate">{option.label}</span>
                 </>
@@ -3803,7 +3600,7 @@ function IssueChatComposer({
               return (
                 <>
                   {agent ? (
-                    <AgentIcon icon={agent.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+                    <AgentIcon icon={agent.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   ) : null}
                   <span className="truncate">{option.label}</span>
                 </>
@@ -3818,20 +3615,20 @@ function IssueChatComposer({
       </div>
     </div>
   );
-}
+});
 
 export function IssueChatThread({
   comments,
-  interactions = EMPTY_INTERACTIONS,
-  feedbackVotes = EMPTY_FEEDBACK_VOTES,
+  interactions = [],
+  feedbackVotes = [],
   feedbackDataSharingPreference = "prompt",
   feedbackTermsUrl = null,
-  linkedRuns = EMPTY_LINKED_RUNS,
-  timelineEvents = EMPTY_TIMELINE_EVENTS,
-  liveRuns = EMPTY_LIVE_RUNS,
+  linkedRuns = [],
+  timelineEvents = [],
+  liveRuns = [],
   activeRun = null,
   issueId = null,
-  blockedBy = EMPTY_BLOCKED_BY,
+  blockedBy = [],
   blockerAttention = null,
   successfulRunHandoff = null,
   scheduledRetry = null,
@@ -3848,6 +3645,7 @@ export function IssueChatThread({
   userProfileMap,
   onVote,
   onAdd,
+  onCancelRun,
   onStopRun,
   stopRunLabel,
   stoppingRunLabel,
@@ -3856,10 +3654,10 @@ export function IssueChatThread({
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
+  reassignOptions = [],
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = EMPTY_MENTION_OPTIONS,
+  mentions = [],
   composerDisabledReason = null,
   composerHint = null,
   showComposer = true,
@@ -3888,7 +3686,7 @@ export function IssueChatThread({
   onResumeFromBacklog,
   resumeFromBacklogPending = false,
 }: IssueChatThreadProps) {
-  const routerLocation = useLocation();
+  const location = useLocation();
   const lastScrolledHashRef = useRef<string | null>(null);
   const virtualizedThreadRef = useRef<VirtualizedIssueChatThreadListHandle | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -3899,7 +3697,7 @@ export function IssueChatThread({
   const lastUserMessageIdRef = useRef<string | null>(null);
   const spacerBaselineAnchorRef = useRef<string | null>(null);
   const spacerInitialReserveRef = useRef(0);
-  const latestSettleTimeoutsRef = useLazyRef<number[]>(() => []);
+  const latestSettleTimeoutsRef = useRef<number[]>([]);
   const latestSettleCleanupRef = useRef<(() => void) | null>(null);
   const [bottomSpacerHeight, setBottomSpacerHeight] = useState(0);
   const displayLiveRuns = useMemo(() => {
@@ -3923,7 +3721,7 @@ export function IssueChatThread({
         lastOutputBytes: activeRun.lastOutputBytes,
       });
     }
-    return Array.from(deduped.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return [...deduped.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [activeRun, liveRuns]);
   const transcriptRuns = useMemo(() => {
     return resolveIssueChatTranscriptRuns({
@@ -3993,8 +3791,8 @@ export function IssueChatThread({
       userLabelMap,
     ],
   );
-  const stableMessagesRef = useLazyRef<readonly ThreadMessage[]>(() => []);
-  const stableMessageCacheRef = useLazyRef<Map<string, StableThreadMessageCacheEntry>>(() => new Map());
+  const stableMessagesRef = useRef<readonly ThreadMessage[]>([]);
+  const stableMessageCacheRef = useRef<Map<string, StableThreadMessageCacheEntry>>(new Map());
   const messages = useMemo(() => {
     const stabilized = stabilizeThreadMessages(
       rawMessages,
@@ -4008,6 +3806,7 @@ export function IssueChatThread({
   const latestMessagesRef = useRef<readonly ThreadMessage[]>(messages);
   latestMessagesRef.current = messages;
 
+  const isRunning = displayLiveRuns.some((run) => run.status === "queued" || run.status === "running");
   const unresolvedBlockers = useMemo(
     () => blockedBy.filter((blocker) => blocker.status !== "done" && blocker.status !== "cancelled"),
     [blockedBy],
@@ -4067,14 +3866,15 @@ export function IssueChatThread({
     return true;
   }
 
-  const handleAdd = useCallback((
-    body: string,
-    reopen?: boolean,
-    reassignment?: CommentReassignment,
-  ) => {
-    pendingSubmitScrollRef.current = true;
-    return onAdd(body, reopen, reassignment);
-  }, [onAdd]);
+  const runtime = usePaperclipIssueRuntime({
+    messages,
+    isRunning,
+    onSend: ({ body, reopen, reassignment }) => {
+      pendingSubmitScrollRef.current = true;
+      return onAdd(body, reopen, reassignment);
+    },
+    onCancel: onCancelRun,
+  });
 
   useEffect(() => {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -4133,7 +3933,7 @@ export function IssueChatThread({
   }, [messages]);
 
   useEffect(() => {
-    const hash = routerLocation.hash || (typeof window !== "undefined" ? window.location.hash : "");
+    const hash = location.hash || (typeof window !== "undefined" ? window.location.hash : "");
     if (
       !(
         hash.startsWith("#comment-")
@@ -4162,7 +3962,7 @@ export function IssueChatThread({
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [routerLocation.hash, messageAnchorIndex, messages, useVirtualizedThread]);
+  }, [location.hash, messageAnchorIndex, messages, useVirtualizedThread]);
 
   function jumpToLatestFallback() {
     if (useVirtualizedThread) {
@@ -4401,20 +4201,10 @@ export function IssueChatThread({
     errorBoundaryResetVersionRef.current += 1;
   }
   const errorBoundaryResetKey = String(errorBoundaryResetVersionRef.current);
-  const blockedNoticeHandoff = recoveryAction ? null : successfulRunHandoff;
-  const shouldRenderAssignedBacklogNotice =
-    issueStatus === "backlog" && Boolean(assignedAgent || assigneeUserId);
-  const shouldRenderBlockedNotice =
-    issueStatus !== "done"
-    && issueStatus !== "cancelled"
-    && (
-      blockedNoticeHandoff?.required === true
-      || unresolvedBlockers.length > 0
-      || issueStatus === "blocked"
-    );
 
   return (
-    <IssueChatCtx.Provider value={chatCtx}>
+    <AssistantRuntimeProvider runtime={runtime}>
+      <IssueChatCtx.Provider value={chatCtx}>
       <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
         {resolvedShowJumpToLatest ? (
           <div className="flex justify-end">
@@ -4459,6 +4249,9 @@ export function IssueChatThread({
                   variant={variant}
                 />
               ) : (
+                // Keep transcript rendering independent from assistant-ui's
+                // index-scoped message providers; live transcripts can shrink
+                // or regroup while the runtime still holds stale indices.
                 messages.map((message) => (
                   <IssueChatMessageRow
                     key={message.id}
@@ -4472,17 +4265,15 @@ export function IssueChatThread({
             )}
               {showComposer ? (
                 <div data-testid="issue-chat-thread-notices" className="space-y-2">
-                  {shouldRenderAssignedBacklogNotice ? (
-                    <DeferredIssueAssignedBacklogNotice
-                      issueStatus={issueStatus ?? ""}
-                      assigneeAgent={assignedAgent}
-                      assigneeUserId={assigneeUserId}
-                      onResume={onResumeFromBacklog}
-                      resuming={resumeFromBacklogPending}
-                    />
-                  ) : null}
+                  <IssueAssignedBacklogNotice
+                    issueStatus={issueStatus ?? ""}
+                    assigneeAgent={assignedAgent}
+                    assigneeUserId={assigneeUserId}
+                    onResume={onResumeFromBacklog}
+                    resuming={resumeFromBacklogPending}
+                  />
                   {recoveryAction ? (
-                    <DeferredIssueRecoveryActionCard
+                    <IssueRecoveryActionCard
                       action={recoveryAction}
                       agentMap={agentMap}
                       onResolve={onResolveRecoveryAction}
@@ -4506,7 +4297,8 @@ export function IssueChatThread({
                                 {legacyRecoverySourceIssue.identifier}
                                 {legacyRecoverySourceIssue.title ? (
                                   <span className="text-muted-foreground">
-                                    {" "}, {legacyRecoverySourceIssue.title}
+                                    {" "}
+                                    — {legacyRecoverySourceIssue.title}
                                   </span>
                                 ) : null}
                               </Link>
@@ -4518,21 +4310,19 @@ export function IssueChatThread({
                       }
                     />
                   ) : null}
-                  {shouldRenderBlockedNotice ? (
-                    <DeferredIssueBlockedNotice
-                      issueId={issueId}
-                      issueStatus={issueStatus}
-                      blockers={unresolvedBlockers}
-                      blockerAttention={blockerAttention}
-                      successfulRunHandoff={blockedNoticeHandoff}
-                      scheduledRetry={scheduledRetry}
-                      agentName={
-                        successfulRunHandoff?.assigneeAgentId
-                          ? agentMap?.get(successfulRunHandoff.assigneeAgentId)?.name ?? null
-                          : null
-                      }
-                    />
-                  ) : null}
+                  <IssueBlockedNotice
+                    issueId={issueId}
+                    issueStatus={issueStatus}
+                    blockers={unresolvedBlockers}
+                    blockerAttention={blockerAttention}
+                    successfulRunHandoff={recoveryAction ? null : successfulRunHandoff}
+                    scheduledRetry={scheduledRetry}
+                    agentName={
+                      successfulRunHandoff?.assigneeAgentId
+                        ? agentMap?.get(successfulRunHandoff.assigneeAgentId)?.name ?? null
+                        : null
+                    }
+                  />
                   <IssueAssigneePausedNotice agent={assignedAgent} />
                 </div>
               ) : null}
@@ -4557,7 +4347,6 @@ export function IssueChatThread({
           >
             <IssueChatComposer
               ref={composerRef}
-              onAdd={handleAdd}
               onImageUpload={imageUploadHandler}
               onAttachImage={onAttachImage}
               draftKey={draftKey}
@@ -4576,6 +4365,7 @@ export function IssueChatThread({
           </div>
         ) : null}
       </div>
-    </IssueChatCtx.Provider>
+      </IssueChatCtx.Provider>
+    </AssistantRuntimeProvider>
   );
 }

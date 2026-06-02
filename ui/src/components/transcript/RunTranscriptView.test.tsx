@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TranscriptEntry } from "../../adapters";
 import { ThemeProvider } from "../../context/ThemeContext";
-import { normalizeTranscript } from "./run-transcript-utils";
-import { RunTranscriptView } from "./RunTranscriptView";
+import { RunTranscriptView, normalizeTranscript } from "./RunTranscriptView";
 
 describe("RunTranscriptView", () => {
   it("keeps running command stdout inside the command fold instead of a standalone stdout block", () => {

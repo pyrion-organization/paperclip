@@ -11,7 +11,7 @@ import {
   prefetchIssueDetail,
 } from "@/lib/issueDetailCache";
 import { queryKeys } from "@/lib/queryKeys";
-import { cn } from "@/lib/classnames";
+import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusIcon } from "@/components/StatusIcon";
 
@@ -69,36 +69,36 @@ export function IssueQuicklookCard({
   );
 }
 
-type IssueLinkQuicklookProps = React.ComponentProps<typeof RouterDom.Link> & {
-  issuePathId: string;
-  disableIssueQuicklook?: boolean;
-  issuePrefetch?: Issue | null;
-  initialOpen?: boolean;
-  issueQuicklookSide?: React.ComponentProps<typeof PopoverContent>["side"];
-  issueQuicklookAlign?: React.ComponentProps<typeof PopoverContent>["align"];
-  ref?: React.Ref<HTMLAnchorElement>;
-};
-
-export function IssueLinkQuicklook({
-  issuePathId,
-  to,
-  children,
-  className,
-  state,
-  disableIssueQuicklook = false,
-  issuePrefetch = null,
-  initialOpen = false,
-  issueQuicklookSide = "top",
-  issueQuicklookAlign = "start",
-  onClick,
-  onClickCapture,
-  onMouseEnter,
-  onFocus,
-  onBlur,
-  onTouchStart,
+export const IssueLinkQuicklook = React.forwardRef<
+  HTMLAnchorElement,
+  React.ComponentProps<typeof RouterDom.Link> & {
+    issuePathId: string;
+    disableIssueQuicklook?: boolean;
+    issuePrefetch?: Issue | null;
+    issueQuicklookSide?: React.ComponentProps<typeof PopoverContent>["side"];
+    issueQuicklookAlign?: React.ComponentProps<typeof PopoverContent>["align"];
+  }
+>(function IssueLinkQuicklookImpl(
+  {
+    issuePathId,
+    to,
+    children,
+    className,
+    state,
+    disableIssueQuicklook = false,
+    issuePrefetch = null,
+    issueQuicklookSide = "top",
+    issueQuicklookAlign = "start",
+    onClick,
+    onClickCapture,
+    onMouseEnter,
+    onFocus,
+    onBlur,
+    onTouchStart,
+    ...props
+  },
   ref,
-  ...props
-}: IssueLinkQuicklookProps) {
+) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
@@ -112,13 +112,6 @@ export function IssueLinkQuicklook({
   const handlePrefetch = React.useCallback(() => {
     void prefetchIssueDetail(queryClient, issuePathId, { issue: issuePrefetch });
   }, [issuePathId, issuePrefetch, queryClient]);
-
-  React.useEffect(() => {
-    if (!initialOpen) return;
-    handlePrefetch();
-    setOpen(true);
-  }, [handlePrefetch, initialOpen]);
-
   const link = (
     <RouterDom.Link
       ref={ref}
@@ -196,4 +189,4 @@ export function IssueLinkQuicklook({
       </PopoverContent>
     </Popover>
   );
-}
+});
