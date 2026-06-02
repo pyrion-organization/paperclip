@@ -1030,7 +1030,7 @@ function buildLocalChunks(entities: LocalUpstreamExportEntity[], maxEntitiesPerC
 }
 
 async function remoteGet(connection: ConnectionRow, path: string): Promise<unknown> {
-  validateCloudUpstreamUrl(new URL(connection.targetOrigin), { label: "Cloud upstream origin" });
+  validateStoredCloudUpstreamOrigin(connection);
   const response = await fetchWithTimeout(`${connection.targetOrigin}${path}`, {
     method: "GET",
     headers: await proofHeaders(connection, "GET", path),
@@ -1039,7 +1039,7 @@ async function remoteGet(connection: ConnectionRow, path: string): Promise<unkno
 }
 
 async function remotePost(connection: ConnectionRow, path: string, body: unknown): Promise<unknown> {
-  validateCloudUpstreamUrl(new URL(connection.targetOrigin), { label: "Cloud upstream origin" });
+  validateStoredCloudUpstreamOrigin(connection);
   const response = await fetchWithTimeout(`${connection.targetOrigin}${path}`, {
     method: "POST",
     headers: {
@@ -1049,6 +1049,14 @@ async function remotePost(connection: ConnectionRow, path: string, body: unknown
     body: JSON.stringify(body),
   }, REMOTE_FETCH_TIMEOUT_MS);
   return parseRemoteResponse(response);
+}
+
+function validateStoredCloudUpstreamOrigin(connection: ConnectionRow): void {
+  const origin = new URL(connection.targetOrigin);
+  validateCloudUpstreamUrl(origin, {
+    allowLocalhostDev: isLocalhost(origin.hostname),
+    label: "Cloud upstream origin",
+  });
 }
 
 async function proofHeaders(connection: ConnectionRow, method: string, pathAndSearch: string): Promise<Record<string, string>> {

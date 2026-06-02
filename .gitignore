@@ -42,6 +42,7 @@ diagnostics/
 *.tmp
 .vscode/
 .clawpatch/
+.claude/
 .claude/settings.local.json
 .paperclip-local/
 /.idea/
@@ -57,5 +58,4 @@ tests/release-smoke/test-results/
 tests/release-smoke/playwright-report/
 .superset/
 .superpowers/
-.claude/worktrees/
 .herenow

@@ -95,8 +95,6 @@ export async function claimBoardOwnership(
   const challenge = activeChallenge;
   if (!challenge || challenge.token !== opts.token) return { status: "invalid" };
   challenge.claimInProgress = true;
-  challenge.claimedAt = new Date();
-  challenge.claimedByUserId = opts.userId;
 
   const claimedCompanyIds: string[] = [];
   try {
@@ -151,6 +149,21 @@ export async function claimBoardOwnership(
         }
       }
     });
+
+    for (const companyId of claimedCompanyIds) {
+      await ensureHumanRoleDefaultGrants(db, {
+        companyId,
+        principalId: opts.userId,
+        membershipRole: "owner",
+        grantedByUserId: opts.userId,
+      });
+    }
+
+    if (activeChallenge === challenge) {
+      challenge.claimedAt = new Date();
+      challenge.claimedByUserId = opts.userId;
+      challenge.claimInProgress = false;
+    }
   } catch (error) {
     if (activeChallenge === challenge) {
       challenge.claimInProgress = false;
@@ -158,15 +171,6 @@ export async function claimBoardOwnership(
       challenge.claimedByUserId = null;
     }
     throw error;
-  }
-
-  for (const companyId of claimedCompanyIds) {
-    await ensureHumanRoleDefaultGrants(db, {
-      companyId,
-      principalId: opts.userId,
-      membershipRole: "owner",
-      grantedByUserId: opts.userId,
-    });
   }
 
   return { status: "claimed", claimedByUserId: opts.userId };

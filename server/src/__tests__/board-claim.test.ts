@@ -4,6 +4,7 @@ import {
   getBoardClaimWarningUrl,
   initializeBoardClaimChallenge,
 } from "../board-claim.js";
+import { ensureHumanRoleDefaultGrants } from "../services/principal-access-compatibility.js";
 
 vi.mock("../services/principal-access-compatibility.js", () => ({
   ensureHumanRoleDefaultGrants: vi.fn(async () => {}),
@@ -84,6 +85,28 @@ describe("board claim", () => {
     await expect(firstClaim).resolves.toEqual({
       status: "claimed",
       claimedByUserId: "user-1",
+    });
+  });
+
+  it("keeps the challenge retryable when post-transaction grant setup fails", async () => {
+    const ensureDefaultGrants = vi.mocked(ensureHumanRoleDefaultGrants);
+    ensureDefaultGrants.mockRejectedValueOnce(new Error("grant setup failed"));
+    const db = makeFakeDb();
+    await initializeBoardClaimChallenge(db as never, { deploymentMode: "authenticated" });
+    const challenge = readChallenge();
+
+    await expect(claimBoardOwnership(db as never, {
+      ...challenge,
+      userId: "user-1",
+    })).rejects.toThrow("grant setup failed");
+
+    expect(getBoardClaimWarningUrl("127.0.0.1", 3100)).not.toBeNull();
+    await expect(claimBoardOwnership(db as never, {
+      ...challenge,
+      userId: "user-2",
+    })).resolves.toEqual({
+      status: "claimed",
+      claimedByUserId: "user-2",
     });
   });
 });

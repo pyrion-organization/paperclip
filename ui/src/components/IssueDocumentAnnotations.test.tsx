@@ -205,6 +205,7 @@ function Harness({
   historicalPreview = false,
   locationHash = "",
   initialPanelOpen = false,
+  defaultFocusedThreadId,
 }: {
   doc: IssueDocument;
   draftDirty?: boolean;
@@ -212,6 +213,7 @@ function Harness({
   historicalPreview?: boolean;
   locationHash?: string;
   initialPanelOpen?: boolean;
+  defaultFocusedThreadId?: string;
 }) {
   const [open, setOpen] = useState(initialPanelOpen);
   return (
@@ -232,6 +234,7 @@ function Harness({
         locationHash={locationHash}
         panelOpen={open}
         onPanelOpenChange={setOpen}
+        defaultFocusedThreadId={defaultFocusedThreadId}
       >
         <p>Body content</p>
       </IssueDocumentAnnotations>
@@ -418,6 +421,45 @@ describe("IssueDocumentAnnotations", () => {
     await flush();
 
     expect(container.querySelector('[data-thread-id="resolved-1"]')).not.toBeNull();
+  });
+
+  it("moves to a focused thread's bucket when the thread data arrives later", async () => {
+    let resolveThreads: (threads: DocumentAnnotationThreadWithComments[]) => void = () => {};
+    mockAnnotationsApi.list.mockReturnValue(new Promise((resolve) => {
+      resolveThreads = resolve;
+    }));
+    const root = createRoot(container);
+    const queryClient = makeQueryClient();
+    const doc = makeDoc();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            doc={doc}
+            initialPanelOpen
+            defaultFocusedThreadId="resolved-late"
+          />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
+
+    expect(container.querySelector('[data-thread-id="resolved-late"]')).toBeNull();
+
+    await act(async () => {
+      resolveThreads([
+        makeThread({ id: "resolved-late", status: "resolved" }),
+      ]);
+    });
+    await flush();
+    await flush();
+
+    const resolvedTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.startsWith("Resolved"),
+    );
+    expect(resolvedTab?.getAttribute("data-active")).toBe("true");
+    expect(container.querySelector('[data-thread-id="resolved-late"]')).not.toBeNull();
   });
 
   it("renders author name + role from agent and user maps", async () => {

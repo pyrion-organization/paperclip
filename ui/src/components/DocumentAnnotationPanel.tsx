@@ -38,6 +38,13 @@ const FILTERS: { id: AnnotationFilter; label: string }[] = [
   { id: "orphan", label: "Orphaned" },
 ];
 
+function getThreadFilter(thread: DocumentAnnotationThreadWithComments): AnnotationFilter {
+  if (thread.anchorState === "orphaned") return "orphan";
+  if (thread.anchorState === "stale") return "stale";
+  if (thread.status === "resolved") return "resolved";
+  return "open";
+}
+
 export interface AnnotationPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -192,19 +199,19 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
   }, [props.open, props.pendingAnchor]);
 
   // Move the filter to the focused thread's bucket during render when the
-  // focused thread changes.
-  const [prevFocusedThreadId, setPrevFocusedThreadId] = useState(props.focusedThreadId);
-  if (props.focusedThreadId !== prevFocusedThreadId) {
-    setPrevFocusedThreadId(props.focusedThreadId);
-    const focused = props.focusedThreadId
-      ? props.threads.find((thread) => thread.id === props.focusedThreadId)
-      : undefined;
-    if (focused) {
-      if (focused.anchorState === "orphaned") setFilter("orphan");
-      else if (focused.anchorState === "stale") setFilter("stale");
-      else if (focused.status === "resolved") setFilter("resolved");
-      else setFilter("open");
-    }
+  // focused thread id or bucket changes. The bucket can change after async
+  // refetches without the focused id changing.
+  const focusedThread = props.focusedThreadId
+    ? props.threads.find((thread) => thread.id === props.focusedThreadId)
+    : undefined;
+  const focusedThreadFilter = focusedThread ? getThreadFilter(focusedThread) : null;
+  const focusedThreadFilterKey = props.focusedThreadId && focusedThreadFilter
+    ? `${props.focusedThreadId}:${focusedThreadFilter}`
+    : null;
+  const [syncedFocusedThreadFilterKey, setSyncedFocusedThreadFilterKey] = useState<string | null>(null);
+  if (focusedThreadFilterKey !== syncedFocusedThreadFilterKey) {
+    setSyncedFocusedThreadFilterKey(focusedThreadFilterKey);
+    if (focusedThreadFilter) setFilter(focusedThreadFilter);
   }
 
   return (

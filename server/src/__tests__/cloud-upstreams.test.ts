@@ -200,6 +200,36 @@ describeEmbeddedPostgres("cloud upstream persistence", () => {
     expect(row.targetOrigin).toBe("http://localhost:3200");
   });
 
+  it("keeps stored localhost development origins usable for transfer calls", async () => {
+    const companyId = randomUUID();
+    const connectionId = randomUUID();
+    await seedCompany(companyId);
+    await db.insert(cloudUpstreamConnections).values({
+      ...cloudConnectionRow({ id: connectionId, companyId }),
+      remoteUrl: "http://localhost:3200",
+      targetOrigin: "http://localhost:3200",
+      targetPrimaryHost: "localhost:3200",
+    });
+
+    const remoteCalls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      remoteCalls.push(`${init?.method ?? "GET"} ${url.origin}${url.pathname}`);
+      if (url.origin === "http://localhost:3200" && url.pathname.endsWith("/upstream-imports/preview")) {
+        return jsonResponse({
+          warnings: [{ code: "remote_preview_ok", message: "Preview accepted." }],
+          conflicts: [],
+        });
+      }
+      return jsonResponse({ error: "not_found" }, 404);
+    });
+
+    const preview = await cloudUpstreamService(db).preview(connectionId, companyId);
+
+    expect(remoteCalls).toContain("POST http://localhost:3200/api/companies/cloud-company-1/upstream-imports/preview");
+    expect(preview.warnings.some((warning) => warning.code === "remote_preview_ok")).toBe(true);
+  });
+
   it("marks orphaned running runs failed during startup reconciliation", async () => {
     const companyId = randomUUID();
     const connectionId = randomUUID();
