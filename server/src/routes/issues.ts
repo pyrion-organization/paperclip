@@ -649,6 +649,18 @@ function isExplicitResumeCapableStatus(status: string | null | undefined) {
   return status === "done" || status === "blocked" || status === "todo" || status === "in_progress";
 }
 
+function isAcceptedPlanContinuationConfirmation(input: {
+  interaction: { kind: string; status: string; payload: unknown };
+  issue: Pick<IssueRouteSnapshot, "id" | "workMode">;
+}) {
+  if (input.interaction.kind !== "request_confirmation" || input.interaction.status !== "accepted") {
+    return false;
+  }
+  const acceptedPlanTarget = readAcceptedPlanConfirmationTarget(input.interaction.payload);
+  if (!acceptedPlanTarget) return input.issue.workMode === "planning";
+  return acceptedPlanTarget.issueId === input.issue.id && acceptedPlanTarget.key === "plan";
+}
+
 function queueResolvedInteractionContinuationWakeup(input: {
   heartbeat: ReturnType<typeof heartbeatService>;
   issue: { id: string; assigneeAgentId: string | null; status: string };
@@ -5320,12 +5332,7 @@ export function issueRoutes(
         });
       }
 
-      const acceptedPlanTarget = readAcceptedPlanConfirmationTarget(interaction.payload);
-      const acceptedPlanConfirmation =
-        interaction.kind === "request_confirmation" &&
-        interaction.status === "accepted" &&
-        acceptedPlanTarget?.issueId === issue.id &&
-        acceptedPlanTarget.key === "plan";
+      const acceptedPlanConfirmation = isAcceptedPlanContinuationConfirmation({ interaction, issue });
       queueResolvedInteractionContinuationWakeup({
         heartbeat,
         issue: continuationWakeIssue,
