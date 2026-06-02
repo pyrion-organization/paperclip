@@ -2298,6 +2298,76 @@ describe("ensureRuntimeServicesForRun", () => {
     expect(third[0]?.id).not.toBe(first[0]?.id);
   }, 10_000);
 
+  it("deduplicates concurrent shared runtime service starts", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-runtime-concurrent-"));
+    const workspace = buildWorkspace(workspaceRoot);
+    const config = {
+      workspaceRuntime: {
+        services: [
+          {
+            name: "web",
+            command: "node -e \"require('node:http').createServer((req,res)=>res.end('ok')).listen(Number(process.env.PORT), '127.0.0.1')\"",
+            port: { type: "auto" },
+            readiness: {
+              type: "http",
+              urlTemplate: "http://127.0.0.1:{{port}}",
+              timeoutSec: 10,
+              intervalMs: 100,
+            },
+            expose: {
+              type: "url",
+              urlTemplate: "http://127.0.0.1:{{port}}",
+            },
+            lifecycle: "shared",
+            reuseScope: "project_workspace",
+            stopPolicy: {
+              type: "on_run_finish",
+            },
+          },
+        ],
+      },
+    };
+
+    const run1 = "run-concurrent-1";
+    const run2 = "run-concurrent-2";
+    leasedRunIds.add(run1);
+    leasedRunIds.add(run2);
+
+    const [first, second] = await Promise.all([
+      ensureRuntimeServicesForRun({
+        runId: run1,
+        agent: {
+          id: "agent-1",
+          name: "Codex Coder",
+          companyId: "company-1",
+        },
+        issue: null,
+        workspace,
+        config,
+        adapterEnv: {},
+      }),
+      ensureRuntimeServicesForRun({
+        runId: run2,
+        agent: {
+          id: "agent-1",
+          name: "Codex Coder",
+          companyId: "company-1",
+        },
+        issue: null,
+        workspace,
+        config,
+        adapterEnv: {},
+      }),
+    ]);
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]?.id).toBe(second[0]?.id);
+    expect(first[0]?.url).toBe(second[0]?.url);
+    expect([first[0]?.reused, second[0]?.reused].filter(Boolean)).toHaveLength(1);
+    await expect(fetch(first[0]!.url!)).resolves.toMatchObject({ ok: true });
+  }, 10_000);
+
   it("does not reuse project-scoped shared services across different workspace launch contexts", async () => {
     const primaryWorkspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-runtime-primary-"));
     const worktreeWorkspaceRoot = path.join(primaryWorkspaceRoot, ".paperclip", "worktrees", "PAP-874-chat-speed-issues");

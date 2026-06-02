@@ -174,7 +174,7 @@ export function EnvVarEditor({
     try {
       setSealError(null);
       const created = await onCreateSecret(name, plain);
-      updateRow(index, { source: "secret", secretId: created.id });
+      updateRow(index, { source: "secret", secretId: created.id, plainValue: "" });
     } catch (error) {
       setSealError(error instanceof Error ? error.message : "Failed to create secret");
     }
@@ -202,7 +202,7 @@ export function EnvVarEditor({
               onChange={(event) =>
                 updateRow(index, {
                   source: event.target.value === "secret" ? "secret" : "plain",
-                  ...(event.target.value === "plain" ? { secretId: "" } : {}),
+                  ...(event.target.value === "plain" ? { secretId: "" } : { plainValue: "" }),
                 })
               }
             >

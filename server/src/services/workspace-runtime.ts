@@ -123,6 +123,7 @@ type StoppedRuntimeServiceReuseCandidate = {
 
 const runtimeServicesById = new Map<string, RuntimeServiceRecord>();
 const runtimeServicesByReuseKey = new Map<string, string>();
+const runtimeServiceStartPromisesByReuseKey = new Map<string, Promise<RuntimeServiceRecord>>();
 const runtimeServiceLeasesByRun = new Map<string, string[]>();
 const DEFAULT_EXECUTE_PROCESS_OUTPUT_BYTES = 256 * 1024;
 
@@ -143,6 +144,7 @@ export async function resetRuntimeServicesForTests() {
   }
   runtimeServicesById.clear();
   runtimeServicesByReuseKey.clear();
+  runtimeServiceStartPromisesByReuseKey.clear();
   runtimeServiceLeasesByRun.clear();
 }
 
@@ -2618,24 +2620,55 @@ export async function ensureRuntimeServicesForRun(input: {
           refs.push(toRuntimeServiceRef(existing, { reused: true }));
           continue;
         }
+
+        const pendingStart = runtimeServiceStartPromisesByReuseKey.get(reuseKey);
+        if (pendingStart) {
+          const record = await pendingStart;
+          record.leaseRunIds.add(input.runId);
+          record.lastUsedAt = new Date().toISOString();
+          record.stoppedAt = null;
+          clearIdleTimer(record);
+          void touchLocalServiceRegistryRecord(record.serviceKey, {
+            runtimeServiceId: record.id,
+            lastSeenAt: record.lastUsedAt,
+          });
+          await persistRuntimeServiceRecord(input.db, record);
+          acquiredServiceIds.push(record.id);
+          refs.push(toRuntimeServiceRef(record, { reused: true }));
+          continue;
+        }
       }
 
-      const record = await startLocalRuntimeService({
-        db: input.db,
-        runId: input.runId,
-        agent: input.agent,
-        issue: input.issue,
-        workspace: input.workspace,
-        executionWorkspaceId: input.executionWorkspaceId,
-        adapterEnv: input.adapterEnv,
-        service,
-        onLog: input.onLog,
-        reuseKey,
-        scopeType,
-        scopeId,
-      });
-      registerRuntimeService(input.db, record);
-      await persistRuntimeServiceRecord(input.db, record);
+      const startPromise = (async () => {
+        const record = await startLocalRuntimeService({
+          db: input.db,
+          runId: input.runId,
+          agent: input.agent,
+          issue: input.issue,
+          workspace: input.workspace,
+          executionWorkspaceId: input.executionWorkspaceId,
+          adapterEnv: input.adapterEnv,
+          service,
+          onLog: input.onLog,
+          reuseKey,
+          scopeType,
+          scopeId,
+        });
+        registerRuntimeService(input.db, record);
+        await persistRuntimeServiceRecord(input.db, record);
+        return record;
+      })();
+      if (reuseKey) {
+        runtimeServiceStartPromisesByReuseKey.set(reuseKey, startPromise);
+      }
+      let record: RuntimeServiceRecord;
+      try {
+        record = await startPromise;
+      } finally {
+        if (reuseKey && runtimeServiceStartPromisesByReuseKey.get(reuseKey) === startPromise) {
+          runtimeServiceStartPromisesByReuseKey.delete(reuseKey);
+        }
+      }
       acquiredServiceIds.push(record.id);
       refs.push(toRuntimeServiceRef(record));
     }
@@ -2704,28 +2737,57 @@ export async function startRuntimeServicesForWorkspaceControl(input: {
         refs.push(toRuntimeServiceRef(existing, { reused: true }));
         continue;
       }
+
+      const pendingStart = runtimeServiceStartPromisesByReuseKey.get(reuseKey);
+      if (pendingStart) {
+        const record = await pendingStart;
+        record.lastUsedAt = new Date().toISOString();
+        record.stoppedAt = null;
+        clearIdleTimer(record);
+        void touchLocalServiceRegistryRecord(record.serviceKey, {
+          runtimeServiceId: record.id,
+          lastSeenAt: record.lastUsedAt,
+        });
+        await persistRuntimeServiceRecord(input.db, record);
+        refs.push(toRuntimeServiceRef(record, { reused: true }));
+        continue;
+      }
     }
 
     // Manually controlled services are not tied to a heartbeat run lifecycle, so they do not
     // retain a run lease and never persist a startedByRunId foreign key.
-    const record = await startLocalRuntimeService({
-      db: input.db,
-      runId: invocationId,
-      leaseRunId: null,
-      startedByRunId: null,
-      agent: input.actor,
-      issue: input.issue,
-      workspace: input.workspace,
-      executionWorkspaceId: input.executionWorkspaceId,
-      adapterEnv: input.adapterEnv,
-      service,
-      onLog: input.onLog,
-      reuseKey,
-      scopeType,
-      scopeId,
-    });
-    registerRuntimeService(input.db, record);
-    await persistRuntimeServiceRecord(input.db, record);
+    const startPromise = (async () => {
+      const record = await startLocalRuntimeService({
+        db: input.db,
+        runId: invocationId,
+        leaseRunId: null,
+        startedByRunId: null,
+        agent: input.actor,
+        issue: input.issue,
+        workspace: input.workspace,
+        executionWorkspaceId: input.executionWorkspaceId,
+        adapterEnv: input.adapterEnv,
+        service,
+        onLog: input.onLog,
+        reuseKey,
+        scopeType,
+        scopeId,
+      });
+      registerRuntimeService(input.db, record);
+      await persistRuntimeServiceRecord(input.db, record);
+      return record;
+    })();
+    if (reuseKey) {
+      runtimeServiceStartPromisesByReuseKey.set(reuseKey, startPromise);
+    }
+    let record: RuntimeServiceRecord;
+    try {
+      record = await startPromise;
+    } finally {
+      if (reuseKey && runtimeServiceStartPromisesByReuseKey.get(reuseKey) === startPromise) {
+        runtimeServiceStartPromisesByReuseKey.delete(reuseKey);
+      }
+    }
     refs.push(toRuntimeServiceRef(record));
   }
 

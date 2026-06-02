@@ -33,7 +33,11 @@ function parseCronToPreset(cron: string): {
     return { preset: "custom", ...defaults };
   }
 
-  const [min, hr, dom, , dow] = parts;
+  const [min, hr, dom, month, dow] = parts;
+
+  if (month !== "*") {
+    return { preset: "custom", ...defaults };
+  }
 
   if (min === "*" && hr === "*" && dom === "*" && dow === "*") {
     return { preset: "every_minute", ...defaults };

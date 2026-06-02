@@ -306,4 +306,11 @@ describe("createZipArchive", () => {
 
     await expect(readZipArchive(archive)).rejects.toThrow("exceeds the maximum uncompressed size");
   });
+
+  it("rejects deflated entries that expand beyond the declared size before buffering the full entry", async () => {
+    const archive = createDeflatedZipArchive({ "COMPANY.md": "# Company\n" }, "paperclip-demo");
+    writeUint32(archive, 22, 1);
+
+    await expect(readZipArchive(archive)).rejects.toThrow("decompressed entry exceeds the maximum allowed size");
+  });
 });

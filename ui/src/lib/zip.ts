@@ -149,8 +149,35 @@ function portableFileEntryToBytes(entry: CompanyPortabilityFileEntry): Uint8Arra
   return base64ToBytes(entry.data);
 }
 
-async function inflateZipEntry(compressionMethod: number, bytes: Uint8Array) {
-  if (compressionMethod === 0) return bytes;
+async function readBoundedStream(stream: ReadableStream<Uint8Array>, maxBytes: number) {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalLength += value.byteLength;
+      if (totalLength > maxBytes) {
+        throw new Error("Invalid zip archive: decompressed entry exceeds the maximum allowed size.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return concatChunks(chunks);
+}
+
+async function inflateZipEntry(compressionMethod: number, bytes: Uint8Array, maxBytes: number) {
+  if (compressionMethod === 0) {
+    if (bytes.byteLength > maxBytes) {
+      throw new Error("Invalid zip archive: decompressed entry exceeds the maximum allowed size.");
+    }
+    return bytes;
+  }
   if (compressionMethod !== 8) {
     throw new Error("Unsupported zip archive: only STORE and DEFLATE entries are supported.");
   }
@@ -160,7 +187,7 @@ async function inflateZipEntry(compressionMethod: number, bytes: Uint8Array) {
   const body = new Uint8Array(bytes.byteLength);
   body.set(bytes);
   const stream = new Blob([body]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return readBoundedStream(stream, maxBytes);
 }
 
 export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<{
@@ -213,7 +240,7 @@ export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<
       if (totalUncompressedSize > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
         throw new Error("Invalid zip archive: total uncompressed size exceeds the maximum allowed size.");
       }
-      const entryBytes = await inflateZipEntry(compressionMethod, bytes.slice(bodyOffset, bodyEnd));
+      const entryBytes = await inflateZipEntry(compressionMethod, bytes.slice(bodyOffset, bodyEnd), uncompressedSize);
       if (entryBytes.length !== uncompressedSize) {
         throw new Error(`Invalid zip archive: entry size mismatch for "${archivePath}".`);
       }

@@ -38,7 +38,7 @@ const FILTERS: { id: AnnotationFilter; label: string }[] = [
   { id: "orphan", label: "Orphaned" },
 ];
 
-function getThreadFilter(thread: DocumentAnnotationThreadWithComments): AnnotationFilter {
+export function getDocumentAnnotationThreadFilter(thread: DocumentAnnotationThreadWithComments): AnnotationFilter {
   if (thread.anchorState === "orphaned") return "orphan";
   if (thread.anchorState === "stale") return "stale";
   if (thread.status === "resolved") return "resolved";
@@ -121,21 +121,14 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
 
   const filteredThreads = useMemo(() => {
     return props.threads.filter((thread) => {
-      if (filter === "open") return thread.status === "open" && thread.anchorState !== "orphaned";
-      if (filter === "resolved") return thread.status === "resolved";
-      if (filter === "stale") return thread.anchorState === "stale";
-      if (filter === "orphan") return thread.anchorState === "orphaned";
-      return true;
+      return getDocumentAnnotationThreadFilter(thread) === filter;
     });
   }, [props.threads, filter]);
 
   const counts = useMemo(() => {
     const result = { open: 0, resolved: 0, stale: 0, orphan: 0 };
     for (const thread of props.threads) {
-      if (thread.status === "resolved") result.resolved += 1;
-      if (thread.anchorState === "stale") result.stale += 1;
-      if (thread.anchorState === "orphaned") result.orphan += 1;
-      if (thread.status === "open" && thread.anchorState !== "orphaned") result.open += 1;
+      result[getDocumentAnnotationThreadFilter(thread)] += 1;
     }
     return result;
   }, [props.threads]);
@@ -204,7 +197,7 @@ function AnnotationPanelBody(props: AnnotationPanelProps) {
   const focusedThread = props.focusedThreadId
     ? props.threads.find((thread) => thread.id === props.focusedThreadId)
     : undefined;
-  const focusedThreadFilter = focusedThread ? getThreadFilter(focusedThread) : null;
+  const focusedThreadFilter = focusedThread ? getDocumentAnnotationThreadFilter(focusedThread) : null;
   const focusedThreadFilterKey = props.focusedThreadId && focusedThreadFilter
     ? `${props.focusedThreadId}:${focusedThreadFilter}`
     : null;

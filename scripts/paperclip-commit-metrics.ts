@@ -3,6 +3,7 @@
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +43,11 @@ interface SearchCommitItem {
   } | null;
   commit: {
     author: {
+      date: string;
+      email: string | null;
+      name: string | null;
+    } | null;
+    committer: {
       date: string;
       email: string | null;
       name: string | null;
@@ -512,14 +518,14 @@ function formatQueryDate(value: Date): string {
   return value.toISOString().replace(".000Z", "Z");
 }
 
-function ingestSearchItems(cache: CacheFile, items: SearchCommitItem[], shas: Set<string>) {
+export function ingestSearchItems(cache: CacheFile, items: SearchCommitItem[], shas: Set<string>) {
   for (const item of items) {
     shas.add(item.sha);
     cache.commits[item.sha] = {
       authorEmail: item.commit.author?.email ?? null,
       authorLogin: item.author?.login ?? null,
       authorName: item.commit.author?.name ?? null,
-      committedAt: item.commit.author?.date ?? null,
+      committedAt: item.commit.committer?.date ?? item.commit.author?.date ?? null,
       contributors: extractContributors(item),
       htmlUrl: item.html_url,
       repositoryFullName: item.repository.full_name,
@@ -791,7 +797,7 @@ async function writeExport(
   await fs.writeFile(outputPath, `${rows.join("\n")}\n`, "utf8");
 }
 
-function buildExportRow(cache: CacheFile, sha: string) {
+export function buildExportRow(cache: CacheFile, sha: string) {
   const commit = cache.commits[sha];
   if (!commit) {
     throw new Error(`Missing cached commit for sha ${sha}`);
@@ -813,11 +819,12 @@ function buildExportRow(cache: CacheFile, sha: string) {
   };
 }
 
-function escapeCsv(value: string): string {
-  if (value.includes(",") || value.includes("\"") || value.includes("\n")) {
-    return `"${value.replaceAll("\"", "\"\"")}"`;
+export function escapeCsv(value: string): string {
+  const neutralized = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (neutralized.includes(",") || neutralized.includes("\"") || neutralized.includes("\n")) {
+    return `"${neutralized.replaceAll("\"", "\"\"")}"`;
   }
-  return value;
+  return neutralized;
 }
 
 function makeWindowKey(start: Date, end: Date): string {
@@ -866,7 +873,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

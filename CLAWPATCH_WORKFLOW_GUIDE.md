@@ -12,13 +12,16 @@ For this loop, focus on the main core of Paperclip:
 - `packages/shared/`
 - `packages/db/`
 - Codex-specific adapter behavior when it affects the core Codex path
+- Claude Code / `claude_local` adapter behavior when it affects the core Claude path
 
 Ignore for now:
 
 - plugin packages and plugin examples
 - harness-only or test-harness issues unless they block core verification
-- adapter/model findings outside Codex, such as Gemini, Claude, Grok, Pi, Cursor, OpenCode, Droid, Hermes, and similar adapter-specific reports
+- adapter/model findings outside Codex or Claude Code, such as Gemini, Grok, Pi, Cursor, OpenCode, Droid, ACPX, Hermes, and similar adapter-specific reports
 - Hermes external-only package/dependency findings on this fork unless the current task is specifically about externalizing Hermes
+
+The local Clawpatch config uses path-level excludes for plugin packages, non-Codex/non-Claude adapters, e2e/release-smoke harnesses, evals, and smoke fixtures. Keep `packages/adapters/codex-local/**` and `packages/adapters/claude-local/**` out of that exclude list.
 
 ## Review
 

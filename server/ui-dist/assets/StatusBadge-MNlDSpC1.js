@@ -1,0 +1,1 @@
+import{j as s,p as a}from"./index-9jALgWXB.js";import{s as t,a as n}from"./issue-runtime-CB_JhnR_.js";function p({status:e}){return s.jsx("span",{className:a("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap shrink-0",t[e]??n),children:e.replace(/_/g," ")})}export{p as S};
