@@ -58,7 +58,6 @@ export default {
   target: "node20",
   format: "esm",
   outfile: "dist/index.js",
-  banner: { js: "#!/usr/bin/env node" },
   external: [...externals].sort(),
   treeShaking: true,
   sourcemap: true,
