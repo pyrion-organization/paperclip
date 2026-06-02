@@ -89,6 +89,7 @@ export async function runCommand(opts: RunOptions): Promise<void> {
       config: configPath,
       dbUrl: startedServer.databaseUrl,
       baseUrl: resolveBootstrapInviteBaseUrl(config, startedServer),
+      failOnError: false,
     });
   }
 }

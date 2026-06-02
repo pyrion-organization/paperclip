@@ -457,42 +457,51 @@ export function createPluginJobScheduler(
         `Job "${job.jobKey}" is already running — cannot trigger while in progress`,
       );
     }
+    activeJobs.add(jobId);
 
-    // Also check DB for running runs (defensive — covers multi-instance)
-    const existingRuns = await db
-      .select()
-      .from(pluginJobRuns)
-      .where(
-        and(
-          eq(pluginJobRuns.jobId, jobId),
-          eq(pluginJobRuns.status, "running"),
-        ),
-      );
+    try {
+      // Also check DB for queued/running runs (defensive — covers multi-instance)
+      const existingRuns = await db
+        .select()
+        .from(pluginJobRuns)
+        .where(
+          and(
+            eq(pluginJobRuns.jobId, jobId),
+            or(
+              eq(pluginJobRuns.status, "queued"),
+              eq(pluginJobRuns.status, "running"),
+            ),
+          ),
+        );
 
-    if (existingRuns.length > 0) {
-      throw new Error(
-        `Job "${job.jobKey}" already has a running execution — cannot trigger while in progress`,
-      );
+      if (existingRuns.length > 0) {
+        throw new Error(
+          `Job "${job.jobKey}" already has an active execution — cannot trigger while in progress`,
+        );
+      }
+
+      // Check worker availability
+      if (!workerManager.isRunning(job.pluginId)) {
+        throw new Error(
+          `Worker for plugin "${job.pluginId}" is not running — cannot trigger job`,
+        );
+      }
+
+      // Create the run and dispatch (non-blocking)
+      const run = await jobStore.createRun({
+        jobId,
+        pluginId: job.pluginId,
+        trigger,
+      });
+
+      // Dispatch in background — don't block the caller
+      void dispatchManualRun(job, run.id, trigger);
+
+      return { runId: run.id, jobId };
+    } catch (err) {
+      activeJobs.delete(jobId);
+      throw err;
     }
-
-    // Check worker availability
-    if (!workerManager.isRunning(job.pluginId)) {
-      throw new Error(
-        `Worker for plugin "${job.pluginId}" is not running — cannot trigger job`,
-      );
-    }
-
-    // Create the run and dispatch (non-blocking)
-    const run = await jobStore.createRun({
-      jobId,
-      pluginId: job.pluginId,
-      trigger,
-    });
-
-    // Dispatch in background — don't block the caller
-    void dispatchManualRun(job, run.id, trigger);
-
-    return { runId: run.id, jobId };
   }
 
   /**
@@ -506,7 +515,6 @@ export function createPluginJobScheduler(
     const { id: jobId, pluginId, jobKey } = job;
     const jobLog = log.child({ jobId, pluginId, jobKey, runId, trigger });
 
-    activeJobs.add(jobId);
     const startedAt = Date.now();
 
     try {

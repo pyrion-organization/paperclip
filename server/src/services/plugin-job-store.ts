@@ -173,6 +173,7 @@ export function pluginJobStore(db: Db) {
           };
           if (existing.schedule !== schedule) {
             updates.schedule = schedule;
+            updates.nextRunAt = null;
           }
           if (existing.status === "paused") {
             updates.status = "active";

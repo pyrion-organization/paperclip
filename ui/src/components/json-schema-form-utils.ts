@@ -58,6 +58,8 @@ export function getDefaultForSchema(schema: JsonSchemaNode): unknown {
       return false;
     case "enum":
       return schema.enum?.[0] ?? "";
+    case "const":
+      return schema.const;
     case "array":
       return [];
     case "object": {
@@ -85,6 +87,12 @@ function validateField(
   }
 
   if (value === undefined || value === null || value === "") return null;
+
+  if (type === "const") {
+    return JSON.stringify(value) === JSON.stringify(schema.const)
+      ? null
+      : `Must equal ${JSON.stringify(schema.const)}`;
+  }
 
   if (type === "string" || type === "secret-ref") {
     const str = String(value);

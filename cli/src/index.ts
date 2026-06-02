@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 import { onboard } from "./commands/onboard.js";
 import { doctor } from "./commands/doctor.js";
@@ -65,10 +66,10 @@ program
   .option("-c, --config <path>", "Path to config file")
   .option("-d, --data-dir <path>", DATA_DIR_OPTION_HELP)
   .option("--repair", "Attempt to repair issues automatically")
-  .alias("--fix")
+  .option("--fix", "Attempt to repair issues automatically")
   .option("-y, --yes", "Skip repair confirmation prompts")
   .action(async (opts) => {
-    await doctor(opts);
+    await doctor({ ...opts, repair: opts.repair || opts.fix });
   });
 
 program

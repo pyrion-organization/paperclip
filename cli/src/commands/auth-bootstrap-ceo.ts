@@ -57,6 +57,7 @@ export async function bootstrapCeoInvite(opts: {
   expiresHours?: number;
   baseUrl?: string;
   dbUrl?: string;
+  failOnError?: boolean;
 }) {
   const configPath = resolveConfigPath(opts.config);
   loadPaperclipEnvFile(configPath);
@@ -132,6 +133,9 @@ export async function bootstrapCeoInvite(opts: {
   } catch (err) {
     p.log.error(`Could not create bootstrap invite: ${err instanceof Error ? err.message : String(err)}`);
     p.log.info("If using embedded-postgres, start the Paperclip server and run this command again.");
+    if (opts.failOnError !== false) {
+      throw err;
+    }
   } finally {
     await closableDb.$client?.end?.({ timeout: 5 }).catch(() => undefined);
   }

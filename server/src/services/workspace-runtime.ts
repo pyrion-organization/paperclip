@@ -2293,6 +2293,10 @@ async function startLocalRuntimeService(input: {
       spawnErrorPromise,
       earlyExitPromise,
     ]);
+    if (observedExit || child.exitCode !== null || child.signalCode !== null) {
+      observedExit ??= { code: child.exitCode, signal: child.signalCode };
+      throw new Error(`process exited before runtime service was ready${formatRuntimeServiceExit(observedExit)}`);
+    }
   } catch (err) {
     terminateChildProcess(child);
     throw new Error(

@@ -17,6 +17,7 @@ type ClaimChallenge = {
   expiresAt: Date;
   claimedAt: Date | null;
   claimedByUserId: string | null;
+  claimInProgress: boolean;
 };
 
 let activeChallenge: ClaimChallenge | null = null;
@@ -29,6 +30,7 @@ function createChallenge(now = new Date()): ClaimChallenge {
     expiresAt: new Date(now.getTime() + CLAIM_TTL_MS),
     claimedAt: null,
     claimedByUserId: null,
+    claimInProgress: false,
   };
 }
 
@@ -36,6 +38,7 @@ function getChallengeStatus(token: string, code: string | undefined): ChallengeS
   if (!activeChallenge) return "invalid";
   if (activeChallenge.token !== token) return "invalid";
   if (activeChallenge.code !== (code ?? "")) return "invalid";
+  if (activeChallenge.claimInProgress) return "claimed";
   if (activeChallenge.claimedAt) return "claimed";
   if (activeChallenge.expiresAt.getTime() <= Date.now()) return "expired";
   return "available";
@@ -91,6 +94,7 @@ export async function claimBoardOwnership(
   if (status !== "available") return { status };
   const challenge = activeChallenge;
   if (!challenge || challenge.token !== opts.token) return { status: "invalid" };
+  challenge.claimInProgress = true;
   challenge.claimedAt = new Date();
   challenge.claimedByUserId = opts.userId;
 
@@ -149,6 +153,7 @@ export async function claimBoardOwnership(
     });
   } catch (error) {
     if (activeChallenge === challenge) {
+      challenge.claimInProgress = false;
       challenge.claimedAt = null;
       challenge.claimedByUserId = null;
     }

@@ -496,13 +496,27 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
     if (database.mode === "postgres" && database.connectionString) {
       const s = p.spinner();
       s.start("Testing database connection...");
+      let closableDb:
+        | {
+            $client?: {
+              end?: (options?: { timeout?: number }) => Promise<void>;
+            };
+          }
+        | null = null;
       try {
         const { createDb } = await import("@paperclipai/db");
         const db = createDb(database.connectionString);
+        closableDb = db as typeof db & {
+          $client?: {
+            end?: (options?: { timeout?: number }) => Promise<void>;
+          };
+        };
         await db.execute("SELECT 1");
         s.stop("Database connection successful");
       } catch {
         s.stop(pc.yellow("Could not connect to database — you can fix this later with `paperclipai doctor`"));
+      } finally {
+        await closableDb?.$client?.end?.({ timeout: 5 }).catch(() => undefined);
       }
     }
 
@@ -662,7 +676,7 @@ export async function onboard(opts: OnboardOptions): Promise<void> {
 
   if (canCreateBootstrapInviteImmediately({ database, server })) {
     p.log.step("Generating bootstrap CEO invite");
-    await bootstrapCeoInvite({ config: configPath });
+    await bootstrapCeoInvite({ config: configPath, failOnError: false });
   }
 
   let shouldRunNow = opts.run === true || opts.yes === true;
