@@ -45,8 +45,9 @@
     "release:bootstrap-package": "node scripts/bootstrap-npm-package.mjs",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
     "check:no-git-push": "node scripts/check-no-git-push.mjs",
+    "check:vitest-projects": "node scripts/check-vitest-projects.mjs",
     "test:check-no-git-push": "node --test scripts/check-no-git-push.test.mjs",
-    "docs:dev": "cd docs && npx mintlify dev",
+    "docs:dev": "cd docs && pnpm exec mintlify dev",
     "smoke:openclaw-join": "./scripts/smoke/openclaw-join.sh",
     "smoke:openclaw-docker-ui": "./scripts/smoke/openclaw-docker-ui.sh",
     "smoke:openclaw-sse-standalone": "./scripts/smoke/openclaw-sse-standalone.sh",
@@ -60,12 +61,13 @@
     "test:release-smoke:headed": "npx playwright test --config tests/release-smoke/playwright.config.ts --headed",
     "metrics:paperclip-commits": "tsx scripts/paperclip-commit-metrics.ts",
     "perf:issue-chat-long-thread": "node scripts/measure-issue-chat-long-thread.mjs",
-    "doctor": "npx react-doctor@latest"
+    "doctor": "pnpm exec react-doctor"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "cross-env": "^10.1.0",
     "esbuild": "^0.27.3",
+    "mintlify": "4.2.588",
     "react-doctor": "^0.2.9",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
