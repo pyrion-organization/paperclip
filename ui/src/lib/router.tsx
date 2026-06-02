@@ -64,12 +64,15 @@ export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
     const issuePathId = parseIssuePathIdFromPath(typeof resolvedTo === "string" ? resolvedTo : resolvedTo.pathname);
 
     if (issuePathId) {
+      if (disableIssueQuicklook) {
+        return <RouterDom.Link ref={ref} to={resolvedTo} {...props} />;
+      }
+
       return (
         <IssueLinkQuicklook
           ref={ref}
           to={resolvedTo}
           issuePathId={issuePathId}
-          disableIssueQuicklook={disableIssueQuicklook}
           issuePrefetch={issuePrefetch}
           issueQuicklookSide={issueQuicklookSide}
           issueQuicklookAlign={issueQuicklookAlign}
