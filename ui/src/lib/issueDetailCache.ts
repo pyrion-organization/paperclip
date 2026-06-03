@@ -1,13 +1,40 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { Issue } from "@paperclipai/shared";
+import { ApiError } from "@/api/client";
 import { issuesApi } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
 
 const ISSUE_DETAIL_QUERY_PREFIX = ["issues", "detail"] as const;
 export const ISSUE_DETAIL_STALE_TIME_MS = 60_000;
+const MISSING_ISSUE_REF_TTL_MS = 5 * 60_000;
+const missingIssueRefs = new Map<string, number>();
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function normalizeIssueRefCacheKey(issueRef: string): string {
+  return issueRef.trim().toUpperCase();
+}
+
+function rememberMissingIssueRef(issueRef: string): void {
+  missingIssueRefs.set(normalizeIssueRefCacheKey(issueRef), Date.now() + MISSING_ISSUE_REF_TTL_MS);
+}
+
+export function isIssueDetailRefTemporarilyMissing(issueRef: string): boolean {
+  const key = normalizeIssueRefCacheKey(issueRef);
+  const expiresAt = missingIssueRefs.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    missingIssueRefs.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function shouldRetryIssueDetail(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status === 404) return false;
+  return failureCount < 3;
 }
 
 function collectIssueRefs(
@@ -80,8 +107,15 @@ export async function fetchIssueDetail(
   queryClient: QueryClient,
   issueRef: string,
 ): Promise<Issue> {
-  const issue = await issuesApi.get(issueRef);
-  return seedIssueDetailCache(queryClient, issue, { issueRef });
+  try {
+    const issue = await issuesApi.get(issueRef);
+    return seedIssueDetailCache(queryClient, issue, { issueRef });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      rememberMissingIssueRef(issueRef);
+    }
+    throw error;
+  }
 }
 
 export function getIssueDetailQueryOptions(
@@ -95,6 +129,7 @@ export function getIssueDetailQueryOptions(
     queryKey: queryKeys.issues.detail(issueRef),
     queryFn: () => fetchIssueDetail(queryClient, issueRef),
     placeholderData: getCachedIssueDetail(queryClient, issueRef, options?.placeholderIssue ?? undefined),
+    retry: shouldRetryIssueDetail,
   };
 }
 
@@ -105,6 +140,10 @@ export function prefetchIssueDetail(
     issue?: Issue | null;
   },
 ) {
+  if (!options?.issue && isIssueDetailRefTemporarilyMissing(issueRef)) {
+    return Promise.resolve();
+  }
+
   if (options?.issue) {
     seedIssueDetailCache(queryClient, options.issue, { issueRef });
   }
@@ -113,5 +152,6 @@ export function prefetchIssueDetail(
     queryKey: queryKeys.issues.detail(issueRef),
     queryFn: () => fetchIssueDetail(queryClient, issueRef),
     staleTime: ISSUE_DETAIL_STALE_TIME_MS,
+    retry: shouldRetryIssueDetail,
   });
 }

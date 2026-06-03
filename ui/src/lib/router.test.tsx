@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Link } from "./router";
 
@@ -60,5 +60,31 @@ describe("Link", () => {
     const link = container.querySelector("a");
     expect(link?.textContent).toBe("PAP-1");
     expect(link?.getAttribute("href")).toBe("/issues/PAP-1");
+  });
+
+  it("navigates enabled lazy issue quicklook links on click", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<Link to="/issues/PAP-1">PAP-1</Link>} />
+            <Route path="/issues/:issueId" element={<div>Issue detail loaded</div>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link).not.toBeNull();
+
+    act(() => {
+      link?.dispatchEvent(new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      }));
+    });
+
+    expect(container.textContent).toContain("Issue detail loaded");
   });
 });

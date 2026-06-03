@@ -4200,10 +4200,11 @@ export function IssueChatThread({
     previousErrorBoundaryMessagesRef.current = messages;
     errorBoundaryResetVersionRef.current += 1;
   }
-  const errorBoundaryResetKey = String(errorBoundaryResetVersionRef.current);
+  const chatRuntimeResetKey = issueId ?? "no-issue";
+  const errorBoundaryResetKey = `${chatRuntimeResetKey}:${errorBoundaryResetVersionRef.current}`;
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider key={chatRuntimeResetKey} runtime={runtime}>
       <IssueChatCtx.Provider value={chatCtx}>
       <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
         {resolvedShowJumpToLatest ? (

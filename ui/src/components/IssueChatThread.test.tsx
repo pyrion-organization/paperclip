@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, createRef, forwardRef, useImperativeHandle, useState } from "react";
+import { act, createRef, forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
@@ -49,6 +49,10 @@ const { appendMock } = vi.hoisted(() => ({
   appendMock: vi.fn(async () => undefined),
 }));
 
+const { assistantRuntimeProviderMountMock } = vi.hoisted(() => ({
+  assistantRuntimeProviderMountMock: vi.fn(),
+}));
+
 const {
   captureComposerViewportSnapshotMock,
   restoreComposerViewportSnapshotMock,
@@ -60,7 +64,12 @@ const {
 }));
 
 vi.mock("@assistant-ui/react", () => ({
-  AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => {
+    useEffect(() => {
+      assistantRuntimeProviderMountMock();
+    }, []);
+    return <div>{children}</div>;
+  },
   useAui: () => ({ thread: () => ({ append: appendMock }) }),
 }));
 
@@ -307,6 +316,7 @@ describe("IssueChatThread", () => {
     container.remove();
     vi.useRealTimers();
     appendMock.mockReset();
+    assistantRuntimeProviderMountMock.mockClear();
     markdownEditorFocusMock.mockReset();
     captureComposerViewportSnapshotMock.mockClear();
     restoreComposerViewportSnapshotMock.mockClear();
@@ -373,6 +383,52 @@ describe("IssueChatThread", () => {
     expect(footer?.textContent).toBe("Sibling footer");
     expect(footer?.parentElement).toBe(viewport);
     expect(footer?.nextElementSibling?.textContent).toBe("");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("remounts the assistant runtime when the issue changes", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            issueId="issue-1"
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(assistantRuntimeProviderMountMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            issueId="issue-2"
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(assistantRuntimeProviderMountMock).toHaveBeenCalledTimes(2);
 
     act(() => {
       root.unmount();

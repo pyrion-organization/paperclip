@@ -118,11 +118,9 @@ const LazyIssueLinkQuicklook = React.forwardRef<
         onFocus?.(event);
       }}
       onTouchStart={(event) => {
-        armQuicklook(false);
         onTouchStart?.(event);
       }}
       onClickCapture={(event) => {
-        armQuicklook(false);
         onClickCapture?.(event);
       }}
       {...props}
