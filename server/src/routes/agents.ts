@@ -2803,8 +2803,6 @@ export function agentRoutes(
       return;
     }
 
-    await heartbeat.cancelActiveForAgent(id);
-
     await logActivity(db, {
       companyId: agent.companyId,
       actorType: "user",
