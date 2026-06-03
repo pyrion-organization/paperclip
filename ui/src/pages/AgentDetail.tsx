@@ -2048,6 +2048,15 @@ function PromptsTab({
     },
   });
 
+  // Stable handlers so the memoized MarkdownEditor doesn't re-render on background poll ticks
+  // (this page polls run state every ~2s while a run is live) while editing the prompt.
+  const handlePromptChange = useCallback((value: string | null) => setDraft(value ?? ""), []);
+  const handlePromptImageUpload = useCallback(async (file: File) => {
+    const namespace = `agents/${agent.id}/instructions/${selectedOrEntryFile.replaceAll("/", "-")}`;
+    const asset = await uploadMarkdownImage.mutateAsync({ file, namespace });
+    return asset.contentPath;
+  }, [agent.id, selectedOrEntryFile, uploadMarkdownImage]);
+
   useEffect(() => {
     const nextExpanded = new Set<string>();
     for (const filePath of visibleFilePaths) {
@@ -2579,15 +2588,11 @@ function PromptsTab({
             <MarkdownEditor
               key={selectedOrEntryFile}
               value={displayValue}
-              onChange={(value) => setDraft(value ?? "")}
+              onChange={handlePromptChange}
               placeholder="# Agent instructions"
               className="min-w-0 overflow-hidden"
               contentClassName="min-h-[420px] max-w-full break-words text-sm font-mono"
-              imageUploadHandler={async (file) => {
-                const namespace = `agents/${agent.id}/instructions/${selectedOrEntryFile.replaceAll("/", "-")}`;
-                const asset = await uploadMarkdownImage.mutateAsync({ file, namespace });
-                return asset.contentPath;
-              }}
+              imageUploadHandler={handlePromptImageUpload}
             />
           ) : (
             <textarea

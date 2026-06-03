@@ -14,7 +14,9 @@ import { clientUrl } from "../lib/utils";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Users, Plus, Search } from "lucide-react";
+import { Users, Plus, Search, ArrowDownAZ, ArrowUpAZ } from "lucide-react";
+
+type ClientSortField = "name" | "status" | "active";
 
 const PAGE_SIZE = 50;
 
@@ -25,6 +27,8 @@ export function Clients() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortField, setSortField] = useState<ClientSortField>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
@@ -58,8 +62,13 @@ export function Clients() {
           c.contactName?.toLowerCase().includes(q),
       );
     }
-    return result;
-  }, [clients, searchQuery, statusFilter]);
+    const mul = sortDir === "asc" ? 1 : -1;
+    return [...result].sort((a, b) => {
+      if (sortField === "status") return mul * a.status.localeCompare(b.status);
+      if (sortField === "active") return mul * ((a.activeProjectCount ?? 0) - (b.activeProjectCount ?? 0));
+      return mul * a.name.localeCompare(b.name);
+    });
+  }, [clients, searchQuery, statusFilter, sortField, sortDir]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Users} message="Select a company to view clients." />;
@@ -96,6 +105,26 @@ export function Clients() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={sortField} onValueChange={(value) => setSortField(value as ClientSortField)}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Sort: Name</SelectItem>
+                <SelectItem value="status">Sort: Status</SelectItem>
+                <SelectItem value="active">Sort: Active projects</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              title={sortDir === "asc" ? "Ascending" : "Descending"}
+              aria-label={`Sort ${sortDir === "asc" ? "ascending" : "descending"}`}
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            >
+              {sortDir === "asc" ? <ArrowDownAZ className="size-4" /> : <ArrowUpAZ className="size-4" />}
+            </Button>
           </>
         )}
         <Button size="sm" variant="outline" onClick={openNewClient} className="shrink-0 ml-auto">
