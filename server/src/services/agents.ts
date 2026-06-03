@@ -584,8 +584,12 @@ export function agentService(db: Db) {
         await tx.update(issueRelations).set({ createdByAgentId: null }).where(eq(issueRelations.createdByAgentId, id));
         await tx
           .update(issueThreadInteractions)
-          .set({ createdByAgentId: null, resolvedByAgentId: null })
-          .where(or(eq(issueThreadInteractions.createdByAgentId, id), eq(issueThreadInteractions.resolvedByAgentId, id)));
+          .set({ createdByAgentId: null })
+          .where(eq(issueThreadInteractions.createdByAgentId, id));
+        await tx
+          .update(issueThreadInteractions)
+          .set({ resolvedByAgentId: null })
+          .where(eq(issueThreadInteractions.resolvedByAgentId, id));
         await tx.update(issueTreeHolds).set({ createdByAgentId: null }).where(eq(issueTreeHolds.createdByAgentId, id));
         await tx.update(joinRequests).set({ createdAgentId: null }).where(eq(joinRequests.createdAgentId, id));
         await tx.update(projects).set({ leadAgentId: null }).where(eq(projects.leadAgentId, id));

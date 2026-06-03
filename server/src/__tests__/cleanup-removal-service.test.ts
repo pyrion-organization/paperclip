@@ -16,6 +16,7 @@ import {
   issueDocuments,
   issueExecutionDecisions,
   issueReadStates,
+  issueThreadInteractions,
   issues,
 } from "@paperclipai/db";
 import {
@@ -48,6 +49,7 @@ describeEmbeddedPostgres("cleanup removal services", () => {
     await db.delete(activityLog);
     await db.delete(emailNotifications);
     await db.delete(issueReadStates);
+    await db.delete(issueThreadInteractions);
     await db.delete(issueComments);
     await db.delete(issueExecutionDecisions);
     await db.delete(documentRevisions);
@@ -235,6 +237,64 @@ describeEmbeddedPostgres("cleanup removal services", () => {
       updatedByAgentId: otherAgentId,
       lockedByAgentId: null,
       lockedAt: null,
+    });
+  });
+
+  it("preserves unrelated issue thread interaction agent attribution when deleting an agent", async () => {
+    const { agentId, companyId, issueId } = await seedFixture();
+    const otherAgentId = randomUUID();
+    const createdByDeletedId = randomUUID();
+    const resolvedByDeletedId = randomUUID();
+
+    await db.insert(agents).values({
+      id: otherAgentId,
+      companyId,
+      name: "Reviewer",
+      role: "reviewer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    await db.insert(issueThreadInteractions).values([
+      {
+        id: createdByDeletedId,
+        companyId,
+        issueId,
+        kind: "follow_up",
+        status: "resolved",
+        createdByAgentId: agentId,
+        resolvedByAgentId: otherAgentId,
+        payload: {},
+      },
+      {
+        id: resolvedByDeletedId,
+        companyId,
+        issueId,
+        kind: "follow_up",
+        status: "resolved",
+        createdByAgentId: otherAgentId,
+        resolvedByAgentId: agentId,
+        payload: {},
+      },
+    ]);
+
+    const removed = await agentService(db).remove(agentId);
+
+    expect(removed?.id).toBe(agentId);
+    const rows = await db.select().from(issueThreadInteractions);
+    const createdByDeleted = rows.find((row) => row.id === createdByDeletedId);
+    const resolvedByDeleted = rows.find((row) => row.id === resolvedByDeletedId);
+
+    expect(createdByDeleted).toMatchObject({
+      createdByAgentId: null,
+      resolvedByAgentId: otherAgentId,
+    });
+    expect(resolvedByDeleted).toMatchObject({
+      createdByAgentId: otherAgentId,
+      resolvedByAgentId: null,
     });
   });
 

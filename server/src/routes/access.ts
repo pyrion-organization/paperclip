@@ -4180,7 +4180,7 @@ export function accessRoutes(
         entityType: "agent_api_key",
         entityId: created.id,
         details: {
-          agentId: joinRequest.createdAgentId,
+          agentId: createdAgentId,
           joinRequestId: requestId
         }
       }).catch((error) => {
@@ -4190,7 +4190,7 @@ export function accessRoutes(
       res.status(201).json({
         keyId: created.id,
         token,
-        agentId: joinRequest.createdAgentId,
+        agentId: createdAgentId,
         createdAt: created.createdAt
       });
     }

@@ -289,43 +289,38 @@ export function costRoutes(
     assertBoard(req);
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    const updatedCompanyId = await db.transaction(async (tx) => {
-      const txDb = tx as unknown as Db;
-      const updated = await tx
-        .update(companiesTable)
-        .set({ budgetMonthlyCents: req.body.budgetMonthlyCents, updatedAt: new Date() })
-        .where(eq(companiesTable.id, companyId))
-        .returning({ id: companiesTable.id })
-        .then((rows) => rows[0] ?? null);
-      if (!updated) return null;
-
-      await budgetService(txDb, budgetHooks).upsertPolicy(
-        companyId,
-        {
-          scopeType: "company",
-          scopeId: companyId,
-          amount: req.body.budgetMonthlyCents,
-          windowKind: "calendar_month_utc",
-        },
-        req.actor.userId ?? "board",
-      );
-
-      await logActivity(txDb, {
-        companyId,
-        actorType: "user",
-        actorId: req.actor.userId ?? "board",
-        action: "company.budget_updated",
-        entityType: "company",
-        entityId: companyId,
-        details: { budgetMonthlyCents: req.body.budgetMonthlyCents },
-      });
-
-      return updated.id;
-    });
+    const updatedCompanyId = await db
+      .update(companiesTable)
+      .set({ budgetMonthlyCents: req.body.budgetMonthlyCents, updatedAt: new Date() })
+      .where(eq(companiesTable.id, companyId))
+      .returning({ id: companiesTable.id })
+      .then((rows) => rows[0]?.id ?? null);
     if (!updatedCompanyId) {
       res.status(404).json({ error: "Company not found" });
       return;
     }
+
+    await budgets.upsertPolicy(
+      companyId,
+      {
+        scopeType: "company",
+        scopeId: companyId,
+        amount: req.body.budgetMonthlyCents,
+        windowKind: "calendar_month_utc",
+      },
+      req.actor.userId ?? "board",
+    );
+
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "company.budget_updated",
+      entityType: "company",
+      entityId: companyId,
+      details: { budgetMonthlyCents: req.body.budgetMonthlyCents },
+    });
+
     const company = await companies.getById(updatedCompanyId);
 
     res.json(company);
