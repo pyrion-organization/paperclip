@@ -106,6 +106,7 @@ type ResolvedFeedbackTarget = FeedbackTargetRecord & {
 };
 
 const feedbackExportColumns = getTableColumns(feedbackExports);
+const { payloadSnapshot: _payloadSnapshotColumn, ...feedbackExportMetadataColumns } = feedbackExportColumns;
 const instructionsSvc = agentInstructionsService();
 
 type FeedbackTraceShareClient = {
@@ -1760,6 +1761,20 @@ export function feedbackService(db: Db, options: FeedbackServiceOptions = {}) {
         .where(eq(feedbackExports.id, traceId))
         .then((rows) => rows[0] ?? null);
       return row ? mapTraceRow(row, includePayload) : null;
+    },
+
+    getFeedbackTraceMetadataById: async (traceId: string) => {
+      const row = await db
+        .select({
+          ...feedbackExportMetadataColumns,
+          issueIdentifier: issues.identifier,
+          issueTitle: issues.title,
+        })
+        .from(feedbackExports)
+        .innerJoin(issues, eq(feedbackExports.issueId, issues.id))
+        .where(eq(feedbackExports.id, traceId))
+        .then((rows) => rows[0] ?? null);
+      return row ? mapTraceRow({ ...row, payloadSnapshot: null }, false) : null;
     },
 
     getFeedbackTraceBundle: async (traceId: string) => {

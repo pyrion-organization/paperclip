@@ -264,9 +264,84 @@ describe("cost routes", () => {
     expect(() => parseCostLimit({ limit: "0" })).toThrow(/invalid 'limit'/i);
   });
 
+  it("returns 400 for malformed finance event list limits", async () => {
+    const { parseCostLimit } = await loadCostParsers();
+    expect(() => parseCostLimit({ limit: "25abc" })).toThrow(/invalid 'limit'/i);
+    expect(() => parseCostLimit({ limit: "1.5" })).toThrow(/invalid 'limit'/i);
+  });
+
   it("accepts valid finance event list limits", async () => {
     const { parseCostLimit } = await loadCostParsers();
     expect(parseCostLimit({ limit: "25" })).toBe(25);
+  });
+
+  it("rejects finance event feeds for agent callers", async () => {
+    const app = await createAppWithActor({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+    });
+
+    const res = await request(app).get("/api/companies/company-1/costs/finance-events");
+
+    expect(res.status).toBe(403);
+    expect(mockFinanceService.list).not.toHaveBeenCalled();
+  });
+
+  it("returns by-provider cost rows", async () => {
+    mockCostService.byProvider.mockResolvedValueOnce([
+      { provider: "openai", costCents: 123, inputTokens: 10, outputTokens: 20 },
+    ]);
+    const app = await createApp();
+
+    const res = await request(app).get("/api/companies/company-1/costs/by-provider");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { provider: "openai", costCents: 123, inputTokens: 10, outputTokens: 20 },
+    ]);
+    expect(mockCostService.byProvider).toHaveBeenCalledWith("company-1", undefined);
+  });
+
+  it("passes date filters to by-provider cost rows", async () => {
+    const app = await createApp();
+
+    const res = await request(app)
+      .get("/api/companies/company-1/costs/by-provider")
+      .query({ from: "2026-02-01T00:00:00.000Z", to: "2026-02-28T23:59:59.999Z" });
+
+    expect(res.status).toBe(200);
+    expect(mockCostService.byProvider).toHaveBeenCalledWith("company-1", {
+      from: new Date("2026-02-01T00:00:00.000Z"),
+      to: new Date("2026-02-28T23:59:59.999Z"),
+    });
+  });
+
+  it("rejects by-provider cost rows for board users outside the company", async () => {
+    const app = await createAppWithActor({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-2"],
+    });
+
+    const res = await request(app).get("/api/companies/company-1/costs/by-provider");
+
+    expect(res.status).toBe(403);
+    expect(mockCostService.byProvider).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid by-provider date filters", async () => {
+    const app = await createApp();
+
+    const res = await request(app)
+      .get("/api/companies/company-1/costs/by-provider")
+      .query({ from: "not-a-date" });
+
+    expect(res.status).toBe(400);
+    expect(mockCostService.byProvider).not.toHaveBeenCalled();
   });
 
   it("rejects company budget updates for board users outside the company", async () => {

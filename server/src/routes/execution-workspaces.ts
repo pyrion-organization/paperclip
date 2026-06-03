@@ -181,6 +181,16 @@ export function executionWorkspaceRoutes(db: Db) {
       workspaceCommand?.kind === "service"
         ? workspaceCommand.serviceIndex
         : target.serviceIndex ?? null;
+    const selectedServiceName =
+      selectedRuntimeServiceId
+        ? null
+        : workspaceCommand?.kind === "service"
+          ? workspaceCommand.name
+          : selectedServiceIndex === null || selectedServiceIndex === undefined
+            ? null
+            : typeof configuredServices[selectedServiceIndex]?.name === "string"
+              ? configuredServices[selectedServiceIndex].name
+              : null;
     if (
       selectedServiceIndex !== undefined
       && selectedServiceIndex !== null
@@ -325,6 +335,7 @@ export function executionWorkspaceRoutes(db: Db) {
             executionWorkspaceId: existing.id,
             workspaceCwd,
             runtimeServiceId: selectedRuntimeServiceId,
+            serviceName: selectedServiceName,
           });
         }
 

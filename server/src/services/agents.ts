@@ -5,16 +5,32 @@ import {
   agents,
   agentConfigRevisions,
   agentApiKeys,
+  agentMemberships,
   agentRuntimeState,
   agentTaskSessions,
   agentWakeupRequests,
   activityLog,
+  approvals,
+  approvalComments,
+  assets,
   costEvents,
+  documentAnnotationComments,
+  documentAnnotationThreads,
+  documentRevisions,
+  documents,
+  financeEvents,
+  goals,
   heartbeatRunEvents,
   heartbeatRuns,
   issueExecutionDecisions,
+  issueRelations,
+  issueThreadInteractions,
   issues,
   issueComments,
+  issueTreeHolds,
+  joinRequests,
+  projects,
+  routines,
 } from "@paperclipai/db";
 import { AGENT_DEFAULT_MAX_CONCURRENT_RUNS, isUuidLike, normalizeAgentUrlKey } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
@@ -542,6 +558,38 @@ export function agentService(db: Db) {
           .update(issues)
           .set({ assigneeAgentId: null, createdByAgentId: null })
           .where(or(eq(issues.assigneeAgentId, id), eq(issues.createdByAgentId, id)));
+        await tx.update(assets).set({ createdByAgentId: null }).where(eq(assets.createdByAgentId, id));
+        await tx.update(approvals).set({ requestedByAgentId: null }).where(eq(approvals.requestedByAgentId, id));
+        await tx.update(approvalComments).set({ authorAgentId: null }).where(eq(approvalComments.authorAgentId, id));
+        await tx.update(documentAnnotationComments).set({ authorAgentId: null }).where(eq(documentAnnotationComments.authorAgentId, id));
+        await tx.update(documentAnnotationThreads).set({ createdByAgentId: null }).where(eq(documentAnnotationThreads.createdByAgentId, id));
+        await tx
+          .update(documents)
+          .set({ createdByAgentId: null, updatedByAgentId: null, lockedByAgentId: null })
+          .where(or(eq(documents.createdByAgentId, id), eq(documents.updatedByAgentId, id), eq(documents.lockedByAgentId, id)));
+        await tx.update(documentRevisions).set({ createdByAgentId: null }).where(eq(documentRevisions.createdByAgentId, id));
+        await tx
+          .update(financeEvents)
+          .set({ agentId: null, costEventId: null, heartbeatRunId: null })
+          .where(
+            or(
+              eq(financeEvents.agentId, id),
+              sql`${financeEvents.costEventId} in (select ${costEvents.id} from ${costEvents} where ${costEvents.agentId} = ${id})`,
+              sql`${financeEvents.heartbeatRunId} in (select ${heartbeatRuns.id} from ${heartbeatRuns} where ${heartbeatRuns.agentId} = ${id})`,
+            ),
+          );
+        await tx.update(goals).set({ ownerAgentId: null }).where(eq(goals.ownerAgentId, id));
+        await tx.update(issueRelations).set({ createdByAgentId: null }).where(eq(issueRelations.createdByAgentId, id));
+        await tx
+          .update(issueThreadInteractions)
+          .set({ createdByAgentId: null, resolvedByAgentId: null })
+          .where(or(eq(issueThreadInteractions.createdByAgentId, id), eq(issueThreadInteractions.resolvedByAgentId, id)));
+        await tx.update(issueTreeHolds).set({ createdByAgentId: null }).where(eq(issueTreeHolds.createdByAgentId, id));
+        await tx.update(joinRequests).set({ createdAgentId: null }).where(eq(joinRequests.createdAgentId, id));
+        await tx.update(projects).set({ leadAgentId: null }).where(eq(projects.leadAgentId, id));
+        await tx.update(routines).set({ assigneeAgentId: null }).where(eq(routines.assigneeAgentId, id));
+        await tx.update(agentConfigRevisions).set({ createdByAgentId: null }).where(eq(agentConfigRevisions.createdByAgentId, id));
+        await tx.delete(costEvents).where(eq(costEvents.agentId, id));
         await tx.delete(heartbeatRunEvents).where(eq(heartbeatRunEvents.agentId, id));
         await tx.delete(agentTaskSessions).where(eq(agentTaskSessions.agentId, id));
         await tx.delete(activityLog).where(
@@ -556,6 +604,8 @@ export function agentService(db: Db) {
         await tx.delete(agentWakeupRequests).where(eq(agentWakeupRequests.agentId, id));
         await tx.delete(agentApiKeys).where(eq(agentApiKeys.agentId, id));
         await tx.delete(agentRuntimeState).where(eq(agentRuntimeState.agentId, id));
+        await tx.delete(agentMemberships).where(eq(agentMemberships.agentId, id));
+        await tx.delete(agentConfigRevisions).where(eq(agentConfigRevisions.agentId, id));
         const deleted = await tx
           .delete(agents)
           .where(eq(agents.id, id))

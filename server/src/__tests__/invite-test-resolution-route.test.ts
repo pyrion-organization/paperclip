@@ -81,28 +81,29 @@ describe.sequential("GET /invites/:token/test-resolution", () => {
 
   it("rejects private, local, multicast, and reserved targets before probing", async () => {
     const cases = [
-      ["localhost", "http://localhost:3100/api/health", "127.0.0.1"],
-      ["IPv4 loopback", "http://127.0.0.1:3100/api/health", "127.0.0.1"],
-      ["IPv6 loopback", "http://[::1]:3100/api/health", "::1"],
-      ["IPv4-mapped IPv6 loopback hex", "http://[::ffff:7f00:1]/api/health", "::ffff:7f00:1"],
-      ["IPv4-mapped IPv6 RFC1918 hex", "http://[::ffff:c0a8:101]/api/health", "::ffff:c0a8:101"],
-      ["RFC1918 10/8", "http://10.0.0.5/api/health", "10.0.0.5"],
-      ["RFC1918 172.16/12", "http://172.16.10.5/api/health", "172.16.10.5"],
-      ["RFC1918 192.168/16", "http://192.168.1.10/api/health", "192.168.1.10"],
-      ["link-local metadata", "http://169.254.169.254/latest/meta-data", "169.254.169.254"],
-      ["multicast", "http://224.0.0.1/probe", "224.0.0.1"],
-      ["NAT64 well-known prefix", "https://gateway.example.test/health", "64:ff9b::0a00:0001"],
-      ["NAT64 local-use prefix", "https://gateway.example.test/health", "64:ff9b:1::0a00:0001"],
+      ["localhost", "127.0.0.1"],
+      ["IPv4 loopback", "127.0.0.1"],
+      ["IPv6 loopback", "::1"],
+      ["IPv4-mapped IPv6 loopback hex", "::ffff:7f00:1"],
+      ["IPv4-mapped IPv6 RFC1918 hex", "::ffff:c0a8:101"],
+      ["RFC1918 10/8", "10.0.0.5"],
+      ["RFC1918 172.16/12", "172.16.10.5"],
+      ["RFC1918 192.168/16", "192.168.1.10"],
+      ["link-local metadata", "169.254.169.254"],
+      ["multicast", "224.0.0.1"],
+      ["NAT64 well-known prefix", "64:ff9b::0a00:0001"],
+      ["NAT64 local-use prefix", "64:ff9b:1::0a00:0001"],
     ] as const;
 
-    for (const [label, url, address] of cases) {
+    for (const [label, address] of cases) {
       const lookup = vi.fn().mockResolvedValue([{ address, family: address.includes(":") ? 6 : 4 }]);
       const requestHead = vi.fn();
       const app = await createApp(createDbStub([createInvite()]), { lookup, requestHead });
 
       const res = await request(app)
         .get("/api/invites/pcp_invite_test/test-resolution")
-        .query({ url });
+        .set("Host", "paperclip.example.test")
+        .query({ url: "http://paperclip.example.test/api/invites/pcp_invite_test/onboarding" });
 
       expect(res.status, label).toBe(400);
       expect(res.body.error).toBe(
@@ -119,13 +120,14 @@ describe.sequential("GET /invites/:token/test-resolution", () => {
 
     const res = await request(app)
       .get("/api/invites/pcp_invite_test/test-resolution")
-      .query({ url: "https://gateway.example.test/health" });
+      .set("Host", "paperclip.example.test")
+      .query({ url: "http://paperclip.example.test/api/invites/pcp_invite_test/onboarding" });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe(
       "url resolves to a private, local, multicast, or reserved address",
     );
-    expect(lookup).toHaveBeenCalledWith("gateway.example.test");
+    expect(lookup).toHaveBeenCalledWith("paperclip.example.test");
     expect(requestHead).not.toHaveBeenCalled();
   });
 
@@ -152,12 +154,13 @@ describe.sequential("GET /invites/:token/test-resolution", () => {
 
     const res = await request(app)
       .get("/api/invites/pcp_invite_test/test-resolution")
-      .query({ url: "https://gateway.example.test/health", timeoutMs: "2500" });
+      .set("Host", "paperclip.example.test")
+      .query({ url: "http://paperclip.example.test/api/invites/pcp_invite_test/onboarding", timeoutMs: "2500" });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       inviteId: "invite-1",
-      requestedUrl: "https://gateway.example.test/health",
+      requestedUrl: "http://paperclip.example.test/api/invites/pcp_invite_test/onboarding",
       timeoutMs: 2500,
       status: "reachable",
       method: "HEAD",
@@ -167,11 +170,27 @@ describe.sequential("GET /invites/:token/test-resolution", () => {
       expect.objectContaining({
         resolvedAddress: "93.184.216.34",
         resolvedAddresses: ["93.184.216.34"],
-        hostHeader: "gateway.example.test",
-        tlsServername: "gateway.example.test",
+        hostHeader: "paperclip.example.test",
+        tlsServername: undefined,
       }),
       2500,
     );
+  });
+
+  it.sequential("rejects arbitrary public targets before probing", async () => {
+    const lookup = vi.fn();
+    const requestHead = vi.fn();
+    const app = await createApp(createDbStub([createInvite()]), { lookup, requestHead });
+
+    const res = await request(app)
+      .get("/api/invites/pcp_invite_test/test-resolution")
+      .set("Host", "paperclip.example.test")
+      .query({ url: "https://gateway.example.test/health" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("url must target this Paperclip invite host");
+    expect(lookup).not.toHaveBeenCalled();
+    expect(requestHead).not.toHaveBeenCalled();
   });
 
   it.sequential.each([

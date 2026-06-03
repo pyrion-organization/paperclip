@@ -2819,11 +2819,18 @@ export async function stopRuntimeServicesForExecutionWorkspace(input: {
   executionWorkspaceId: string;
   workspaceCwd?: string | null;
   runtimeServiceId?: string | null;
+  serviceName?: string | null;
 }) {
   const normalizedWorkspaceCwd = input.workspaceCwd ? path.resolve(input.workspaceCwd) : null;
   const matchingServiceIds = Array.from(runtimeServicesById.values())
     .filter((record) => {
       if (input.runtimeServiceId) return record.id === input.runtimeServiceId;
+      if (input.serviceName) {
+        return (
+          record.executionWorkspaceId === input.executionWorkspaceId &&
+          record.serviceName === input.serviceName
+        );
+      }
       if (record.executionWorkspaceId === input.executionWorkspaceId) return true;
       if (!normalizedWorkspaceCwd || !record.cwd) return false;
       const resolvedCwd = path.resolve(record.cwd);
@@ -2839,7 +2846,7 @@ export async function stopRuntimeServicesForExecutionWorkspace(input: {
   }
 
   if (input.db) {
-    if (input.runtimeServiceId) {
+    if (input.runtimeServiceId || input.serviceName) {
       const now = new Date();
       await input.db
         .update(workspaceRuntimeServices)
@@ -2850,7 +2857,15 @@ export async function stopRuntimeServicesForExecutionWorkspace(input: {
           lastUsedAt: now,
           updatedAt: now,
         })
-        .where(eq(workspaceRuntimeServices.id, input.runtimeServiceId));
+        .where(
+          input.runtimeServiceId
+            ? eq(workspaceRuntimeServices.id, input.runtimeServiceId)
+            : and(
+                eq(workspaceRuntimeServices.executionWorkspaceId, input.executionWorkspaceId),
+                eq(workspaceRuntimeServices.serviceName, input.serviceName!),
+                inArray(workspaceRuntimeServices.status, ["starting", "running"]),
+              ),
+        );
     } else {
       await markPersistedRuntimeServicesStoppedForExecutionWorkspace({
         db: input.db,

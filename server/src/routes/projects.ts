@@ -2177,11 +2177,15 @@ export function projectRoutes(db: Db) {
         ? workspaceCommand.serviceIndex
         : target.serviceIndex ?? null;
     const selectedServiceName =
-      selectedRuntimeServiceId || selectedServiceIndex === null || selectedServiceIndex === undefined
+      selectedRuntimeServiceId
         ? null
-        : typeof configuredServices[selectedServiceIndex]?.name === "string"
-          ? configuredServices[selectedServiceIndex].name
-          : null;
+        : workspaceCommand?.kind === "service"
+          ? workspaceCommand.name
+          : selectedServiceIndex === null || selectedServiceIndex === undefined
+            ? null
+            : typeof configuredServices[selectedServiceIndex]?.name === "string"
+              ? configuredServices[selectedServiceIndex].name
+              : null;
     if (
       selectedServiceIndex !== undefined
       && selectedServiceIndex !== null

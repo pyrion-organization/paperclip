@@ -2803,6 +2803,8 @@ export function agentRoutes(
       return;
     }
 
+    await heartbeat.cancelActiveForAgent(id);
+
     await logActivity(db, {
       companyId: agent.companyId,
       actorType: "user",
@@ -2882,6 +2884,8 @@ export function agentRoutes(
     if (!(await getAccessibleAgent(req, res, id))) {
       return;
     }
+    await heartbeat.cancelActiveForAgent(id);
+
     const agent = await svc.remove(id);
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });

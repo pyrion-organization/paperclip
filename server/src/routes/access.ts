@@ -2318,6 +2318,34 @@ async function resolveInviteResolutionTarget(
   };
 }
 
+function assertInviteResolutionTargetAllowed(input: {
+  target: URL;
+  token: string;
+  req: Request;
+  bindHost: string;
+  allowedHostnames: string[];
+}) {
+  const allowedOrigins = new Set(
+    buildOnboardingConnectionCandidates({
+      apiBaseUrl: requestBaseUrl(input.req),
+      bindHost: input.bindHost,
+      allowedHostnames: input.allowedHostnames,
+    }).map((candidate) => new URL(candidate).origin),
+  );
+  if (!allowedOrigins.has(input.target.origin)) {
+    throw badRequest("url must target this Paperclip invite host");
+  }
+
+  const encodedToken = encodeURIComponent(input.token);
+  const allowedPathPrefixes = [
+    `/invite/${encodedToken}`,
+    `/api/invites/${encodedToken}`,
+  ];
+  if (!allowedPathPrefixes.some((prefix) => input.target.pathname === prefix || input.target.pathname.startsWith(`${prefix}/`))) {
+    throw badRequest("url must target this Paperclip invite");
+  }
+}
+
 async function probeInviteResolutionTarget(
   target: ResolvedInviteResolutionTarget,
   timeoutMs: number,
@@ -3245,6 +3273,13 @@ export function accessRoutes(
     if (target.protocol !== "http:" && target.protocol !== "https:") {
       throw badRequest("url must use http or https");
     }
+    assertInviteResolutionTargetAllowed({
+      target,
+      token,
+      req,
+      bindHost: opts.bindHost,
+      allowedHostnames: opts.allowedHostnames,
+    });
 
     const parsedTimeoutMs =
       typeof req.query.timeoutMs === "string"

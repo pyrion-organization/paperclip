@@ -37,8 +37,13 @@ export function parseCostDateRange(query: Record<string, unknown>) {
 export function parseCostLimit(query: Record<string, unknown>) {
   const raw = Array.isArray(query.limit) ? query.limit[0] : query.limit;
   if (raw == null || raw === "") return 100;
-  const limit = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
-  if (!Number.isFinite(limit) || limit <= 0 || limit > 500) {
+  const limit =
+    typeof raw === "number"
+      ? raw
+      : /^\d+$/.test(String(raw).trim())
+        ? Number(String(raw).trim())
+        : NaN;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 500) {
     throw badRequest("invalid 'limit' value");
   }
   return limit;
@@ -209,6 +214,7 @@ export function costRoutes(
   router.get("/companies/:companyId/costs/finance-events", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    assertBoard(req);
     const range = parseCostDateRange(req.query);
     const limit = parseCostLimit(req.query);
     const rows = await finance.list(companyId, range, limit);
