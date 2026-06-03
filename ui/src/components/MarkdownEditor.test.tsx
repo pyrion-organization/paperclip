@@ -48,6 +48,7 @@ vi.mock("@mdxeditor/editor", async () => {
       onChange,
       onError,
       className,
+      contentEditableClassName,
       suppressHtmlProcessing,
     }: {
       markdown: string;
@@ -56,6 +57,7 @@ vi.mock("@mdxeditor/editor", async () => {
       onError?: (error: unknown) => void;
       suppressHtmlProcessing?: boolean;
       className?: string;
+      contentEditableClassName?: string;
     },
     forwardedRef: React.ForwardedRef<{ setMarkdown: (value: string) => void; focus: () => void } | null>,
   ) {
@@ -109,7 +111,8 @@ vi.mock("@mdxeditor/editor", async () => {
       <div
         ref={editableRef}
         data-testid="mdx-editor"
-        className={className}
+        data-content-editable-class-name={contentEditableClassName}
+        className={[className, contentEditableClassName].filter(Boolean).join(" ")}
         contentEditable
         suppressContentEditableWarning
       >
@@ -195,6 +198,29 @@ describe("MarkdownEditor", () => {
     mdxEditorMockState.emitMountSilentEmptyState = false;
     mdxEditorMockState.markdownValues = [];
     mdxEditorMockState.suppressHtmlProcessingValues = [];
+  });
+
+  it("keeps rich editor text and caret on the foreground color", async () => {
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MarkdownEditor
+          value="Reply body"
+          onChange={() => {}}
+          placeholder="Reply"
+        />,
+      );
+    });
+
+    await flush();
+    const editor = container.querySelector<HTMLElement>('[data-testid="mdx-editor"]');
+    expect(editor?.dataset.contentEditableClassName).toContain("text-foreground");
+    expect(editor?.dataset.contentEditableClassName).toContain("caret-foreground");
+
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("applies async external value updates once the editor ref becomes ready", async () => {

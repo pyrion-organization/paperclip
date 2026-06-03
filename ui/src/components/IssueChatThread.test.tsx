@@ -1983,6 +1983,7 @@ describe("IssueChatThread", () => {
     const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
     expect(editor?.dataset.contentClassName).toContain("max-h-[28dvh]");
     expect(editor?.dataset.contentClassName).toContain("overflow-y-auto");
+    expect(editor?.dataset.contentClassName).toContain("text-foreground");
     expect(editor?.dataset.contentClassName).not.toContain("min-h-[72px]");
     expect(editor?.dataset.fileDropTarget).toBe("parent");
 

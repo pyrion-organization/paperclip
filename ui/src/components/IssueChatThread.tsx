@@ -3443,7 +3443,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
         imageUploadHandler={onImageUpload}
         fileDropTarget="parent"
         bordered={false}
-        contentClassName="max-h-[28dvh] overflow-y-auto pr-1 pb-2 text-sm scrollbar-auto-hide"
+        contentClassName="max-h-[28dvh] overflow-y-auto pr-1 pb-2 text-sm text-foreground scrollbar-auto-hide"
       />
 
       {composerHint ? (

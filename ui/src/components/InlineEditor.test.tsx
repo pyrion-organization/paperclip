@@ -161,6 +161,31 @@ describe("InlineEditor", () => {
     });
   });
 
+  it("keeps single-line edit text and caret on the foreground color", () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(<InlineEditor value="hello" onSave={onSave} />);
+    });
+
+    const display = container.querySelector("span");
+    expect(display).not.toBeNull();
+
+    act(() => {
+      display!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    expect(textarea?.className).toContain("text-foreground");
+    expect(textarea?.className).toContain("caret-foreground");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("multiline nullable clear uses autosave path (shows Saved after blur)", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const root = createRoot(container);

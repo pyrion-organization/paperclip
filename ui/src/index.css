@@ -194,6 +194,15 @@
   label {
     touch-action: manipulation;
   }
+
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"] {
+    color: var(--foreground);
+    caret-color: var(--foreground);
+  }
+
   /* Let font-mono (utilities layer) override for monospace editors */
   .paperclip-mdxeditor [class*="_placeholder_"],
   .paperclip-mdxeditor-content {
@@ -458,10 +467,14 @@
   min-height: 2.5rem;
   padding: 0;
   line-height: 1.5;
+  color: var(--foreground);
+  caret-color: var(--foreground);
 }
 
 .paperclip-mdxeditor [class*="_contentEditable_"] {
   padding: 0.375rem 0.625rem !important;
+  color: var(--foreground);
+  caret-color: var(--foreground);
 }
 
 .paperclip-mdxeditor--borderless [class*="_contentEditable_"] {
@@ -477,7 +490,8 @@
 .paperclip-mdxeditor-content {
   font-size: inherit;
   line-height: inherit;
-  color: inherit;
+  color: var(--foreground);
+  caret-color: var(--foreground);
 }
 
 .paperclip-edit-in-place-content {
