@@ -3,9 +3,11 @@ import {
   catalogSkillFileDetailSchema,
   catalogSkillListQuerySchema,
   companySkillAuditResultSchema,
+  companySkillDetailSchema,
   companySkillInstallCatalogResultSchema,
   companySkillInstallCatalogSchema,
   companySkillInstallUpdateSchema,
+  companySkillListItemSchema,
   companySkillResetSchema,
   companySkillUpdateStatusSchema,
 } from "./company-skill.js";
@@ -109,6 +111,42 @@ describe("company skill catalog validators", () => {
         id: catalogSkill.id,
       },
     });
+  });
+
+  it("keeps list and detail response schemas aligned with exported skill types", () => {
+    const listItem = companySkillListItemSchema.parse({
+      ...companySkill,
+      markdown: undefined,
+      metadata: undefined,
+      attachedAgentCount: 0,
+      editable: true,
+      editableReason: null,
+      sourceLabel: "Catalog",
+      sourceBadge: "catalog",
+      sourcePath: "catalog/bundled/software-development/review",
+      catalogKind: "bundled",
+      originHash: catalogSkill.contentHash,
+      packageName: "@paperclipai/skills-catalog",
+      packageVersion: "0.3.1",
+    });
+    expect(listItem).toMatchObject({
+      key: catalogSkill.key,
+      sourcePath: "catalog/bundled/software-development/review",
+    });
+    expect("markdown" in listItem).toBe(false);
+    expect("metadata" in listItem).toBe(false);
+
+    const detail = companySkillDetailSchema.parse({
+      ...companySkill,
+      attachedAgentCount: 0,
+      usedByAgents: [],
+      editable: true,
+      editableReason: null,
+      sourceLabel: "Catalog",
+      sourceBadge: "catalog",
+      sourcePath: "catalog/bundled/software-development/review",
+    });
+    expect(detail.sourcePath).toBe("catalog/bundled/software-development/review");
   });
 
   it("accepts update status, audit, update, and reset contract shapes", () => {

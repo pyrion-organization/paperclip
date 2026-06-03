@@ -225,6 +225,57 @@ describe("RoutineRunVariablesDialog", () => {
     });
   });
 
+  it("blocks required number variables whose value is not finite", async () => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const onSubmit = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <RoutineRunVariablesDialog
+            open
+            onOpenChange={() => {}}
+            companyId="company-1"
+            projects={[createProject()]}
+            agents={[createAgent()]}
+            defaultProjectId="project-1"
+            defaultAssigneeAgentId="agent-1"
+            variables={[
+              {
+                name: "count",
+                label: "Count",
+                type: "number",
+                defaultValue: "-",
+                required: true,
+                options: [],
+              },
+            ]}
+            isPending={false}
+            onSubmit={onSubmit}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("Missing: Count");
+    const runButton = Array.from(document.body.querySelectorAll("button"))
+      .find((button) => button.textContent === "Run routine") as HTMLButtonElement | undefined;
+    expect(runButton?.disabled).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("keeps the mobile dialog bounded with an internal form scroll region", async () => {
     const root = createRoot(container);
     const queryClient = new QueryClient({

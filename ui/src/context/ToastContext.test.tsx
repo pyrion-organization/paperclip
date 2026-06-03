@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider, useToastActions, useToastState } from "./ToastContext";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,6 +17,7 @@ describe("ToastContext", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     document.body.innerHTML = "";
   });
 
@@ -64,6 +65,38 @@ describe("ToastContext", () => {
 
     expect(actionOnlyRenderCount).toBe(1);
     expect(container.querySelector('[data-testid="toast-count"]')?.textContent).toBe("0");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears timers for toasts evicted by the visible cap", () => {
+    vi.useFakeTimers();
+    const root = createRoot(container);
+    let pushToastRef: ((input: { title: string; ttlMs?: number }) => string | null) | null = null;
+
+    function ActionOnlyConsumer() {
+      const { pushToast } = useToastActions();
+      pushToastRef = pushToast;
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        <ToastProvider>
+          <ActionOnlyConsumer />
+        </ToastProvider>,
+      );
+    });
+
+    act(() => {
+      for (let index = 0; index < 6; index += 1) {
+        pushToastRef?.({ title: `Toast ${index}`, ttlMs: 10000 });
+      }
+    });
+
+    expect(vi.getTimerCount()).toBe(5);
 
     act(() => {
       root.unmount();

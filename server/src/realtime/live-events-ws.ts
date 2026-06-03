@@ -254,7 +254,15 @@ export function setupLiveEventsWebSocketServer(
       return;
     }
 
-    const url = new URL(req.url, "http://localhost");
+    let url: URL;
+    try {
+      url = new URL(req.url, "http://localhost");
+    } catch (err) {
+      logger.warn({ err, path: req.url }, "rejected malformed websocket upgrade url");
+      rejectUpgrade(socket, "400 Bad Request", "invalid url");
+      return;
+    }
+
     const companyId = parseCompanyId(url.pathname);
     if (!companyId) {
       return;

@@ -23,7 +23,7 @@ vi.mock("../context/CompanyContext", () => ({
   useCompany: () => ({ selectedCompanyId: "company-1" }),
 }));
 
-function makeSecret(id: string, status: CompanySecret["status"]): CompanySecret {
+function makeSecret(id: string, status: CompanySecret["status"], latestVersion = 1): CompanySecret {
   return {
     id,
     companyId: "company-1",
@@ -35,7 +35,7 @@ function makeSecret(id: string, status: CompanySecret["status"]): CompanySecret 
     externalRef: null,
     providerConfigId: null,
     providerMetadata: null,
-    latestVersion: 1,
+    latestVersion,
     description: null,
     lastResolvedAt: null,
     lastRotatedAt: null,
@@ -97,5 +97,39 @@ describe("SecretBindingPicker", () => {
       expect(options).toContain("Secret disabled-secret, local encrypted (disabled)");
       expect(options).toContain("Secret active-secret, local encrypted");
     });
+  });
+
+  it("resets a pinned version when switching to a different secret", async () => {
+    const onChange = vi.fn();
+    secretsApiMock.list.mockResolvedValue([
+      makeSecret("first-secret", "active", 3),
+      makeSecret("second-secret", "active", 1),
+    ]);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SecretBindingPicker
+            value={{ secretId: "first-secret", version: 3 }}
+            onChange={onChange}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      const secretSelect = container.querySelector<HTMLSelectElement>("select");
+      expect(secretSelect?.value).toBe("first-secret");
+      expect(Array.from(secretSelect?.options ?? []).map((option) => option.value)).toContain("second-secret");
+    });
+
+    const secretSelect = container.querySelectorAll<HTMLSelectElement>("select")[0];
+    await act(async () => {
+      secretSelect.value = "second-secret";
+      secretSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onChange).toHaveBeenCalledWith({ secretId: "second-secret", version: "latest" });
   });
 });

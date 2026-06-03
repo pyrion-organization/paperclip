@@ -441,6 +441,10 @@ export function OnboardingWizard() {
       if (isLocalAdapter) {
         const result = adapterEnvResult ?? (await runAdapterEnvironmentTest());
         if (!result) return;
+        if (result.status === "fail") {
+          setAdapterEnvError("Adapter environment check failed.");
+          return;
+        }
       }
 
       const hire = await agentsApi.hire(createdCompanyId, {

@@ -214,7 +214,7 @@ export function EnvVarEditor({
                 <select
                   className={cn(inputClass, "flex-[3] bg-background", row.secretId && !secrets.some((s) => s.id === row.secretId) && "border-destructive text-destructive")}
                   value={row.secretId}
-                  onChange={(event) => updateRow(index, { secretId: event.target.value })}
+                  onChange={(event) => updateRow(index, { secretId: event.target.value, version: "latest" })}
                 >
                   <option value="">Select secret&hellip;</option>
                   {row.secretId && !secrets.some((s) => s.id === row.secretId) ? (

@@ -40,6 +40,10 @@ describe("issue-reference", () => {
       issuePathId: "PAP-1180",
       href: "/issues/PAP-1180",
     });
+    expect(parseIssueReferenceFromHref("/issues/PAP-1181?from=inbox#note")).toEqual({
+      issuePathId: "PAP-1181",
+      href: "/issues/PAP-1181",
+    });
     expect(parseIssueReferenceFromHref("issue://PAP-1310")).toEqual({
       issuePathId: "PAP-1310",
       href: "/issues/PAP-1310",

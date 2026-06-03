@@ -59,6 +59,50 @@ function changeSelect(select: HTMLSelectElement, value: string) {
 }
 
 describe("EnvVarEditor", () => {
+  function makeSecret(id: string, latestVersion: number): CompanySecret {
+    return {
+      id,
+      companyId: "company-1",
+      key: id,
+      name: id,
+      provider: "local_encrypted",
+      description: null,
+      status: "active",
+      managedMode: "paperclip_managed",
+      externalRef: null,
+      providerConfigId: null,
+      providerMetadata: null,
+      latestVersion,
+      lastResolvedAt: null,
+      lastRotatedAt: null,
+      deletedAt: null,
+      createdByUserId: null,
+      createdByAgentId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  it("resets a pinned secret version when switching env secret refs", () => {
+    const onChange = vi.fn();
+    const { container } = renderEditor({
+      value: {
+        API_TOKEN: { type: "secret_ref", secretId: "secret-old", version: 3 },
+      },
+      secrets: [makeSecret("secret-old", 3), makeSecret("secret-new", 1)],
+      onChange,
+    });
+
+    const secretSelect = container.querySelectorAll<HTMLSelectElement>("select")[1];
+    act(() => {
+      changeSelect(secretSelect, "secret-new");
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      API_TOKEN: { type: "secret_ref", secretId: "secret-new", version: "latest" },
+    });
+  });
+
   it("clears plaintext after sealing a value as a secret", async () => {
     const createdSecret = {
       id: "secret-1",

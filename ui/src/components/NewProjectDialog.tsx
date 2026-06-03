@@ -163,6 +163,16 @@ export function NewProjectDialog() {
     setWorkspaceError(null);
 
     try {
+      const workspacePayload: Record<string, unknown> | null = localPath || repoUrl
+        ? {
+          name: localPath
+            ? deriveWorkspaceNameFromPath(localPath)
+            : deriveWorkspaceNameFromRepo(repoUrl),
+          ...(localPath ? { cwd: localPath } : {}),
+          ...(repoUrl ? { repoUrl } : {}),
+        }
+        : null;
+
       const created = await createProject.mutateAsync({
         name: name.trim(),
         description: description.trim() || undefined,
@@ -170,25 +180,18 @@ export function NewProjectDialog() {
         color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
         ...(goalIds.length > 0 ? { goalIds } : {}),
         ...(targetDate ? { targetDate } : {}),
+        ...(workspacePayload ? { workspace: workspacePayload } : {}),
       });
-
-      if (localPath || repoUrl) {
-        const workspacePayload: Record<string, unknown> = {
-          name: localPath
-            ? deriveWorkspaceNameFromPath(localPath)
-            : deriveWorkspaceNameFromRepo(repoUrl),
-          ...(localPath ? { cwd: localPath } : {}),
-          ...(repoUrl ? { repoUrl } : {}),
-        };
-        await projectsApi.createWorkspace(created.id, workspacePayload);
-      }
 
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(selectedCompanyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(created.id) });
       reset();
       closeNewProject();
-    } catch {
-      // surface through createProject.isError
+    } catch (err) {
+      setWorkspaceError(err instanceof Error ? err.message : "Failed to create project");
+      if (selectedCompanyId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(selectedCompanyId) });
+      }
     }
   }
 

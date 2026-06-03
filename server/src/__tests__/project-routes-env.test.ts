@@ -301,4 +301,26 @@ describe("project env routes", () => {
       }),
     );
   });
+
+  it("removes a newly created project when initial workspace creation throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockProjectService.create.mockResolvedValue(buildProject({ id: "project-1", name: "Project" }));
+    mockProjectService.createWorkspace.mockRejectedValue(new Error("workspace failed"));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/projects")
+      .send({
+        name: "Project",
+        workspace: {
+          name: "paperclip",
+          repoUrl: "https://github.com/paperclipai/paperclip.git",
+        },
+      });
+
+    expect(res.status).toBe(500);
+    expect(mockProjectService.remove).toHaveBeenCalledWith("project-1");
+    expect(mockProjectService.updateWorkspace).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  }, 15000);
 });
