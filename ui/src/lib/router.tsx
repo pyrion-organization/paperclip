@@ -142,10 +142,11 @@ export const Link = React.forwardRef<HTMLAnchorElement, CompanyLinkProps>(
     const companyPrefix = useActiveCompanyPrefix();
     const resolvedTo = resolveTo(to, companyPrefix);
     const issuePathId = parseIssuePathIdFromPath(typeof resolvedTo === "string" ? resolvedTo : resolvedTo.pathname);
+    const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(props.state, issuePrefetch) : props.state;
 
     if (issuePathId) {
       if (disableIssueQuicklook) {
-        return <RouterDom.Link ref={ref} to={resolvedTo} {...props} />;
+        return <RouterDom.Link ref={ref} to={resolvedTo} {...props} state={prefetchedState} />;
       }
 
       return (

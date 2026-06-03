@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { cp, rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const packageRoot = resolve(import.meta.dirname, "..");
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(packageRoot, "src/migrations");
 const target = resolve(packageRoot, "dist/migrations");
 

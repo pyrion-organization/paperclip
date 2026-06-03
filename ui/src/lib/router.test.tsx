@@ -2,8 +2,9 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Issue } from "@paperclipai/shared";
 import { Link } from "./router";
 
 vi.mock("@/context/CompanyContext", () => ({
@@ -46,6 +47,62 @@ describe("Link", () => {
     const link = container.querySelector("a");
     expect(link?.textContent).toBe("PAP-1");
     expect(link?.getAttribute("href")).toBe("/issues/PAP-1");
+  });
+
+  it("preserves issue prefetch state for disabled issue quicklook links", () => {
+    const issue = {
+      id: "11111111-1111-4111-8111-111111111111",
+      identifier: "PAP-1",
+      title: "Prefetched issue",
+      status: "todo",
+      priority: "medium",
+      projectId: null,
+      project: null,
+      blockerAttention: null,
+      originKind: "manual",
+      originId: null,
+    } as unknown as Issue;
+
+    function IssueDetailState() {
+      const location = useLocation();
+      const state = location.state as { issueDetailHeaderSeed?: { id?: string; title?: string } } | null;
+      return (
+        <div>
+          {state?.issueDetailHeaderSeed?.id}:{state?.issueDetailHeaderSeed?.title}
+        </div>
+      );
+    }
+
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route
+              path="/"
+              element={(
+                <Link disableIssueQuicklook issuePrefetch={issue} to="/issues/PAP-1">
+                  PAP-1
+                </Link>
+              )}
+            />
+            <Route path="/issues/:issueId" element={<IssueDetailState />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link).not.toBeNull();
+
+    act(() => {
+      link?.dispatchEvent(new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      }));
+    });
+
+    expect(container.textContent).toContain("11111111-1111-4111-8111-111111111111:Prefetched issue");
   });
 
   it("keeps enabled issue quicklook links lazy until interaction", () => {
