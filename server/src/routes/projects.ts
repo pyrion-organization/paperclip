@@ -2176,6 +2176,12 @@ export function projectRoutes(db: Db) {
       workspaceCommand?.kind === "service"
         ? workspaceCommand.serviceIndex
         : target.serviceIndex ?? null;
+    const selectedServiceName =
+      selectedRuntimeServiceId || selectedServiceIndex === null || selectedServiceIndex === undefined
+        ? null
+        : typeof configuredServices[selectedServiceIndex]?.name === "string"
+          ? configuredServices[selectedServiceIndex].name
+          : null;
     if (
       selectedServiceIndex !== undefined
       && selectedServiceIndex !== null
@@ -2276,6 +2282,7 @@ export function projectRoutes(db: Db) {
             db,
             projectWorkspaceId: workspace.id,
             runtimeServiceId: selectedRuntimeServiceId,
+            serviceName: selectedServiceName,
           });
         }
 

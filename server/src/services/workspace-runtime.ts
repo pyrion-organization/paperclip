@@ -2864,10 +2864,18 @@ export async function stopRuntimeServicesForProjectWorkspace(input: {
   db?: Db;
   projectWorkspaceId: string;
   runtimeServiceId?: string | null;
+  serviceName?: string | null;
 }) {
   const matchingServiceIds = Array.from(runtimeServicesById.values())
     .filter((record) => {
       if (input.runtimeServiceId) return record.id === input.runtimeServiceId;
+      if (input.serviceName) {
+        return (
+          record.projectWorkspaceId === input.projectWorkspaceId &&
+          record.scopeType === "project_workspace" &&
+          record.serviceName === input.serviceName
+        );
+      }
       return record.projectWorkspaceId === input.projectWorkspaceId && record.scopeType === "project_workspace";
     })
     .map((record) => record.id);
@@ -2890,6 +2898,13 @@ export async function stopRuntimeServicesForProjectWorkspace(input: {
       .where(
         input.runtimeServiceId
           ? eq(workspaceRuntimeServices.id, input.runtimeServiceId)
+          : input.serviceName
+            ? and(
+                eq(workspaceRuntimeServices.projectWorkspaceId, input.projectWorkspaceId),
+                eq(workspaceRuntimeServices.scopeType, "project_workspace"),
+                eq(workspaceRuntimeServices.serviceName, input.serviceName),
+                inArray(workspaceRuntimeServices.status, ["starting", "running"]),
+              )
           : and(
               eq(workspaceRuntimeServices.projectWorkspaceId, input.projectWorkspaceId),
               eq(workspaceRuntimeServices.scopeType, "project_workspace"),
