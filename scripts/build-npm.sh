@@ -53,6 +53,7 @@ import config from './esbuild.config.mjs';
 await esbuild.build(config);
 "
 
+node "$REPO_ROOT/scripts/ensure-cli-shebang.mjs" "$DIST_DIR/index.js"
 chmod +x dist/index.js
 
 # ── Step 4: Validate bundled entrypoint syntax ─────────────────────────────────
