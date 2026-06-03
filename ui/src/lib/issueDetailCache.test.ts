@@ -1,10 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 import type { Issue } from "@paperclipai/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/api/client";
 import { issuesApi } from "@/api/issues";
 import {
   fetchIssueDetail,
   getCachedIssueDetail,
+  isIssueDetailRefTemporarilyMissing,
   prefetchIssueDetail,
   seedIssueDetailCache,
 } from "./issueDetailCache";
@@ -105,5 +107,18 @@ describe("issueDetailCache", () => {
     expect(result).toEqual(issue);
     expect(queryClient.getQueryData(queryKeys.issues.detail(issue.identifier!))).toEqual(issue);
     expect(queryClient.getQueryData(queryKeys.issues.detail(issue.id))).toEqual(issue);
+  });
+
+  it("remembers missing issue refs so repeated prefetches do not retry 404s", async () => {
+    vi.mocked(issuesApi.get).mockRejectedValue(new ApiError("Not found", 404, null));
+
+    await prefetchIssueDetail(queryClient, "NPYR-310");
+
+    expect(issuesApi.get).toHaveBeenCalledTimes(1);
+    expect(isIssueDetailRefTemporarilyMissing("NPYR-310")).toBe(true);
+
+    await prefetchIssueDetail(queryClient, "NPYR-310");
+
+    expect(issuesApi.get).toHaveBeenCalledTimes(1);
   });
 });

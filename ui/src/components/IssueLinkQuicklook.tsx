@@ -8,6 +8,7 @@ import { createIssueDetailPath, withIssueDetailHeaderSeed } from "@/lib/issueDet
 import {
   getIssueDetailQueryOptions,
   ISSUE_DETAIL_STALE_TIME_MS,
+  isIssueDetailRefTemporarilyMissing,
   prefetchIssueDetail,
 } from "@/lib/issueDetailCache";
 import { queryKeys } from "@/lib/queryKeys";
@@ -104,14 +105,16 @@ export const IssueLinkQuicklook = React.forwardRef<
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(initialOpen);
   const prefetchedState = issuePrefetch ? withIssueDetailHeaderSeed(state, issuePrefetch) : state;
+  const temporarilyMissing = isIssueDetailRefTemporarilyMissing(issuePathId);
   const { data, isLoading } = useQuery({
     ...getIssueDetailQueryOptions(queryClient, issuePathId, { placeholderIssue: issuePrefetch ?? undefined }),
-    enabled: open,
+    enabled: open && !temporarilyMissing,
     staleTime: ISSUE_DETAIL_STALE_TIME_MS,
   });
 
   const detailPath = createIssueDetailPath(issuePathId);
   const handlePrefetch = React.useCallback(() => {
+    if (!issuePrefetch && isIssueDetailRefTemporarilyMissing(issuePathId)) return;
     void prefetchIssueDetail(queryClient, issuePathId, { issue: issuePrefetch });
   }, [issuePathId, issuePrefetch, queryClient]);
 

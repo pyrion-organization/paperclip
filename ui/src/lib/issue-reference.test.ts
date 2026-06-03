@@ -8,6 +8,8 @@ describe("issue-reference", () => {
     expect(parseIssuePathIdFromPath("/issues/pc1a2-7")).toBe("PC1A2-7");
     expect(parseIssuePathIdFromPath("/PC1A2/issues/pc1a2-7")).toBe("PC1A2-7");
     expect(parseIssuePathIdFromPath("/issues/PAP-1179")).toBe("PAP-1179");
+    expect(parseIssuePathIdFromPath("/issues/ISSUE-123")).toBe("ISSUE-123");
+    expect(parseIssuePathIdFromPath("/issues/MYISSUE-1")).toBe("MYISSUE-1");
     expect(parseIssuePathIdFromPath("/issues/:id")).toBeNull();
   });
 
@@ -23,8 +25,14 @@ describe("issue-reference", () => {
 
   it("ignores placeholder issue paths", () => {
     expect(parseIssuePathIdFromPath("/issues/:id")).toBeNull();
+    expect(parseIssuePathIdFromPath("/issues/%7BissueId%7D")).toBeNull();
+    expect(parseIssuePathIdFromPath("/issues/%3Cissue-identifier%3E")).toBeNull();
     expect(parseIssuePathIdFromPath("http://localhost:3100/issues/:id")).toBeNull();
     expect(parseIssueReferenceFromHref("/issues/:id")).toBeNull();
+    expect(parseIssueReferenceFromHref("/issues/{issueId}")).toBeNull();
+    expect(parseIssueReferenceFromHref("/issues/<issue-identifier>")).toBeNull();
+    expect(parseIssueReferenceFromHref("issue://{issueId}")).toBeNull();
+    expect(parseIssueReferenceFromHref("issue://<issue-identifier>")).toBeNull();
   });
 
   it("normalizes bare identifiers, relative issue paths, and issue scheme links into internal links", () => {
@@ -54,6 +62,14 @@ describe("issue-reference", () => {
     expect(parseIssueReferenceFromHref("PAP-1271")).toEqual({
       issuePathId: "PAP-1271",
       href: "/issues/PAP-1271",
+    });
+    expect(parseIssueReferenceFromHref("ISSUE-123")).toEqual({
+      issuePathId: "ISSUE-123",
+      href: "/issues/ISSUE-123",
+    });
+    expect(parseIssueReferenceFromHref("MYISSUE-1")).toEqual({
+      issuePathId: "MYISSUE-1",
+      href: "/issues/MYISSUE-1",
     });
   });
 

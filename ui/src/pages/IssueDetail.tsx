@@ -3088,7 +3088,10 @@ export function IssueDetail() {
   );
 
   if (isLoading) return <IssueDetailLoadingState headerSeed={issueHeaderSeed} />;
-  if (error) return <p className="text-sm text-destructive">{error.message}</p>;
+  if (error) {
+    const message = error instanceof Error ? error.message : "Unable to load issue.";
+    return <p className="text-sm text-destructive">{message}</p>;
+  }
   if (!issue) return null;
 
   // Ancestors are returned oldest-first from the server (root at end, immediate parent at start)
