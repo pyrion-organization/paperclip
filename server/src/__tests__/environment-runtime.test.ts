@@ -630,6 +630,169 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     }), 31234);
   });
 
+  it("does not treat another provider with the same provider lease id as a shared reference", async () => {
+    const pluginId = randomUUID();
+    const { companyId, environment, runId } = await seedEnvironment({
+      driver: "sandbox",
+      name: "Shared Plugin Sandbox",
+      config: {
+        provider: "fake-plugin",
+        image: "fake:test",
+        timeoutMs: 1234,
+        reuseLease: true,
+      },
+    });
+    const existingRun = await db
+      .select()
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0]!);
+    const otherProviderRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: otherProviderRunId,
+      companyId,
+      agentId: existingRun.agentId,
+      invocationSource: "manual",
+      status: "running",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const providerLeaseId = "provider-local-lease-id";
+    const [targetLease] = await db
+      .insert(environmentLeases)
+      .values([
+        {
+          companyId,
+          environmentId: environment.id,
+          heartbeatRunId: runId,
+          status: "active",
+          leasePolicy: "reuse_by_environment",
+          provider: "fake-plugin",
+          providerLeaseId,
+          metadata: {
+            driver: "sandbox",
+            executionWorkspaceMode: null,
+            pluginId,
+            provider: "fake-plugin",
+            sandboxProviderPlugin: true,
+            image: "fake:test",
+            timeoutMs: 1234,
+            reuseLease: true,
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          companyId,
+          environmentId: environment.id,
+          heartbeatRunId: otherProviderRunId,
+          status: "active",
+          leasePolicy: "reuse_by_environment",
+          provider: "other-plugin",
+          providerLeaseId,
+          metadata: {
+            driver: "sandbox",
+            executionWorkspaceMode: null,
+            provider: "other-plugin",
+            sandboxProviderPlugin: true,
+            image: "fake:test",
+            timeoutMs: 1234,
+            reuseLease: true,
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ])
+      .returning();
+    const workerManager = {
+      isRunning: vi.fn((id: string) => id === pluginId),
+      call: vi.fn(async (_pluginId: string, method: string) => {
+        if (method === "environmentReleaseLease") return undefined;
+        throw new Error(`Unexpected plugin method: ${method}`);
+      }),
+    } as unknown as PluginWorkerManager;
+    const runtimeWithPlugin = environmentRuntimeService(db, { pluginWorkerManager: workerManager });
+
+    const released = await runtimeWithPlugin.releaseRunLeases(runId);
+
+    expect(released).toHaveLength(1);
+    expect(released[0]?.lease.id).toBe(targetLease!.id);
+    expect(released[0]?.lease.status).toBe("released");
+    expect(released[0]?.lease.cleanupStatus).toBe("success");
+    expect(workerManager.call).toHaveBeenCalledTimes(1);
+    expect(workerManager.call).toHaveBeenCalledWith(pluginId, "environmentReleaseLease", expect.objectContaining({
+      providerLeaseId,
+    }), 31234);
+
+    const otherProviderLease = await db
+      .select()
+      .from(environmentLeases)
+      .where(eq(environmentLeases.heartbeatRunId, otherProviderRunId))
+      .then((rows) => rows[0]);
+    expect(otherProviderLease?.status).toBe("active");
+  });
+
+  it("releases plugin-backed sandbox leases even when the provider lease id is null", async () => {
+    const pluginId = randomUUID();
+    const { companyId, environment, runId } = await seedEnvironment({
+      driver: "sandbox",
+      name: "Plugin Sandbox",
+      config: {
+        provider: "fake-plugin",
+        image: "fake:test",
+        timeoutMs: 1234,
+        reuseLease: false,
+      },
+    });
+    const [lease] = await db
+      .insert(environmentLeases)
+      .values({
+        companyId,
+        environmentId: environment.id,
+        heartbeatRunId: runId,
+        status: "active",
+        leasePolicy: "ephemeral",
+        provider: "fake-plugin",
+        providerLeaseId: null,
+        metadata: {
+          driver: "sandbox",
+          executionWorkspaceMode: null,
+          pluginId,
+          provider: "fake-plugin",
+          sandboxProviderPlugin: true,
+          image: "fake:test",
+          timeoutMs: 1234,
+          reuseLease: false,
+          externalLeaseRef: "metadata-owned-resource",
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+    const workerManager = {
+      isRunning: vi.fn((id: string) => id === pluginId),
+      call: vi.fn(async (_pluginId: string, method: string) => {
+        if (method === "environmentReleaseLease") return undefined;
+        throw new Error(`Unexpected plugin method: ${method}`);
+      }),
+    } as unknown as PluginWorkerManager;
+    const runtimeWithPlugin = environmentRuntimeService(db, { pluginWorkerManager: workerManager });
+
+    const released = await runtimeWithPlugin.releaseRunLeases(runId);
+
+    expect(released).toHaveLength(1);
+    expect(released[0]?.lease.id).toBe(lease!.id);
+    expect(released[0]?.lease.status).toBe("released");
+    expect(released[0]?.lease.cleanupStatus).toBe("success");
+    expect(workerManager.call).toHaveBeenCalledTimes(1);
+    expect(workerManager.call).toHaveBeenCalledWith(pluginId, "environmentReleaseLease", expect.objectContaining({
+      providerLeaseId: null,
+      leaseMetadata: expect.objectContaining({
+        externalLeaseRef: "metadata-owned-resource",
+      }),
+    }), 31234);
+  });
+
   it("uses resolved secret-ref config for plugin-backed sandbox execute and release", async () => {
     const pluginId = randomUUID();
     const { companyId, environment: baseEnvironment, runId } = await seedEnvironment();

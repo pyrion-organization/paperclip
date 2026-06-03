@@ -180,6 +180,7 @@ async function releaseLeaseAndCheckProviderCleanup(input: {
         select id
         from ${environmentLeases}
         where ${environmentLeases.companyId} = ${input.lease.companyId}
+          and ${environmentLeases.provider} is not distinct from ${input.lease.provider}
           and ${environmentLeases.providerLeaseId} = ${input.lease.providerLeaseId}
         for update
       `);
@@ -218,6 +219,7 @@ async function releaseLeaseAndCheckProviderCleanup(input: {
         .where(
           and(
             eq(environmentLeases.companyId, input.lease.companyId),
+            sql`${environmentLeases.provider} is not distinct from ${input.lease.provider}`,
             eq(environmentLeases.providerLeaseId, input.lease.providerLeaseId),
             eq(environmentLeases.status, "active"),
           ),
@@ -226,7 +228,7 @@ async function releaseLeaseAndCheckProviderCleanup(input: {
         .then((rows) => rows.length > 0)
       : false;
 
-    if (!input.lease.providerLeaseId || hasRemainingActiveReference) {
+    if (hasRemainingActiveReference) {
       const finalizedRow = await tx
         .update(environmentLeases)
         .set({
