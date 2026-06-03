@@ -126,6 +126,12 @@ export function NewProjectDialog() {
       projectsApi.create(selectedCompanyId!, data),
   });
 
+  const createWorkspace = useInvalidatingMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: Record<string, unknown> }) =>
+      projectsApi.createWorkspace(projectId, data),
+  });
+  const submitPending = createProject.isPending || createWorkspace.isPending;
+
   const uploadDescriptionImage = useInvalidatingMutation({
     mutationFn: async (file: File) => {
       if (!selectedCompanyId) throw new Error("No company selected");
@@ -168,6 +174,8 @@ export function NewProjectDialog() {
           name: localPath
             ? deriveWorkspaceNameFromPath(localPath)
             : deriveWorkspaceNameFromRepo(repoUrl),
+          isPrimary: true,
+          sourceType: localPath ? "local_path" : "git_repo",
           ...(localPath ? { cwd: localPath } : {}),
           ...(repoUrl ? { repoUrl } : {}),
         }
@@ -180,8 +188,14 @@ export function NewProjectDialog() {
         color: PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)],
         ...(goalIds.length > 0 ? { goalIds } : {}),
         ...(targetDate ? { targetDate } : {}),
-        ...(workspacePayload ? { workspace: workspacePayload } : {}),
       });
+
+      if (workspacePayload) {
+        await createWorkspace.mutateAsync({
+          projectId: created.id,
+          data: workspacePayload,
+        });
+      }
 
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.list(selectedCompanyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(created.id) });
@@ -434,17 +448,17 @@ export function NewProjectDialog() {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-border">
-          {createProject.isError ? (
+          {createProject.isError || createWorkspace.isError ? (
             <p className="text-xs text-destructive">Failed to create project.</p>
           ) : (
             <span />
           )}
           <Button
             size="sm"
-            disabled={!name.trim() || createProject.isPending}
+            disabled={!name.trim() || submitPending}
             onClick={handleSubmit}
           >
-            {createProject.isPending ? "Creating…" : "Create project"}
+            {submitPending ? "Creating…" : "Create project"}
           </Button>
         </div>
       </DialogContent>
