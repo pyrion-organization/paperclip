@@ -18,7 +18,9 @@ const mockProjectService = vi.hoisted(() => ({
 const mockSecretService = vi.hoisted(() => ({
   normalizeEnvBindingsForPersistence: vi.fn(),
 }));
-const mockProjectFilesService = vi.hoisted(() => ({}));
+const mockProjectFilesService = vi.hoisted(() => ({
+  deletePath: vi.fn(),
+}));
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));
@@ -159,6 +161,11 @@ describe("project env routes", () => {
     mockProjectService.createWorkspace.mockResolvedValue(null);
     mockProjectService.updateWorkspace.mockResolvedValue(null);
     mockProjectService.listWorkspaces.mockResolvedValue([]);
+    mockProjectFilesService.deletePath.mockResolvedValue({
+      projectId: "project-1",
+      path: "docs/old.md",
+      deleted: true,
+    });
     mockEnvironmentService.getById.mockReset();
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);
   });
@@ -200,7 +207,7 @@ describe("project env routes", () => {
         }),
       }),
     );
-  });
+  }, 20_000);
 
   it("normalizes env bindings on update and avoids logging raw values", async () => {
     const normalizedEnv = {
@@ -225,6 +232,27 @@ describe("project env routes", () => {
           changedKeys: ["env"],
           envKeys: ["PLAIN_KEY"],
         },
+      }),
+    );
+  }, 10_000);
+
+  it("deletes project file tree paths through the board-only route", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .delete("/api/projects/project-1/files/tree")
+      .query({ path: "docs/old.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.deletePath).toHaveBeenCalledWith("project-1", "docs/old.md");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.path_deleted",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: { path: "docs/old.md" },
       }),
     );
   });

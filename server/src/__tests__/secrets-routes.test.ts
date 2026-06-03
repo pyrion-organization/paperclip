@@ -18,7 +18,9 @@ const mockSecretService = vi.hoisted(() => ({
   setDefaultProviderConfig: vi.fn(),
   checkProviderConfigHealth: vi.fn(),
   getById: vi.fn(),
+  list: vi.fn(),
   create: vi.fn(),
+  rotate: vi.fn(),
   update: vi.fn(),
   remove: vi.fn(),
   previewRemoteImport: vi.fn(),
@@ -80,6 +82,55 @@ describe("secret routes", () => {
         },
       ],
     });
+  });
+
+  it("lists company secrets only for board callers with company access", async () => {
+    mockSecretService.list.mockResolvedValue([
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        companyId: "company-1",
+        name: "OpenAI API Key",
+        key: "openai-api-key",
+        managedMode: "paperclip_managed",
+        status: "active",
+      },
+    ]);
+
+    const res = await request(createApp()).get("/api/companies/company-1/secrets");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockSecretService.list).toHaveBeenCalledWith("company-1");
+    expect(res.body).toEqual([
+      expect.objectContaining({
+        id: "11111111-1111-4111-8111-111111111111",
+        companyId: "company-1",
+        key: "openai-api-key",
+      }),
+    ]);
+  });
+
+  it("rejects company secrets listing for non-board actors", async () => {
+    const res = await request(createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+    })).get("/api/companies/company-1/secrets");
+
+    expect(res.status).toBe(403);
+    expect(mockSecretService.list).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-company company secrets listing before service access", async () => {
+    const res = await request(createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      companyIds: ["company-2"],
+      memberships: [{ companyId: "company-2", status: "active", membershipRole: "admin" }],
+    })).get("/api/companies/company-1/secrets");
+
+    expect(res.status).toBe(403);
+    expect(mockSecretService.list).not.toHaveBeenCalled();
   });
 
   it("rejects managed secret creation when externalRef is supplied", async () => {
@@ -564,6 +615,24 @@ describe("secret routes", () => {
     );
     expect(mockLogActivity).not.toHaveBeenCalled();
     expect(JSON.stringify(mockLogActivity.mock.calls)).not.toContain("shared/repointed");
+  });
+
+  it("returns 404 when rotate loses the secret before persistence returns", async () => {
+    mockSecretService.getById.mockResolvedValue({
+      id: "22222222-2222-4222-8222-222222222222",
+      companyId: "company-1",
+      name: "OpenAI API key",
+      key: "openai-api-key",
+      status: "active",
+    });
+    mockSecretService.rotate.mockResolvedValue(null);
+
+    const res = await request(createApp())
+      .post("/api/secrets/22222222-2222-4222-8222-222222222222/rotate")
+      .send({ value: "rotated" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(mockLogActivity).not.toHaveBeenCalled();
   });
 
   it("allows DELETE to retry cleanup for already soft-deleted secrets", async () => {

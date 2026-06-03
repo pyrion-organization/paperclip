@@ -19,6 +19,7 @@ const mockProjectService = vi.hoisted(() => ({
   listInfraHealthChecks: vi.fn(),
   getInfraHealthCheck: vi.fn(),
   createInfraHealthCheck: vi.fn(),
+  removeInfraHealthCheck: vi.fn(),
   rotateInfraHealthExternalMonitorToken: vi.fn(),
   revokeInfraHealthExternalMonitorToken: vi.fn(),
   recordExternalInfraHealthResult: vi.fn(),
@@ -396,6 +397,7 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
       buildInfraHealthCheck(data),
     );
+    mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.rotateInfraHealthExternalMonitorToken.mockResolvedValue({
       healthCheck: buildInfraHealthCheck({ externalMonitorEnabled: true, externalMonitorTokenHint: "abcd1234" }),
       token: "pcmon_test_abcd1234",
@@ -1061,6 +1063,34 @@ describe("project deploy workflow routes", () => {
     expect(mockProjectService.revokeInfraHealthExternalMonitorToken).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
       "88888888-8888-4888-8888-888888888888",
+    );
+  });
+
+  it("deletes infra health checks through the board-only route", async () => {
+    mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck({
+      id: "88888888-8888-4888-8888-888888888888",
+      name: "Production HTTP",
+    }));
+
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.removeInfraHealthCheck).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "88888888-8888-4888-8888-888888888888",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.infra_health_check_deleted",
+        companyId: "company-1",
+        entityId: "11111111-1111-4111-8111-111111111111",
+        details: expect.objectContaining({
+          healthCheckId: "88888888-8888-4888-8888-888888888888",
+          name: "Production HTTP",
+        }),
+      }),
     );
   });
 

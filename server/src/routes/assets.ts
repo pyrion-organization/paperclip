@@ -166,32 +166,38 @@ export function assetRoutes(db: Db, storage: StorageService) {
       body: fileBody,
     });
 
-    const asset = await svc.create(companyId, {
-      provider: stored.provider,
-      objectKey: stored.objectKey,
-      contentType: stored.contentType,
-      byteSize: stored.byteSize,
-      sha256: stored.sha256,
-      originalFilename: stored.originalFilename,
-      createdByAgentId: actor.agentId,
-      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
-    });
+    let asset: Awaited<ReturnType<typeof svc.create>>;
+    try {
+      asset = await svc.create(companyId, {
+        provider: stored.provider,
+        objectKey: stored.objectKey,
+        contentType: stored.contentType,
+        byteSize: stored.byteSize,
+        sha256: stored.sha256,
+        originalFilename: stored.originalFilename,
+        createdByAgentId: actor.agentId,
+        createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
 
-    await logActivity(db, {
-      companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "asset.created",
-      entityType: "asset",
-      entityId: asset.id,
-      details: {
-        originalFilename: asset.originalFilename,
-        contentType: asset.contentType,
-        byteSize: asset.byteSize,
-      },
-    });
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "asset.created",
+        entityType: "asset",
+        entityId: asset.id,
+        details: {
+          originalFilename: asset.originalFilename,
+          contentType: asset.contentType,
+          byteSize: asset.byteSize,
+        },
+      });
+    } catch (error) {
+      await storage.deleteObject(companyId, stored.objectKey).catch(() => null);
+      throw error;
+    }
 
     res.status(201).json({
       assetId: asset.id,

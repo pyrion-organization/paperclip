@@ -185,6 +185,33 @@ describe("calendar routes", () => {
     );
   });
 
+  it("archives calendar items through the board-only status route", async () => {
+    mockCalendarService.setStatus.mockResolvedValue({
+      id: "item-1",
+      companyId: "company-1",
+      status: "archived",
+    });
+
+    const res = await request(appForActor(boardActor))
+      .post("/api/companies/company-1/calendar/items/item-1/archive");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCalendarService.setStatus).toHaveBeenCalledWith(
+      "company-1",
+      "item-1",
+      "archived",
+      expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
+    );
+  });
+
+  it("rejects agent archive attempts before changing calendar status", async () => {
+    const res = await request(appForActor(agentActor))
+      .post("/api/companies/company-1/calendar/items/item-1/archive");
+
+    expect(res.status).toBe(403);
+    expect(mockCalendarService.setStatus).not.toHaveBeenCalled();
+  });
+
   it("rejects cross-company agent reads before service access", async () => {
     const res = await request(appForActor(agentActor))
       .get("/api/companies/company-2/calendar/items");

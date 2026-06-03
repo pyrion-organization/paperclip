@@ -685,13 +685,16 @@ export function agentRoutes(
     throw forbidden(decision.explanation);
   }
 
-  async function assertCanReadAgent(req: Request, targetAgent: { companyId: string }) {
+  async function assertCanReadAgent(req: Request, targetAgent: { id: string; companyId: string }) {
     assertCompanyAccess(req, targetAgent.companyId);
     if (req.actor.type === "board") {
       await assertCanReadConfigurations(req, targetAgent.companyId);
       return;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
+    if (req.actor.agentId !== targetAgent.id) {
+      throw forbidden("Agent key cannot read another agent's instructions");
+    }
 
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== targetAgent.companyId) {
@@ -2544,6 +2547,22 @@ export function agentRoutes(
 
     const actor = getActorInfo(req);
     const result = await instructions.deleteFile(existing, relativePath);
+    const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
+      existing.companyId,
+      result.adapterConfig,
+      { strictMode: strictSecretsMode },
+    );
+    await svc.update(
+      id,
+      { adapterConfig: normalizedAdapterConfig },
+      {
+        recordRevision: {
+          createdByAgentId: actor.agentId,
+          createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+          source: "instructions_bundle_file_delete",
+        },
+      },
+    );
     await logActivity(db, {
       companyId: existing.companyId,
       actorType: actor.actorType,

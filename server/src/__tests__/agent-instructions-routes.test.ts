@@ -98,7 +98,7 @@ function registerModuleMocks() {
   }));
 }
 
-async function createApp() {
+async function createApp(actor?: Record<string, unknown>) {
   const [{ agentRoutes }, { errorHandler }] = await Promise.all([
     vi.importActual<typeof import("../routes/agents.js")>("../routes/agents.js"),
     vi.importActual<typeof import("../middleware/index.js")>("../middleware/index.js"),
@@ -106,7 +106,7 @@ async function createApp() {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).actor = {
+    (req as any).actor = actor ?? {
       type: "board",
       userId: "local-board",
       companyIds: ["company-1"],
@@ -240,6 +240,27 @@ describe("agent instructions bundle routes", () => {
         instructionsFilePath: "/tmp/agent-1/AGENTS.md",
       },
     });
+    mockAgentInstructionsService.deleteFile.mockResolvedValue({
+      bundle: {
+        agentId: "11111111-1111-4111-8111-111111111111",
+        companyId: "company-1",
+        mode: "managed",
+        rootPath: "/tmp/agent-1",
+        managedRootPath: "/tmp/agent-1",
+        entryFile: "AGENTS.md",
+        resolvedEntryPath: "/tmp/agent-1/AGENTS.md",
+        editable: true,
+        warnings: [],
+        legacyPromptTemplateActive: false,
+        legacyBootstrapPromptTemplateActive: false,
+        files: [],
+      },
+      adapterConfig: {
+        instructionsBundleMode: "managed",
+        instructionsRootPath: "/tmp/agent-1",
+        instructionsEntryFile: "AGENTS.md",
+      },
+    });
   });
 
   it("returns bundle metadata", async () => {
@@ -257,6 +278,27 @@ describe("agent instructions bundle routes", () => {
       entryFile: "AGENTS.md",
     });
     expect(mockAgentInstructionsService.getBundle).toHaveBeenCalled();
+  });
+
+  it("prevents agent tokens from reading another agent's bundle metadata", async () => {
+    mockAgentService.getById.mockImplementation(async (id: string) => ({
+      ...makeAgent(),
+      id,
+      companyId: "company-1",
+    }));
+
+    const res = await requestApp(
+      await createApp({
+        type: "agent",
+        agentId: "22222222-2222-4222-8222-222222222222",
+        companyId: "company-1",
+      }),
+      (baseUrl) => request(baseUrl)
+        .get("/api/agents/11111111-1111-4111-8111-111111111111/instructions-bundle?companyId=company-1"),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(mockAgentInstructionsService.getBundle).not.toHaveBeenCalled();
   });
 
   it("writes a bundle file and persists compatibility config", async () => {
@@ -283,6 +325,28 @@ describe("agent instructions bundle routes", () => {
           instructionsRootPath: "/tmp/agent-1",
           instructionsEntryFile: "AGENTS.md",
           instructionsFilePath: "/tmp/agent-1/AGENTS.md",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("deletes a bundle file and persists compatibility config", async () => {
+    const res = await requestApp(await createApp(), (baseUrl) => request(baseUrl)
+      .delete("/api/agents/11111111-1111-4111-8111-111111111111/instructions-bundle/file?companyId=company-1&path=AGENTS.md"));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentInstructionsService.deleteFile).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "11111111-1111-4111-8111-111111111111" }),
+      "AGENTS.md",
+    );
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          instructionsBundleMode: "managed",
+          instructionsRootPath: "/tmp/agent-1",
+          instructionsEntryFile: "AGENTS.md",
         }),
       }),
       expect.any(Object),

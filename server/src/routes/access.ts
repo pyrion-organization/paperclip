@@ -1857,6 +1857,10 @@ function inviteExpired(invite: typeof invites.$inferSelect) {
   return invite.expiresAt.getTime() <= Date.now();
 }
 
+function inviteAllowsAgentOnboarding(invite: typeof invites.$inferSelect) {
+  return invite.allowedJoinTypes === "agent" || invite.allowedJoinTypes === "both";
+}
+
 function inviteState(invite: typeof invites.$inferSelect) {
   if (invite.revokedAt) return "revoked" as const;
   if (invite.acceptedAt) return "accepted" as const;
@@ -3174,7 +3178,14 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (
+      !invite ||
+      invite.revokedAt ||
+      inviteExpired(invite) ||
+      !inviteAllowsAgentOnboarding(invite) ||
+      (invite.acceptedAt && !inviteJoinRequest)
+    ) {
       throw notFound("Invite not found");
     }
 
@@ -3193,7 +3204,14 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (
+      !invite ||
+      invite.revokedAt ||
+      inviteExpired(invite) ||
+      !inviteAllowsAgentOnboarding(invite) ||
+      (invite.acceptedAt && !inviteJoinRequest)
+    ) {
       throw notFound("Invite not found");
     }
 
@@ -3528,7 +3546,7 @@ export function accessRoutes(
       let created = !inviteAlreadyAccepted
         ? existingHumanJoinRequest
           ? await db.transaction(async (tx) => {
-              await tx
+              const accepted = await tx
                 .update(invites)
                 .set({ acceptedAt: new Date(), updatedAt: new Date() })
                 .where(
@@ -3537,11 +3555,16 @@ export function accessRoutes(
                     isNull(invites.acceptedAt),
                     isNull(invites.revokedAt)
                   )
-                );
+                )
+                .returning({ id: invites.id })
+                .then((rows) => rows[0] ?? null);
+              if (!accepted) {
+                throw conflict("Invite is no longer available");
+              }
               return existingHumanJoinRequest;
             })
           : await db.transaction(async (tx) => {
-              await tx
+              const accepted = await tx
                 .update(invites)
                 .set({ acceptedAt: new Date(), updatedAt: new Date() })
                 .where(
@@ -3550,7 +3573,12 @@ export function accessRoutes(
                     isNull(invites.acceptedAt),
                     isNull(invites.revokedAt)
                   )
-                );
+                )
+                .returning({ id: invites.id })
+                .then((rows) => rows[0] ?? null);
+              if (!accepted) {
+                throw conflict("Invite is no longer available");
+              }
 
               const row = await tx
                 .insert(joinRequests)
@@ -3793,9 +3821,27 @@ export function accessRoutes(
     const revoked = await db
       .update(invites)
       .set({ revokedAt: new Date(), updatedAt: new Date() })
-      .where(eq(invites.id, id))
+      .where(
+        and(
+          eq(invites.id, id),
+          isNull(invites.acceptedAt),
+          isNull(invites.revokedAt)
+        )
+      )
       .returning()
-      .then((rows) => rows[0]);
+      .then((rows) => rows[0] ?? null);
+
+    if (!revoked) {
+      const latest = await db
+        .select()
+        .from(invites)
+        .where(eq(invites.id, id))
+        .then((rows) => rows[0] ?? null);
+      if (!latest) throw notFound("Invite not found");
+      if (latest.revokedAt) return res.json(latest);
+      if (latest.acceptedAt) throw conflict("Invite already consumed");
+      throw conflict("Invite could not be revoked");
+    }
 
     if (invite.companyId) {
       await logActivity(db, {
