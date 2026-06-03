@@ -178,26 +178,26 @@ export function assetRoutes(db: Db, storage: StorageService) {
         createdByAgentId: actor.agentId,
         createdByUserId: actor.actorType === "user" ? actor.actorId : null,
       });
-
-      await logActivity(db, {
-        companyId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        agentId: actor.agentId,
-        runId: actor.runId,
-        action: "asset.created",
-        entityType: "asset",
-        entityId: asset.id,
-        details: {
-          originalFilename: asset.originalFilename,
-          contentType: asset.contentType,
-          byteSize: asset.byteSize,
-        },
-      });
     } catch (error) {
       await storage.deleteObject(companyId, stored.objectKey).catch(() => null);
       throw error;
     }
+
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "asset.created",
+      entityType: "asset",
+      entityId: asset.id,
+      details: {
+        originalFilename: asset.originalFilename,
+        contentType: asset.contentType,
+        byteSize: asset.byteSize,
+      },
+    });
 
     res.status(201).json({
       assetId: asset.id,
