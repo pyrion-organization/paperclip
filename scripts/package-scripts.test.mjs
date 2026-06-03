@@ -4,6 +4,7 @@ import test from "node:test";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const cliPackageJson = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
+const claudeLocalPackageJson = JSON.parse(readFileSync(new URL("../packages/adapters/claude-local/package.json", import.meta.url), "utf8"));
 const dbPackageJson = JSON.parse(readFileSync(new URL("../packages/db/package.json", import.meta.url), "utf8"));
 
 test("default aggregate test run includes plugin-sdk build dependency bootstrap", () => {
@@ -25,4 +26,8 @@ test("db build script uses the idempotent migrations copy helper", () => {
     dbPackageJson.scripts.build,
     "pnpm run check:migrations && tsc && node scripts/copy-migrations.mjs",
   );
+});
+
+test("Claude local adapter build cleans stale dist artifacts before compiling", () => {
+  assert.equal(claudeLocalPackageJson.scripts.build, "pnpm run clean && tsc");
 });
