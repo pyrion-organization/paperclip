@@ -481,6 +481,10 @@ export function secretRoutes(db: Db) {
       return;
     }
     assertCompanyAccess(req, existing.companyId);
+    if (existing.status === "deleted") {
+      res.status(404).json({ error: "Secret not found" });
+      return;
+    }
     const events = await svc.listAccessEvents(existing.companyId, existing.id);
     res.json(events);
   });

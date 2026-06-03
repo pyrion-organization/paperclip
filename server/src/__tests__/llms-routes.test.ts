@@ -72,4 +72,36 @@ describe("llm routes", () => {
     expect(res.text).toContain("Timer heartbeats are opt-in for new hires.");
     expect(res.text).toContain("Leave runtimeConfig.heartbeat.enabled false");
   });
+
+  it("returns adapter configuration docs for known adapters", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/llms/agent-configuration/codex_local.txt");
+
+    expect(res.status).toBe(200);
+    expect(res.type).toMatch(/text\/plain/);
+    expect(res.text).toBe("# codex_local agent configuration");
+  });
+
+  it("rejects control characters in adapter configuration doc paths", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/llms/agent-configuration/codex_local%0AInjected:%20value.txt");
+
+    expect(res.status).toBe(404);
+    expect(res.text).toBe("Unknown adapter type");
+    expect(res.text).not.toContain("Injected");
+  });
 });

@@ -16,6 +16,7 @@ const mockProjectService = vi.hoisted(() => ({
   listInfraTargets: vi.fn(),
   getInfraTarget: vi.fn(),
   createInfraTarget: vi.fn(),
+  removeInfraTarget: vi.fn(),
   listInfraHealthChecks: vi.fn(),
   getInfraHealthCheck: vi.fn(),
   createInfraHealthCheck: vi.fn(),
@@ -392,6 +393,7 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createInfraTarget.mockImplementation(async (_projectId, data) =>
       buildInfraTarget(data),
     );
+    mockProjectService.removeInfraTarget.mockResolvedValue(buildInfraTarget());
     mockProjectService.listInfraHealthChecks.mockResolvedValue([buildInfraHealthCheck()]);
     mockProjectService.getInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
@@ -876,6 +878,40 @@ describe("project deploy workflow routes", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(mockProjectService.createInfraTarget).not.toHaveBeenCalled();
   }, 20_000);
+
+  it("deletes infra targets through the board-only route", async () => {
+    mockProjectService.removeInfraTarget.mockResolvedValue(buildInfraTarget({
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Production",
+    }));
+
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets/33333333-3333-4333-8333-333333333333");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.removeInfraTarget).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.infra_target_deleted",
+        details: expect.objectContaining({
+          infraTargetId: "33333333-3333-4333-8333-333333333333",
+          name: "Production",
+        }),
+      }),
+    );
+  });
+
+  it("rejects malformed infra target ids before deleting", async () => {
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets/not-a-uuid");
+
+    expect(res.status).toBe(400);
+    expect(mockProjectService.removeInfraTarget).not.toHaveBeenCalled();
+  });
 
   it("records an unhealthy health result and creates an infra incident issue", async () => {
     const app = await createApp();

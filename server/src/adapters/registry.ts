@@ -753,6 +753,11 @@ export function setOverridePaused(type: string, paused: boolean): boolean {
   return false;
 }
 
+/** Check whether a builtin type currently has an external override registered. */
+export function hasBuiltinOverride(type: string): boolean {
+  return builtinFallbacks.has(type);
+}
+
 /** Check whether the external override for a builtin type is currently paused. */
 export function isOverridePaused(type: string): boolean {
   return pausedOverrides.has(type);

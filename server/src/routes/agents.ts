@@ -2353,6 +2353,13 @@ export function agentRoutes(
     } else {
       nextAdapterConfig[adapterConfigKey] = resolveInstructionsFilePath(req.body.path, existingAdapterConfig);
     }
+    if (adapterConfigKey !== "instructionsFilePath") {
+      if (req.body.path === null) {
+        delete nextAdapterConfig.instructionsFilePath;
+      } else {
+        nextAdapterConfig.instructionsFilePath = nextAdapterConfig[adapterConfigKey];
+      }
+    }
 
     const syncedAdapterConfig = syncInstructionsBundleConfigFromFilePath(existing, nextAdapterConfig);
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(

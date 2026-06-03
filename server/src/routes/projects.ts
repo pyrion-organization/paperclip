@@ -40,7 +40,7 @@ import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } fr
 import { trackProjectCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { projectFilesService, projectService, logActivity, workspaceOperationService, initWorkspaceGit } from "../services/index.js";
-import { conflict, notFound, forbidden } from "../errors.js";
+import { badRequest, conflict, notFound, forbidden } from "../errors.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
   buildWorkspaceRuntimeDesiredStatePatch,
@@ -689,6 +689,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const infraTargetId = req.params.infraTargetId as string;
+    if (!isUuidLike(infraTargetId)) {
+      throw badRequest("Invalid infrastructure target id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -2044,6 +2047,32 @@ export function projectRoutes(db: Db) {
       res.status(422).json({ error: "Invalid project workspace payload" });
       return;
     }
+    let responseWorkspace = workspace;
+    if (!responseWorkspace.cwd) {
+      const managedPath = resolveManagedProjectWorkspaceDir({
+        companyId: existing.companyId,
+        projectId: id,
+        workspaceId: responseWorkspace.id,
+      });
+      const relocatedWorkspace = await svc.updateWorkspace(id, responseWorkspace.id, {
+        cwd: managedPath,
+        name: responseWorkspace.name,
+      });
+      if (!relocatedWorkspace) {
+        res.status(422).json({ error: "Failed to initialize project workspace" });
+        return;
+      }
+      responseWorkspace = relocatedWorkspace;
+    }
+
+    const projectId = id;
+    setImmediate(() => {
+      svc.getById(projectId).then((fullProject) => {
+        if (fullProject) return initWorkspaceGit(fullProject);
+      }).catch((err) => {
+        console.error("[git-init] workspace init failed for project workspace", projectId, err);
+      });
+    });
 
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -2055,14 +2084,14 @@ export function projectRoutes(db: Db) {
       entityType: "project",
       entityId: id,
       details: {
-        workspaceId: workspace.id,
-        name: workspace.name,
-        cwd: workspace.cwd,
-        isPrimary: workspace.isPrimary,
+        workspaceId: responseWorkspace.id,
+        name: responseWorkspace.name,
+        cwd: responseWorkspace.cwd,
+        isPrimary: responseWorkspace.isPrimary,
       },
     });
 
-    res.status(201).json(workspace);
+    res.status(201).json(responseWorkspace);
   });
 
   router.patch(

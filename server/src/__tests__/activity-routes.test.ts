@@ -150,6 +150,30 @@ describe.sequential("activity routes", () => {
     expect(res.body).toEqual([{ runId: "run-1", adapterType: "codex_local" }]);
   });
 
+  it("rejects anonymous issue activity lookups before issue existence checks", async () => {
+    const app = await createApp({ type: "none", source: "none" });
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/issues/issue-uuid-1/activity"));
+
+    expect(res.status).toBe(401);
+    expect(mockIssueService.getById).not.toHaveBeenCalled();
+    expect(mockIssueService.getByIdentifier).not.toHaveBeenCalled();
+    expect(mockActivityService.forIssue).not.toHaveBeenCalled();
+  });
+
+  it("scopes issue activity queries to the resolved issue company", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-uuid-1",
+      companyId: "company-1",
+    });
+    mockActivityService.forIssue.mockResolvedValue([{ id: "activity-1" }]);
+
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/issues/issue-uuid-1/activity"));
+
+    expect(res.status).toBe(200);
+    expect(mockActivityService.forIssue).toHaveBeenCalledWith("company-1", "issue-uuid-1");
+  });
+
   it("requires company access before creating activity events", async () => {
     const app = await createApp();
     const res = await requestApp(app, (baseUrl) => request(baseUrl)

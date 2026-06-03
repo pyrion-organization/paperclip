@@ -19,6 +19,7 @@ const mockSecretService = vi.hoisted(() => ({
   checkProviderConfigHealth: vi.fn(),
   getById: vi.fn(),
   list: vi.fn(),
+  listAccessEvents: vi.fn(),
   create: vi.fn(),
   rotate: vi.fn(),
   update: vi.fn(),
@@ -633,6 +634,22 @@ describe("secret routes", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(404);
     expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("hides access events for deleted secrets", async () => {
+    mockSecretService.getById.mockResolvedValue({
+      id: "22222222-2222-4222-8222-222222222222",
+      companyId: "company-1",
+      name: "OpenAI API key",
+      key: "openai-api-key",
+      status: "deleted",
+    });
+
+    const res = await request(createApp())
+      .get("/api/secrets/22222222-2222-4222-8222-222222222222/access-events");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(mockSecretService.listAccessEvents).not.toHaveBeenCalled();
   });
 
   it("allows DELETE to retry cleanup for already soft-deleted secrets", async () => {

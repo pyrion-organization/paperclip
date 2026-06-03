@@ -257,6 +257,59 @@ describe("project env routes", () => {
     );
   });
 
+  it("initializes managed cwd for standalone repo-backed workspace creation", async () => {
+    const createdWorkspace = {
+      id: "workspace-1",
+      companyId: "company-1",
+      projectId: "project-1",
+      name: "Repo workspace",
+      sourceType: "git_repo",
+      cwd: null,
+      repoUrl: "https://github.com/paperclipai/paperclip.git",
+      repoRef: null,
+      defaultRef: null,
+      visibility: "default",
+      setupCommand: null,
+      cleanupCommand: null,
+      remoteProvider: null,
+      remoteWorkspaceRef: null,
+      sharedWorkspaceKey: null,
+      metadata: null,
+      runtimeConfig: null,
+      isPrimary: false,
+      runtimeServices: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const expectedWorkspaceCwd = resolveManagedProjectWorkspaceDir({
+      companyId: "company-1",
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+    });
+    mockProjectService.getById.mockResolvedValue(buildProject());
+    mockProjectService.createWorkspace.mockResolvedValue(createdWorkspace);
+    mockProjectService.updateWorkspace.mockResolvedValue({
+      ...createdWorkspace,
+      cwd: expectedWorkspaceCwd,
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/workspaces")
+      .send({
+        name: "Repo workspace",
+        sourceType: "git_repo",
+        repoUrl: "https://github.com/paperclipai/paperclip.git",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateWorkspace).toHaveBeenCalledWith("project-1", "workspace-1", {
+      cwd: expectedWorkspaceCwd,
+      name: "Repo workspace",
+    });
+    expect(res.body.cwd).toBe(expectedWorkspaceCwd);
+  });
+
   it("relocates repo-backed project workspaces into the project workspace directory on create", async () => {
     const repoWorkspace = {
       id: "workspace-1",

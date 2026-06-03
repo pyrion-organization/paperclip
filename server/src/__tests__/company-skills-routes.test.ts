@@ -15,6 +15,8 @@ const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installFromCatalog: vi.fn(),
   deleteSkill: vi.fn(),
+  getById: vi.fn(),
+  resetSkill: vi.fn(),
 }));
 
 const mockCatalogService = vi.hoisted(() => ({
@@ -151,6 +153,30 @@ describe("company skill mutation permissions", () => {
       id: "skill-1",
       slug: "find-skills",
       name: "Find Skills",
+    });
+    mockCompanySkillService.getById.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      slug: "review",
+      name: "Review",
+      sourceRef: "sha256:old",
+      metadata: {
+        originHash: "sha256:old",
+        originVersion: "1.0.0",
+        userModifiedAt: "2026-05-26T00:00:00.000Z",
+      },
+    });
+    mockCompanySkillService.resetSkill.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      slug: "review",
+      name: "Review",
+      sourceRef: "sha256:new",
+      metadata: {
+        originHash: "sha256:new",
+        originVersion: "1.0.1",
+        auditVerdict: "pass",
+      },
     });
     mockCatalogService.listCatalogSkills.mockReturnValue([]);
     mockCatalogService.getCatalogSkillOrThrow.mockReturnValue({
@@ -507,6 +533,36 @@ describe("company skill mutation permissions", () => {
     expect(mockCompanySkillService.importFromSource).toHaveBeenCalledWith(
       "company-1",
       "https://github.com/vercel-labs/agent-browser",
+    );
+  });
+
+  it("resets a company skill and logs the origin change", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/reset")
+      .send({ force: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.resetSkill).toHaveBeenCalledWith("company-1", "skill-1", { force: true });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_reset",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: expect.objectContaining({
+          previousOriginHash: "sha256:old",
+          newOriginHash: "sha256:new",
+          driftDetected: true,
+          force: true,
+        }),
+      }),
     );
   });
 

@@ -363,12 +363,13 @@ export function activityService(db: Db) {
         .then((rows) => rows.map((r) => r.activityLog));
     },
 
-    forIssue: (issueId: string) =>
+    forIssue: (companyId: string, issueId: string) =>
       db
         .select()
         .from(activityLog)
         .where(
           and(
+            eq(activityLog.companyId, companyId),
             eq(activityLog.entityType, "issue"),
             eq(activityLog.entityId, issueId),
           ),

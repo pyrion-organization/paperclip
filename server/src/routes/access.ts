@@ -18,6 +18,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, sql } from "dri
 import type { Db } from "@paperclipai/db";
 import {
   assets,
+  agents as agentsTable,
   agentApiKeys,
   authUsers,
   companies,
@@ -4097,6 +4098,7 @@ export function accessRoutes(
         throw conflict("Join request must be approved before key claim");
       if (!joinRequest.createdAgentId)
         throw conflict("Join request has no created agent");
+      const createdAgentId = joinRequest.createdAgentId;
       if (!joinRequest.claimSecretHash)
         throw conflict("Join request is missing claim secret metadata");
       if (
@@ -4116,29 +4118,61 @@ export function accessRoutes(
       const existingKey = await db
         .select({ id: agentApiKeys.id })
         .from(agentApiKeys)
-        .where(eq(agentApiKeys.agentId, joinRequest.createdAgentId))
+        .where(eq(agentApiKeys.agentId, createdAgentId))
         .then((rows) => rows[0] ?? null);
       if (existingKey) throw conflict("API key already claimed");
 
-      const consumed = await db
-        .update(joinRequests)
-        .set({ claimSecretConsumedAt: new Date(), updatedAt: new Date() })
-        .where(
-          and(
-            eq(joinRequests.id, requestId),
-            isNull(joinRequests.claimSecretConsumedAt)
+      const token = `pcp_${randomBytes(24).toString("hex")}`;
+      const created = await db.transaction(async (tx) => {
+        const agent = await tx
+          .select({
+            id: agentsTable.id,
+            companyId: agentsTable.companyId,
+            status: agentsTable.status,
+          })
+          .from(agentsTable)
+          .where(eq(agentsTable.id, createdAgentId))
+          .then((rows) => rows[0] ?? null);
+        if (!agent) throw notFound("Agent not found");
+        if (agent.status === "pending_approval") {
+          throw conflict("Cannot create keys for pending approval agents");
+        }
+        if (agent.status === "terminated") {
+          throw conflict("Cannot create keys for terminated agents");
+        }
+        if (!agent.companyId) {
+          throw notFound("Agent not found");
+        }
+
+        const consumed = await tx
+          .update(joinRequests)
+          .set({ claimSecretConsumedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(joinRequests.id, requestId),
+              isNull(joinRequests.claimSecretConsumedAt)
+            )
           )
-        )
-        .returning({ id: joinRequests.id })
-        .then((rows) => rows[0] ?? null);
-      if (!consumed) throw conflict("Claim secret already used");
+          .returning({ id: joinRequests.id })
+          .then((rows) => rows[0] ?? null);
+        if (!consumed) throw conflict("Claim secret already used");
 
-      const created = await agents.createApiKey(
-        joinRequest.createdAgentId,
-        "initial-join-key"
-      );
+        return tx
+          .insert(agentApiKeys)
+          .values({
+            agentId: createdAgentId,
+            companyId: agent.companyId,
+            name: "initial-join-key",
+            keyHash: hashToken(token),
+          })
+          .returning({
+            id: agentApiKeys.id,
+            createdAt: agentApiKeys.createdAt,
+          })
+          .then((rows) => rows[0]);
+      });
 
-      await logActivity(db, {
+      logActivity(db, {
         companyId: joinRequest.companyId,
         actorType: "system",
         actorId: "join-claim",
@@ -4149,11 +4183,13 @@ export function accessRoutes(
           agentId: joinRequest.createdAgentId,
           joinRequestId: requestId
         }
+      }).catch((error) => {
+        logger.warn({ err: error, joinRequestId: requestId }, "failed to log agent API key claim");
       });
 
       res.status(201).json({
         keyId: created.id,
-        token: created.token,
+        token,
         agentId: joinRequest.createdAgentId,
         createdAt: created.createdAt
       });

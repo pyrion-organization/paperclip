@@ -194,6 +194,18 @@ describe("routine routes", () => {
     mockRoutineService.create.mockResolvedValue(routine);
     mockRoutineService.get.mockResolvedValue(routine);
     mockRoutineService.getTrigger.mockResolvedValue(trigger);
+    mockRoutineService.createTrigger.mockResolvedValue({
+      trigger,
+      revision: {
+        ...revision,
+        revisionNumber: 2,
+        changeSummary: "Created trigger",
+        snapshot: {
+          ...revision.snapshot,
+          triggers: [trigger],
+        },
+      },
+    });
     mockRoutineService.update.mockResolvedValue({ ...routine, assigneeAgentId: otherAgentId });
     mockRoutineService.listRevisions.mockResolvedValue([revision]);
     mockRoutineService.restoreRevision.mockResolvedValue({
@@ -379,6 +391,131 @@ describe("routine routes", () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toContain("tasks:assign");
     expect(mockRoutineService.createTrigger).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 before creating a trigger for a missing routine", async () => {
+    mockRoutineService.get.mockResolvedValueOnce(null);
+    mockAccessService.canUser.mockResolvedValue(true);
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/triggers`)
+      .send({
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Routine not found");
+    expect(mockRoutineService.createTrigger).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid trigger creation requests before loading the routine", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/triggers`)
+      .send({
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      });
+
+    expect(res.status).toBe(400);
+    expect(mockRoutineService.get).not.toHaveBeenCalled();
+    expect(mockRoutineService.createTrigger).not.toHaveBeenCalled();
+  });
+
+  it("blocks trigger creation across company scope", async () => {
+    mockAccessService.canUser.mockResolvedValue(true);
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["other-company"],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/triggers`)
+      .send({
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      });
+
+    expect(res.status).toBe(403);
+    expect(mockRoutineService.createTrigger).not.toHaveBeenCalled();
+  });
+
+  it("creates a routine trigger and records a revision when assignment is allowed", async () => {
+    mockAccessService.canUser.mockResolvedValue(true);
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/triggers`)
+      .send({
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockRoutineService.createTrigger).toHaveBeenCalledWith(
+      routineId,
+      expect.objectContaining({
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      }),
+      {
+        agentId: null,
+        userId: "board-user",
+        runId: null,
+      },
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId,
+        action: "routine.trigger_created",
+        entityType: "routine_trigger",
+        entityId: trigger.id,
+      }),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId,
+        action: "routine.revision_created",
+        entityType: "routine",
+        entityId: routineId,
+        details: expect.objectContaining({
+          revisionId: revisionId,
+          revisionNumber: 2,
+          triggerCount: 1,
+        }),
+      }),
+    );
   });
 
   it("requires tasks:assign permission to update a trigger", async () => {

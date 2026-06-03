@@ -239,6 +239,17 @@ describe("adapter routes", () => {
     });
   });
 
+  it("rejects override toggles when no external adapter overrides the builtin type", async () => {
+    const app = createApp();
+
+    const res = await request(app)
+      .patch("/api/adapters/codex_local/override")
+      .send({ paused: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body.error).toContain("No external override");
+  });
+
   it("serves the built-in acpx_local config schema", async () => {
     const app = createApp();
 

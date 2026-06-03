@@ -60,6 +60,7 @@ export function activityRoutes(db: Db) {
   });
 
   router.get("/issues/:id/activity", async (req, res) => {
+    assertAuthenticated(req);
     const rawId = req.params.id as string;
     const issue = await resolveIssueByRef(rawId);
     if (!issue) {
@@ -67,7 +68,7 @@ export function activityRoutes(db: Db) {
       return;
     }
     assertCompanyAccess(req, issue.companyId);
-    const result = await svc.forIssue(issue.id);
+    const result = await svc.forIssue(issue.companyId, issue.id);
     res.json(result);
   });
 
