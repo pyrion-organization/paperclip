@@ -7,6 +7,7 @@ import {
   recordPaymentSchema,
   updatePaymentEntrySchema,
   updatePaymentProfileSchema,
+  updatePaymentRecordSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -177,6 +178,74 @@ export function paymentRoutes(db: Db) {
       );
     }
     res.status(201).json(result.entry);
+  });
+
+  router.patch("/companies/:companyId/payments/entries/:entryId/records/:recordId", validate(updatePaymentRecordSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const result = await payments.updateRecord(
+      companyId,
+      req.params.entryId as string,
+      req.params.recordId as string,
+      req.body,
+    );
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "payment_record.updated",
+      entityType: "payment_entry",
+      entityId: result.entry.id,
+      details: {
+        recordId: req.params.recordId,
+        changedKeys: changedKeys(req.body),
+        status: result.entry.status,
+        calendarItemId: result.entry.calendarItemId,
+      },
+    });
+    if (result.completed && result.entry.calendarItemId) {
+      await calendar.complete(
+        companyId,
+        result.entry.calendarItemId,
+        {
+          completedAt: req.body.paidAt ? new Date(req.body.paidAt) : new Date(),
+          notes: `Payment updated: total ${(result.entry.paidAmountCents / 100).toFixed(2)} ${result.entry.currency}`,
+        },
+        actor,
+        { approvalConfirmed: Boolean(req.body.approvalConfirmed) },
+      );
+    }
+    res.json(result.entry);
+  });
+
+  router.delete("/companies/:companyId/payments/entries/:entryId/records/:recordId", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    assertBoard(req);
+    const result = await payments.deleteRecord(
+      companyId,
+      req.params.entryId as string,
+      req.params.recordId as string,
+    );
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "payment_record.deleted",
+      entityType: "payment_entry",
+      entityId: result.entry.id,
+      details: {
+        recordId: req.params.recordId,
+        status: result.entry.status,
+        calendarItemId: result.entry.calendarItemId,
+      },
+    });
+    res.json(result.entry);
   });
 
   return router;

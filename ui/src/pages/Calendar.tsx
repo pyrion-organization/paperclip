@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CALENDAR_ITEM_CATEGORIES,
@@ -63,6 +63,10 @@ import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
 const NO_COMPANY = "__none__";
 const NONE = "__none_value__";
+// Stable empty fallbacks so the memoized dialog isn't re-rendered by a fresh `[]` each parent render.
+const EMPTY_CLIENTS: { id: string; name: string }[] = [];
+const EMPTY_PROJECTS: { id: string; name: string }[] = [];
+const EMPTY_PROFILES: { id: string; accountLabel: string; ownerName?: string | null }[] = [];
 const CALENDAR_TIMEZONE_OPTIONS = [
   { value: "America/Sao_Paulo", label: "Sao Paulo" },
   { value: "UTC", label: "UTC" },
@@ -305,6 +309,223 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function Section({ title, children, boxed = false }: { title: string; children: ReactNode; boxed?: boolean }) {
+  return (
+    <section className={boxed ? "grid gap-3 border border-border bg-muted/20 p-4" : "grid gap-3"}>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</div>
+      {children}
+    </section>
+  );
+}
+
+// Form sections are split into memoized components so a keystroke only re-renders the field group
+// that changed — not every controlled Select/Input in the dialog. `update` is a stable callback from
+// the dialog, and the option arrays (clients/projects/profiles) are stable props, so memo holds.
+type FormUpdate = (patch: Partial<ItemFormState>) => void;
+
+const BasicsSection = memo(function BasicsSection({
+  title, description, category, riskLevel, update,
+}: { title: string; description: string; category: CalendarItemCategory; riskLevel: CalendarRiskLevel; update: FormUpdate }) {
+  return (
+    <Section title="Basics">
+      <Field label="Title">
+        <Input value={title} onChange={(event) => update({ title: event.target.value })} />
+      </Field>
+      <Field label="Description">
+        <Textarea rows={2} value={description} onChange={(event) => update({ description: event.target.value })} />
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Category">
+          <Select value={category} onValueChange={(value) => update({ category: value as CalendarItemCategory })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((option) => <SelectItem key={option} value={option}>{titleCase(option)}</SelectItem>)}</SelectContent>
+          </Select>
+        </Field>
+        <Field label="Risk">
+          <Select value={riskLevel} onValueChange={(value) => update({ riskLevel: value as CalendarRiskLevel })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{CALENDAR_RISK_LEVELS.map((option) => <SelectItem key={option} value={option}>{titleCase(option)}</SelectItem>)}</SelectContent>
+          </Select>
+        </Field>
+      </div>
+    </Section>
+  );
+});
+
+const ScheduleSection = memo(function ScheduleSection({
+  nextDueDate, dueTime, timezone, recurrenceType, recurrenceRule, update,
+}: { nextDueDate: string; dueTime: string; timezone: string; recurrenceType: CalendarRecurrenceType; recurrenceRule: string; update: FormUpdate }) {
+  return (
+    <Section title="Schedule" boxed>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Due Date">
+          <Input type="date" value={nextDueDate} onChange={(event) => update({ nextDueDate: event.target.value })} />
+        </Field>
+        <Field label="Due Time">
+          <Input value={dueTime} placeholder="HH:mm" onChange={(event) => update({ dueTime: event.target.value })} />
+        </Field>
+        <Field label="Timezone">
+          <Select value={timezone} onValueChange={(value) => update({ timezone: value })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {CALENDAR_TIMEZONE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Recurrence">
+          <Select value={recurrenceType} onValueChange={(value) => update({ recurrenceType: value as CalendarRecurrenceType })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((option) => <SelectItem key={option} value={option}>{titleCase(option)}</SelectItem>)}</SelectContent>
+          </Select>
+        </Field>
+      </div>
+      {recurrenceType === "custom_rrule" ? (
+        <Field label="Recurrence Rule">
+          <Input value={recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => update({ recurrenceRule: event.target.value })} />
+        </Field>
+      ) : null}
+      <div className="mt-1 border-t border-border pt-3">
+        <div className="text-xs font-medium uppercase text-muted-foreground">Next occurrence</div>
+        <div className="mt-1">{nextDuePreview({ nextDueDate, recurrenceType, recurrenceRule })}</div>
+      </div>
+    </Section>
+  );
+});
+
+const AssociationsSection = memo(function AssociationsSection({
+  providerName, relatedClientId, relatedProjectId, clients, projects, update,
+}: {
+  providerName: string; relatedClientId: string; relatedProjectId: string;
+  clients: { id: string; name: string }[]; projects: { id: string; name: string }[]; update: FormUpdate;
+}) {
+  return (
+    <Section title="Associations">
+      <Field label="Provider">
+        <Input value={providerName} onChange={(event) => update({ providerName: event.target.value })} />
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Client">
+          <Select value={relatedClientId || NONE} onValueChange={(value) => update({ relatedClientId: value === NONE ? "" : value })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>None</SelectItem>
+              {clients.map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Project">
+          <Select value={relatedProjectId || NONE} onValueChange={(value) => update({ relatedProjectId: value === NONE ? "" : value })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>None</SelectItem>
+              {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+    </Section>
+  );
+});
+
+const PaymentSection = memo(function PaymentSection({
+  amount, currency, paymentProfileId, paymentMethodLabel, paymentOwner, costCenter,
+  autoRenew, manualActionRequired, paymentProfiles, update,
+}: {
+  amount: string; currency: string; paymentProfileId: string; paymentMethodLabel: string;
+  paymentOwner: string; costCenter: string; autoRenew: boolean; manualActionRequired: boolean;
+  paymentProfiles: { id: string; accountLabel: string; ownerName?: string | null }[]; update: FormUpdate;
+}) {
+  return (
+    <div className="grid content-start gap-5">
+      <Section title="Cost">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-[1fr_90px] gap-3">
+            <Field label="Amount">
+              <Input inputMode="decimal" value={amount} onChange={(event) => update({ amount: event.target.value })} />
+            </Field>
+            <Field label="Currency">
+              <Input value={currency} onChange={(event) => update({ currency: event.target.value.toUpperCase().slice(0, 3) })} />
+            </Field>
+          </div>
+          <Field label="Payment Profile">
+            <Select value={paymentProfileId || NONE} onValueChange={(value) => update({ paymentProfileId: value === NONE ? "" : value })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>None</SelectItem>
+                {paymentProfiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Payment Method"><Input value={paymentMethodLabel} onChange={(event) => update({ paymentMethodLabel: event.target.value })} /></Field>
+          <Field label="Payment Owner"><Input value={paymentOwner} onChange={(event) => update({ paymentOwner: event.target.value })} /></Field>
+          <Field label="Cost Center"><Input value={costCenter} onChange={(event) => update({ costCenter: event.target.value })} /></Field>
+        </div>
+      </Section>
+      <Section title="Options">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={autoRenew} onChange={(event) => update({ autoRenew: event.target.checked })} aria-label="Auto Renew" />
+          Auto-renew
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={manualActionRequired} onChange={(event) => update({ manualActionRequired: event.target.checked })} aria-label="Manual Action Required" />
+          Manual action required
+        </label>
+      </Section>
+    </div>
+  );
+});
+
+const ContactsSection = memo(function ContactsSection({
+  purchaseEmail, accountLoginEmail, billingEmail, recoveryEmail, technicalContactEmail, update,
+}: {
+  purchaseEmail: string; accountLoginEmail: string; billingEmail: string;
+  recoveryEmail: string; technicalContactEmail: string; update: FormUpdate;
+}) {
+  return (
+    <div className="grid content-start gap-3 md:grid-cols-2">
+      <Field label="Purchase Email"><Input value={purchaseEmail} onChange={(event) => update({ purchaseEmail: event.target.value })} /></Field>
+      <Field label="Login Email"><Input value={accountLoginEmail} onChange={(event) => update({ accountLoginEmail: event.target.value })} /></Field>
+      <Field label="Billing Email"><Input value={billingEmail} onChange={(event) => update({ billingEmail: event.target.value })} /></Field>
+      <Field label="Recovery Email"><Input value={recoveryEmail} onChange={(event) => update({ recoveryEmail: event.target.value })} /></Field>
+      <Field label="Technical Contact"><Input value={technicalContactEmail} onChange={(event) => update({ technicalContactEmail: event.target.value })} /></Field>
+    </div>
+  );
+});
+
+const LinksSection = memo(function LinksSection({
+  serviceUrl, loginUrl, billingUrl, documentationUrl, update,
+}: { serviceUrl: string; loginUrl: string; billingUrl: string; documentationUrl: string; update: FormUpdate }) {
+  return (
+    <div className="grid content-start gap-3 md:grid-cols-2">
+      <Field label="Service URL"><Input value={serviceUrl} onChange={(event) => update({ serviceUrl: event.target.value })} /></Field>
+      <Field label="Login URL"><Input value={loginUrl} onChange={(event) => update({ loginUrl: event.target.value })} /></Field>
+      <Field label="Billing URL"><Input value={billingUrl} onChange={(event) => update({ billingUrl: event.target.value })} /></Field>
+      <Field label="Documentation URL"><Input value={documentationUrl} onChange={(event) => update({ documentationUrl: event.target.value })} /></Field>
+    </div>
+  );
+});
+
+const NotesSection = memo(function NotesSection({
+  notes, internalNotes, update,
+}: { notes: string; internalNotes: string; update: FormUpdate }) {
+  return (
+    <div className="grid content-start gap-3">
+      <Field label="Notes">
+        <Textarea rows={5} value={notes} onChange={(event) => update({ notes: event.target.value })} />
+      </Field>
+      <Field label="Internal Notes">
+        <Textarea rows={5} value={internalNotes} onChange={(event) => update({ internalNotes: event.target.value })} />
+      </Field>
+    </div>
+  );
+});
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Never";
   const date = new Date(value);
@@ -323,7 +544,7 @@ function addMonths(date: Date, months: number) {
   return next;
 }
 
-function nextDuePreview(form: ItemFormState) {
+function nextDuePreview(form: Pick<ItemFormState, "nextDueDate" | "recurrenceType" | "recurrenceRule">) {
   if (!form.nextDueDate || form.recurrenceType === "none" || form.recurrenceType === "manual") {
     return "Completion will close this item unless you set the next date manually.";
   }
@@ -465,12 +686,21 @@ const CalendarItemDialog = memo(function CalendarItemDialog({
 }: CalendarItemDialogProps) {
   const [form, setForm] = useState<ItemFormState>(initialForm);
   const [itemDialogTab, setItemDialogTab] = useState("overview");
+  const update = useCallback<FormUpdate>((patch) => setForm((current) => ({ ...current, ...patch })), []);
 
+  // Re-initialize the form when a new dialog session opens (formKey) or the
+  // selected item version changes after a mutation/refetch.
+  const initialFormRef = useRef(initialForm);
+  initialFormRef.current = initialForm;
+  const resetKey = `${formKey}:${selectedItem?.id ?? "new"}:${selectedItem?.updatedAt ?? "draft"}`;
+  const lastResetKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    setForm(initialForm);
+    if (lastResetKeyRef.current === resetKey) return;
+    lastResetKeyRef.current = resetKey;
+    setForm(initialFormRef.current);
     setItemDialogTab("overview");
-  }, [formKey, initialForm, open]);
+  }, [open, resetKey]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -489,7 +719,7 @@ const CalendarItemDialog = memo(function CalendarItemDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 px-5 py-3">
           <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
-            <TabsList variant="line" className="w-full shrink-0 justify-start overflow-x-auto">
+            <TabsList variant="line" className="w-full shrink-0 justify-start gap-3 overflow-x-auto [&_[data-slot=tabs-trigger]]:flex-none [&_[data-slot=tabs-trigger]]:px-1">
               <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
               <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
               <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
@@ -499,61 +729,24 @@ const CalendarItemDialog = memo(function CalendarItemDialog({
               {selectedItem ? <TabsTrigger value="history" data-testid="calendar-tab-history" onClick={() => setItemDialogTab("history")}>History</TabsTrigger> : null}
             </TabsList>
             <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid content-start gap-3 md:grid-cols-2">
-                <Field label="Title">
-                  <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-                </Field>
-                <Field label="Description">
-                  <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Category">
-                    <Select value={form.category} onValueChange={(category) => setForm((current) => ({ ...current, category: category as CalendarItemCategory }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_ITEM_CATEGORIES.map((category) => <SelectItem key={category} value={category}>{titleCase(category)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Risk">
-                    <Select value={form.riskLevel} onValueChange={(riskLevel) => setForm((current) => ({ ...current, riskLevel: riskLevel as CalendarRiskLevel }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_RISK_LEVELS.map((risk) => <SelectItem key={risk} value={risk}>{titleCase(risk)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="grid gap-3 border border-border bg-muted/20 p-3 md:col-span-2 md:max-w-md">
-                  <div className="text-xs font-medium uppercase text-muted-foreground">Schedule</div>
-                  <Field label="Due Date">
-                    <Input type="date" value={form.nextDueDate} onChange={(event) => setForm((current) => ({ ...current, nextDueDate: event.target.value }))} />
-                  </Field>
-                  <Field label="Due Time">
-                    <Input value={form.dueTime} placeholder="HH:mm" onChange={(event) => setForm((current) => ({ ...current, dueTime: event.target.value }))} />
-                  </Field>
-                  <Field label="Timezone">
-                    <Select value={form.timezone} onValueChange={(timezone) => setForm((current) => ({ ...current, timezone }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {CALENDAR_TIMEZONE_OPTIONS.map((timezone) => (
-                          <SelectItem key={timezone.value} value={timezone.value}>{timezone.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Recurrence">
-                    <Select value={form.recurrenceType} onValueChange={(recurrenceType) => setForm((current) => ({ ...current, recurrenceType: recurrenceType as CalendarRecurrenceType }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{CALENDAR_RECURRENCE_TYPES.map((type) => <SelectItem key={type} value={type}>{titleCase(type)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </Field>
-                  {form.recurrenceType === "custom_rrule" ? (
-                    <Field label="Recurrence Rule">
-                      <Input value={form.recurrenceRule} placeholder="FREQ=MONTHLY;INTERVAL=1" onChange={(event) => setForm((current) => ({ ...current, recurrenceRule: event.target.value }))} />
-                    </Field>
-                  ) : null}
-                  <div className="text-xs font-medium uppercase text-muted-foreground">Recurrence behavior</div>
-                  <div className="mt-1">{nextDuePreview(form)}</div>
-                </div>
+              <div className="grid content-start gap-5">
+                <BasicsSection
+                  title={form.title}
+                  description={form.description}
+                  category={form.category}
+                  riskLevel={form.riskLevel}
+                  update={update}
+                />
+                <ScheduleSection
+                  nextDueDate={form.nextDueDate}
+                  dueTime={form.dueTime}
+                  timezone={form.timezone}
+                  recurrenceType={form.recurrenceType}
+                  recurrenceRule={form.recurrenceRule}
+                  update={update}
+                />
                 {selectedItem?.reminderPolicy ? (
-                  <div className="border border-border p-3 text-sm md:col-span-2">
+                  <div className="border border-border p-3 text-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <div className="text-xs font-medium uppercase text-muted-foreground">Reminder policy</div>
@@ -569,103 +762,51 @@ const CalendarItemDialog = memo(function CalendarItemDialog({
                     </div>
                   </div>
                 ) : null}
-                <Field label="Provider">
-                  <Input value={form.providerName} onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))} />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Client">
-                    <Select value={form.relatedClientId || NONE} onValueChange={(relatedClientId) => setForm((current) => ({ ...current, relatedClientId: relatedClientId === NONE ? "" : relatedClientId }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {clients.map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Project">
-                    <Select value={form.relatedProjectId || NONE} onValueChange={(relatedProjectId) => setForm((current) => ({ ...current, relatedProjectId: relatedProjectId === NONE ? "" : relatedProjectId }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>None</SelectItem>
-                        {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
+                <AssociationsSection
+                  providerName={form.providerName}
+                  relatedClientId={form.relatedClientId}
+                  relatedProjectId={form.relatedProjectId}
+                  clients={clients}
+                  projects={projects}
+                  update={update}
+                />
               </div>
             </TabsContent>
             <TabsContent value="payment" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid content-start gap-3 md:grid-cols-2">
-                <div className="grid grid-cols-[1fr_90px] gap-3">
-                  <Field label="Amount">
-                    <Input inputMode="decimal" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} />
-                  </Field>
-                  <Field label="Currency">
-                    <Input value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} />
-                  </Field>
-                </div>
-                <Field label="Payment Profile">
-                  <Select value={form.paymentProfileId || NONE} onValueChange={(paymentProfileId) => setForm((current) => ({ ...current, paymentProfileId: paymentProfileId === NONE ? "" : paymentProfileId }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>None</SelectItem>
-                      {paymentProfiles.map((profile) => (
-                        <SelectItem key={profile.id} value={profile.id}>
-                          {profile.accountLabel}{profile.ownerName ? ` · ${profile.ownerName}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Payment Method"><Input value={form.paymentMethodLabel} onChange={(event) => setForm((current) => ({ ...current, paymentMethodLabel: event.target.value }))} /></Field>
-                <Field label="Payment Owner"><Input value={form.paymentOwner} onChange={(event) => setForm((current) => ({ ...current, paymentOwner: event.target.value }))} /></Field>
-                <Field label="Cost Center"><Input value={form.costCenter} onChange={(event) => setForm((current) => ({ ...current, costCenter: event.target.value }))} /></Field>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.autoRenew}
-                    onChange={(event) => setForm((current) => ({ ...current, autoRenew: event.target.checked }))}
-                    aria-label="Auto Renew"
-                  />
-                  Auto-renew
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.manualActionRequired}
-                    onChange={(event) => setForm((current) => ({ ...current, manualActionRequired: event.target.checked }))}
-                    aria-label="Manual Action Required"
-                  />
-                  Manual action required
-                </label>
-              </div>
+              <PaymentSection
+                amount={form.amount}
+                currency={form.currency}
+                paymentProfileId={form.paymentProfileId}
+                paymentMethodLabel={form.paymentMethodLabel}
+                paymentOwner={form.paymentOwner}
+                costCenter={form.costCenter}
+                autoRenew={form.autoRenew}
+                manualActionRequired={form.manualActionRequired}
+                paymentProfiles={paymentProfiles}
+                update={update}
+              />
             </TabsContent>
             <TabsContent value="contacts" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid content-start gap-3 md:grid-cols-2">
-                <Field label="Purchase Email"><Input value={form.purchaseEmail} onChange={(event) => setForm((current) => ({ ...current, purchaseEmail: event.target.value }))} /></Field>
-                <Field label="Login Email"><Input value={form.accountLoginEmail} onChange={(event) => setForm((current) => ({ ...current, accountLoginEmail: event.target.value }))} /></Field>
-                <Field label="Billing Email"><Input value={form.billingEmail} onChange={(event) => setForm((current) => ({ ...current, billingEmail: event.target.value }))} /></Field>
-                <Field label="Recovery Email"><Input value={form.recoveryEmail} onChange={(event) => setForm((current) => ({ ...current, recoveryEmail: event.target.value }))} /></Field>
-                <Field label="Technical Contact"><Input value={form.technicalContactEmail} onChange={(event) => setForm((current) => ({ ...current, technicalContactEmail: event.target.value }))} /></Field>
-              </div>
+              <ContactsSection
+                purchaseEmail={form.purchaseEmail}
+                accountLoginEmail={form.accountLoginEmail}
+                billingEmail={form.billingEmail}
+                recoveryEmail={form.recoveryEmail}
+                technicalContactEmail={form.technicalContactEmail}
+                update={update}
+              />
             </TabsContent>
             <TabsContent value="links" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid content-start gap-3 md:grid-cols-2">
-                <Field label="Service URL"><Input value={form.serviceUrl} onChange={(event) => setForm((current) => ({ ...current, serviceUrl: event.target.value }))} /></Field>
-                <Field label="Login URL"><Input value={form.loginUrl} onChange={(event) => setForm((current) => ({ ...current, loginUrl: event.target.value }))} /></Field>
-                <Field label="Billing URL"><Input value={form.billingUrl} onChange={(event) => setForm((current) => ({ ...current, billingUrl: event.target.value }))} /></Field>
-                <Field label="Documentation URL"><Input value={form.documentationUrl} onChange={(event) => setForm((current) => ({ ...current, documentationUrl: event.target.value }))} /></Field>
-              </div>
+              <LinksSection
+                serviceUrl={form.serviceUrl}
+                loginUrl={form.loginUrl}
+                billingUrl={form.billingUrl}
+                documentationUrl={form.documentationUrl}
+                update={update}
+              />
             </TabsContent>
             <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid content-start gap-3">
-                <Field label="Notes">
-                  <Textarea rows={5} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-                </Field>
-                <Field label="Internal Notes">
-                  <Textarea rows={5} value={form.internalNotes} onChange={(event) => setForm((current) => ({ ...current, internalNotes: event.target.value }))} />
-                </Field>
-              </div>
+              <NotesSection notes={form.notes} internalNotes={form.internalNotes} update={update} />
             </TabsContent>
             <TabsContent value="documents" className="min-h-0 flex-1 overflow-y-auto pr-1">
               <div className="grid content-start gap-2">
@@ -801,6 +942,16 @@ export function Calendar() {
     queryClient.invalidateQueries({ queryKey: ["calendar", selectedCompanyId] });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
   };
+  const seedCalendarDetailFromItem = (item: CalendarItem) => {
+    queryClient.setQueryData<CalendarItemDetail>(
+      queryKeys.calendar.detail(companyId, item.id),
+      (current) => ({
+        ...item,
+        documents: current?.documents ?? [],
+        activity: current?.activity ?? [],
+      }),
+    );
+  };
 
   const saveMutation = useInvalidatingMutation({
     mutationFn: async (nextForm: ItemFormState) => {
@@ -843,6 +994,7 @@ export function Calendar() {
       return calendarApi.complete(companyId, itemId, {}, approvalConfirmed);
     },
     onSuccess: (item) => {
+      seedCalendarDetailFromItem(item);
       setDialogFormKey((current) => current + 1);
       setOperationError(null);
       invalidateCalendar();
@@ -859,6 +1011,7 @@ export function Calendar() {
       return calendarApi.cancel(companyId, itemId, approvalConfirmed);
     },
     onSuccess: (item) => {
+      seedCalendarDetailFromItem(item);
       setDialogFormKey((current) => current + 1);
       setOperationError(null);
       invalidateCalendar();
@@ -872,8 +1025,8 @@ export function Calendar() {
     return new Map(missingDetails.map((finding) => [finding.itemId, finding]));
   }, [missingDetails]);
   const selectedItem = detailQuery.data ?? items.find((item) => item.id === selectedItemId) ?? null;
-  const selectedDocuments = itemDocuments(selectedItem);
-  const selectedActivity = itemActivity(selectedItem);
+  const selectedDocuments = useMemo(() => itemDocuments(selectedItem), [selectedItem]);
+  const selectedActivity = useMemo(() => itemActivity(selectedItem), [selectedItem]);
   const initialDialogForm = useMemo(() => {
     return selectedItem ? formFromItem(selectedItem) : emptyForm();
   }, [selectedItem?.id, selectedItem?.updatedAt]);
@@ -1078,14 +1231,14 @@ export function Calendar() {
           selectedItem={selectedItem}
           selectedDocuments={selectedDocuments}
           selectedActivity={selectedActivity}
-          clients={clientsQuery.data?.data ?? []}
-          projects={projectsQuery.data ?? []}
-          paymentProfiles={paymentProfilesQuery.data ?? []}
+          clients={clientsQuery.data?.data ?? EMPTY_CLIENTS}
+          projects={projectsQuery.data ?? EMPTY_PROJECTS}
+          paymentProfiles={paymentProfilesQuery.data ?? EMPTY_PROFILES}
           savePending={saveMutation.isPending}
           completePending={completeMutation.isPending}
-          onSave={(nextForm) => saveMutation.mutate(nextForm)}
-          onComplete={(itemId) => completeMutation.mutate(itemId)}
-          onStatusAction={(input) => statusMutation.mutate(input)}
+          onSave={saveMutation.mutate}
+          onComplete={completeMutation.mutate}
+          onStatusAction={statusMutation.mutate}
         />
       </div>
     </div>

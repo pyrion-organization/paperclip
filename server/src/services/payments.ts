@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { calendarItems, paymentEntries, paymentProfiles, paymentRecords } from "@paperclipai/db";
 import type {
@@ -9,6 +9,7 @@ import type {
   RecordPayment,
   UpdatePaymentEntry,
   UpdatePaymentProfile,
+  UpdatePaymentRecord,
 } from "@paperclipai/shared";
 import { badRequest, notFound, unprocessable } from "../errors.js";
 
@@ -155,6 +156,9 @@ export function paymentService(db: Db) {
       if (filters.status?.length === 1) conditions.push(eq(paymentEntries.status, filters.status[0]!));
       else if (filters.status && filters.status.length > 1) conditions.push(inArray(paymentEntries.status, filters.status));
       if (filters.calendarItemId) conditions.push(eq(paymentEntries.calendarItemId, filters.calendarItemId));
+      if (filters.profileId) conditions.push(eq(paymentEntries.paymentProfileId, filters.profileId));
+      if (filters.dueFrom) conditions.push(gte(paymentEntries.dueDate, filters.dueFrom));
+      if (filters.dueTo) conditions.push(lte(paymentEntries.dueDate, filters.dueTo));
       if (filters.q) {
         const q = `%${filters.q}%`;
         conditions.push(or(
@@ -164,12 +168,22 @@ export function paymentService(db: Db) {
         )!);
       }
       const where = and(...conditions);
+      const dir = filters.dir === "desc" ? desc : asc;
+      const orderBy = (() => {
+        switch (filters.sort) {
+          case "amount": return [dir(paymentEntries.expectedAmountCents), asc(paymentEntries.title)];
+          case "status": return [dir(paymentEntries.status), asc(paymentEntries.title)];
+          case "title": return [dir(paymentEntries.title)];
+          case "dueDate": return [dir(paymentEntries.dueDate), asc(paymentEntries.title)];
+          default: return [asc(paymentEntries.dueDate), asc(paymentEntries.title)];
+        }
+      })();
       const [countRow] = await db.select({ count: sql<number>`count(*)::int` }).from(paymentEntries).where(where);
       const rows = await db
         .select()
         .from(paymentEntries)
         .where(where)
-        .orderBy(asc(paymentEntries.dueDate), asc(paymentEntries.title))
+        .orderBy(...orderBy)
         .limit(filters.limit)
         .offset(filters.offset);
       return { entries: await hydrateEntries(rows), total: countRow?.count ?? 0 };
@@ -310,6 +324,135 @@ export function paymentService(db: Db) {
         entry: (await hydrateEntries([result.updated]))[0]!,
         completed: result.completed,
       };
+    },
+
+    updateRecord: async (companyId: string, entryId: string, recordId: string, input: UpdatePaymentRecord) => {
+      const result = await db.transaction(async (tx) => {
+        const entry = await tx
+          .select()
+          .from(paymentEntries)
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .for("update")
+          .then((rows) => rows[0] ?? null);
+        if (!entry) throw notFound("Payment entry not found");
+        if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot be edited");
+        const record = await tx
+          .select()
+          .from(paymentRecords)
+          .where(and(
+            eq(paymentRecords.companyId, companyId),
+            eq(paymentRecords.paymentEntryId, entryId),
+            eq(paymentRecords.id, recordId),
+          ))
+          .then((rows) => rows[0] ?? null);
+        if (!record) throw notFound("Payment record not found");
+
+        const { approvalConfirmed: _approvalConfirmed, paidAt, ...patch } = input;
+        const nextCurrency = patch.currency ?? record.currency;
+        if (nextCurrency !== entry.currency) {
+          throw unprocessable("Payment record currency must match the payment entry currency");
+        }
+        const profileId = Object.prototype.hasOwnProperty.call(patch, "paymentProfileId")
+          ? patch.paymentProfileId ?? null
+          : record.paymentProfileId;
+        if (profileId) {
+          const profile = await tx
+            .select()
+            .from(paymentProfiles)
+            .where(and(eq(paymentProfiles.companyId, companyId), eq(paymentProfiles.id, profileId)))
+            .then((rows) => rows[0] ?? null);
+          if (!profile) throw notFound("Payment profile not found");
+        }
+
+        const nextAmount = patch.amountCents ?? record.amountCents;
+        const [{ total: othersTotal }] = await tx
+          .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+          .from(paymentRecords)
+          .where(and(
+            eq(paymentRecords.companyId, companyId),
+            eq(paymentRecords.paymentEntryId, entryId),
+            ne(paymentRecords.id, recordId),
+          ));
+        const projectedPaidAmountCents = Number(othersTotal ?? 0) + nextAmount;
+        const nextStatus = statusFor(entry, projectedPaidAmountCents);
+        if (nextStatus === "paid" && entry.status !== "paid" && entry.calendarItemId && !input.approvalConfirmed) {
+          const calendarItem = await tx
+            .select({ riskLevel: calendarItems.riskLevel })
+            .from(calendarItems)
+            .where(and(eq(calendarItems.companyId, companyId), eq(calendarItems.id, entry.calendarItemId)))
+            .then((rows) => rows[0] ?? null);
+          if (calendarItem && (calendarItem.riskLevel === "high" || calendarItem.riskLevel === "critical")) {
+            throw unprocessable("Completing high-risk or critical items requires approval confirmation");
+          }
+        }
+
+        await tx
+          .update(paymentRecords)
+          .set({
+            ...patch,
+            currency: nextCurrency,
+            paymentProfileId: profileId,
+            ...(paidAt ? { paidAt: new Date(paidAt) } : {}),
+          })
+          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.id, recordId)));
+
+        const [updated] = await tx
+          .update(paymentEntries)
+          .set({ paidAmountCents: projectedPaidAmountCents, status: nextStatus, updatedAt: new Date() })
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .returning();
+        return {
+          updated,
+          completed: nextStatus === "paid" && entry.status !== "paid",
+        };
+      });
+      return {
+        entry: (await hydrateEntries([result.updated]))[0]!,
+        completed: result.completed,
+      };
+    },
+
+    deleteRecord: async (companyId: string, entryId: string, recordId: string) => {
+      const updated = await db.transaction(async (tx) => {
+        const entry = await tx
+          .select()
+          .from(paymentEntries)
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .for("update")
+          .then((rows) => rows[0] ?? null);
+        if (!entry) throw notFound("Payment entry not found");
+        if (entry.status === "cancelled") throw unprocessable("Cancelled entries cannot be edited");
+        const record = await tx
+          .select()
+          .from(paymentRecords)
+          .where(and(
+            eq(paymentRecords.companyId, companyId),
+            eq(paymentRecords.paymentEntryId, entryId),
+            eq(paymentRecords.id, recordId),
+          ))
+          .then((rows) => rows[0] ?? null);
+        if (!record) throw notFound("Payment record not found");
+
+        await tx
+          .delete(paymentRecords)
+          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.id, recordId)));
+
+        const [{ total }] = await tx
+          .select({ total: sql<number>`coalesce(sum(${paymentRecords.amountCents}), 0)::int` })
+          .from(paymentRecords)
+          .where(and(eq(paymentRecords.companyId, companyId), eq(paymentRecords.paymentEntryId, entryId)));
+        const projectedPaidAmountCents = Number(total ?? 0);
+        // Deleting records only lowers the paid total; recompute status but never reverse a completed
+        // calendar item automatically.
+        const nextStatus = statusFor(entry, projectedPaidAmountCents);
+        const [row] = await tx
+          .update(paymentEntries)
+          .set({ paidAmountCents: projectedPaidAmountCents, status: nextStatus, updatedAt: new Date() })
+          .where(and(eq(paymentEntries.companyId, companyId), eq(paymentEntries.id, entryId)))
+          .returning();
+        return row;
+      });
+      return { entry: (await hydrateEntries([updated]))[0]! };
     },
 
     ensureEntryForCalendarItem: async (item: CalendarPaymentItem, options?: { advanceCycle?: boolean }) => {

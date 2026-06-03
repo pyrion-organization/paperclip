@@ -9,6 +9,7 @@ import type {
   RecordPaymentInput,
   UpdatePaymentEntryInput,
   UpdatePaymentProfileInput,
+  UpdatePaymentRecordInput,
 } from "@paperclipai/shared";
 import { api } from "./client";
 
@@ -31,7 +32,7 @@ export const paymentsApi = {
     api.post<PaymentProfile>(`/companies/${companyId}/payments/profiles`, input),
   updateProfile: (companyId: string, profileId: string, input: UpdatePaymentProfileInput) =>
     api.patch<PaymentProfile>(`/companies/${companyId}/payments/profiles/${profileId}`, input),
-  entries: (companyId: string, filters: { q?: string; status?: string; calendarItemId?: string; limit?: number; offset?: number } = {}) =>
+  entries: (companyId: string, filters: { q?: string; status?: string; calendarItemId?: string; profileId?: string; dueFrom?: string; dueTo?: string; sort?: string; dir?: "asc" | "desc"; limit?: number; offset?: number } = {}) =>
     api.get<PaymentEntryListResponse>(`/companies/${companyId}/payments/entries${params(filters)}`),
   detail: (companyId: string, entryId: string) =>
     api.get<PaymentEntryDetail>(`/companies/${companyId}/payments/entries/${entryId}`),
@@ -43,4 +44,8 @@ export const paymentsApi = {
     api.post<PaymentEntry>(`/companies/${companyId}/payments/entries/${entryId}/cancel`, {}),
   recordPayment: (companyId: string, entryId: string, input: RecordPaymentInput) =>
     api.post<PaymentEntry>(`/companies/${companyId}/payments/entries/${entryId}/records`, input),
+  updateRecord: (companyId: string, entryId: string, recordId: string, input: UpdatePaymentRecordInput) =>
+    api.patch<PaymentEntry>(`/companies/${companyId}/payments/entries/${entryId}/records/${recordId}`, input),
+  deleteRecord: (companyId: string, entryId: string, recordId: string) =>
+    api.delete<PaymentEntry>(`/companies/${companyId}/payments/entries/${entryId}/records/${recordId}`),
 };

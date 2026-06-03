@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Plus, ReceiptText, WalletCards } from "lucide-react";
-import { PAYMENT_METHODS, type PaymentEntry, type PaymentMethod } from "@paperclipai/shared";
+import { PAYMENT_METHODS, type PaymentEntry, type PaymentEntrySortField, type PaymentMethod, type PaymentProfile, type PaymentRecord } from "@paperclipai/shared";
 import { paymentsApi } from "../api/payments";
 import { EmptyState } from "../components/EmptyState";
 import { StatusBadge } from "../components/StatusBadge";
@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 const NO_COMPANY = "__none__";
 const NONE = "__none__";
+const EMPTY_PROFILE_FORM = { method: "credit_card" as PaymentMethod, accountLabel: "", ownerName: "", notes: "", active: true };
 
 const moneyFormatters = new Map<string, Intl.NumberFormat>();
 function getMoneyFormatter(currency: string) {
@@ -80,11 +81,19 @@ export function Payments() {
   const [tab, setTab] = useState<"open" | "paid" | "profiles">("open");
   const [q, setQ] = useState("");
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [payingEntry, setPayingEntry] = useState<PaymentEntry | null>(null);
-  const [profileForm, setProfileForm] = useState({ method: "credit_card" as PaymentMethod, accountLabel: "", ownerName: "", notes: "" });
+  const [detailEntryId, setDetailEntryId] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<PaymentRecord | null>(null);
+  const [profileForm, setProfileForm] = useState({ ...EMPTY_PROFILE_FORM });
   const [entryForm, setEntryForm] = useState({ title: "", providerName: "", dueDate: "", amount: "", currency: "BRL", paymentProfileId: "", notes: "" });
   const [paymentForm, setPaymentForm] = useState({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
+  const [recordForm, setRecordForm] = useState({ amount: "", currency: "BRL", paidAt: "", paymentProfileId: "", proofUrl: "", notes: "", approvalConfirmed: false });
+  const [filterProfileId, setFilterProfileId] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  const [sort, setSort] = useState<{ field: PaymentEntrySortField; dir: "asc" | "desc" }>({ field: "dueDate", dir: "asc" });
   const [operationError, setOperationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -94,8 +103,13 @@ export function Payments() {
   const entryFilters = useMemo(() => ({
     q: q.trim() || undefined,
     status: tab === "paid" ? "paid" : "open,partially_paid",
+    profileId: filterProfileId || undefined,
+    dueFrom: dueFrom || undefined,
+    dueTo: dueTo || undefined,
+    sort: sort.field,
+    dir: sort.dir,
     limit: 500,
-  }), [q, tab]);
+  }), [q, tab, filterProfileId, dueFrom, dueTo, sort]);
 
   const dashboardQuery = useQuery({
     queryKey: queryKeys.payments.dashboard(companyId),
@@ -112,6 +126,11 @@ export function Payments() {
     queryFn: () => paymentsApi.entries(companyId, entryFilters),
     enabled: !!selectedCompanyId,
   });
+  const detailQuery = useQuery({
+    queryKey: detailEntryId ? queryKeys.payments.detail(companyId, detailEntryId) : ["payments", companyId, "no-detail"],
+    queryFn: () => paymentsApi.detail(companyId, detailEntryId!),
+    enabled: !!selectedCompanyId && !!detailEntryId,
+  });
 
   const invalidatePayments = () => {
     queryClient.invalidateQueries({ queryKey: ["payments", companyId] });
@@ -120,15 +139,22 @@ export function Payments() {
 
   const profileMutation = useMutation({
     onMutate: () => setOperationError(null),
-    mutationFn: () => paymentsApi.createProfile(companyId, {
-      method: profileForm.method,
-      accountLabel: profileForm.accountLabel,
-      ownerName: profileForm.ownerName || null,
-      notes: profileForm.notes || null,
-    }),
+    mutationFn: () => {
+      const payload = {
+        method: profileForm.method,
+        accountLabel: profileForm.accountLabel,
+        ownerName: profileForm.ownerName || null,
+        notes: profileForm.notes || null,
+        active: profileForm.active,
+      };
+      return editingProfileId
+        ? paymentsApi.updateProfile(companyId, editingProfileId, payload)
+        : paymentsApi.createProfile(companyId, payload);
+    },
     onSuccess: () => {
       setProfileDialogOpen(false);
-      setProfileForm({ method: "credit_card", accountLabel: "", ownerName: "", notes: "" });
+      setEditingProfileId(null);
+      setProfileForm({ ...EMPTY_PROFILE_FORM });
       invalidatePayments();
     },
     onError: (error) => setOperationError(errorMessage(error, "Payment profile save failed")),
@@ -169,9 +195,70 @@ export function Payments() {
     },
     onError: (error) => setOperationError(errorMessage(error, "Payment record failed")),
   });
+  const recordEditMutation = useMutation({
+    onMutate: () => setOperationError(null),
+    mutationFn: () => paymentsApi.updateRecord(companyId, editingRecord!.paymentEntryId, editingRecord!.id, {
+      amountCents: cents(recordForm.amount) ?? 0,
+      currency: recordForm.currency || undefined,
+      paidAt: recordForm.paidAt ? new Date(`${recordForm.paidAt}T12:00:00.000Z`).toISOString() : undefined,
+      paymentProfileId: recordForm.paymentProfileId === "" ? null : recordForm.paymentProfileId,
+      proofUrl: recordForm.proofUrl || null,
+      notes: recordForm.notes || null,
+      approvalConfirmed: recordForm.approvalConfirmed,
+    }),
+    onSuccess: () => {
+      setEditingRecord(null);
+      invalidatePayments();
+    },
+    onError: (error) => setOperationError(errorMessage(error, "Payment record update failed")),
+  });
+  const recordDeleteMutation = useMutation({
+    onMutate: () => setOperationError(null),
+    mutationFn: (record: PaymentRecord) => paymentsApi.deleteRecord(companyId, record.paymentEntryId, record.id),
+    onSuccess: () => invalidatePayments(),
+    onError: (error) => setOperationError(errorMessage(error, "Payment record delete failed")),
+  });
+
+  const openProfileCreate = () => {
+    setOperationError(null);
+    setEditingProfileId(null);
+    setProfileForm({ ...EMPTY_PROFILE_FORM });
+    setProfileDialogOpen(true);
+  };
+  const openProfileEdit = (profile: PaymentProfile) => {
+    setOperationError(null);
+    setEditingProfileId(profile.id);
+    setProfileForm({
+      method: profile.method,
+      accountLabel: profile.accountLabel,
+      ownerName: profile.ownerName ?? "",
+      notes: profile.notes ?? "",
+      active: profile.active,
+    });
+    setProfileDialogOpen(true);
+  };
+  const openRecordEdit = (record: PaymentRecord) => {
+    setOperationError(null);
+    setRecordForm({
+      amount: String(record.amountCents / 100),
+      currency: record.currency,
+      paidAt: record.paidAt.slice(0, 10),
+      paymentProfileId: record.paymentProfileId ?? "",
+      proofUrl: record.proofUrl ?? "",
+      notes: record.notes ?? "",
+      approvalConfirmed: false,
+    });
+    setEditingRecord(record);
+  };
+  const toggleSort = (field: PaymentEntrySortField) => {
+    setSort((current) => current.field === field
+      ? { field, dir: current.dir === "asc" ? "desc" : "asc" }
+      : { field, dir: "asc" });
+  };
 
   const entries = entriesQuery.data?.entries ?? [];
   const profiles = profilesQuery.data ?? [];
+  const detailEntry = detailQuery.data ?? null;
 
   if (!selectedCompanyId) {
     return <EmptyState icon={ReceiptText} message="Create or select a company to track payments." />;
@@ -185,7 +272,7 @@ export function Payments() {
           <p className="text-sm text-muted-foreground">Calendar-linked payables, standalone payments, and reusable payment profiles.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setOperationError(null); setProfileDialogOpen(true); }}><WalletCards className="mr-2 size-4" />Profile</Button>
+          <Button variant="outline" onClick={openProfileCreate}><WalletCards className="mr-2 size-4" />Profile</Button>
           <Button onClick={() => { setOperationError(null); setEntryDialogOpen(true); }}><Plus className="mr-2 size-4" />Payment</Button>
         </div>
       </div>
@@ -217,11 +304,39 @@ export function Payments() {
             <TabsTrigger value="paid">Paid history</TabsTrigger>
             <TabsTrigger value="profiles">Profiles</TabsTrigger>
           </TabsList>
-          <Input className="w-full sm:w-72" placeholder="Filter payments" value={q} onChange={(event) => setQ(event.target.value)} />
+          {tab !== "profiles" ? (
+            <Input className="w-full sm:w-72" placeholder="Filter payments" value={q} onChange={(event) => setQ(event.target.value)} />
+          ) : null}
         </div>
 
+        {tab !== "profiles" ? (
+          <div className="mt-3 flex flex-wrap items-end gap-3 border border-border bg-muted/20 p-3">
+            <div className="grid gap-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Profile</span>
+              <Select value={filterProfileId || NONE} onValueChange={(value) => setFilterProfileId(value === NONE ? "" : value)}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="All profiles" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>All profiles</SelectItem>
+                  {profiles.map((profile) => <SelectItem key={profile.id} value={profile.id}>{profileLabel(profile)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Due from</span>
+              <Input type="date" className="w-40" value={dueFrom} onChange={(event) => setDueFrom(event.target.value)} />
+            </div>
+            <div className="grid gap-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Due to</span>
+              <Input type="date" className="w-40" value={dueTo} onChange={(event) => setDueTo(event.target.value)} />
+            </div>
+            {(filterProfileId || dueFrom || dueTo) ? (
+              <Button variant="ghost" size="sm" onClick={() => { setFilterProfileId(""); setDueFrom(""); setDueTo(""); }}>Clear filters</Button>
+            ) : null}
+          </div>
+        ) : null}
+
         <TabsContent value="open" className="mt-3 min-h-0">
-          <PaymentTable entries={entries} onPay={(entry) => {
+          <PaymentTable entries={entries} sort={sort} onSort={toggleSort} onDetails={setDetailEntryId} onPay={(entry) => {
             setOperationError(null);
             setPayingEntry(entry);
             setPaymentForm({
@@ -236,23 +351,27 @@ export function Payments() {
           }} />
         </TabsContent>
         <TabsContent value="paid" className="mt-3 min-h-0">
-          <PaymentTable entries={entries} onPay={() => {}} paid />
+          <PaymentTable entries={entries} sort={sort} onSort={toggleSort} onDetails={setDetailEntryId} onPay={() => {}} paid />
         </TabsContent>
         <TabsContent value="profiles" className="mt-3">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {profiles.map((profile) => (
-              <div key={profile.id} className={cn("border border-border p-3", !profile.active && "opacity-60")}>
-                <div className="font-medium">{profileLabel(profile)}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{profile.notes || "No notes"}</div>
+              <div key={profile.id} className={cn("flex items-start justify-between gap-2 border border-border p-3", !profile.active && "opacity-60")}>
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{profileLabel(profile)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{profile.notes || "No notes"}</div>
+                  {!profile.active ? <div className="mt-1 text-xs text-muted-foreground">Inactive</div> : null}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => openProfileEdit(profile)}>Edit</Button>
               </div>
             ))}
           </div>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+      <Dialog open={profileDialogOpen} onOpenChange={(open) => { setProfileDialogOpen(open); if (!open) setEditingProfileId(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Payment profile</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingProfileId ? "Edit payment profile" : "Payment profile"}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <Field label="Method">
               <Select value={profileForm.method} onValueChange={(method) => setProfileForm((current) => ({ ...current, method: method as PaymentMethod }))}>
@@ -263,6 +382,10 @@ export function Payments() {
             <Field label="Account"><Input value={profileForm.accountLabel} onChange={(event) => setProfileForm((current) => ({ ...current, accountLabel: event.target.value }))} /></Field>
             <Field label="Owner"><Input value={profileForm.ownerName} onChange={(event) => setProfileForm((current) => ({ ...current, ownerName: event.target.value }))} /></Field>
             <Field label="Notes"><Textarea value={profileForm.notes} onChange={(event) => setProfileForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={profileForm.active} onChange={(event) => setProfileForm((current) => ({ ...current, active: event.target.checked }))} />
+              Active
+            </label>
           </div>
           <DialogFooter>
             <Button onClick={() => profileMutation.mutate()} disabled={!profileForm.accountLabel.trim() || profileMutation.isPending}>Save</Button>
@@ -308,23 +431,120 @@ export function Payments() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!detailEntryId} onOpenChange={(open) => !open && setDetailEntryId(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{detailEntry?.title ?? "Payment history"}</DialogTitle></DialogHeader>
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <StatusBadge status={detailEntry?.status ?? "open"} />
+              <span className="text-muted-foreground">Expected {money(detailEntry?.expectedAmountCents, detailEntry?.currency)}</span>
+              <span className="text-muted-foreground">Paid {money(detailEntry?.paidAmountCents, detailEntry?.currency)}</span>
+            </div>
+            {detailQuery.isLoading ? (
+              <div className="border border-border p-3 text-sm text-muted-foreground">Loading records…</div>
+            ) : (detailEntry?.records.length ?? 0) === 0 ? (
+              <div className="border border-border p-3 text-sm text-muted-foreground">No payment records yet.</div>
+            ) : (
+              <div className="grid gap-2">
+                {detailEntry!.records.map((record) => (
+                  <div key={record.id} className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium tabular-nums">{money(record.amountCents, record.currency)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {record.paidAt.slice(0, 10)}{record.profile ? ` · ${profileLabel(record.profile)}` : ""}
+                      </div>
+                      {record.notes ? <div className="mt-1 text-xs text-muted-foreground">{record.notes}</div> : null}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openRecordEdit(record)}>Edit</Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive"
+                        disabled={recordDeleteMutation.isPending}
+                        onClick={() => { if (window.confirm("Delete this payment record? The entry total will be recomputed.")) recordDeleteMutation.mutate(record); }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingRecord} onOpenChange={(open) => !open && setEditingRecord(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit payment record</DialogTitle></DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid grid-cols-[1fr_90px] gap-3">
+              <Field label="Amount"><Input value={recordForm.amount} onChange={(event) => setRecordForm((current) => ({ ...current, amount: event.target.value }))} /></Field>
+              <Field label="Currency"><Input value={recordForm.currency} onChange={(event) => setRecordForm((current) => ({ ...current, currency: event.target.value.toUpperCase().slice(0, 3) }))} /></Field>
+            </div>
+            <Field label="Paid date"><Input type="date" value={recordForm.paidAt} onChange={(event) => setRecordForm((current) => ({ ...current, paidAt: event.target.value }))} /></Field>
+            <ProfileSelect value={recordForm.paymentProfileId} onChange={(paymentProfileId) => setRecordForm((current) => ({ ...current, paymentProfileId }))} profiles={profiles} />
+            <Field label="Proof URL"><Input value={recordForm.proofUrl} onChange={(event) => setRecordForm((current) => ({ ...current, proofUrl: event.target.value }))} /></Field>
+            <Field label="Notes"><Textarea value={recordForm.notes} onChange={(event) => setRecordForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={recordForm.approvalConfirmed} onChange={(event) => setRecordForm((current) => ({ ...current, approvalConfirmed: event.target.checked }))} />
+              Approval confirmed (required when this completes a high-risk obligation)
+            </label>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => recordEditMutation.mutate()} disabled={(cents(recordForm.amount) ?? 0) <= 0 || recordEditMutation.isPending}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function PaymentTable({ entries, onPay, paid = false }: { entries: PaymentEntry[]; onPay: (entry: PaymentEntry) => void; paid?: boolean }) {
+function SortHeader({
+  label, field, sort, onSort, align = "left",
+}: {
+  label: string; field: PaymentEntrySortField;
+  sort?: { field: PaymentEntrySortField; dir: "asc" | "desc" }; onSort?: (field: PaymentEntrySortField) => void;
+  align?: "left" | "right";
+}) {
+  const active = sort?.field === field;
+  const arrow = active ? (sort!.dir === "asc" ? " ↑" : " ↓") : "";
+  if (!onSort) return <th className={cn("px-3 py-2", align === "right" ? "text-right" : "text-left")}>{label}</th>;
+  return (
+    <th className={cn("px-3 py-2", align === "right" ? "text-right" : "text-left")}>
+      <button
+        type="button"
+        className={cn("uppercase hover:text-foreground", active && "text-foreground")}
+        onClick={() => onSort(field)}
+      >
+        {label}{arrow}
+      </button>
+    </th>
+  );
+}
+
+function PaymentTable({ entries, onPay, onDetails, sort, onSort, paid = false }: {
+  entries: PaymentEntry[];
+  onPay: (entry: PaymentEntry) => void;
+  onDetails?: (entryId: string) => void;
+  sort?: { field: PaymentEntrySortField; dir: "asc" | "desc" };
+  onSort?: (field: PaymentEntrySortField) => void;
+  paid?: boolean;
+}) {
   if (entries.length === 0) return <EmptyState icon={CreditCard} message="No payment entries match this view." />;
   return (
     <div className="min-h-0 overflow-auto border border-border">
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <thead className="sticky top-0 bg-background text-xs uppercase text-muted-foreground">
           <tr className="border-b border-border">
-            <th className="px-3 py-2 text-left">Payment</th>
-            <th className="px-3 py-2 text-left">Due</th>
-            <th className="px-3 py-2 text-right">Expected</th>
+            <SortHeader label="Payment" field="title" sort={sort} onSort={onSort} />
+            <SortHeader label="Due" field="dueDate" sort={sort} onSort={onSort} />
+            <SortHeader label="Expected" field="amount" sort={sort} onSort={onSort} align="right" />
             <th className="px-3 py-2 text-right">Paid</th>
             <th className="px-3 py-2 text-left">Profile</th>
-            <th className="px-3 py-2 text-left">Status</th>
+            <SortHeader label="Status" field="status" sort={sort} onSort={onSort} />
             <th className="px-3 py-2 text-right"></th>
           </tr>
         </thead>
@@ -341,7 +561,10 @@ function PaymentTable({ entries, onPay, paid = false }: { entries: PaymentEntry[
               <td className="px-3 py-2 text-xs text-muted-foreground">{entry.profile ? profileLabel(entry.profile) : "-"}</td>
               <td className="px-3 py-2"><StatusBadge status={entry.status} /></td>
               <td className="px-3 py-2 text-right">
-                {!paid && entry.status !== "paid" && entry.status !== "cancelled" ? <Button size="sm" onClick={() => onPay(entry)}>Pay</Button> : null}
+                <div className="flex justify-end gap-2">
+                  {onDetails ? <Button variant="outline" size="sm" onClick={() => onDetails(entry.id)}>History</Button> : null}
+                  {!paid && entry.status !== "paid" && entry.status !== "cancelled" ? <Button size="sm" onClick={() => onPay(entry)}>Pay</Button> : null}
+                </div>
               </td>
             </tr>
           ))}

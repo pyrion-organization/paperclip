@@ -1,5 +1,6 @@
 import {
   type ClipboardEvent,
+  memo,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -1139,7 +1140,9 @@ function MarkdownEditorContent({
   );
 }
 
-export function MarkdownEditor({
+// Memoized so callers that pass stable props (value/onChange/mentions/…) don't re-render this heavy
+// MDX editor when an unrelated sibling field changes in the parent.
+export const MarkdownEditor = memo(function MarkdownEditor({
   ref: forwardedRef,
   ...props
 }: MarkdownEditorProps & { ref?: Ref<MarkdownEditorRef> }) {
@@ -1153,4 +1156,4 @@ export function MarkdownEditor({
       <MarkdownEditorContent {...props} ref={forwardedRef} />
     </EditorAutocompleteProvider>
   );
-}
+});

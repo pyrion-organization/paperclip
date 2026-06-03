@@ -3,6 +3,11 @@ import { PAYMENT_ENTRY_STATUSES, PAYMENT_METHODS } from "../constants.js";
 
 const nullableTrimmed = (max: number) =>
   z.string().trim().max(max).optional().nullable().transform((value) => value === "" ? null : value ?? null);
+const nullableTrimmedPatch = (max: number) =>
+  z.string().trim().max(max).optional().nullable().transform((value) => {
+    if (value === undefined) return undefined;
+    return value === "" ? null : value;
+  });
 
 const optionalDateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable();
 const optionalUrl = z.string().trim().url().max(1000).optional().nullable().or(z.literal("").transform(() => null));
@@ -39,10 +44,19 @@ export const updatePaymentProfileSchema = paymentProfileInputSchema.partial().st
 export type UpdatePaymentProfile = z.infer<typeof updatePaymentProfileSchema>;
 export type UpdatePaymentProfileInput = z.input<typeof updatePaymentProfileSchema>;
 
+export const PAYMENT_ENTRY_SORT_FIELDS = ["dueDate", "amount", "status", "title"] as const;
+export const paymentEntrySortFieldSchema = z.enum(PAYMENT_ENTRY_SORT_FIELDS);
+export type PaymentEntrySortField = z.infer<typeof paymentEntrySortFieldSchema>;
+
 export const paymentEntryFilterSchema = z.object({
   q: z.string().trim().max(200).optional(),
   status: paymentEntryStatusFilterSchema,
   calendarItemId: z.string().uuid().optional(),
+  profileId: z.string().uuid().optional(),
+  dueFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dueTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  sort: paymentEntrySortFieldSchema.optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional().default(100),
   offset: z.coerce.number().int().min(0).optional().default(0),
 }).strict();
@@ -78,3 +92,18 @@ export const recordPaymentSchema = z.object({
 }).strict();
 export type RecordPayment = z.infer<typeof recordPaymentSchema>;
 export type RecordPaymentInput = z.input<typeof recordPaymentSchema>;
+
+export const updatePaymentRecordSchema = z.object({
+  amountCents: z.number().int().positive().optional(),
+  currency: currencyCodeSchema.optional(),
+  paidAt: z.string().datetime().optional(),
+  paymentProfileId: z.string().uuid().optional().nullable(),
+  proofUrl: optionalUrl,
+  notes: nullableTrimmedPatch(2000),
+  approvalConfirmed: z.boolean().optional().default(false),
+}).strict().transform((value) => {
+  const { notes, ...rest } = value;
+  return notes === undefined ? rest : { ...rest, notes };
+});
+export type UpdatePaymentRecord = z.infer<typeof updatePaymentRecordSchema>;
+export type UpdatePaymentRecordInput = z.input<typeof updatePaymentRecordSchema>;
