@@ -719,7 +719,7 @@ const CalendarItemDialog = memo(function CalendarItemDialog({
         </DialogHeader>
         <div className="min-h-0 flex-1 px-5 py-3">
           <Tabs value={itemDialogTab} onValueChange={setItemDialogTab} className="flex h-full min-h-0 flex-col gap-3">
-            <TabsList variant="line" className="w-full shrink-0 justify-start gap-3 overflow-x-auto [&_[data-slot=tabs-trigger]]:flex-none [&_[data-slot=tabs-trigger]]:px-1">
+            <TabsList variant="line" className="w-full shrink-0 flex-wrap justify-start gap-x-3 gap-y-1 [&_[data-slot=tabs-trigger]]:flex-none [&_[data-slot=tabs-trigger]]:px-1">
               <TabsTrigger value="overview" data-testid="calendar-tab-overview" onClick={() => setItemDialogTab("overview")}>Overview</TabsTrigger>
               <TabsTrigger value="payment" data-testid="calendar-tab-payment" onClick={() => setItemDialogTab("payment")}>Payment</TabsTrigger>
               <TabsTrigger value="contacts" data-testid="calendar-tab-contacts" onClick={() => setItemDialogTab("contacts")}>Contacts</TabsTrigger>
