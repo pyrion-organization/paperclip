@@ -6,6 +6,7 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 const cliPackageJson = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
 const claudeLocalPackageJson = JSON.parse(readFileSync(new URL("../packages/adapters/claude-local/package.json", import.meta.url), "utf8"));
 const dbPackageJson = JSON.parse(readFileSync(new URL("../packages/db/package.json", import.meta.url), "utf8"));
+const mcpServerPackageJson = JSON.parse(readFileSync(new URL("../packages/mcp-server/package.json", import.meta.url), "utf8"));
 
 test("default aggregate test run includes plugin-sdk build dependency bootstrap", () => {
   const scripts = packageJson.scripts;
@@ -30,4 +31,11 @@ test("db build script uses the idempotent migrations copy helper", () => {
 
 test("Claude local adapter build cleans stale dist artifacts before compiling", () => {
   assert.equal(claudeLocalPackageJson.scripts.build, "pnpm run clean && tsc");
+});
+
+test("MCP server package exports built JavaScript for runtime consumers", () => {
+  assert.deepEqual(mcpServerPackageJson.exports["."], {
+    types: "./dist/index.d.ts",
+    import: "./dist/index.js",
+  });
 });
