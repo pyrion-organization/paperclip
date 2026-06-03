@@ -175,6 +175,69 @@ describeEmbeddedPostgres("cleanup removal services", () => {
     await expect(db.select().from(activityLog).where(eq(activityLog.companyId, companyId))).resolves.toHaveLength(0);
   });
 
+  it("preserves unrelated document locks when deleting an agent", async () => {
+    const { agentId, companyId } = await seedFixture();
+    const otherAgentId = randomUUID();
+    const lockedByOtherDocumentId = randomUUID();
+    const lockedByDeletedDocumentId = randomUUID();
+    const lockedAt = new Date("2026-06-03T17:30:00.000Z");
+
+    await db.insert(agents).values({
+      id: otherAgentId,
+      companyId,
+      name: "Reviewer",
+      role: "reviewer",
+      status: "active",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: {},
+      permissions: {},
+    });
+
+    await db.insert(documents).values([
+      {
+        id: lockedByOtherDocumentId,
+        companyId,
+        title: "Created by deleted agent",
+        latestBody: "body",
+        createdByAgentId: agentId,
+        updatedByAgentId: agentId,
+        lockedByAgentId: otherAgentId,
+        lockedAt,
+      },
+      {
+        id: lockedByDeletedDocumentId,
+        companyId,
+        title: "Locked by deleted agent",
+        latestBody: "body",
+        createdByAgentId: otherAgentId,
+        updatedByAgentId: otherAgentId,
+        lockedByAgentId: agentId,
+        lockedAt,
+      },
+    ]);
+
+    const removed = await agentService(db).remove(agentId);
+
+    expect(removed?.id).toBe(agentId);
+    const rows = await db.select().from(documents);
+    const lockedByOther = rows.find((row) => row.id === lockedByOtherDocumentId);
+    const lockedByDeleted = rows.find((row) => row.id === lockedByDeletedDocumentId);
+
+    expect(lockedByOther).toMatchObject({
+      createdByAgentId: null,
+      updatedByAgentId: null,
+      lockedByAgentId: otherAgentId,
+    });
+    expect(lockedByOther?.lockedAt?.toISOString()).toBe(lockedAt.toISOString());
+    expect(lockedByDeleted).toMatchObject({
+      createdByAgentId: otherAgentId,
+      updatedByAgentId: otherAgentId,
+      lockedByAgentId: null,
+      lockedAt: null,
+    });
+  });
+
   it("removes issue read states and activity rows before deleting the company", async () => {
     const { companyId, issueId, runId } = await seedFixture();
     const documentId = randomUUID();

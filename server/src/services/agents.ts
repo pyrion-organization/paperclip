@@ -563,10 +563,12 @@ export function agentService(db: Db) {
         await tx.update(approvalComments).set({ authorAgentId: null }).where(eq(approvalComments.authorAgentId, id));
         await tx.update(documentAnnotationComments).set({ authorAgentId: null }).where(eq(documentAnnotationComments.authorAgentId, id));
         await tx.update(documentAnnotationThreads).set({ createdByAgentId: null }).where(eq(documentAnnotationThreads.createdByAgentId, id));
+        await tx.update(documents).set({ createdByAgentId: null }).where(eq(documents.createdByAgentId, id));
+        await tx.update(documents).set({ updatedByAgentId: null }).where(eq(documents.updatedByAgentId, id));
         await tx
           .update(documents)
-          .set({ createdByAgentId: null, updatedByAgentId: null, lockedByAgentId: null })
-          .where(or(eq(documents.createdByAgentId, id), eq(documents.updatedByAgentId, id), eq(documents.lockedByAgentId, id)));
+          .set({ lockedByAgentId: null, lockedAt: null })
+          .where(eq(documents.lockedByAgentId, id));
         await tx.update(documentRevisions).set({ createdByAgentId: null }).where(eq(documentRevisions.createdByAgentId, id));
         await tx
           .update(financeEvents)
