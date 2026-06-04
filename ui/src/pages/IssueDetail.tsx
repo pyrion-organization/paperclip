@@ -579,6 +579,7 @@ function InboxMobileToolbar({
           </PopoverTrigger>
           <PopoverContent className="w-44 p-1" align="end">
             <button
+              type="button"
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onCopy(); setMenuOpen(false); }}
             >
@@ -586,6 +587,7 @@ function InboxMobileToolbar({
               Copy as markdown
             </button>
             <button
+              type="button"
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
               onClick={() => { onProperties(); setMenuOpen(false); }}
             >
@@ -594,6 +596,7 @@ function InboxMobileToolbar({
             </button>
             {issueIdProp && (
               <button
+                type="button"
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                 onClick={() => { onHide(); setMenuOpen(false); }}
               >
@@ -1954,6 +1957,10 @@ export function IssueDetail() {
   const checkIssueMonitorNow = useMutation({
     mutationFn: () => issuesApi.checkMonitorNow(issueId!),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issueId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.runs(issueId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(issueId!) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(issueId!) });
       invalidateIssueDetail();
       invalidateIssueRunState();
       invalidateIssueCollections();
@@ -2117,6 +2124,7 @@ export function IssueDetail() {
     }) => issuesApi.acceptInteraction(issueId!, interaction.id, { selectedClientKeys }),
     onSuccess: (interaction) => {
       upsertInteractionInCache(interaction);
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.interactions(issueId!) });
       if (interaction.kind === "suggest_tasks" && resolvedCompanyId && issue?.id) {
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.listByParent(resolvedCompanyId, issue.id) });
       }
@@ -2150,6 +2158,7 @@ export function IssueDetail() {
       issuesApi.rejectInteraction(issueId!, interaction.id, reason),
     onSuccess: (interaction) => {
       upsertInteractionInCache(interaction);
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.interactions(issueId!) });
       invalidateIssueDetail();
       invalidateIssueCollections();
       pushToast({
@@ -2175,6 +2184,7 @@ export function IssueDetail() {
     }) => issuesApi.respondToInteraction(issueId!, interaction.id, { answers }),
     onSuccess: (interaction) => {
       upsertInteractionInCache(interaction);
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.interactions(issueId!) });
       invalidateIssueDetail();
       invalidateIssueCollections();
       pushToast({
@@ -2196,6 +2206,7 @@ export function IssueDetail() {
       issuesApi.cancelInteraction(issueId!, interaction.id),
     onSuccess: (interaction) => {
       upsertInteractionInCache(interaction);
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.interactions(issueId!) });
       invalidateIssueDetail();
       invalidateIssueCollections();
       pushToast({
@@ -2434,6 +2445,7 @@ export function IssueDetail() {
       });
       removeCommentFromCache(comment.id);
       restoreQueuedCommentDraft(comment.body);
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
       invalidateIssueDetail();
       invalidateIssueThreadLazily();
       invalidateIssueCollections();
@@ -2595,6 +2607,7 @@ export function IssueDetail() {
   const archiveFromInbox = useMutation({
     mutationFn: (id: string) => issuesApi.archiveFromInbox(id),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issueId!) });
       invalidateIssueCollections();
       navigate(sourceBreadcrumb.href.startsWith("/inbox") ? sourceBreadcrumb.href : "/inbox", { replace: true });
       pushToast({ title: "Issue archived from inbox", tone: "success" });
@@ -3206,6 +3219,7 @@ export function IssueDetail() {
         ref={fileInputRef}
         type="file"
         className="hidden"
+        aria-label="Attach issue file"
         onChange={handleFilePicked}
         multiple
       />
@@ -3319,7 +3333,7 @@ export function IssueDetail() {
                         setTreeControlOpen(true);
                       }}
                     >
-                      Cancel subtree...
+                      Cancel subtree…
                     </Button>
                   ) : null}
                 </div>
@@ -3522,6 +3536,7 @@ export function IssueDetail() {
             <PopoverContent className="w-52 p-1" align="end">
               {canPauseLeafWork ? (
                 <button
+                  type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("pause");
@@ -3531,11 +3546,12 @@ export function IssueDetail() {
                   }}
                 >
                   <PauseCircle className="h-3 w-3" />
-                  Pause work...
+                  Pause work…
                 </button>
               ) : null}
               {canResumeLeafWork ? (
                 <button
+                  type="button"
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                   onClick={() => {
                     setTreeControlMode("resume");
@@ -3551,6 +3567,7 @@ export function IssueDetail() {
               {canShowSubtreeControls ? (
                 <>
                   <button
+                    type="button"
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                     onClick={() => {
                       setTreeControlMode("pause");
@@ -3560,10 +3577,11 @@ export function IssueDetail() {
                     }}
                   >
                     <PauseCircle className="h-3 w-3" />
-                    Pause subtree...
+                    Pause subtree…
                   </button>
                   {canResumeSubtree ? (
                     <button
+                      type="button"
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("resume");
@@ -3577,6 +3595,7 @@ export function IssueDetail() {
                     </button>
                   ) : null}
                   <button
+                    type="button"
                     className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                     onClick={() => {
                       setTreeControlMode("cancel");
@@ -3586,10 +3605,11 @@ export function IssueDetail() {
                     }}
                   >
                     <XCircle className="h-3 w-3" />
-                    Cancel subtree...
+                    Cancel subtree…
                   </button>
                   {canRestoreSubtree ? (
                     <button
+                      type="button"
                       className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                       onClick={() => {
                         setTreeControlMode("restore");
@@ -3600,12 +3620,13 @@ export function IssueDetail() {
                       }}
                     >
                       <Repeat className="h-3 w-3" />
-                      Restore subtree...
+                      Restore subtree…
                     </button>
                   ) : null}
                 </>
               ) : null}
               <button
+                type="button"
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                 onClick={() => {
                   updateIssue.mutate(
@@ -3826,7 +3847,7 @@ export function IssueDetail() {
                         }}
                         disabled={deleteAttachment.isPending}
                       >
-                        Yes
+                        Delete
                       </button>
                       <button
                         type="button"
@@ -3836,7 +3857,7 @@ export function IssueDetail() {
                           setConfirmDeleteId(null);
                         }}
                       >
-                        No
+                        Cancel
                       </button>
                     </div>
                   </div>
@@ -4065,10 +4086,11 @@ export function IssueDetail() {
             ) : null}
 
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">
+              <label htmlFor="issue-tree-control-reason" className="text-xs text-muted-foreground">
                 Reason (optional)
               </label>
               <Textarea
+                id="issue-tree-control-reason"
                 value={treeControlReason}
                 onChange={(event) => setTreeControlReason(event.target.value)}
                 placeholder="Explain why this subtree control is being applied..."

@@ -381,6 +381,15 @@ interface IssueChatThreadProps {
   onRefreshLatestComments?: () => Promise<unknown> | void;
 }
 
+const EMPTY_INLINE_ENTITY_OPTIONS: InlineEntityOption[] = [];
+const EMPTY_MENTION_OPTIONS: MentionOption[] = [];
+const EMPTY_INTERACTIONS: IssueThreadInteraction[] = [];
+const EMPTY_FEEDBACK_VOTES: FeedbackVote[] = [];
+const EMPTY_LINKED_RUNS: IssueChatLinkedRun[] = [];
+const EMPTY_TIMELINE_EVENTS: IssueTimelineEvent[] = [];
+const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
+const EMPTY_BLOCKED_BY: IssueRelationIssueSummary[] = [];
+
 type IssueChatErrorBoundaryProps = {
   resetKey: string;
   messages: readonly ThreadMessage[];
@@ -1356,7 +1365,7 @@ function IssueChatUserMessage({
 
       {pending ? (
         <div className={cn("mt-1 flex px-1 text-[11px] text-muted-foreground", isCurrentUser ? "justify-end" : "justify-start")}>
-          Sending...
+          Sending…
         </div>
       ) : (
         <div
@@ -2695,7 +2704,11 @@ function useIssueThreadVirtualizer({
   getItemKey: (index: number) => React.Key;
   mode: VirtualizedScrollMode;
 }) {
-  const measuredSizeByKeyRef = useRef(new Map<React.Key, number>());
+  const measuredSizeByKeyRef = useRef<Map<React.Key, number> | null>(null);
+  if (measuredSizeByKeyRef.current === null) {
+    measuredSizeByKeyRef.current = new Map();
+  }
+  const measuredSizeByKey = measuredSizeByKeyRef.current;
   const [, rerender] = useState(0);
   const estimatedSize = estimateSize();
 
@@ -2704,7 +2717,7 @@ function useIssueThreadVirtualizer({
   let nextStart = scrollMargin;
   for (let index = 0; index < count; index += 1) {
     const key = getItemKey(index);
-    const size = measuredSizeByKeyRef.current.get(key) ?? estimatedSize;
+    const size = measuredSizeByKey.get(key) ?? estimatedSize;
     itemStarts.push(nextStart);
     itemSizes.push(size);
     nextStart += size + gap;
@@ -2790,9 +2803,9 @@ function useIssueThreadVirtualizer({
       const measuredSize = element.getBoundingClientRect().height || element.offsetHeight;
       if (!Number.isFinite(measuredSize) || measuredSize <= 0) return;
       const key = getItemKey(index);
-      const previousSize = measuredSizeByKeyRef.current.get(key) ?? estimatedSize;
+      const previousSize = measuredSizeByKey.get(key) ?? estimatedSize;
       if (Math.abs(previousSize - measuredSize) < 1) return;
-      measuredSizeByKeyRef.current.set(key, measuredSize);
+      measuredSizeByKey.set(key, measuredSize);
       rerender((value) => value + 1);
     },
   };
@@ -3103,10 +3116,10 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = [],
+  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = [],
+  mentions = EMPTY_MENTION_OPTIONS,
   agentMap,
   composerDisabledReason = null,
   composerHint = null,
@@ -3505,6 +3518,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                 ref={attachInputRef}
                 type="file"
                 className="hidden"
+                aria-label="Attach file"
                 onChange={handleAttachFile}
               />
               <Button
@@ -3512,6 +3526,7 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
                 size="icon-sm"
                 onClick={() => attachInputRef.current?.click()}
                 disabled={attaching}
+                aria-label="Attach file"
                 title="Attach file"
               >
                 <Paperclip className="h-4 w-4" />
@@ -3619,16 +3634,16 @@ const IssueChatComposer = forwardRef<IssueChatComposerHandle, IssueChatComposerP
 
 export function IssueChatThread({
   comments,
-  interactions = [],
-  feedbackVotes = [],
+  interactions = EMPTY_INTERACTIONS,
+  feedbackVotes = EMPTY_FEEDBACK_VOTES,
   feedbackDataSharingPreference = "prompt",
   feedbackTermsUrl = null,
-  linkedRuns = [],
-  timelineEvents = [],
-  liveRuns = [],
+  linkedRuns = EMPTY_LINKED_RUNS,
+  timelineEvents = EMPTY_TIMELINE_EVENTS,
+  liveRuns = EMPTY_LIVE_RUNS,
   activeRun = null,
   issueId = null,
-  blockedBy = [],
+  blockedBy = EMPTY_BLOCKED_BY,
   blockerAttention = null,
   successfulRunHandoff = null,
   scheduledRetry = null,
@@ -3654,10 +3669,10 @@ export function IssueChatThread({
   onAttachImage,
   draftKey,
   enableReassign = false,
-  reassignOptions = [],
+  reassignOptions = EMPTY_INLINE_ENTITY_OPTIONS,
   currentAssigneeValue = "",
   suggestedAssigneeValue,
-  mentions = [],
+  mentions = EMPTY_MENTION_OPTIONS,
   composerDisabledReason = null,
   composerHint = null,
   showComposer = true,
@@ -3792,12 +3807,16 @@ export function IssueChatThread({
     ],
   );
   const stableMessagesRef = useRef<readonly ThreadMessage[]>([]);
-  const stableMessageCacheRef = useRef<Map<string, StableThreadMessageCacheEntry>>(new Map());
+  const stableMessageCacheRef = useRef<Map<string, StableThreadMessageCacheEntry> | null>(null);
+  if (stableMessageCacheRef.current === null) {
+    stableMessageCacheRef.current = new Map();
+  }
+  const stableMessageCache = stableMessageCacheRef.current;
   const messages = useMemo(() => {
     const stabilized = stabilizeThreadMessages(
       rawMessages,
       stableMessagesRef.current,
-      stableMessageCacheRef.current,
+      stableMessageCache,
     );
     stableMessagesRef.current = stabilized.messages;
     stableMessageCacheRef.current = stabilized.cache;
@@ -4290,7 +4309,7 @@ export function IssueChatThread({
                           Legacy recovery issue. Newer recovery actions live on the source issue
                           {legacyRecoverySourceIssue.identifier ? (
                             <>
-                              {" — "}
+                              {": "}
                               <Link
                                 to={legacyRecoverySourceIssue.href}
                                 className="underline-offset-2 hover:underline"
@@ -4299,7 +4318,7 @@ export function IssueChatThread({
                                 {legacyRecoverySourceIssue.title ? (
                                   <span className="text-muted-foreground">
                                     {" "}
-                                    — {legacyRecoverySourceIssue.title}
+                                    ({legacyRecoverySourceIssue.title})
                                   </span>
                                 ) : null}
                               </Link>
