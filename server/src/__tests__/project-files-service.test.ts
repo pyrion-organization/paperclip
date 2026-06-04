@@ -226,4 +226,31 @@ describeEmbeddedPostgres("projectFilesService", () => {
     )).stdout.trim();
     expect(remoteBranch).toBe(localBranch);
   });
+
+  it("attaches a same-named local branch to origin during branch sync instead of deleting it", async () => {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const workspaceId = randomUUID();
+    const branchName = "feature/attach-existing";
+    const { localRepo, tempDirs: repoDirs } = await createGitRepoWithOrigin();
+    for (const dir of repoDirs) tempDirs.add(dir);
+
+    await insertProjectWithWorkspace(db, { companyId, projectId, workspaceId, cwd: localRepo });
+    const currentBranch = (await runGit(localRepo, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+    await runGit(localRepo, ["push", "-u", "origin", currentBranch]);
+    await runGit(localRepo, ["branch", branchName]);
+    await runGit(localRepo, ["push", "origin", branchName]);
+    await expect(runGit(localRepo, ["rev-parse", "--abbrev-ref", `${branchName}@{upstream}`])).rejects.toBeTruthy();
+
+    const result = await svc.syncBranches(projectId);
+
+    expect(result.status).toBe("success");
+    expect(result.details).toContainEqual({
+      branchName,
+      action: "created_local_tracking",
+      errorMessage: null,
+    });
+    expect((await runGit(localRepo, ["rev-parse", "--verify", branchName])).stdout.trim()).toMatch(/^[0-9a-f]{40}$/);
+    expect((await runGit(localRepo, ["rev-parse", "--abbrev-ref", `${branchName}@{upstream}`])).stdout.trim()).toBe(`origin/${branchName}`);
+  });
 });

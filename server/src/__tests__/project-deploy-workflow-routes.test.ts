@@ -20,6 +20,7 @@ const mockProjectService = vi.hoisted(() => ({
   listInfraHealthChecks: vi.fn(),
   getInfraHealthCheck: vi.fn(),
   createInfraHealthCheck: vi.fn(),
+  updateInfraHealthCheck: vi.fn(),
   removeInfraHealthCheck: vi.fn(),
   rotateInfraHealthExternalMonitorToken: vi.fn(),
   revokeInfraHealthExternalMonitorToken: vi.fn(),
@@ -399,6 +400,9 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
       buildInfraHealthCheck(data),
     );
+    mockProjectService.updateInfraHealthCheck.mockImplementation(async (_projectId, _healthCheckId, data) =>
+      buildInfraHealthCheck(data),
+    );
     mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.rotateInfraHealthExternalMonitorToken.mockResolvedValue({
       healthCheck: buildInfraHealthCheck({ externalMonitorEnabled: true, externalMonitorTokenHint: "abcd1234" }),
@@ -644,6 +648,34 @@ describe("project deploy workflow routes", () => {
         }),
       }),
     );
+  });
+
+  it("lists deploy command records for deploy events in the project company", async () => {
+    mockProjectService.listDeployCommandRecords.mockResolvedValue([
+      buildDeployCommandRecord({ command: "pnpm deploy:prod" }),
+    ]);
+
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(mockProjectService.listDeployCommandRecords).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+    );
+  });
+
+  it("rejects deploy command record listings for events outside the project company", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({ companyId: "other-company" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records");
+
+    expect(res.status).toBe(404);
+    expect(mockProjectService.listDeployCommandRecords).not.toHaveBeenCalled();
   });
 
   it("moves a deploy event to deploying when running command evidence is recorded", async () => {
@@ -911,6 +943,15 @@ describe("project deploy workflow routes", () => {
 
     expect(res.status).toBe(400);
     expect(mockProjectService.removeInfraTarget).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed infra health check ids before updating", async () => {
+    const res = await request(await createApp("board"))
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/not-a-uuid")
+      .send({ name: "Updated health check" });
+
+    expect(res.status).toBe(400);
+    expect(mockProjectService.updateInfraHealthCheck).not.toHaveBeenCalled();
   });
 
   it("records an unhealthy health result and creates an infra incident issue", async () => {

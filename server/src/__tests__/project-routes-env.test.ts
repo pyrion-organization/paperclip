@@ -20,6 +20,8 @@ const mockSecretService = vi.hoisted(() => ({
 }));
 const mockProjectFilesService = vi.hoisted(() => ({
   deletePath: vi.fn(),
+  deleteBranch: vi.fn(),
+  unstageFiles: vi.fn(),
 }));
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -166,6 +168,8 @@ describe("project env routes", () => {
       path: "docs/old.md",
       deleted: true,
     });
+    mockProjectFilesService.deleteBranch.mockResolvedValue({ projectId: "project-1" });
+    mockProjectFilesService.unstageFiles.mockResolvedValue({ status: "success" });
     mockEnvironmentService.getById.mockReset();
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);
   });
@@ -253,6 +257,42 @@ describe("project env routes", () => {
         companyId: "company-1",
         entityId: "project-1",
         details: { path: "docs/old.md" },
+      }),
+    );
+  });
+
+  it("rejects non-string branch delete names before service access", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .delete("/api/projects/project-1/files/branch")
+      .query({ name: ["feature/a", "feature/b"] });
+
+    expect(res.status).toBe(400);
+    expect(mockProjectFilesService.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it("logs git unstage mutations", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/files/git-unstage")
+      .send({ paths: ["server/src/index.ts"] });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.unstageFiles).toHaveBeenCalledWith("project-1", ["server/src/index.ts"]);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.git_unstaged",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: {
+          pathCount: 1,
+          paths: ["server/src/index.ts"],
+        },
       }),
     );
   });

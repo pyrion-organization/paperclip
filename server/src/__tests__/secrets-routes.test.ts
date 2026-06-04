@@ -158,6 +158,26 @@ describe("secret routes", () => {
     expect(mockSecretService.listProviderConfigs).not.toHaveBeenCalled();
   });
 
+  it("lists provider vault configs for board callers with company access", async () => {
+    mockSecretService.listProviderConfigs.mockResolvedValue([
+      {
+        id: "provider-config-1",
+        companyId: "company-1",
+        provider: "aws_secrets_manager",
+        displayName: "AWS prod",
+        status: "ready",
+        isDefault: true,
+        config: { region: "us-east-1" },
+      },
+    ]);
+
+    const res = await request(createApp()).get("/api/companies/company-1/secret-provider-configs");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(mockSecretService.listProviderConfigs).toHaveBeenCalledWith("company-1");
+  });
+
   it("rejects provider vault cross-company access before calling the service", async () => {
     const res = await request(createApp({
       type: "board",

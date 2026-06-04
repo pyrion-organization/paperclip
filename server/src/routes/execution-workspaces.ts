@@ -30,6 +30,8 @@ import {
 } from "./workspace-command-authz.js";
 import { assertCanManageExecutionWorkspaceRuntimeServices } from "./workspace-runtime-service-authz.js";
 import { appendWithCap } from "../adapters/utils.js";
+import { redactCurrentUserValue } from "../log-redaction.js";
+import { instanceSettingsService } from "../services/instance-settings.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 
@@ -37,6 +39,13 @@ export function executionWorkspaceRoutes(db: Db) {
   const router = Router();
   const svc = executionWorkspaceService(db);
   const workspaceOperationsSvc = workspaceOperationService(db);
+  const instanceSettings = instanceSettingsService(db);
+
+  async function getCurrentUserRedactionOptions() {
+    return {
+      enabled: (await instanceSettings.getGeneral()).censorUsernameInLogs,
+    };
+  }
 
   router.get("/companies/:companyId/execution-workspaces", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -90,7 +99,7 @@ export function executionWorkspaceRoutes(db: Db) {
     }
     assertCompanyAccess(req, workspace.companyId);
     const operations = await workspaceOperationsSvc.listForExecutionWorkspace(id);
-    res.json(operations);
+    res.json(redactCurrentUserValue(operations, await getCurrentUserRedactionOptions()));
   });
 
   async function handleExecutionWorkspaceRuntimeCommand(req: Request, res: Response) {

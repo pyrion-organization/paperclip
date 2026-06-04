@@ -69,6 +69,24 @@ import { secretService } from "../services/secrets.js";
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
 
+function readSingleQueryString(value: unknown, fieldName: string) {
+  if (typeof value !== "string") {
+    throw badRequest(`${fieldName} must be a single string`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw badRequest(`${fieldName} is required`);
+  }
+  return trimmed;
+}
+
+function readOptionalQueryBoolean(value: unknown, fieldName: string) {
+  if (value === undefined) return false;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw badRequest(`${fieldName} must be true or false`);
+}
+
 function deployEventStatusForCommandRecord(
   commandType: "deploy" | "rollback",
   commandStatus: string,
@@ -776,6 +794,9 @@ export function projectRoutes(db: Db) {
       assertBoard(req);
       const id = req.params.id as string;
       const healthCheckId = req.params.healthCheckId as string;
+      if (!isUuidLike(healthCheckId)) {
+        throw badRequest("Invalid infrastructure health check id");
+      }
       const project = await svc.getById(id);
       if (!project) {
         res.status(404).json({ error: "Project not found" });
@@ -2671,12 +2692,8 @@ export function projectRoutes(db: Db) {
 
   router.delete("/projects/:id/files/branch", async (req, res) => {
     const id = req.params.id as string;
-    const name = req.query.name as string | undefined;
-    const force = req.query.force === "true";
-    if (!name) {
-      res.status(400).json({ error: "Branch name is required" });
-      return;
-    }
+    const name = readSingleQueryString(req.query.name, "Branch name");
+    const force = readOptionalQueryBoolean(req.query.force, "force");
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -2844,7 +2861,22 @@ export function projectRoutes(db: Db) {
     if (!Array.isArray(paths) || paths.length === 0) {
       res.status(400).json({ error: "paths array is required" }); return;
     }
-    const result = await filesSvc.unstageFiles(id, paths.map(String));
+    const pathStrings = paths.map(String);
+    const result = await filesSvc.unstageFiles(id, pathStrings);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.git_unstaged",
+      entityType: "project",
+      entityId: id,
+      details: {
+        pathCount: pathStrings.length,
+        paths: pathStrings.slice(0, 50),
+      },
+    });
     res.json(result);
   });
 

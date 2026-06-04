@@ -1233,7 +1233,7 @@ export function IssueDetail() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
-  const location = useLocation();
+  const routeLocation = useLocation();
   const { pushToast } = useToastActions();
   const { isMobile } = useSidebar();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1263,12 +1263,12 @@ export function IssueDetail() {
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
   const cancelledQueuedOptimisticCommentIdsRef = useRef(new Set<string>());
   const resolvedIssueDetailState = useMemo(
-    () => readIssueDetailLocationState(issueId, location.state, location.search),
-    [issueId, location.state, location.search],
+    () => readIssueDetailLocationState(issueId, routeLocation.state, routeLocation.search),
+    [issueId, routeLocation.state, routeLocation.search],
   );
   const issueHeaderSeed = useMemo(
-    () => readIssueDetailHeaderSeed(location.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
-    [location.state, resolvedIssueDetailState],
+    () => readIssueDetailHeaderSeed(routeLocation.state) ?? readIssueDetailHeaderSeed(resolvedIssueDetailState),
+    [routeLocation.state, resolvedIssueDetailState],
   );
 
   const { data: issue, isLoading, error } = useQuery({
@@ -1364,8 +1364,8 @@ export function IssueDetail() {
     }
   }, [hasLiveRuns, locallyQueuedCommentRunIds.size]);
   const sourceBreadcrumb = useMemo(
-    () => readIssueDetailBreadcrumb(issueId, location.state, location.search) ?? { label: "Issues", href: "/issues" },
-    [issueId, location.state, location.search],
+    () => readIssueDetailBreadcrumb(issueId, routeLocation.state, routeLocation.search) ?? { label: "Issues", href: "/issues" },
+    [issueId, routeLocation.state, routeLocation.search],
   );
 
   const { data: rawChildIssues = [], isLoading: childIssuesLoading } = useQuery({
@@ -2634,9 +2634,9 @@ export function IssueDetail() {
 
   // Redirect to identifier-based URL if navigated via UUID
   useEffect(() => {
-    const nextState = resolvedIssueDetailState ?? location.state;
+    const nextState = resolvedIssueDetailState ?? routeLocation.state;
     if (issue?.identifier && issueId !== issue.identifier) {
-      rememberIssueDetailLocationState(issue.identifier, nextState, location.search);
+      rememberIssueDetailLocationState(issue.identifier, nextState, routeLocation.search);
       navigate(createIssueDetailPath(issue.identifier), {
         replace: true,
         state: nextState,
@@ -2644,14 +2644,14 @@ export function IssueDetail() {
       return;
     }
 
-    if (issueId && hasLegacyIssueDetailQuery(location.search)) {
-      rememberIssueDetailLocationState(issueId, nextState, location.search);
+    if (issueId && hasLegacyIssueDetailQuery(routeLocation.search)) {
+      rememberIssueDetailLocationState(issueId, nextState, routeLocation.search);
       navigate(createIssueDetailPath(issueId), {
         replace: true,
         state: nextState,
       });
     }
-  }, [issue, issueId, navigate, location.state, location.search, resolvedIssueDetailState]);
+  }, [issue, issueId, navigate, routeLocation.state, routeLocation.search, resolvedIssueDetailState]);
 
   useEffect(() => {
     if (!issue?.id) return;
@@ -2804,13 +2804,13 @@ export function IssueDetail() {
   }, [keyboardShortcutsEnabled, navigate, sourceBreadcrumb.href]);
 
   useEffect(() => {
-    const hash = location.hash;
+    const hash = routeLocation.hash;
     if (!hash.startsWith("#document-")) return;
     const documentKey = decodeURIComponent(hash.slice("#document-".length));
     if (documentKey !== ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY) return;
     setDetailTab("activity");
     setHandoffFocusSignal((current) => current + 1);
-  }, [location.hash]);
+  }, [routeLocation.hash]);
 
   useEffect(() => {
     if (pendingCommentComposerFocusKey === 0) return;
@@ -3240,12 +3240,12 @@ export function IssueDetail() {
               {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
               <Link
                 to={createIssueDetailPath(ancestor.identifier ?? ancestor.id)}
-                state={resolvedIssueDetailState ?? location.state}
+                state={resolvedIssueDetailState ?? routeLocation.state}
                 onClickCapture={() =>
                   rememberIssueDetailLocationState(
                     ancestor.identifier ?? ancestor.id,
-                    resolvedIssueDetailState ?? location.state,
-                    location.search,
+                    resolvedIssueDetailState ?? routeLocation.state,
+                    routeLocation.search,
                   )}
                 className="hover:text-foreground transition-colors truncate max-w-[200px]"
                 title={ancestor.title}
@@ -3705,7 +3705,7 @@ export function IssueDetail() {
             issueBadgeById={childPauseBadgeById}
             projectId={issue.projectId ?? undefined}
             viewStateKey={`paperclip:issue-detail:${issue.id}:subissues-view`}
-            issueLinkState={resolvedIssueDetailState ?? location.state}
+            issueLinkState={resolvedIssueDetailState ?? routeLocation.state}
             searchFilters={{ descendantOf: issue.id, includeBlockedBy: true }}
             searchWithinLoadedIssues
             baseCreateIssueDefaults={buildSubIssueDefaultsForViewer(issue, currentUserId)}
@@ -3957,7 +3957,7 @@ export function IssueDetail() {
                 siblingNavigation ? (
                   <IssueSiblingNavigation
                     navigation={siblingNavigation}
-                    linkState={resolvedIssueDetailState ?? location.state}
+                    linkState={resolvedIssueDetailState ?? routeLocation.state}
                   />
                 ) : null
               }

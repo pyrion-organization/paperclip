@@ -140,6 +140,24 @@ describe.sequential("cli auth routes", () => {
     expect(skillRes.status, skillRes.text || JSON.stringify(skillRes.body)).toBe(401);
   });
 
+  it.sequential("includes every built-in Paperclip skill in the generic index", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/skills/index");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.skills).toContainEqual({
+      name: "paperclip-create-plugin",
+      path: "/api/skills/paperclip-create-plugin",
+    });
+  });
+
   it.sequential("serves the invite-scoped paperclip skill anonymously for active invites", async () => {
     const invite = {
       id: "invite-1",

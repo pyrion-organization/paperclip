@@ -1274,7 +1274,16 @@ async function loadCompanyInviteRecords(
 
   return {
     invites: visibleRows.map((invite) => ({
-      ...invite,
+      id: invite.id,
+      companyId: invite.companyId,
+      inviteType: invite.inviteType,
+      allowedJoinTypes: invite.allowedJoinTypes,
+      invitedByUserId: invite.invitedByUserId,
+      acceptedAt: invite.acceptedAt,
+      revokedAt: invite.revokedAt,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+      updatedAt: invite.updatedAt,
       companyName,
       humanRole: extractInviteHumanRole(invite),
       inviteMessage: extractInviteMessage(invite),
@@ -2959,6 +2968,10 @@ export function accessRoutes(
         {
           name: "paperclip-create-agent",
           path: "/api/skills/paperclip-create-agent"
+        },
+        {
+          name: "paperclip-create-plugin",
+          path: "/api/skills/paperclip-create-plugin"
         },
         {
           name: "paperclip-converting-plans-to-tasks",

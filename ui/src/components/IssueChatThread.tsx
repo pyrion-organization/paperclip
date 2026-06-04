@@ -3686,7 +3686,7 @@ export function IssueChatThread({
   onResumeFromBacklog,
   resumeFromBacklogPending = false,
 }: IssueChatThreadProps) {
-  const location = useLocation();
+  const routeLocation = useLocation();
   const lastScrolledHashRef = useRef<string | null>(null);
   const virtualizedThreadRef = useRef<VirtualizedIssueChatThreadListHandle | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -3933,7 +3933,7 @@ export function IssueChatThread({
   }, [messages]);
 
   useEffect(() => {
-    const hash = location.hash || (typeof window !== "undefined" ? window.location.hash : "");
+    const hash = routeLocation.hash || (typeof window !== "undefined" ? window.location.hash : "");
     if (
       !(
         hash.startsWith("#comment-")
@@ -3962,7 +3962,7 @@ export function IssueChatThread({
       cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [location.hash, messageAnchorIndex, messages, useVirtualizedThread]);
+  }, [routeLocation.hash, messageAnchorIndex, messages, useVirtualizedThread]);
 
   function jumpToLatestFallback() {
     if (useVirtualizedThread) {

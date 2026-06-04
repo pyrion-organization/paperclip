@@ -18,11 +18,18 @@ const mockWorkspaceOperationService = vi.hoisted(() => ({
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn(async () => undefined));
+const mockInstanceSettingsService = vi.hoisted(() => ({
+  getGeneral: vi.fn(),
+}));
 
 vi.mock("../services/index.js", () => ({
   executionWorkspaceService: () => mockExecutionWorkspaceService,
   logActivity: mockLogActivity,
   workspaceOperationService: () => mockWorkspaceOperationService,
+}));
+
+vi.mock("../services/instance-settings.js", () => ({
+  instanceSettingsService: () => mockInstanceSettingsService,
 }));
 
 function createApp(companyIds = ["company-1"]) {
@@ -56,6 +63,8 @@ describe.sequential("execution workspace routes", () => {
       },
     ]);
     mockExecutionWorkspaceService.getById.mockResolvedValue(null);
+    mockWorkspaceOperationService.listForExecutionWorkspace.mockResolvedValue([]);
+    mockInstanceSettingsService.getGeneral.mockResolvedValue({ censorUsernameInLogs: false });
   });
 
   it("uses summary mode for lightweight workspace lookups", async () => {
@@ -79,6 +88,27 @@ describe.sequential("execution workspace routes", () => {
       reuseEligible: true,
     });
     expect(mockExecutionWorkspaceService.list).not.toHaveBeenCalled();
+  });
+
+  it("redacts current-user paths from workspace operation listings when enabled", async () => {
+    mockExecutionWorkspaceService.getById.mockResolvedValue({
+      id: "workspace-1",
+      companyId: "company-1",
+    });
+    mockInstanceSettingsService.getGeneral.mockResolvedValue({ censorUsernameInLogs: true });
+    mockWorkspaceOperationService.listForExecutionWorkspace.mockResolvedValue([
+      {
+        id: "operation-1",
+        cwd: "/home/core/project",
+        command: "cat /home/core/project/secret.txt",
+      },
+    ]);
+
+    const res = await request(createApp()).get("/api/execution-workspaces/workspace-1/workspace-operations");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain("/home/core");
+    expect(JSON.stringify(res.body)).toContain("/home/c***");
   });
 
 });
