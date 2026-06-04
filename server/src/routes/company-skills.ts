@@ -375,30 +375,37 @@ export function companySkillRoutes(db: Db) {
       const companyId = req.params.companyId as string;
       const skillId = req.params.skillId as string;
       await assertCanMutateCompanySkills(req, companyId);
-      const result = await svc.auditSkill(companyId, skillId);
+      const result = await db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const txSvc = companySkillService(txDb);
+        const audited = await txSvc.auditSkill(companyId, skillId);
+        if (!audited) return null;
+
+        const actor = getActorInfo(req);
+        await logActivity(txDb, {
+          companyId,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          runId: actor.runId,
+          action: "company.skill_audited",
+          entityType: "company_skill",
+          entityId: skillId,
+          details: {
+            verdict: audited.verdict,
+            codes: audited.codes,
+            installedHash: audited.installedHash,
+            originHash: audited.originHash,
+            scanVersion: audited.scanVersion,
+          },
+        });
+
+        return audited;
+      });
       if (!result) {
         res.status(404).json({ error: "Skill not found" });
         return;
       }
-
-      const actor = getActorInfo(req);
-      await logActivity(db, {
-        companyId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        agentId: actor.agentId,
-        runId: actor.runId,
-        action: "company.skill_audited",
-        entityType: "company_skill",
-        entityId: skillId,
-        details: {
-          verdict: result.verdict,
-          codes: result.codes,
-          installedHash: result.installedHash,
-          originHash: result.originHash,
-          scanVersion: result.scanVersion,
-        },
-      });
 
       res.json(result);
     },

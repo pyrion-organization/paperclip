@@ -90,6 +90,16 @@ describe.sequential("execution workspace routes", () => {
     expect(mockExecutionWorkspaceService.list).not.toHaveBeenCalled();
   });
 
+  it("rejects repeated workspace list query values before service access", async () => {
+    const res = await request(createApp())
+      .get("/api/companies/company-1/execution-workspaces?status=active&status=idle");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("status");
+    expect(mockExecutionWorkspaceService.list).not.toHaveBeenCalled();
+    expect(mockExecutionWorkspaceService.listSummaries).not.toHaveBeenCalled();
+  });
+
   it("redacts current-user paths from workspace operation listings when enabled", async () => {
     mockExecutionWorkspaceService.getById.mockResolvedValue({
       id: "workspace-1",

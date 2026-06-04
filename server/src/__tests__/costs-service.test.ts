@@ -324,6 +324,36 @@ describe("cost routes", () => {
     expect(mockCostService.byBiller).toHaveBeenCalledWith("company-1", undefined);
   });
 
+  it("returns window spend rows for authorized company callers", async () => {
+    mockCostService.windowSpend.mockResolvedValueOnce([
+      { windowKey: "2026-06", spendCents: 1234, budgetCents: 5000 },
+    ]);
+    const app = await createApp();
+
+    const res = await request(app).get("/api/companies/company-1/costs/window-spend");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { windowKey: "2026-06", spendCents: 1234, budgetCents: 5000 },
+    ]);
+    expect(mockCostService.windowSpend).toHaveBeenCalledWith("company-1");
+  });
+
+  it("rejects window spend rows for board users outside the company", async () => {
+    const app = await createAppWithActor({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-2"],
+    });
+
+    const res = await request(app).get("/api/companies/company-1/costs/window-spend");
+
+    expect(res.status).toBe(403);
+    expect(mockCostService.windowSpend).not.toHaveBeenCalled();
+  });
+
   it("passes date filters to by-biller cost rows", async () => {
     const app = await createApp();
 

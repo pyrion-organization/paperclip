@@ -25,12 +25,19 @@ const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));
 
-const mockWorkspaceOperationService = vi.hoisted(() => ({}));
+const mockWorkspaceRecorder = vi.hoisted(() => ({
+  recordOperation: vi.fn(),
+}));
+const mockWorkspaceOperationService = vi.hoisted(() => ({
+  createRecorder: vi.fn(),
+}));
 const mockProjectFilesService = vi.hoisted(() => ({}));
 const mockLogActivity = vi.hoisted(() => vi.fn());
 const mockGetTelemetryClient = vi.hoisted(() => vi.fn());
 const mockAssertCanManageProjectWorkspaceRuntimeServices = vi.hoisted(() => vi.fn());
 const mockAssertCanManageExecutionWorkspaceRuntimeServices = vi.hoisted(() => vi.fn());
+const mockEnsurePersistedExecutionWorkspaceAvailable = vi.hoisted(() => vi.fn());
+const mockRunWorkspaceJobForControl = vi.hoisted(() => vi.fn());
 
 vi.mock("../telemetry.js", () => ({
   getTelemetryClient: mockGetTelemetryClient,
@@ -48,7 +55,14 @@ vi.mock("../services/index.js", () => ({
 }));
 
 vi.mock("../services/workspace-runtime.js", () => ({
+  buildWorkspaceRuntimeDesiredStatePatch: vi.fn(() => ({
+    desiredState: "running",
+    serviceStates: null,
+  })),
   cleanupExecutionWorkspaceArtifacts: vi.fn(),
+  ensurePersistedExecutionWorkspaceAvailable: mockEnsurePersistedExecutionWorkspaceAvailable,
+  listConfiguredRuntimeServiceEntries: vi.fn(() => []),
+  runWorkspaceJobForControl: mockRunWorkspaceJobForControl,
   startRuntimeServicesForWorkspaceControl: vi.fn(),
   stopRuntimeServicesForExecutionWorkspace: vi.fn(),
   stopRuntimeServicesForProjectWorkspace: vi.fn(),
@@ -76,7 +90,14 @@ function registerWorkspaceRouteMocks() {
   }));
 
   vi.doMock("../services/workspace-runtime.js", () => ({
+    buildWorkspaceRuntimeDesiredStatePatch: vi.fn(() => ({
+      desiredState: "running",
+      serviceStates: null,
+    })),
     cleanupExecutionWorkspaceArtifacts: vi.fn(),
+    ensurePersistedExecutionWorkspaceAvailable: mockEnsurePersistedExecutionWorkspaceAvailable,
+    listConfiguredRuntimeServiceEntries: vi.fn(() => []),
+    runWorkspaceJobForControl: mockRunWorkspaceJobForControl,
     startRuntimeServicesForWorkspaceControl: vi.fn(),
     stopRuntimeServicesForExecutionWorkspace: vi.fn(),
     stopRuntimeServicesForProjectWorkspace: vi.fn(),
@@ -272,6 +293,16 @@ describe.sequential("workspace runtime service route authorization", () => {
       updatedAt: new Date(),
     });
     mockExecutionWorkspaceService.update.mockResolvedValue(buildExecutionWorkspace());
+    mockWorkspaceOperationService.createRecorder.mockReturnValue(mockWorkspaceRecorder);
+    mockWorkspaceRecorder.recordOperation.mockImplementation(async ({ run }: { run: () => Promise<Record<string, unknown>> }) => ({
+      id: "operation-1",
+      ...(await run()),
+    }));
+    mockEnsurePersistedExecutionWorkspaceAvailable.mockResolvedValue({
+      cwd: "/tmp/workspace",
+      mode: "isolated_workspace",
+    });
+    mockRunWorkspaceJobForControl.mockResolvedValue({ id: "nested-operation-1" });
     mockAssertCanManageProjectWorkspaceRuntimeServices.mockResolvedValue(undefined);
     mockAssertCanManageExecutionWorkspaceRuntimeServices.mockResolvedValue(undefined);
   });
@@ -463,6 +494,113 @@ describe.sequential("workspace runtime service route authorization", () => {
     expect(res.body.error).toContain("Missing permission");
     expect(mockExecutionWorkspaceService.getById).toHaveBeenCalledWith(executionWorkspaceId);
     expect(mockAssertCanManageExecutionWorkspaceRuntimeServices).toHaveBeenCalled();
+  }, 15000);
+
+  it("runs a selected execution workspace job through the runtime command route", async () => {
+    const workspace = buildExecutionWorkspace({
+      id: executionWorkspaceId,
+      projectId: null,
+      config: {
+        workspaceRuntime: {
+          commands: [
+            { id: "lint", name: "lint", kind: "job", command: "pnpm lint" },
+          ],
+        },
+      },
+    });
+    mockExecutionWorkspaceService.getById.mockResolvedValue(workspace);
+    const app = await createExecutionWorkspaceApp({
+      type: "board",
+      userId: "board-1",
+      companyIds: ["company-1"],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app)
+      .post(`/api/execution-workspaces/${executionWorkspaceId}/runtime-commands/run`)
+      .send({ workspaceCommandId: "lint" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAssertCanManageExecutionWorkspaceRuntimeServices).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        executionWorkspaceId,
+      }),
+    );
+    expect(mockRunWorkspaceJobForControl).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.objectContaining({ command: "pnpm lint" }),
+      metadata: expect.objectContaining({
+        action: "run",
+        executionWorkspaceId,
+        workspaceCommandId: "lint",
+      }),
+    }));
+    expect(res.body.workspace).toMatchObject({ id: executionWorkspaceId });
+    expect(res.body.operation).toMatchObject({
+      id: "operation-1",
+      status: "succeeded",
+    });
+  }, 15000);
+
+  it("rejects runtime command run requests without a selected job", async () => {
+    mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace({
+      id: executionWorkspaceId,
+      projectId: null,
+      config: {
+        workspaceRuntime: {
+          commands: [
+            { id: "lint", name: "lint", kind: "job", command: "pnpm lint" },
+          ],
+        },
+      },
+    }));
+    const app = await createExecutionWorkspaceApp({
+      type: "board",
+      userId: "board-1",
+      companyIds: ["company-1"],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app)
+      .post(`/api/execution-workspaces/${executionWorkspaceId}/runtime-commands/run`)
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toContain("Select a workspace job");
+    expect(mockRunWorkspaceJobForControl).not.toHaveBeenCalled();
+  }, 15000);
+
+  it("rejects starting a workspace job through the runtime command route", async () => {
+    mockExecutionWorkspaceService.getById.mockResolvedValue(buildExecutionWorkspace({
+      id: executionWorkspaceId,
+      projectId: null,
+      config: {
+        workspaceRuntime: {
+          commands: [
+            { id: "lint", name: "lint", kind: "job", command: "pnpm lint" },
+          ],
+        },
+      },
+    }));
+    const app = await createExecutionWorkspaceApp({
+      type: "board",
+      userId: "board-1",
+      companyIds: ["company-1"],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app)
+      .post(`/api/execution-workspaces/${executionWorkspaceId}/runtime-commands/start`)
+      .send({ workspaceCommandId: "lint" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(422);
+    expect(res.body.error).toContain("can only be run");
+    expect(mockRunWorkspaceJobForControl).not.toHaveBeenCalled();
   }, 15000);
 
   it("rejects agent callers that patch execution workspace command config", async () => {

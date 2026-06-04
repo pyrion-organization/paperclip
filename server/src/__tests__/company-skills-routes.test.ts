@@ -15,6 +15,7 @@ const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installFromCatalog: vi.fn(),
   deleteSkill: vi.fn(),
+  auditSkill: vi.fn(),
   getById: vi.fn(),
   resetSkill: vi.fn(),
 }));
@@ -156,6 +157,14 @@ describe("company skill mutation permissions", () => {
       id: "skill-1",
       slug: "find-skills",
       name: "Find Skills",
+    });
+    mockCompanySkillService.auditSkill.mockResolvedValue({
+      id: "skill-1",
+      verdict: "pass",
+      codes: ["metadata.ok"],
+      installedHash: "sha256:installed",
+      originHash: "sha256:origin",
+      scanVersion: "2026-06-04",
     });
     mockCompanySkillService.getById.mockResolvedValue({
       id: "skill-1",
@@ -635,6 +644,53 @@ describe("company skill mutation permissions", () => {
 
     expect(res.status).toBe(500);
     expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalled();
+  });
+
+  it("audits a company skill and logs the audit in the same mutation path", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/audit");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.auditSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_audited",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          verdict: "pass",
+          codes: ["metadata.ok"],
+          installedHash: "sha256:installed",
+          originHash: "sha256:origin",
+          scanVersion: "2026-06-04",
+        },
+      }),
+    );
+  });
+
+  it("reports audit failure if skill audit activity logging fails", async () => {
+    mockLogActivity.mockRejectedValueOnce(new Error("activity log failed"));
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/audit");
+
+    expect(res.status).toBe(500);
+    expect(mockCompanySkillService.auditSkill).toHaveBeenCalledWith("company-1", "skill-1");
     expect(mockLogActivity).toHaveBeenCalled();
   });
 });

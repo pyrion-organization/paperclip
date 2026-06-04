@@ -10,6 +10,7 @@ import {
 } from "@paperclipai/shared";
 import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
+import { badRequest } from "../errors.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
 import { mergeExecutionWorkspaceConfig, readExecutionWorkspaceConfig } from "../services/execution-workspaces.js";
 import { parseProjectExecutionWorkspacePolicy } from "../services/execution-workspace-policy.js";
@@ -35,6 +36,12 @@ import { instanceSettingsService } from "../services/instance-settings.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 
+function readOptionalStringQuery(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  throw badRequest(`Query parameter "${name}" must be a single string value`);
+}
+
 export function executionWorkspaceRoutes(db: Db) {
   const router = Router();
   const svc = executionWorkspaceService(db);
@@ -51,10 +58,10 @@ export function executionWorkspaceRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const filters = {
-      projectId: req.query.projectId as string | undefined,
-      projectWorkspaceId: req.query.projectWorkspaceId as string | undefined,
-      issueId: req.query.issueId as string | undefined,
-      status: req.query.status as string | undefined,
+      projectId: readOptionalStringQuery(req.query.projectId, "projectId"),
+      projectWorkspaceId: readOptionalStringQuery(req.query.projectWorkspaceId, "projectWorkspaceId"),
+      issueId: readOptionalStringQuery(req.query.issueId, "issueId"),
+      status: readOptionalStringQuery(req.query.status, "status"),
       reuseEligible: req.query.reuseEligible === "true",
     };
     const workspaces = req.query.summary === "true"
