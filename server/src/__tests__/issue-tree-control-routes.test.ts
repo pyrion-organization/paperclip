@@ -292,6 +292,50 @@ describe("issue tree control routes", () => {
     );
   });
 
+  it("does not release cancel holds after issue statuses are cancelled", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      companyIds: ["company-2"],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+    mockTreeControlService.createHold.mockResolvedValue({
+      hold: {
+        id: "33333333-3333-4333-8333-333333333333",
+        mode: "cancel",
+        reason: "cancel subtree",
+      },
+      preview: {
+        mode: "cancel",
+        totals: { affectedIssues: 1 },
+        warnings: [],
+        activeRuns: [],
+      },
+    });
+    mockTreeControlService.cancelIssueStatusesForHold.mockResolvedValue({
+      updatedIssueIds: ["11111111-1111-4111-8111-111111111111"],
+      updatedIssues: [],
+    });
+    mockLogActivity.mockImplementation(async (_db, input) => {
+      if (input.action === "issue.tree_cancel_status_updated") {
+        throw new Error("activity log failed");
+      }
+    });
+
+    const res = await request(app)
+      .post("/api/issues/11111111-1111-4111-8111-111111111111/tree-holds")
+      .send({ mode: "cancel", reason: "cancel subtree" });
+
+    expect(res.status).toBe(500);
+    expect(mockTreeControlService.cancelIssueStatusesForHold).toHaveBeenCalledWith(
+      "company-2",
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(mockTreeControlService.releaseHold).not.toHaveBeenCalled();
+  });
+
   it("restores affected issues and can request explicit wakeups", async () => {
     const app = await createApp({
       type: "board",

@@ -93,6 +93,7 @@ export function issueTreeControlRoutes(db: Db) {
       ...req.body,
       actor: actorInput,
     });
+    let cancelStatusesApplied = false;
     try {
     await logActivity(db, {
       companyId: root.companyId,
@@ -185,6 +186,7 @@ export function issueTreeControlRoutes(db: Db) {
 
     if (result.hold.mode === "cancel") {
       const statusUpdate = await treeControlSvc.cancelIssueStatusesForHold(root.companyId, root.id, result.hold.id);
+      cancelStatusesApplied = true;
       await logActivity(db, {
         companyId: root.companyId,
         actorType: actor.actorType,
@@ -292,7 +294,7 @@ export function issueTreeControlRoutes(db: Db) {
       }
     }
     } catch (error) {
-      if (result.hold.mode === "pause" || result.hold.mode === "cancel") {
+      if (result.hold.mode === "pause" || (result.hold.mode === "cancel" && !cancelStatusesApplied)) {
         await treeControlSvc.releaseHold(root.companyId, root.id, result.hold.id, {
           reason: "Tree hold creation failed before side effects completed",
           metadata: {
