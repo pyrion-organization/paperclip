@@ -50,7 +50,7 @@ function applyMembershipState(
   };
 }
 
-function restoreMembershipState(
+export function restoreMembershipState(
   current: ResourceMemberships | undefined,
   previous: ResourceMemberships | undefined,
   resourceType: ResourceMembershipResourceType,
@@ -117,7 +117,7 @@ export function useResourceMembershipMutation(companyId: string | null | undefin
       return { previous, optimistic };
     },
     onError: (error, variables, context) => {
-      if (context?.previous) {
+      if (context?.optimistic) {
         const current = queryClient.getQueryData<ResourceMemberships>(queryKey);
         const currentState = resourceMembershipState(current, variables.resourceType, variables.resourceId);
         const optimisticState = resourceMembershipState(context.optimistic, variables.resourceType, variables.resourceId);

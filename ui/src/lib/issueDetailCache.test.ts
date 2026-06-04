@@ -121,4 +121,21 @@ describe("issueDetailCache", () => {
 
     expect(issuesApi.get).toHaveBeenCalledTimes(1);
   });
+
+  it("clears missing issue refs when a matching issue is seeded", async () => {
+    vi.mocked(issuesApi.get).mockRejectedValue(new ApiError("Not found", 404, null));
+
+    await prefetchIssueDetail(queryClient, "NPYR-310");
+
+    expect(isIssueDetailRefTemporarilyMissing("NPYR-310")).toBe(true);
+
+    const issue = createIssue({
+      id: "issue-310",
+      identifier: "NPYR-310",
+    });
+    seedIssueDetailCache(queryClient, issue);
+
+    expect(isIssueDetailRefTemporarilyMissing("NPYR-310")).toBe(false);
+    expect(isIssueDetailRefTemporarilyMissing("issue-310")).toBe(false);
+  });
 });

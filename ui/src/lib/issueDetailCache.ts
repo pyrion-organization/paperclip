@@ -21,6 +21,12 @@ function rememberMissingIssueRef(issueRef: string): void {
   missingIssueRefs.set(normalizeIssueRefCacheKey(issueRef), Date.now() + MISSING_ISSUE_REF_TTL_MS);
 }
 
+function forgetMissingIssueRefs(issueRefs: string[]): void {
+  for (const issueRef of issueRefs) {
+    missingIssueRefs.delete(normalizeIssueRefCacheKey(issueRef));
+  }
+}
+
 export function isIssueDetailRefTemporarilyMissing(issueRef: string): boolean {
   const key = normalizeIssueRefCacheKey(issueRef);
   const expiresAt = missingIssueRefs.get(key);
@@ -91,6 +97,7 @@ export function seedIssueDetailCache(
   },
 ): Issue {
   const refs = collectIssueRefs(options?.issueRef, issue);
+  forgetMissingIssueRefs(refs);
   const merged = mergeIssueSnapshots(getCachedIssueDetail(queryClient, options?.issueRef, issue), issue);
 
   for (const ref of refs) {
