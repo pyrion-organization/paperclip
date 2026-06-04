@@ -337,27 +337,34 @@ export function companySkillRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     const skillId = req.params.skillId as string;
     await assertCanMutateCompanySkills(req, companyId);
-    const result = await svc.deleteSkill(companyId, skillId);
+    const result = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const txSvc = companySkillService(txDb);
+      const deleted = await txSvc.deleteSkill(companyId, skillId);
+      if (!deleted) return null;
+
+      const actor = getActorInfo(req);
+      await logActivity(txDb, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "company.skill_deleted",
+        entityType: "company_skill",
+        entityId: deleted.id,
+        details: {
+          slug: deleted.slug,
+          name: deleted.name,
+        },
+      });
+
+      return deleted;
+    });
     if (!result) {
       res.status(404).json({ error: "Skill not found" });
       return;
     }
-
-    const actor = getActorInfo(req);
-    await logActivity(db, {
-      companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      runId: actor.runId,
-      action: "company.skill_deleted",
-      entityType: "company_skill",
-      entityId: result.id,
-      details: {
-        slug: result.slug,
-        name: result.name,
-      },
-    });
 
     res.json(result);
   });

@@ -22,6 +22,7 @@ const mockProjectFilesService = vi.hoisted(() => ({
   deletePath: vi.fn(),
   deleteBranch: vi.fn(),
   unstageFiles: vi.fn(),
+  pushFiles: vi.fn(),
 }));
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -170,6 +171,7 @@ describe("project env routes", () => {
     });
     mockProjectFilesService.deleteBranch.mockResolvedValue({ projectId: "project-1" });
     mockProjectFilesService.unstageFiles.mockResolvedValue({ status: "success" });
+    mockProjectFilesService.pushFiles.mockResolvedValue({ status: "success", message: "Pushed main" });
     mockEnvironmentService.getById.mockReset();
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);
   });
@@ -292,6 +294,30 @@ describe("project env routes", () => {
         details: {
           pathCount: 1,
           paths: ["server/src/index.ts"],
+        },
+      }),
+    );
+  });
+
+  it("logs git push mutations", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/files/git-push")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.pushFiles).toHaveBeenCalledWith("project-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.git_pushed",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: {
+          status: "success",
+          message: "Pushed main",
         },
       }),
     );

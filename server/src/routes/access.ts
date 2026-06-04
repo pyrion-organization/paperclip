@@ -3032,7 +3032,17 @@ export function accessRoutes(
         companyBranding
       );
       res.status(201).json({
-        ...created,
+        id: created.id,
+        companyId: created.companyId,
+        inviteType: created.inviteType,
+        allowedJoinTypes: created.allowedJoinTypes,
+        invitedByUserId: created.invitedByUserId,
+        acceptedAt: created.acceptedAt,
+        revokedAt: created.revokedAt,
+        expiresAt: created.expiresAt,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+        humanRole: extractInviteHumanRole(created),
         token,
         invitePath: inviteSummary.invitePath,
         inviteUrl: inviteSummary.inviteUrl,
@@ -3086,7 +3096,17 @@ export function accessRoutes(
         companyBranding
       );
       res.status(201).json({
-        ...created,
+        id: created.id,
+        companyId: created.companyId,
+        inviteType: created.inviteType,
+        allowedJoinTypes: created.allowedJoinTypes,
+        invitedByUserId: created.invitedByUserId,
+        acceptedAt: created.acceptedAt,
+        revokedAt: created.revokedAt,
+        expiresAt: created.expiresAt,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+        humanRole: extractInviteHumanRole(created),
         token,
         invitePath: inviteSummary.invitePath,
         inviteUrl: inviteSummary.inviteUrl,
@@ -3248,7 +3268,8 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (!invite || invite.revokedAt || inviteExpired(invite) || (invite.acceptedAt && !inviteJoinRequest)) {
       throw notFound("Invite not found");
     }
 
@@ -3270,7 +3291,8 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (!invite || invite.revokedAt || inviteExpired(invite) || (invite.acceptedAt && !inviteJoinRequest)) {
       throw notFound("Invite not found");
     }
 
@@ -3903,132 +3925,167 @@ export function accessRoutes(
       const requestId = req.params.requestId as string;
       await assertCompanyPermission(req, companyId, "joins:approve");
 
-      const existing = await db
-        .select()
-        .from(joinRequests)
-        .where(
-          and(
-            eq(joinRequests.companyId, companyId),
-            eq(joinRequests.id, requestId)
+      const { approved, createdAgentId, requestType } = await db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const txAccess = accessService(txDb);
+        const txAgents = agentService(txDb);
+        const existing = await tx
+          .select()
+          .from(joinRequests)
+          .where(
+            and(
+              eq(joinRequests.companyId, companyId),
+              eq(joinRequests.id, requestId)
+            )
           )
-        )
-        .then((rows) => rows[0] ?? null);
-      if (!existing) throw notFound("Join request not found");
-      if (existing.status !== "pending_approval")
-        throw conflict("Join request is not pending");
+          .then((rows) => rows[0] ?? null);
+        if (!existing) throw notFound("Join request not found");
+        if (existing.status !== "pending_approval") {
+          throw conflict("Join request is not pending");
+        }
 
-      const invite = await db
-        .select()
-        .from(invites)
-        .where(eq(invites.id, existing.inviteId))
-        .then((rows) => rows[0] ?? null);
-      if (!invite) throw notFound("Invite not found");
+        const invite = await tx
+          .select()
+          .from(invites)
+          .where(eq(invites.id, existing.inviteId))
+          .then((rows) => rows[0] ?? null);
+        if (!invite) throw notFound("Invite not found");
 
-      let createdAgentId: string | null = existing.createdAgentId ?? null;
-      if (existing.requestType === "human") {
-        if (!existing.requestingUserId)
-          throw conflict("Join request missing user identity");
-        const membershipRole = resolveHumanInviteRole(
-          invite.defaultsPayload as Record<string, unknown> | null,
-        );
-        await access.ensureMembership(
-          companyId,
-          "user",
-          existing.requestingUserId,
-          membershipRole,
-          "active"
-        );
-        const grants = humanJoinGrantsFromDefaults(
-          invite.defaultsPayload as Record<string, unknown> | null,
-          membershipRole
-        );
-        await access.setPrincipalGrants(
-          companyId,
-          "user",
-          existing.requestingUserId,
-          grants,
-          req.actor.userId ?? null
-        );
-      } else {
-        const existingAgents = await agents.list(companyId);
-        const managerId = resolveJoinRequestAgentManagerId(existingAgents);
-        if (!managerId) {
-          throw conflict(
-            "Join request cannot be approved because this company has no active CEO"
+        const approvedAt = new Date();
+        const approvedByUserId =
+          req.actor.userId ?? (isLocalImplicit(req) ? "local-board" : null);
+        const claimed = await tx
+          .update(joinRequests)
+          .set({
+            status: "approved",
+            approvedByUserId,
+            approvedAt,
+            createdAgentId: existing.createdAgentId ?? null,
+            updatedAt: approvedAt
+          })
+          .where(
+            and(
+              eq(joinRequests.companyId, companyId),
+              eq(joinRequests.id, requestId),
+              eq(joinRequests.status, "pending_approval")
+            )
+          )
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) {
+          throw conflict("Join request is not pending");
+        }
+
+        let createdAgentId: string | null = existing.createdAgentId ?? null;
+        if (existing.requestType === "human") {
+          if (!existing.requestingUserId) {
+            throw conflict("Join request missing user identity");
+          }
+          const membershipRole = resolveHumanInviteRole(
+            invite.defaultsPayload as Record<string, unknown> | null,
+          );
+          await txAccess.ensureMembership(
+            companyId,
+            "user",
+            existing.requestingUserId,
+            membershipRole,
+            "active"
+          );
+          const grants = humanJoinGrantsFromDefaults(
+            invite.defaultsPayload as Record<string, unknown> | null,
+            membershipRole
+          );
+          await txAccess.setPrincipalGrants(
+            companyId,
+            "user",
+            existing.requestingUserId,
+            grants,
+            req.actor.userId ?? null
+          );
+        } else {
+          const existingAgents = await txAgents.list(companyId);
+          const managerId = resolveJoinRequestAgentManagerId(existingAgents);
+          if (!managerId) {
+            throw conflict(
+              "Join request cannot be approved because this company has no active CEO"
+            );
+          }
+
+          const agentName = deduplicateAgentName(
+            existing.agentName ?? "New Agent",
+            existingAgents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              status: a.status
+            }))
+          );
+
+          const created = await txAgents.create(companyId, {
+            name: agentName,
+            role: "general",
+            title: null,
+            status: "idle",
+            reportsTo: managerId,
+            capabilities: existing.capabilities ?? null,
+            adapterType: existing.adapterType ?? "process",
+            adapterConfig:
+              existing.agentDefaultsPayload &&
+              typeof existing.agentDefaultsPayload === "object"
+                ? (existing.agentDefaultsPayload as Record<string, unknown>)
+                : {},
+            runtimeConfig: {},
+            budgetMonthlyCents: 0,
+            spentMonthlyCents: 0,
+            permissions: {},
+            lastHeartbeatAt: null,
+            metadata: null
+          });
+          createdAgentId = created.id;
+          await txAccess.ensureMembership(
+            companyId,
+            "agent",
+            created.id,
+            "member",
+            "active"
+          );
+          const grants = agentJoinGrantsFromDefaults(
+            invite.defaultsPayload as Record<string, unknown> | null
+          );
+          await txAccess.setPrincipalGrants(
+            companyId,
+            "agent",
+            created.id,
+            grants,
+            req.actor.userId ?? null
           );
         }
 
-        const agentName = deduplicateAgentName(
-          existing.agentName ?? "New Agent",
-          existingAgents.map((a) => ({
-            id: a.id,
-            name: a.name,
-            status: a.status
-          }))
-        );
+        const approved = createdAgentId === claimed.createdAgentId
+          ? claimed
+          : await tx
+              .update(joinRequests)
+              .set({ createdAgentId, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(joinRequests.companyId, companyId),
+                  eq(joinRequests.id, requestId),
+                  eq(joinRequests.status, "approved")
+                )
+              )
+              .returning()
+              .then((rows) => rows[0] ?? claimed);
 
-        const created = await agents.create(companyId, {
-          name: agentName,
-          role: "general",
-          title: null,
-          status: "idle",
-          reportsTo: managerId,
-          capabilities: existing.capabilities ?? null,
-          adapterType: existing.adapterType ?? "process",
-          adapterConfig:
-            existing.agentDefaultsPayload &&
-            typeof existing.agentDefaultsPayload === "object"
-              ? (existing.agentDefaultsPayload as Record<string, unknown>)
-              : {},
-          runtimeConfig: {},
-          budgetMonthlyCents: 0,
-          spentMonthlyCents: 0,
-          permissions: {},
-          lastHeartbeatAt: null,
-          metadata: null
+        await logActivity(txDb, {
+          companyId,
+          actorType: "user",
+          actorId: req.actor.userId ?? "board",
+          action: "join.approved",
+          entityType: "join_request",
+          entityId: requestId,
+          details: { requestType: existing.requestType, createdAgentId }
         });
-        createdAgentId = created.id;
-        await access.ensureMembership(
-          companyId,
-          "agent",
-          created.id,
-          "member",
-          "active"
-        );
-        const grants = agentJoinGrantsFromDefaults(
-          invite.defaultsPayload as Record<string, unknown> | null
-        );
-        await access.setPrincipalGrants(
-          companyId,
-          "agent",
-          created.id,
-          grants,
-          req.actor.userId ?? null
-        );
-      }
 
-      const approved = await db
-        .update(joinRequests)
-        .set({
-          status: "approved",
-          approvedByUserId:
-            req.actor.userId ?? (isLocalImplicit(req) ? "local-board" : null),
-          approvedAt: new Date(),
-          createdAgentId,
-          updatedAt: new Date()
-        })
-        .where(eq(joinRequests.id, requestId))
-        .returning()
-        .then((rows) => rows[0]);
-
-      await logActivity(db, {
-        companyId,
-        actorType: "user",
-        actorId: req.actor.userId ?? "board",
-        action: "join.approved",
-        entityType: "join_request",
-        entityId: requestId,
-        details: { requestType: existing.requestType, createdAgentId }
+        return { approved, createdAgentId, requestType: existing.requestType };
       });
 
       if (createdAgentId) {

@@ -62,12 +62,46 @@ describe("goal routes", () => {
       companyId: "company-2",
       title: "Other company goal",
     });
+    mockGoalService.list.mockResolvedValue([
+      { id: "goal-1", companyId: "company-1", title: "Grow" },
+    ]);
     mockGoalService.remove.mockResolvedValue({
       id: "goal-1",
       companyId: "company-2",
       title: "Other company goal",
     });
     mockLogActivity.mockResolvedValue(undefined);
+  });
+
+  it("lists goals for an authorized company", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      companyIds: ["company-1"],
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app).get("/api/companies/company-1/goals");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toEqual([{ id: "goal-1", companyId: "company-1", title: "Grow" }]);
+    expect(mockGoalService.list).toHaveBeenCalledWith("company-1");
+  });
+
+  it("rejects cross-company goal listing before service access", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      companyIds: ["company-2"],
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app).get("/api/companies/company-1/goals");
+
+    expect(res.status).toBe(403);
+    expect(mockGoalService.list).not.toHaveBeenCalled();
   });
 
   it("hides cross-company goal existence on delete", async () => {

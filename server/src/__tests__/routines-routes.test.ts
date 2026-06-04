@@ -112,6 +112,7 @@ const mockRoutineService = vi.hoisted(() => ({
   updateTrigger: vi.fn(),
   deleteTrigger: vi.fn(),
   rotateTriggerSecret: vi.fn(),
+  clone: vi.fn(),
   runRoutine: vi.fn(),
   firePublicTrigger: vi.fn(),
 }));
@@ -220,6 +221,8 @@ describe("routine routes", () => {
       source: "manual",
       status: "issue_created",
     });
+    mockRoutineService.clone.mockResolvedValue({ ...routine, id: "cloned-routine-1", title: "Daily routine (copy)" });
+    mockRoutineService.rotateTriggerSecret.mockResolvedValue({ ...trigger, secretId: "rotated-secret" });
     mockAccessService.canUser.mockResolvedValue(false);
     mockLogActivity.mockResolvedValue(undefined);
   });
@@ -513,6 +516,59 @@ describe("routine routes", () => {
           revisionId: revisionId,
           revisionNumber: 2,
           triggerCount: 1,
+        }),
+      }),
+    );
+  });
+
+  it("requires tasks:assign permission to rotate a routine trigger secret", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routine-triggers/${trigger.id}/rotate-secret`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("tasks:assign");
+    expect(mockRoutineService.rotateTriggerSecret).not.toHaveBeenCalled();
+  });
+
+  it("logs routine clone mutations", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/clone`)
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockRoutineService.clone).toHaveBeenCalledWith(routineId, {
+      agentId: null,
+      userId: "board-user",
+      runId: null,
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId,
+        action: "routine.cloned",
+        entityType: "routine",
+        entityId: "cloned-routine-1",
+        details: expect.objectContaining({
+          sourceRoutineId: routineId,
+          title: "Daily routine (copy)",
+          assigneeAgentId: agentId,
         }),
       }),
     );

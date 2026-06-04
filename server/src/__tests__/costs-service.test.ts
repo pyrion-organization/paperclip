@@ -35,7 +35,7 @@ function makeDb(overrides: Record<string, unknown> = {}) {
 
   const thenableChain = Object.assign(Promise.resolve([]), selectChain);
 
-  return {
+  const db = {
     select: vi.fn().mockReturnValue(thenableChain),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
@@ -43,6 +43,11 @@ function makeDb(overrides: Record<string, unknown> = {}) {
     update: vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
     }),
+    ...overrides,
+  };
+  return {
+    ...db,
+    transaction: vi.fn(async (callback) => callback(db)),
     ...overrides,
   };
 }
@@ -304,6 +309,61 @@ describe("cost routes", () => {
     expect(mockCostService.byProvider).toHaveBeenCalledWith("company-1", undefined);
   });
 
+  it("returns by-biller cost rows", async () => {
+    mockCostService.byBiller.mockResolvedValueOnce([
+      { biller: "openai", costCents: 123, inputTokens: 10, outputTokens: 20 },
+    ]);
+    const app = await createApp();
+
+    const res = await request(app).get("/api/companies/company-1/costs/by-biller");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { biller: "openai", costCents: 123, inputTokens: 10, outputTokens: 20 },
+    ]);
+    expect(mockCostService.byBiller).toHaveBeenCalledWith("company-1", undefined);
+  });
+
+  it("passes date filters to by-biller cost rows", async () => {
+    const app = await createApp();
+
+    const res = await request(app)
+      .get("/api/companies/company-1/costs/by-biller")
+      .query({ from: "2026-02-01T00:00:00.000Z", to: "2026-02-28T23:59:59.999Z" });
+
+    expect(res.status).toBe(200);
+    expect(mockCostService.byBiller).toHaveBeenCalledWith("company-1", {
+      from: new Date("2026-02-01T00:00:00.000Z"),
+      to: new Date("2026-02-28T23:59:59.999Z"),
+    });
+  });
+
+  it("rejects by-biller cost rows for board users outside the company", async () => {
+    const app = await createAppWithActor({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-2"],
+    });
+
+    const res = await request(app).get("/api/companies/company-1/costs/by-biller");
+
+    expect(res.status).toBe(403);
+    expect(mockCostService.byBiller).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid by-biller date filters", async () => {
+    const app = await createApp();
+
+    const res = await request(app)
+      .get("/api/companies/company-1/costs/by-biller")
+      .query({ from: "not-a-date" });
+
+    expect(res.status).toBe(400);
+    expect(mockCostService.byBiller).not.toHaveBeenCalled();
+  });
+
   it("passes date filters to by-provider cost rows", async () => {
     const app = await createApp();
 
@@ -462,6 +522,34 @@ describe("cost routes", () => {
         details: { budgetMonthlyCents: 2500 },
       }),
     );
+  });
+
+  it("does not activity-log agent budget updates when budget policy sync fails", async () => {
+    mockAgentService.update.mockResolvedValueOnce({
+      id: "agent-1",
+      companyId: "company-1",
+      name: "Budget Agent",
+      budgetMonthlyCents: 2500,
+      spentMonthlyCents: 0,
+    });
+    mockBudgetService.upsertPolicy.mockRejectedValueOnce(new Error("policy sync failed"));
+    const app = await createAppWithActor({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+      memberships: [{ companyId: "company-1", status: "active", membershipRole: "admin" }],
+    });
+
+    const res = await request(app)
+      .patch("/api/agents/agent-1/budgets")
+      .send({ budgetMonthlyCents: 2500 });
+
+    expect(res.status).toBe(500);
+    expect(mockAgentService.update).toHaveBeenCalledWith("agent-1", { budgetMonthlyCents: 2500 });
+    expect(mockBudgetService.upsertPolicy).toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
   });
 });
 

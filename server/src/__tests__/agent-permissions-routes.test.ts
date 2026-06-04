@@ -203,7 +203,19 @@ function registerModuleMocks() {
   }));
 }
 
-function createDbStub(options: { requireBoardApprovalForNewAgents?: boolean } = {}) {
+function createDbStub(options: {
+  requireBoardApprovalForNewAgents?: boolean;
+  schedulerRows?: Array<Record<string, unknown>>;
+} = {}) {
+  if (options.schedulerRows) {
+    return {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockResolvedValue(options.schedulerRows),
+      }),
+    };
+  }
   return {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -221,7 +233,10 @@ function createDbStub(options: { requireBoardApprovalForNewAgents?: boolean } = 
   };
 }
 
-async function createApp(actor: Record<string, unknown>, dbOptions: { requireBoardApprovalForNewAgents?: boolean } = {}) {
+async function createApp(actor: Record<string, unknown>, dbOptions: {
+  requireBoardApprovalForNewAgents?: boolean;
+  schedulerRows?: Array<Record<string, unknown>>;
+} = {}) {
   const [{ errorHandler }, { agentRoutes }] = await Promise.all([
     import("../middleware/index.js") as Promise<typeof import("../middleware/index.js")>,
     import("../routes/agents.js") as Promise<typeof import("../routes/agents.js")>,
@@ -1460,5 +1475,93 @@ describe.sequential("agent permission routes", () => {
 
     expect(res.status).toBe(403);
     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects scheduler heartbeat inventory for non-instance-admin boards", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    }, { schedulerRows: [] });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/instance/scheduler-heartbeats"));
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns sorted active scheduler heartbeat inventory for instance admins", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "admin-user",
+      source: "session",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    }, {
+      schedulerRows: [
+        {
+          id: "agent-disabled",
+          companyId,
+          agentName: "Disabled",
+          role: "engineer",
+          title: null,
+          status: "idle",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: false, intervalSec: 60 } },
+          lastHeartbeatAt: null,
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+        {
+          id: "agent-paused",
+          companyId,
+          agentName: "Paused",
+          role: "engineer",
+          title: null,
+          status: "paused",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60 } },
+          lastHeartbeatAt: null,
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+        {
+          id: "agent-active",
+          companyId,
+          agentName: "Active",
+          role: "engineer",
+          title: "Builder",
+          status: "idle",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60 } },
+          lastHeartbeatAt: new Date("2026-03-20T00:00:00.000Z"),
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+      ],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/instance/scheduler-heartbeats"));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.map((item: { id: string }) => item.id)).toEqual(["agent-active", "agent-disabled"]);
+    expect(res.body[0]).toMatchObject({
+      id: "agent-active",
+      companyId,
+      companyName: "Paperclip",
+      companyIssuePrefix: "PAP",
+      agentName: "Active",
+      agentUrlKey: "active",
+      adapterType: "codex_local",
+      intervalSec: 60,
+      heartbeatEnabled: true,
+      schedulerActive: true,
+    });
+    expect(res.body[1]).toMatchObject({
+      id: "agent-disabled",
+      schedulerActive: false,
+      heartbeatEnabled: false,
+    });
   });
 });

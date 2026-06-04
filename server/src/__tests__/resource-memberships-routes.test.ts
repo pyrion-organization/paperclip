@@ -152,6 +152,8 @@ describeEmbeddedPostgres("resource membership routes", () => {
 
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ resourceType: "project", resourceId: projectId, state: "left" });
+    expect(first.body).not.toHaveProperty("changed");
+    expect(first.body).not.toHaveProperty("policySource");
     expect(second.status).toBe(200);
 
     const rows = await db.select().from(projectMemberships);

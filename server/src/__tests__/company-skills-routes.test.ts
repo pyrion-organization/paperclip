@@ -78,7 +78,10 @@ async function createApp(actor: Record<string, unknown>) {
     (req as any).actor = actor;
     next();
   });
-  app.use("/api", companySkillRoutes({} as any));
+  const db = {
+    transaction: vi.fn(async (callback) => callback(db)),
+  };
+  app.use("/api", companySkillRoutes(db as any));
   app.use(errorHandler);
   return app;
 }
@@ -589,5 +592,49 @@ describe("company skill mutation permissions", () => {
     });
     expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
     expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("deletes a company skill and logs the delete in the same mutation path", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .delete("/api/companies/company-1/skills/skill-1");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_deleted",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          slug: "find-skills",
+          name: "Find Skills",
+        },
+      }),
+    );
+  });
+
+  it("reports delete failure if skill deletion activity logging fails", async () => {
+    mockLogActivity.mockRejectedValueOnce(new Error("activity log failed"));
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .delete("/api/companies/company-1/skills/skill-1");
+
+    expect(res.status).toBe(500);
+    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalled();
   });
 });

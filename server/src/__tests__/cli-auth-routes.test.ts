@@ -189,6 +189,41 @@ describe.sequential("cli auth routes", () => {
     expect(res.text).toContain("# Paperclip Skill");
   });
 
+  it.sequential("rejects invite-scoped skill index after an invite is spent without a join request", async () => {
+    const invite = {
+      id: "invite-1",
+      companyId: "company-1",
+      inviteType: "company_join",
+      allowedJoinTypes: "agent",
+      tokenHash: "hash",
+      defaultsPayload: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      invitedByUserId: null,
+      revokedAt: null,
+      acceptedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const db = {
+      select: vi.fn()
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue([invite]),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue([]),
+          })),
+        }),
+    };
+
+    const app = await createApp({ type: "none", source: "none" }, db);
+    const res = await request(app).get("/api/invites/token-123/skills/index");
+
+    expect(res.status).toBe(404);
+  });
+
   it.sequential("marks challenge status as requiring sign-in for anonymous viewers", async () => {
     mockBoardAuthService.describeCliAuthChallenge.mockResolvedValue({
       id: "challenge-1",

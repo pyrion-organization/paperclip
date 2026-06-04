@@ -337,34 +337,42 @@ export function costRoutes(
     assertCompanyAccess(req, agent.companyId);
     assertBoard(req);
 
-    const updated = await agents.update(agentId, { budgetMonthlyCents: req.body.budgetMonthlyCents });
+    const updated = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const txAgents = agentService(txDb);
+      const txBudgets = budgetService(txDb, budgetHooks);
+      const txUpdated = await txAgents.update(agentId, { budgetMonthlyCents: req.body.budgetMonthlyCents });
+      if (!txUpdated) return null;
+
+      await txBudgets.upsertPolicy(
+        txUpdated.companyId,
+        {
+          scopeType: "agent",
+          scopeId: txUpdated.id,
+          amount: txUpdated.budgetMonthlyCents,
+          windowKind: "calendar_month_utc",
+        },
+        req.actor.type === "board" ? req.actor.userId ?? "board" : null,
+      );
+
+      const actor = getActorInfo(req);
+      await logActivity(txDb, {
+        companyId: txUpdated.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "agent.budget_updated",
+        entityType: "agent",
+        entityId: txUpdated.id,
+        details: { budgetMonthlyCents: txUpdated.budgetMonthlyCents },
+      });
+
+      return txUpdated;
+    });
     if (!updated) {
       res.status(404).json({ error: "Agent not found" });
       return;
     }
-
-    const actor = getActorInfo(req);
-    await logActivity(db, {
-      companyId: updated.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      action: "agent.budget_updated",
-      entityType: "agent",
-      entityId: updated.id,
-      details: { budgetMonthlyCents: updated.budgetMonthlyCents },
-    });
-
-    await budgets.upsertPolicy(
-      updated.companyId,
-      {
-        scopeType: "agent",
-        scopeId: updated.id,
-        amount: updated.budgetMonthlyCents,
-        windowKind: "calendar_month_utc",
-      },
-      req.actor.type === "board" ? req.actor.userId ?? "board" : null,
-    );
 
     res.json(updated);
   });

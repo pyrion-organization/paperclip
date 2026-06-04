@@ -2928,6 +2928,17 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     assertCompanyAccess(req, project.companyId);
     const result = await filesSvc.pushFiles(id);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.git_pushed",
+      entityType: "project",
+      entityId: id,
+      details: { status: result.status, message: result.message ?? null },
+    });
     res.json(result);
   });
 

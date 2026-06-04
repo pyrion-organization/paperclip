@@ -251,6 +251,8 @@ describe.sequential("POST /companies/:companyId/openclaw/invite-prompt", () => {
     expect(res.body.companyName).toBe("Acme AI");
     expect(res.body.inviteUrl).toContain("/invite/");
     expect(res.body.onboardingTextPath).toContain("/api/invites/");
+    expect(res.body).not.toHaveProperty("tokenHash");
+    expect(res.body).not.toHaveProperty("defaultsPayload");
   }, 15_000);
 
   it("rejects board callers without invite permission", async () => {
