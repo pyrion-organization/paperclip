@@ -85,7 +85,7 @@ export interface Invite {
 
 export type InviteState = "active" | "revoked" | "accepted" | "expired";
 
-export interface CompanyInviteRecord extends Invite {
+export interface CompanyInviteRecord extends Omit<Invite, "tokenHash" | "defaultsPayload"> {
   companyName: string | null;
   humanRole: HumanCompanyMembershipRole | null;
   inviteMessage: string | null;
