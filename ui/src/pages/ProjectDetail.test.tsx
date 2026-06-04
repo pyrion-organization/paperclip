@@ -83,7 +83,7 @@ vi.mock("../components/ProjectWorkspacesContent", () => ({
 }));
 vi.mock("../components/PageTabBar", () => ({
   PageTabBar: ({ items }: { items: Array<{ value: string; label: string }> }) => (
-    <div>{items.map((item) => <button key={item.value}>{item.label}</button>)}</div>
+    <div>{items.map((item) => <button type="button" key={item.value}>{item.label}</button>)}</div>
   ),
 }));
 vi.mock("../components/IssuesList", () => ({
