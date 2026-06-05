@@ -4,7 +4,15 @@ Low-level reference for how Paperclip packages are prepared and published to npm
 
 For the maintainer workflow, use [doc/RELEASING.md](RELEASING.md). This document focuses on packaging internals.
 
-## Current Release Entry Points
+## Private Fork Status
+
+This fork keeps the packaging scripts but does not publish npm packages from GitHub Actions.
+
+- [`.github/workflows/release.yml`](../.github/workflows/release.yml) is named **Release Verification** and only verifies a selected `source_ref`.
+- The workflow verifies the CLI npm bundle with [`scripts/build-npm.sh`](../scripts/build-npm.sh), but it does not call [`scripts/release.sh`](../scripts/release.sh), publish npm packages, push tags, or create GitHub Releases.
+- Use the publishing steps below only when deliberately publishing from a maintainer machine or when re-enabling the upstream public release automation.
+
+## Upstream Release Entry Points
 
 Use these scripts:
 

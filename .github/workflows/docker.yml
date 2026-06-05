@@ -1,10 +1,10 @@
-name: Docker
+name: Docker Image Verification
 
 on:
   workflow_dispatch:
     inputs:
       push_image:
-        description: Push the built image to GitHub Container Registry
+        description: Optionally push the built image to GitHub Container Registry
         required: true
         type: boolean
         default: false

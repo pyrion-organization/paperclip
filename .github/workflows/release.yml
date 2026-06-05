@@ -1,21 +1,21 @@
-name: Release
+name: Release Verification
 
 on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Commit SHA, branch, or tag to verify
+        description: Commit SHA, branch, or tag to verify without publishing
         required: true
         type: string
         default: master
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ github.ref }}
+  group: release-verification-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   verify:
-    name: Release verification
+    name: Verify release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -51,5 +51,5 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Verify publishable CLI bundle
+      - name: Verify CLI npm bundle
         run: ./scripts/build-npm.sh --skip-checks --skip-typecheck
