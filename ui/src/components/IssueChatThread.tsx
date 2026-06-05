@@ -390,6 +390,25 @@ const EMPTY_TIMELINE_EVENTS: IssueTimelineEvent[] = [];
 const EMPTY_LIVE_RUNS: LiveRunForIssue[] = [];
 const EMPTY_BLOCKED_BY: IssueRelationIssueSummary[] = [];
 
+function stableStringHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash, 31) + value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildTextOccurrenceKey(
+  scope: string,
+  text: string,
+  occurrences: Map<string, number>,
+): string {
+  const hash = stableStringHash(text);
+  const occurrence = occurrences.get(hash) ?? 0;
+  occurrences.set(hash, occurrence + 1);
+  return `${scope}:${hash}:${occurrence}`;
+}
+
 type IssueChatErrorBoundaryProps = {
   resetKey: string;
   messages: readonly ThreadMessage[];
@@ -525,6 +544,7 @@ function IssueChatFallbackThread({
         <div className={cn(variant === "embedded" ? "space-y-3" : "space-y-4")}>
           {messages.map((message) => {
             const lines = fallbackTextParts(message);
+            const lineKeyOccurrences = new Map<string, number>();
             return (
               <div key={message.id} className="rounded-xl border border-border/60 bg-card/70 px-4 py-3">
                 <div className="mb-2 flex items-center gap-2 text-sm">
@@ -536,8 +556,8 @@ function IssueChatFallbackThread({
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  {lines.length > 0 ? lines.map((line, index) => (
-                    <MarkdownBody key={`${message.id}:fallback:${index}`}>{line}</MarkdownBody>
+                  {lines.length > 0 ? lines.map((line) => (
+                    <MarkdownBody key={buildTextOccurrenceKey(`${message.id}:fallback`, line, lineKeyOccurrences)}>{line}</MarkdownBody>
                   )) : (
                     <p className="text-sm text-muted-foreground">No message content.</p>
                   )}
@@ -1187,13 +1207,14 @@ const IssueChatTextParts = memo(function IssueChatTextParts({
   message: ThreadMessage;
   recessed?: boolean;
 }) {
+  const textKeyOccurrences = new Map<string, number>();
+  const textParts = message.content.filter((part): part is TextMessagePart => part.type === "text");
   return (
     <>
-      {message.content
-        .filter((part): part is TextMessagePart => part.type === "text")
-        .map((part, index) => (
+      {textParts
+        .map((part) => (
           <IssueChatTextPart
-            key={`${message.id}:text:${index}`}
+            key={buildTextOccurrenceKey(`${message.id}:text`, part.text, textKeyOccurrences)}
             text={part.text}
             recessed={recessed}
           />
@@ -1505,6 +1526,7 @@ function IssueChatAssistantMessage({
   };
 
   const followUpRequested = custom.followUpRequested === true;
+  const noticeKeyOccurrences = new Map<string, number>();
 
   return (
     <div id={anchorId}>
@@ -1570,9 +1592,9 @@ function IssueChatAssistantMessage({
                 ) : null}
                 {notices.length > 0 ? (
                   <div className="space-y-2">
-                    {notices.map((notice, index) => (
+                    {notices.map((notice) => (
                       <div
-                        key={`${message.id}:notice:${index}`}
+                        key={buildTextOccurrenceKey(`${message.id}:notice`, notice, noticeKeyOccurrences)}
                         className="rounded-sm border border-border/60 bg-accent/20 px-3 py-2 text-sm text-muted-foreground"
                       >
                         {notice}

@@ -150,6 +150,7 @@ import {
   type Issue,
   type IssueAttachment,
   type IssueComment,
+  type IssueRelationIssueSummary,
   type IssueWorkMode,
   type IssueThreadInteraction,
   type RequestConfirmationInteraction,
@@ -173,6 +174,7 @@ const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "h
 const ISSUE_COMMENT_PAGE_SIZE = 50;
 const ISSUE_COMMENT_AUTOLOAD_LIMIT = ISSUE_COMMENT_PAGE_SIZE * 3;
 const JUMP_TO_LATEST_MAX_COMMENT_PAGES = 10;
+const EMPTY_BLOCKED_BY: IssueRelationIssueSummary[] = [];
 const TREE_CONTROL_MODE_LABEL: Record<IssueTreeControlMode, string> = {
   pause: "Pause subtree",
   resume: "Resume subtree",
@@ -904,7 +906,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
         liveRuns={resolvedLiveRuns}
         activeRun={resolvedActiveRun}
         issueId={issueId}
-        blockedBy={blockedBy ?? []}
+        blockedBy={blockedBy ?? EMPTY_BLOCKED_BY}
         blockerAttention={blockerAttention}
         successfulRunHandoff={successfulRunHandoff}
         scheduledRetry={scheduledRetry}
@@ -1264,7 +1266,10 @@ export function IssueDetail() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
   const commentComposerRef = useRef<IssueChatComposerHandle | null>(null);
-  const cancelledQueuedOptimisticCommentIdsRef = useRef(new Set<string>());
+  const cancelledQueuedOptimisticCommentIdsRef = useRef<Set<string> | null>(null);
+  if (cancelledQueuedOptimisticCommentIdsRef.current === null) {
+    cancelledQueuedOptimisticCommentIdsRef.current = new Set();
+  }
   const resolvedIssueDetailState = useMemo(
     () => readIssueDetailLocationState(issueId, routeLocation.state, routeLocation.search),
     [issueId, routeLocation.state, routeLocation.search],
@@ -2055,8 +2060,8 @@ export function IssueDetail() {
           current.filter((entry) => entry.clientId !== context.optimisticCommentId),
         );
       }
-      if (context?.optimisticCommentId && cancelledQueuedOptimisticCommentIdsRef.current.has(context.optimisticCommentId)) {
-        cancelledQueuedOptimisticCommentIdsRef.current.delete(context.optimisticCommentId);
+      if (context?.optimisticCommentId && cancelledQueuedOptimisticCommentIdsRef.current!.has(context.optimisticCommentId)) {
+        cancelledQueuedOptimisticCommentIdsRef.current!.delete(context.optimisticCommentId);
         try {
           await issuesApi.cancelComment(issueId!, comment.id);
           invalidateIssueDetail();
@@ -2284,8 +2289,8 @@ export function IssueDetail() {
 
       const { comment, ...nextIssue } = result;
       queryClient.setQueryData(queryKeys.issues.detail(issueId!), nextIssue);
-      if (comment && context?.optimisticCommentId && cancelledQueuedOptimisticCommentIdsRef.current.has(context.optimisticCommentId)) {
-        cancelledQueuedOptimisticCommentIdsRef.current.delete(context.optimisticCommentId);
+      if (comment && context?.optimisticCommentId && cancelledQueuedOptimisticCommentIdsRef.current!.has(context.optimisticCommentId)) {
+        cancelledQueuedOptimisticCommentIdsRef.current!.delete(context.optimisticCommentId);
         try {
           await issuesApi.cancelComment(issueId!, comment.id);
           invalidateIssueDetail();
@@ -2466,7 +2471,7 @@ export function IssueDetail() {
 
   const handleCancelQueuedComment = useCallback((commentId: string) => {
     if (commentId.startsWith("optimistic-")) {
-      cancelledQueuedOptimisticCommentIdsRef.current.add(commentId);
+      cancelledQueuedOptimisticCommentIdsRef.current!.add(commentId);
       let cancelledCommentBody: string | null = null;
       setOptimisticComments((current) => {
         const next = takeOptimisticIssueComment(current, commentId);
@@ -3816,23 +3821,30 @@ export function IssueDetail() {
             {imageAttachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-accent/10 cursor-pointer"
-                onClick={() => {
-                  const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
-                  setGalleryIndex(idx >= 0 ? idx : 0);
-                  setGalleryOpen(true);
-                }}
+                className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-accent/10"
               >
-                <img
-                  src={attachment.contentPath}
-                  alt={attachment.originalFilename ?? "attachment"}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
+                <button
+                  type="button"
+                  className="absolute inset-0 z-0 block h-full w-full cursor-pointer overflow-hidden rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-default"
+                  aria-label={`Open ${attachment.originalFilename ?? "attachment"} attachment`}
+                  disabled={confirmDeleteId === attachment.id}
+                  onClick={() => {
+                    const idx = imageAttachments.findIndex((a) => a.id === attachment.id);
+                    setGalleryIndex(idx >= 0 ? idx : 0);
+                    setGalleryOpen(true);
+                  }}
+                >
+                  <img
+                    src={attachment.contentPath}
+                    alt={attachment.originalFilename ?? "attachment"}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <span className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/30" aria-hidden="true" />
+                </button>
                 {confirmDeleteId === attachment.id ? (
                   <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60"
+                    className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1.5 bg-black/60"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <p className="text-xs text-white font-medium">Delete?</p>
@@ -3864,7 +3876,7 @@ export function IssueDetail() {
                 ) : (
                   <button
                     type="button"
-                    className="absolute top-1.5 right-1.5 rounded-md bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
+                    className="absolute top-1.5 right-1.5 z-20 rounded-md bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation();
                       setConfirmDeleteId(attachment.id);
@@ -3958,7 +3970,7 @@ export function IssueDetail() {
               issueStatus={issue.status}
               issueWorkMode={issue.workMode ?? "standard"}
               executionRunId={issue.executionRunId ?? null}
-              blockedBy={issue.blockedBy ?? []}
+              blockedBy={issue.blockedBy ?? EMPTY_BLOCKED_BY}
               blockerAttention={issue.blockerAttention ?? null}
               successfulRunHandoff={issue.successfulRunHandoff ?? null}
               scheduledRetry={issue.scheduledRetry ?? null}
