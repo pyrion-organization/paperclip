@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import type { Request } from "express";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
@@ -4601,23 +4601,24 @@ export function accessRoutes(
     await assertInstanceAdmin(req);
     const query = searchAdminUsersQuerySchema.parse(req.query);
     const needle = query.query.trim().toLowerCase();
-    const users = await db
+    const userSearchCondition = needle
+      ? or(
+          ilike(authUsers.email, `%${needle}%`),
+          ilike(authUsers.name, `%${needle}%`),
+        )
+      : undefined;
+    const usersBaseQuery = db
       .select({
         id: authUsers.id,
         email: authUsers.email,
         name: authUsers.name,
         image: authUsers.image,
       })
-      .from(authUsers)
-      .orderBy(desc(authUsers.updatedAt));
-    const filteredUsers = needle
-      ? users.filter((user) =>
-          [user.name, user.email]
-            .filter((value): value is string => Boolean(value))
-            .some((value) => value.toLowerCase().includes(needle)),
-        )
-      : users;
-    const userIds = filteredUsers.slice(0, 50).map((user) => user.id);
+      .from(authUsers);
+    const users = await (userSearchCondition
+      ? usersBaseQuery.where(userSearchCondition).orderBy(desc(authUsers.updatedAt)).limit(50)
+      : usersBaseQuery.orderBy(desc(authUsers.updatedAt)).limit(50));
+    const userIds = users.map((user) => user.id);
     const memberships = userIds.length
       ? await db
           .select({
@@ -4640,15 +4641,23 @@ export function accessRoutes(
       );
     }
     const adminIds = new Set(
-      await Promise.all(
-        userIds.map(async (userId) =>
-          (await access.isInstanceAdmin(userId)) ? userId : null,
-        ),
-      ).then((values) => values.filter((value): value is string => Boolean(value))),
+      userIds.length
+        ? (
+            await db
+              .select({ userId: instanceUserRoles.userId })
+              .from(instanceUserRoles)
+              .where(
+                and(
+                  eq(instanceUserRoles.role, "instance_admin"),
+                  inArray(instanceUserRoles.userId, userIds),
+                ),
+              )
+          ).map((row) => row.userId)
+        : [],
     );
 
     res.json(
-      filteredUsers.slice(0, 50).map((user) => ({
+      users.map((user) => ({
         ...toUserProfile(user),
         isInstanceAdmin: adminIds.has(user.id),
         activeCompanyMembershipCount:

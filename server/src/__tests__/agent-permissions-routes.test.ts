@@ -73,6 +73,11 @@ const mockHeartbeatService = vi.hoisted(() => ({
   resetRuntimeSession: vi.fn(),
   getRun: vi.fn(),
   cancelRun: vi.fn(),
+  wakeup: vi.fn(),
+}));
+
+const mockRecoveryService = vi.hoisted(() => ({
+  recordWatchdogDecision: vi.fn(),
 }));
 
 const mockIssueApprovalService = vi.hoisted(() => ({
@@ -149,6 +154,10 @@ function registerModuleMocks() {
 
   vi.doMock("../services/heartbeat.js", () => ({
     heartbeatService: () => mockHeartbeatService,
+  }));
+
+  vi.doMock("../services/recovery/service.js", () => ({
+    recoveryService: () => mockRecoveryService,
   }));
 
   vi.doMock("../services/issue-approvals.js", () => ({
@@ -299,6 +308,7 @@ describe.sequential("agent permission routes", () => {
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issue-approvals.js");
     vi.doUnmock("../services/issues.js");
+    vi.doUnmock("../services/recovery/service.js");
     vi.doUnmock("../services/secrets.js");
     vi.doUnmock("../services/environments.js");
     vi.doUnmock("../services/workspace-operations.js");
@@ -331,6 +341,8 @@ describe.sequential("agent permission routes", () => {
     mockHeartbeatService.resetRuntimeSession.mockReset();
     mockHeartbeatService.getRun.mockReset();
     mockHeartbeatService.cancelRun.mockReset();
+    mockHeartbeatService.wakeup.mockReset();
+    mockRecoveryService.recordWatchdogDecision.mockReset();
     mockIssueApprovalService.linkManyForApproval.mockReset();
     mockIssueService.list.mockReset();
     mockSecretService.normalizeAdapterConfigForPersistence.mockReset();
@@ -401,6 +413,16 @@ describe.sequential("agent permission routes", () => {
     mockCompanySkillService.resolveRequestedSkillKeys.mockImplementation(
       async (_companyId: string, requested: string[]) => requested,
     );
+    mockHeartbeatService.getRun.mockResolvedValue({
+      id: "run-1",
+      companyId,
+      agentId,
+    });
+    mockRecoveryService.recordWatchdogDecision.mockResolvedValue({
+      id: "decision-1",
+      heartbeatRunId: "run-1",
+      decision: "snooze",
+    });
     mockSecretService.normalizeAdapterConfigForPersistence.mockImplementation(async (_companyId, config) => config);
     mockSecretService.resolveAdapterConfigForRuntime.mockImplementation(async (_companyId, config) => ({ config }));
     mockInstanceSettingsService.getGeneral.mockResolvedValue({
@@ -1475,6 +1497,112 @@ describe.sequential("agent permission routes", () => {
 
     expect(res.status).toBe(403);
     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("records authorized board watchdog snooze decisions", async () => {
+    const snoozedUntil = new Date(Date.now() + 60_000).toISOString();
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({
+        decision: "snooze",
+        evaluationIssueId: "issue-1",
+        reason: "Needs more time",
+        snoozedUntil,
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockRecoveryService.recordWatchdogDecision).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      actor: expect.objectContaining({ type: "board", userId: "board-user" }),
+      decision: "snooze",
+      evaluationIssueId: "issue-1",
+      reason: "Needs more time",
+      snoozedUntil: new Date(snoozedUntil),
+      createdByRunId: null,
+    }));
+  });
+
+  it("rejects unsupported watchdog decisions before recording", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "retry" }));
+
+    expect(res.status).toBe(400);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects watchdog snoozes without a future datetime", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "snooze", snoozedUntil: "2020-01-01T00:00:00.000Z" }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("future ISO datetime");
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for watchdog decisions on missing heartbeat runs", async () => {
+    mockHeartbeatService.getRun.mockResolvedValueOnce(null);
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/missing-run/watchdog-decisions")
+      .send({ decision: "continue" }));
+
+    expect(res.status).toBe(404);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects watchdog decisions outside the caller company scope", async () => {
+    mockHeartbeatService.getRun.mockResolvedValueOnce({
+      id: "run-1",
+      companyId: "33333333-3333-4333-8333-333333333333",
+      agentId,
+    });
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "continue" }));
+
+    expect(res.status).toBe(403);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
   });
 
   it("rejects scheduler heartbeat inventory for non-instance-admin boards", async () => {

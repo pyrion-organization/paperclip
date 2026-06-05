@@ -56,6 +56,36 @@ function createDb(selectResults: unknown[][] = []) {
   };
 }
 
+function createAdminUsersDb(input: {
+  users: unknown[];
+  memberships?: unknown[];
+  instanceAdmins?: unknown[];
+}) {
+  const userQuery = {
+    from: vi.fn(() => userQuery),
+    where: vi.fn(() => userQuery),
+    orderBy: vi.fn(() => userQuery),
+    limit: vi.fn(() => Promise.resolve(input.users)),
+  };
+  const membershipsQuery = {
+    from: vi.fn(() => membershipsQuery),
+    where: vi.fn(() => Promise.resolve(input.memberships ?? [])),
+  };
+  const instanceAdminsQuery = {
+    from: vi.fn(() => instanceAdminsQuery),
+    where: vi.fn(() => Promise.resolve(input.instanceAdmins ?? [])),
+  };
+  return {
+    select: vi.fn()
+      .mockReturnValueOnce(userQuery)
+      .mockReturnValueOnce(membershipsQuery)
+      .mockReturnValueOnce(instanceAdminsQuery),
+    userQuery,
+    membershipsQuery,
+    instanceAdminsQuery,
+  };
+}
+
 async function createApp(actor: Record<string, unknown>, db: any = createDb()) {
   const [{ accessRoutes }, { errorHandler }] = await Promise.all([
     import("../routes/access.js"),
@@ -146,6 +176,49 @@ describe("access admin and board claim routes", () => {
         principalType: "user",
         companyName: "Acme",
         companyStatus: "active",
+      }),
+    ]);
+  });
+
+  it("lists admin users with SQL limit and bulk instance-admin lookup", async () => {
+    mockAccessService.isInstanceAdmin.mockResolvedValue(true);
+    const db = createAdminUsersDb({
+      users: [
+        { id: "user-1", email: "one@example.com", name: "User One", image: null },
+        { id: "user-2", email: "two@example.com", name: "User Two", image: null },
+      ],
+      memberships: [
+        { principalId: "user-1" },
+        { principalId: "user-1" },
+        { principalId: "user-2" },
+      ],
+      instanceAdmins: [{ userId: "user-2" }],
+    });
+    const app = await createApp({
+      type: "board",
+      userId: "admin-user",
+      source: "session",
+      companyIds: [],
+      isInstanceAdmin: true,
+    }, db);
+
+    const res = await request(app).get("/api/admin/users?query=example");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(db.userQuery.where).toHaveBeenCalled();
+    expect(db.userQuery.limit).toHaveBeenCalledWith(50);
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(mockAccessService.isInstanceAdmin).toHaveBeenCalledTimes(1);
+    expect(res.body).toEqual([
+      expect.objectContaining({
+        id: "user-1",
+        isInstanceAdmin: false,
+        activeCompanyMembershipCount: 2,
+      }),
+      expect.objectContaining({
+        id: "user-2",
+        isInstanceAdmin: true,
+        activeCompanyMembershipCount: 1,
       }),
     ]);
   });

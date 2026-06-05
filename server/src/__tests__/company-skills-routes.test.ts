@@ -14,6 +14,7 @@ const mockAccessService = vi.hoisted(() => ({
 const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installFromCatalog: vi.fn(),
+  createLocalSkill: vi.fn(),
   deleteSkill: vi.fn(),
   auditSkill: vi.fn(),
   getById: vi.fn(),
@@ -152,6 +153,24 @@ describe("company skill mutation permissions", () => {
         contentHash: "sha256:abc",
       },
       warnings: [],
+    });
+    mockCompanySkillService.createLocalSkill.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "local/review",
+      slug: "review",
+      name: "Review",
+      description: "Review code",
+      markdown: "# Review",
+      sourceType: "local",
+      sourceLocator: null,
+      sourceRef: null,
+      trustLevel: "trusted",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: {},
+      createdAt: new Date("2026-05-26T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-26T00:00:00.000Z"),
     });
     mockCompanySkillService.deleteSkill.mockResolvedValue({
       id: "skill-1",
@@ -393,6 +412,65 @@ describe("company skill mutation permissions", () => {
       skillRef: "vercel-labs/agent-browser/find-skills",
       isPrivate: false,
     });
+  });
+
+  it("creates a local company skill and logs the create activity", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills")
+      .send({
+        name: "Review",
+        slug: "review",
+        description: "Review code",
+        markdown: "# Review",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockCompanySkillService.createLocalSkill).toHaveBeenCalledWith("company-1", {
+      name: "Review",
+      slug: "review",
+      description: "Review code",
+      markdown: "# Review",
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_created",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          slug: "review",
+          name: "Review",
+        },
+      }),
+    );
+    expect(res.body).toMatchObject({
+      id: "skill-1",
+      slug: "review",
+      name: "Review",
+    });
+  });
+
+  it("rejects invalid local company skill create payloads before service access", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills")
+      .send({ name: "" });
+
+    expect(res.status).toBe(400);
+    expect(mockCompanySkillService.createLocalSkill).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
   });
 
   it("does not expose a skill reference for non-public skill imports", async () => {

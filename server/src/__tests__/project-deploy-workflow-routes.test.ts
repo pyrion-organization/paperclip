@@ -1143,6 +1143,17 @@ describe("project deploy workflow routes", () => {
     );
   });
 
+  it("rejects malformed external monitor token health check ids before persistence access", async () => {
+    const app = await createApp("board");
+
+    const res = await request(app)
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/not-a-uuid/external-monitor-token");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toBe("Invalid infrastructure health check id");
+    expect(mockProjectService.revokeInfraHealthExternalMonitorToken).not.toHaveBeenCalled();
+  });
+
   it("deletes infra health checks through the board-only route", async () => {
     mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck({
       id: "88888888-8888-4888-8888-888888888888",

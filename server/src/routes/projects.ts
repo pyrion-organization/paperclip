@@ -949,6 +949,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const healthCheckId = req.params.healthCheckId as string;
+    if (!isUuidLike(healthCheckId)) {
+      throw badRequest("Invalid infrastructure health check id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -981,6 +984,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const healthCheckId = req.params.healthCheckId as string;
+    if (!isUuidLike(healthCheckId)) {
+      throw badRequest("Invalid infrastructure health check id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
