@@ -68,6 +68,25 @@ import { secretService } from "../services/secrets.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
+const LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES = new Set(["local_path", "git_repo", "non_git_path"]);
+
+type WorkspaceGitInitCandidate = {
+  cwd?: string | null;
+  sourceType?: string | null;
+  remoteWorkspaceRef?: string | null;
+};
+
+function shouldAssignManagedProjectWorkspaceCwd(workspace: WorkspaceGitInitCandidate) {
+  if (workspace.cwd) return false;
+  if (workspace.sourceType === "remote_managed" || workspace.remoteWorkspaceRef) return false;
+  return !workspace.sourceType || LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES.has(workspace.sourceType);
+}
+
+function shouldInitializeProjectWorkspaceGit(workspace: WorkspaceGitInitCandidate) {
+  if (!workspace.cwd) return false;
+  if (workspace.sourceType === "remote_managed" || workspace.remoteWorkspaceRef) return false;
+  return !workspace.sourceType || LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES.has(workspace.sourceType);
+}
 
 function readSingleQueryString(value: unknown, fieldName: string) {
   if (typeof value !== "string") {
@@ -342,29 +361,34 @@ export function projectRoutes(db: Db) {
       );
     }
     let createdWorkspaceId: string | null = null;
+    let shouldInitializeGit = false;
     try {
       if (workspace) {
-        const createdWorkspace = await svc.createWorkspace(project.id, workspace);
+        let createdWorkspace = await svc.createWorkspace(project.id, workspace);
         if (!createdWorkspace) {
           await svc.remove(project.id);
           res.status(422).json({ error: "Invalid project workspace payload" });
           return;
         }
-        const managedPath = resolveManagedProjectWorkspaceDir({
-          companyId,
-          projectId: project.id,
-          workspaceId: createdWorkspace.id,
-        });
-        const relocatedWorkspace = await svc.updateWorkspace(project.id, createdWorkspace.id, {
-          cwd: managedPath,
-          name: createdWorkspace.name,
-        });
-        if (!relocatedWorkspace) {
-          await svc.remove(project.id);
-          res.status(422).json({ error: "Failed to initialize project workspace" });
-          return;
+        if (shouldAssignManagedProjectWorkspaceCwd(createdWorkspace)) {
+          const managedPath = resolveManagedProjectWorkspaceDir({
+            companyId,
+            projectId: project.id,
+            workspaceId: createdWorkspace.id,
+          });
+          const relocatedWorkspace = await svc.updateWorkspace(project.id, createdWorkspace.id, {
+            cwd: managedPath,
+            name: createdWorkspace.name,
+          });
+          if (!relocatedWorkspace) {
+            await svc.remove(project.id);
+            res.status(422).json({ error: "Failed to initialize project workspace" });
+            return;
+          }
+          createdWorkspace = relocatedWorkspace;
         }
         createdWorkspaceId = createdWorkspace.id;
+        shouldInitializeGit = shouldInitializeProjectWorkspaceGit(createdWorkspace);
       } else {
         // Auto-create a default workspace pointing to the managed folder so every
         // project has a local git repo, even if no workspace was explicitly provided.
@@ -390,6 +414,7 @@ export function projectRoutes(db: Db) {
             return;
           }
           createdWorkspaceId = autoWorkspace.id;
+          shouldInitializeGit = shouldInitializeProjectWorkspaceGit(relocatedWorkspace);
         }
       }
     } catch (err) {
@@ -402,13 +427,15 @@ export function projectRoutes(db: Db) {
 
     // Fire-and-forget: initialize (or clone) the git workspace without blocking the response.
     const projectId = project.id;
-    setImmediate(() => {
-      svc.getById(projectId).then((fullProject) => {
-        if (fullProject) return initWorkspaceGit(fullProject);
-      }).catch((err) => {
-        console.error("[git-init] workspace init failed for project", projectId, err);
+    if (shouldInitializeGit) {
+      setImmediate(() => {
+        svc.getById(projectId).then((fullProject) => {
+          if (fullProject) return initWorkspaceGit(fullProject);
+        }).catch((err) => {
+          console.error("[git-init] workspace init failed for project", projectId, err);
+        });
       });
-    });
+    }
 
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -2075,7 +2102,7 @@ export function projectRoutes(db: Db) {
       return;
     }
     let responseWorkspace = workspace;
-    if (!responseWorkspace.cwd) {
+    if (shouldAssignManagedProjectWorkspaceCwd(responseWorkspace)) {
       const managedPath = resolveManagedProjectWorkspaceDir({
         companyId: existing.companyId,
         projectId: id,
@@ -2093,13 +2120,15 @@ export function projectRoutes(db: Db) {
     }
 
     const projectId = id;
-    setImmediate(() => {
-      svc.getById(projectId).then((fullProject) => {
-        if (fullProject) return initWorkspaceGit(fullProject);
-      }).catch((err) => {
-        console.error("[git-init] workspace init failed for project workspace", projectId, err);
+    if (shouldInitializeProjectWorkspaceGit(responseWorkspace)) {
+      setImmediate(() => {
+        svc.getById(projectId).then((fullProject) => {
+          if (fullProject) return initWorkspaceGit(fullProject);
+        }).catch((err) => {
+          console.error("[git-init] workspace init failed for project workspace", projectId, err);
+        });
       });
-    });
+    }
 
     const actor = getActorInfo(req);
     await logActivity(db, {
