@@ -101,6 +101,60 @@ describe("payment routes", () => {
     mockCalendar.complete.mockResolvedValue({ id: "calendar-1", status: "done" });
   });
 
+  it("lists payment entries with validated filters", async () => {
+    const res = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/payments/entries")
+      .query({
+        q: "cloud",
+        status: "open,partially_paid",
+        calendarItemId: "11111111-1111-4111-8111-111111111111",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        dueFrom: "2026-06-01",
+        dueTo: "2026-06-30",
+        sort: "dueDate",
+        dir: "asc",
+        limit: "25",
+        offset: "50",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockPayments.listEntries).toHaveBeenCalledWith("company-1", {
+      q: "cloud",
+      status: ["open", "partially_paid"],
+      calendarItemId: "11111111-1111-4111-8111-111111111111",
+      profileId: "22222222-2222-4222-8222-222222222222",
+      dueFrom: "2026-06-01",
+      dueTo: "2026-06-30",
+      sort: "dueDate",
+      dir: "asc",
+      limit: 25,
+      offset: 50,
+    });
+  });
+
+  it("rejects invalid payment entry list filters before service access", async () => {
+    const res = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/payments/entries")
+      .query({ limit: "0" });
+
+    expect(res.status).toBe(400);
+    expect(mockPayments.listEntries).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-company payment entry lists before service access", async () => {
+    const res = await request(appForActor({
+      type: "board",
+      userId: "user-1",
+      source: "user_session",
+      companyIds: ["company-2"],
+      memberships: [{ companyId: "company-2", status: "active", membershipRole: "member" }],
+    }))
+      .get("/api/companies/company-1/payments/entries");
+
+    expect(res.status).toBe(403);
+    expect(mockPayments.listEntries).not.toHaveBeenCalled();
+  });
+
   it("records linked payments and completes the calendar item", async () => {
     const res = await request(appForActor(boardActor))
       .post("/api/companies/company-1/payments/entries/entry-1/records")

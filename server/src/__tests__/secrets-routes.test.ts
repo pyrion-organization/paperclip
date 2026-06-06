@@ -191,6 +191,40 @@ describe("secret routes", () => {
     expect(mockSecretService.listProviderConfigs).not.toHaveBeenCalled();
   });
 
+  it("rejects provider vault creation for non-board actors before service access", async () => {
+    const res = await request(createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+    })).post("/api/companies/company-1/secret-provider-configs").send({
+      provider: "aws_secrets_manager",
+      displayName: "AWS prod",
+      config: { region: "us-east-1" },
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockSecretService.createProviderConfig).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("rejects provider vault cross-company creation before service access", async () => {
+    const res = await request(createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      companyIds: ["company-2"],
+      memberships: [{ companyId: "company-2", status: "active", membershipRole: "admin" }],
+    })).post("/api/companies/company-1/secret-provider-configs").send({
+      provider: "aws_secrets_manager",
+      displayName: "AWS prod",
+      config: { region: "us-east-1" },
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockSecretService.createProviderConfig).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
   it("rejects provider vault discovery preview for non-board actors", async () => {
     const res = await request(createApp({
       type: "agent",

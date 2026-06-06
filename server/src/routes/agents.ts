@@ -1890,6 +1890,12 @@ export function agentRoutes(
       return;
     }
 
+    await secretsSvc.syncEnvBindingsForTarget?.(
+      updated.companyId,
+      { targetType: "agent", targetId: updated.id },
+      asRecord(updated.adapterConfig)?.env,
+    );
+
     await logActivity(db, {
       companyId: updated.companyId,
       actorType: actor.actorType,

@@ -264,6 +264,44 @@ describe("cost routes", () => {
     });
   });
 
+  it("passes excludeRoot to issue subtree cost summaries", async () => {
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/issues/11111111-1111-4111-8111-111111111111/cost-summary")
+      .query({ excludeRoot: "true" });
+
+    expect(res.status).toBe(200);
+    expect(mockIssueService.getById).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");
+    expect(mockCostService.issueTreeSummary).toHaveBeenCalledWith("company-1", "issue-1", {
+      excludeRoot: true,
+    });
+  });
+
+  it("returns 404 for missing issue subtree cost summaries", async () => {
+    mockIssueService.getById.mockResolvedValueOnce(null);
+    const app = await createApp();
+
+    const res = await request(app).get("/api/issues/issue-missing/cost-summary");
+
+    expect(res.status).toBe(404);
+    expect(mockCostService.issueTreeSummary).not.toHaveBeenCalled();
+  });
+
+  it("rejects issue subtree cost summaries outside the caller company", async () => {
+    const app = await createAppWithActor({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-2"],
+    });
+
+    const res = await request(app).get("/api/issues/issue-1/cost-summary");
+
+    expect(res.status).toBe(403);
+    expect(mockCostService.issueTreeSummary).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for invalid finance event list limits", async () => {
     const { parseCostLimit } = await loadCostParsers();
     expect(() => parseCostLimit({ limit: "0" })).toThrow(/invalid 'limit'/i);
