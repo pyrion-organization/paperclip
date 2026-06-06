@@ -44,6 +44,20 @@ describe("redaction", () => {
     });
   });
 
+  it("preserves numeric usage token counters", () => {
+    expect(sanitizeRecord({
+      inputTokens: 12,
+      cachedInputTokens: 3,
+      outputTokens: 7,
+      token: "secret-token",
+    })).toEqual({
+      inputTokens: 12,
+      cachedInputTokens: 3,
+      outputTokens: 7,
+      token: REDACTED_EVENT_VALUE,
+    });
+  });
+
   it("redacts jwt-looking values even when key name is not sensitive", () => {
     const input = {
       session: "aaa.bbb.ccc",

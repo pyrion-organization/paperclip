@@ -276,3 +276,59 @@ describe("GET /invites/:token", () => {
     expect(res.body.joinRequestType).toBe("human");
   }, 10_000);
 });
+
+describe("GET /invites/:token/onboarding", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../storage/index.js");
+    vi.doUnmock("../routes/access.js");
+    vi.doUnmock("../middleware/index.js");
+    registerModuleMocks();
+    mockStorage.headObject.mockReset();
+    mockStorage.headObject.mockResolvedValue({ exists: true, contentLength: 3, contentType: "image/png" });
+  });
+
+  it("does not expose agent onboarding manifests for human-only invites", async () => {
+    const invite = {
+      id: "invite-human-only",
+      companyId: "company-1",
+      inviteType: "company_join",
+      allowedJoinTypes: "human",
+      tokenHash: "hash",
+      defaultsPayload: null,
+      expiresAt: new Date("2027-03-07T00:10:00.000Z"),
+      invitedByUserId: null,
+      revokedAt: null,
+      acceptedAt: null,
+      createdAt: new Date("2026-03-07T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-07T00:00:00.000Z"),
+    };
+    const app = await createApp(createDbStub([invite]));
+
+    const res = await request(app).get("/api/invites/pcp_invite_test/onboarding");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("does not expose onboarding text for accepted invites without a matching join request", async () => {
+    const invite = {
+      id: "invite-accepted",
+      companyId: "company-1",
+      inviteType: "company_join",
+      allowedJoinTypes: "agent",
+      tokenHash: "hash",
+      defaultsPayload: null,
+      expiresAt: new Date("2027-03-07T00:10:00.000Z"),
+      invitedByUserId: null,
+      revokedAt: null,
+      acceptedAt: new Date("2026-03-07T00:05:00.000Z"),
+      createdAt: new Date("2026-03-07T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-07T00:05:00.000Z"),
+    };
+    const app = await createApp(createDbStub([invite], []));
+
+    const res = await request(app).get("/api/invites/pcp_invite_test/onboarding.txt");
+
+    expect(res.status).toBe(404);
+  });
+});

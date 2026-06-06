@@ -383,6 +383,42 @@ describe("Calendar", () => {
     expect(document.body.textContent).toContain("SaaS renewal");
   });
 
+  it("refreshes the open dialog form from completed recurring item responses", async () => {
+    const completed = makeItem({
+      ...items[1]!,
+      status: "active",
+      nextDueDate: "2027-07-15",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      lastCompletedAt: "2026-06-01T00:00:00.000Z",
+    });
+    mockCalendarApi.complete.mockImplementationOnce(async () => {
+      items = items.map((item) => item.id === completed.id ? completed : item);
+      return completed;
+    });
+
+    await renderPage();
+
+    await act(async () => {
+      (container.querySelector("[data-testid='calendar-item-row-item-2']") as HTMLTableRowElement).click();
+    });
+    await flushReact();
+
+    const dueDate = () => document.body.querySelector("input[type='date']") as HTMLInputElement;
+    expect(dueDate().value).toBe("2026-07-15");
+
+    const completeButton = Array.from(document.body.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Complete")) as HTMLButtonElement;
+    expect(completeButton).toBeTruthy();
+
+    await act(async () => {
+      completeButton.click();
+    });
+    await flushReact();
+
+    expect(mockCalendarApi.complete).toHaveBeenCalledWith("company-1", "item-2", {}, false);
+    expect(dueDate().value).toBe("2027-07-15");
+  });
+
   it("filters rows through one smart search box", async () => {
     await renderPage();
 
@@ -523,7 +559,7 @@ describe("Calendar", () => {
     expect(document.body.textContent).toContain("Notes");
     expect(document.body.textContent).toContain("Documents");
     expect(document.body.textContent).toContain("History");
-    expect(document.body.textContent).toContain("Recurrence behavior");
+    expect(document.body.textContent).toContain("Next occurrence");
     expect(document.body.textContent).toContain("Completing advances to 2027-06-30");
     expect(document.body.textContent).toContain("Reminder policy");
     expect(document.body.textContent).toContain("90/60/30/15/7/1 days before due");

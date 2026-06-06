@@ -102,7 +102,7 @@ vi.mock("@/components/ui/command", () => ({
     onSelect?: () => void;
     "data-testid"?: string;
   }) => (
-    <button data-testid={testId} onClick={onSelect}>
+    <button type="button" data-testid={testId} onClick={onSelect}>
       {children}
     </button>
   ),

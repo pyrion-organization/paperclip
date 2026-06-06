@@ -386,4 +386,35 @@ describe.sequential("agent cross-tenant route authorization", () => {
     expect(mockAgentService.getKeyById).toHaveBeenCalledWith(keyId);
     expect(mockAgentService.revokeKey).not.toHaveBeenCalled();
   }, 10_000);
+
+  it("resumes an agent without cancelling active runs", async () => {
+    currentAccessCanUser = true;
+    mockAgentService.resume.mockResolvedValue({
+      ...baseAgent,
+      status: "idle",
+      pauseReason: null,
+      pausedAt: null,
+    });
+
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: [companyId],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).post(`/api/agents/${agentId}/resume`).send({}));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.resume).toHaveBeenCalledWith(agentId);
+    expect(mockHeartbeatService.cancelActiveForAgent).not.toHaveBeenCalled();
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "agent.resumed",
+        entityId: agentId,
+      }),
+    );
+  }, 10_000);
 });

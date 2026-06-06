@@ -2,7 +2,19 @@
 
 Maintainer runbook for shipping Paperclip across npm, GitHub, and the website-facing changelog surface.
 
-The release model is now commit-driven:
+## Private Fork Status
+
+This fork does not currently publish Paperclip packages or GitHub Releases from GitHub Actions.
+
+- [`.github/workflows/release.yml`](../.github/workflows/release.yml) is named **Release Verification** and only verifies a selected `source_ref`.
+- The workflow runs typecheck, tests, build, and the CLI npm-bundle build; it does not call [`scripts/release.sh`](../scripts/release.sh), publish npm packages, push release/canary tags, or create GitHub Releases.
+- [`.github/workflows/docker.yml`](../.github/workflows/docker.yml) is named **Docker Image Verification** and is manual-only. It pushes to GHCR only when manually dispatched with `push_image=true`.
+
+The rest of this document describes the upstream/public release model and is reference material unless public publishing is intentionally re-enabled for this fork.
+
+## Upstream Public Release Model
+
+The upstream release model is commit-driven:
 
 1. Every push to `master` publishes a canary automatically.
 2. Stable releases are manually promoted from a chosen tested commit or canary tag.

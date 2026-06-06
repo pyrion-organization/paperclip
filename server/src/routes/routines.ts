@@ -295,6 +295,26 @@ export function routineRoutes(
       userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,
       runId: req.actor.runId ?? null,
     });
+    if (!cloned) {
+      res.status(404).json({ error: "Routine not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: routine.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "routine.cloned",
+      entityType: "routine",
+      entityId: cloned.id,
+      details: {
+        sourceRoutineId: routine.id,
+        title: cloned.title,
+        assigneeAgentId: cloned.assigneeAgentId ?? null,
+      },
+    });
     res.status(201).json(cloned);
   });
 
@@ -398,6 +418,7 @@ export function routineRoutes(
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const deleted = await svc.deleteTrigger(trigger.id, {
       agentId: req.actor.type === "agent" ? req.actor.agentId : null,
       userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,
@@ -442,6 +463,7 @@ export function routineRoutes(
         res.status(404).json({ error: "Routine not found" });
         return;
       }
+      await assertBoardCanAssignTasks(req, routine.companyId);
       const rotated = await svc.rotateTriggerSecret(trigger.id, {
         agentId: req.actor.type === "agent" ? req.actor.agentId : null,
         userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,

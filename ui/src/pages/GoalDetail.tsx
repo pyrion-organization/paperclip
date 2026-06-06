@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useParams } from "@/lib/router";
+import { useNavigate, useParams } from "@/lib/router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { goalsApi } from "../api/goals";
 import { projectsApi } from "../api/projects";
@@ -18,7 +18,7 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { cn, projectUrl } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, SlidersHorizontal } from "lucide-react";
+import { Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import type { Goal, Project } from "@paperclipai/shared";
 import { useInvalidatingMutation } from "../lib/useInvalidatingMutation";
 
@@ -49,6 +49,7 @@ export function GoalPropertiesToggleButton({
 
 export function GoalDetail() {
   const { goalId } = useParams<{ goalId: string }>();
+  const navigate = useNavigate();
   const { selectedCompanyId, setSelectedCompanyId } = useCompany();
   const { openNewGoal } = useDialogActions();
   const { openPanel, closePanel, panelVisible, setPanelVisible } = usePanel();
@@ -96,6 +97,16 @@ export function GoalDetail() {
         });
       }
     }
+  });
+
+  const deleteGoal = useInvalidatingMutation({
+    mutationFn: () => goalsApi.remove(goalId!),
+    onSuccess: () => {
+      if (resolvedCompanyId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.goals.list(resolvedCompanyId) });
+      }
+      navigate("/goals");
+    },
   });
 
   const uploadImage = useInvalidatingMutation({
@@ -148,11 +159,26 @@ export function GoalDetail() {
             {goal.level}
           </span>
           <StatusBadge status={goal.status} />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             <GoalPropertiesToggleButton
               panelVisible={panelVisible}
               onShowProperties={() => setPanelVisible(true)}
             />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground hover:text-destructive"
+              title="Delete goal"
+              aria-label="Delete goal"
+              disabled={deleteGoal.isPending}
+              onClick={() => {
+                if (window.confirm(`Delete goal "${goal.title}"? This cannot be undone.`)) {
+                  deleteGoal.mutate();
+                }
+              }}
+            >
+              <Trash2 className="size-4" />
+            </Button>
           </div>
         </div>
 

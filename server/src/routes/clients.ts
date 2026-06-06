@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import type { Db } from "@paperclipai/db";
 import {
   createClientSchema,
@@ -20,6 +20,22 @@ export function clientRoutes(db: Db) {
   const svc = clientService(db);
   const instructions = clientInstructionsService();
 
+  function actorCanSeeCompany(req: Request, companyId: string) {
+    if (req.actor.type === "board" && req.actor.source === "local_implicit") return true;
+    if (req.actor.type === "agent") return req.actor.companyId === companyId;
+    if (req.actor.type === "board") return req.actor.companyIds?.includes(companyId) === true;
+    return false;
+  }
+
+  async function getVisibleClient(req: Request, id: string) {
+    const client = await svc.getById(id);
+    if (!client || !actorCanSeeCompany(req, client.companyId)) {
+      throw notFound("Client not found");
+    }
+    assertCompanyAccess(req, client.companyId);
+    return client;
+  }
+
   // ── Clients CRUD ──────────────────────────────────────────────
 
   router.get("/companies/:companyId/clients", async (req, res) => {
@@ -35,9 +51,7 @@ export function clientRoutes(db: Db) {
 
   router.get("/clients/:id", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     res.json(client);
   });
 
@@ -61,9 +75,7 @@ export function clientRoutes(db: Db) {
 
   router.patch("/clients/:id", validate(updateClientSchema), async (req, res) => {
     const id = req.params.id as string;
-    const existing = await svc.getById(id);
-    if (!existing) throw notFound("Client not found");
-    assertCompanyAccess(req, existing.companyId);
+    const existing = await getVisibleClient(req, id);
     const updated = await svc.update(id, existing.companyId, req.body);
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -81,9 +93,7 @@ export function clientRoutes(db: Db) {
 
   router.delete("/clients/:id", async (req, res) => {
     const id = req.params.id as string;
-    const existing = await svc.getById(id);
-    if (!existing) throw notFound("Client not found");
-    assertCompanyAccess(req, existing.companyId);
+    const existing = await getVisibleClient(req, id);
     await svc.remove(id, existing.companyId);
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -103,17 +113,13 @@ export function clientRoutes(db: Db) {
 
   router.get("/clients/:id/email-domains", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     res.json(await svc.listEmailDomains(id, client.companyId));
   });
 
   router.post("/clients/:id/email-domains", validate(createClientEmailDomainSchema), async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     const emailDomain = await svc.createEmailDomain(client.companyId, id, req.body.domain);
     if (!emailDomain) throw notFound("Client email domain not found");
     const actor = getActorInfo(req);
@@ -154,17 +160,13 @@ export function clientRoutes(db: Db) {
 
   router.get("/clients/:id/employees", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     res.json(await svc.listEmployees(id, client.companyId));
   });
 
   router.post("/clients/:id/employees", validate(createClientEmployeeSchema), async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     const employee = await svc.createEmployee(client.companyId, id, req.body);
     if (!employee) throw notFound("Client employee not found");
     const actor = getActorInfo(req);
@@ -226,18 +228,14 @@ export function clientRoutes(db: Db) {
 
   router.get("/clients/:id/instructions-bundle", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     assertBoard(req);
     res.json(await instructions.getBundle(client.companyId, id));
   });
 
   router.get("/clients/:id/instructions-bundle/file", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     assertBoard(req);
     const relativePath = typeof req.query.path === "string" ? req.query.path : "";
     if (!relativePath.trim()) {
@@ -249,9 +247,7 @@ export function clientRoutes(db: Db) {
 
   router.put("/clients/:id/instructions-bundle/file", validate(upsertClientInstructionsFileSchema), async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     assertBoard(req);
     const actor = getActorInfo(req);
     const result = await instructions.writeFile(client.companyId, id, req.body.path, req.body.content);
@@ -274,9 +270,7 @@ export function clientRoutes(db: Db) {
 
   router.delete("/clients/:id/instructions-bundle/file", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     assertBoard(req);
     const relativePath = typeof req.query.path === "string" ? req.query.path : "";
     if (!relativePath.trim()) {
@@ -303,18 +297,14 @@ export function clientRoutes(db: Db) {
 
   router.get("/clients/:id/projects", async (req, res) => {
     const id = req.params.id as string;
-    const client = await svc.getById(id);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, id);
     const result = await svc.listProjects(id, client.companyId);
     res.json(result);
   });
 
   router.post("/clients/:id/projects", validate(createClientProjectSchema), async (req, res) => {
     const clientId = req.params.id as string;
-    const client = await svc.getById(clientId);
-    if (!client) throw notFound("Client not found");
-    assertCompanyAccess(req, client.companyId);
+    const client = await getVisibleClient(req, clientId);
     const cp = await svc.createProject(client.companyId, {
       ...req.body,
       clientId,

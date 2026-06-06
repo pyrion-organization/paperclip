@@ -32,14 +32,14 @@ function createUpdateChain(row: unknown) {
   };
 }
 
-function createDb(row: Record<string, unknown>) {
+function createDb(row: Record<string, unknown> | null) {
   return {
-    select: () => createSelectChain([row]),
-    update: () => createUpdateChain(row),
+    select: () => createSelectChain(row ? [row] : []),
+    update: () => createUpdateChain(row ?? {}),
   } as any;
 }
 
-function createApp(actor: Express.Request["actor"], row: Record<string, unknown>) {
+function createApp(actor: Express.Request["actor"], row: Record<string, unknown> | null) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -79,6 +79,37 @@ describe.sequential("auth routes", () => {
       },
       user: baseUser,
     });
+  });
+
+  it("rejects non-board get-session callers", async () => {
+    const app = await createApp(
+      {
+        type: "agent",
+        agentId: "agent-1",
+        companyId: "company-1",
+        source: "api_key",
+      },
+      baseUser,
+    );
+
+    const res = await request(app).get("/api/auth/get-session");
+
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects get-session when the signed-in user row is missing", async () => {
+    const app = await createApp(
+      {
+        type: "board",
+        userId: "missing-user",
+        source: "session",
+      },
+      null,
+    );
+
+    const res = await request(app).get("/api/auth/get-session");
+
+    expect(res.status).toBe(401);
   });
 
   it("updates the signed-in profile", async () => {

@@ -10,6 +10,10 @@ function hasCreatePermission(agent: { role: string; permissions: Record<string, 
   return Boolean((agent.permissions as Record<string, unknown>).canCreateAgents);
 }
 
+function isValidAdapterTypeParam(value: string) {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
 export function llmRoutes(db: Db) {
   const router = Router();
   const agentsSvc = agentService(db);
@@ -70,16 +74,20 @@ export function llmRoutes(db: Db) {
   router.get("/llms/agent-configuration/:adapterType.txt", async (req, res) => {
     await assertCanRead(req);
     const adapterType = req.params.adapterType as string;
+    if (!isValidAdapterTypeParam(adapterType)) {
+      res.status(404).type("text/plain").send("Unknown adapter type");
+      return;
+    }
     const adapter = listServerAdapters().find((entry) => entry.type === adapterType);
     if (!adapter) {
-      res.status(404).type("text/plain").send(`Unknown adapter type: ${adapterType}`);
+      res.status(404).type("text/plain").send("Unknown adapter type");
       return;
     }
     res
       .type("text/plain")
       .send(
         adapter.agentConfigurationDoc ??
-          `# ${adapterType} agent configuration\n\nNo adapter-specific documentation registered.`,
+          `# ${adapter.type} agent configuration\n\nNo adapter-specific documentation registered.`,
       );
   });
 

@@ -1,5 +1,6 @@
 import {
   type ClipboardEvent,
+  memo,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -871,7 +872,7 @@ function MarkdownEditorContent({
             }
           }}
           className={cn(
-            "min-h-[12rem] w-full resize-none bg-transparent px-3 pb-3 pt-2 font-mono text-sm leading-6 outline-none",
+            "min-h-[12rem] w-full resize-none bg-transparent px-3 pb-3 pt-2 font-mono text-sm leading-6 text-foreground caret-foreground outline-none placeholder:text-muted-foreground",
             contentClassName,
           )}
          aria-label="Markdown content"/>
@@ -1024,7 +1025,7 @@ function MarkdownEditorContent({
         }}
         className={cn("paperclip-mdxeditor", !bordered && "paperclip-mdxeditor--borderless")}
         contentEditableClassName={cn(
-          "paperclip-mdxeditor-content focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:list-item",
+          "paperclip-mdxeditor-content text-foreground caret-foreground focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:list-item",
           contentClassName,
         )}
         additionalLexicalNodes={[MentionAwareLinkNode, mentionAwareLinkNodeReplacement]}
@@ -1139,7 +1140,9 @@ function MarkdownEditorContent({
   );
 }
 
-export function MarkdownEditor({
+// Memoized so callers that pass stable props (value/onChange/mentions/…) don't re-render this heavy
+// MDX editor when an unrelated sibling field changes in the parent.
+export const MarkdownEditor = memo(function MarkdownEditor({
   ref: forwardedRef,
   ...props
 }: MarkdownEditorProps & { ref?: Ref<MarkdownEditorRef> }) {
@@ -1153,4 +1156,4 @@ export function MarkdownEditor({
       <MarkdownEditorContent {...props} ref={forwardedRef} />
     </EditorAutocompleteProvider>
   );
-}
+});

@@ -443,11 +443,27 @@ export function accessService(db: Db) {
   }
 
   async function demoteInstanceAdmin(userId: string) {
-    return db
-      .delete(instanceUserRoles)
-      .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
-      .returning()
-      .then((rows) => rows[0] ?? null);
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`
+        select ${instanceUserRoles.id}
+        from ${instanceUserRoles}
+        where ${instanceUserRoles.role} = 'instance_admin'
+        for update
+      `);
+      const adminCount = await tx
+        .select({ id: instanceUserRoles.id })
+        .from(instanceUserRoles)
+        .where(eq(instanceUserRoles.role, "instance_admin"))
+        .then((rows) => rows.length);
+      if (adminCount <= 1) {
+        throw conflict("Cannot demote the last instance admin");
+      }
+      return tx
+        .delete(instanceUserRoles)
+        .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+    });
   }
 
   async function listUserCompanyAccess(userId: string) {

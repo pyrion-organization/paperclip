@@ -15,6 +15,8 @@ const mockPayments = vi.hoisted(() => ({
   createEntry: vi.fn(),
   updateEntry: vi.fn(),
   recordPayment: vi.fn(),
+  updateRecord: vi.fn(),
+  deleteRecord: vi.fn(),
 }));
 const mockCalendar = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -87,9 +89,70 @@ describe("payment routes", () => {
         currency: "BRL",
       },
     });
+    mockPayments.updateRecord.mockResolvedValue({
+      completed: false,
+      entry: { id: "entry-1", calendarItemId: "calendar-1", status: "partially_paid", currency: "BRL", paidAmountCents: 4000 },
+    });
+    mockPayments.deleteRecord.mockResolvedValue({
+      entry: { id: "entry-1", calendarItemId: "calendar-1", status: "open", currency: "BRL", paidAmountCents: 0 },
+    });
     mockLogActivity.mockResolvedValue(undefined);
     mockCalendar.getById.mockResolvedValue({ id: "calendar-1", riskLevel: "medium" });
     mockCalendar.complete.mockResolvedValue({ id: "calendar-1", status: "done" });
+  });
+
+  it("lists payment entries with validated filters", async () => {
+    const res = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/payments/entries")
+      .query({
+        q: "cloud",
+        status: "open,partially_paid",
+        calendarItemId: "11111111-1111-4111-8111-111111111111",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        dueFrom: "2026-06-01",
+        dueTo: "2026-06-30",
+        sort: "dueDate",
+        dir: "asc",
+        limit: "25",
+        offset: "50",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockPayments.listEntries).toHaveBeenCalledWith("company-1", {
+      q: "cloud",
+      status: ["open", "partially_paid"],
+      calendarItemId: "11111111-1111-4111-8111-111111111111",
+      profileId: "22222222-2222-4222-8222-222222222222",
+      dueFrom: "2026-06-01",
+      dueTo: "2026-06-30",
+      sort: "dueDate",
+      dir: "asc",
+      limit: 25,
+      offset: 50,
+    });
+  });
+
+  it("rejects invalid payment entry list filters before service access", async () => {
+    const res = await request(appForActor(boardActor))
+      .get("/api/companies/company-1/payments/entries")
+      .query({ limit: "0" });
+
+    expect(res.status).toBe(400);
+    expect(mockPayments.listEntries).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-company payment entry lists before service access", async () => {
+    const res = await request(appForActor({
+      type: "board",
+      userId: "user-1",
+      source: "user_session",
+      companyIds: ["company-2"],
+      memberships: [{ companyId: "company-2", status: "active", membershipRole: "member" }],
+    }))
+      .get("/api/companies/company-1/payments/entries");
+
+    expect(res.status).toBe(403);
+    expect(mockPayments.listEntries).not.toHaveBeenCalled();
   });
 
   it("records linked payments and completes the calendar item", async () => {
@@ -157,6 +220,62 @@ describe("payment routes", () => {
       expect.objectContaining({ actorType: "user", actorId: "user-1", userId: "user-1" }),
       { approvalConfirmed: true },
     );
+  });
+
+  it("updates a payment record and completes the calendar item when it becomes paid", async () => {
+    mockPayments.updateRecord.mockResolvedValueOnce({
+      completed: true,
+      entry: { id: "entry-1", calendarItemId: "calendar-1", status: "paid", currency: "BRL", paidAmountCents: 10000 },
+    });
+
+    const res = await request(appForActor(boardActor))
+      .patch("/api/companies/company-1/payments/entries/entry-1/records/record-1")
+      .send({ amountCents: 10000, approvalConfirmed: true });
+
+    expect(res.status).toBe(200);
+    expect(mockPayments.updateRecord).toHaveBeenCalledWith(
+      "company-1",
+      "entry-1",
+      "record-1",
+      expect.objectContaining({ amountCents: 10000, approvalConfirmed: true }),
+    );
+    expect(mockCalendar.complete).toHaveBeenCalledWith(
+      "company-1",
+      "calendar-1",
+      expect.anything(),
+      expect.objectContaining({ actorType: "user", actorId: "user-1" }),
+      { approvalConfirmed: true },
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "payment_record.updated", entityType: "payment_entry", entityId: "entry-1" }),
+    );
+  });
+
+  it("deletes a payment record and logs the activity", async () => {
+    const res = await request(appForActor(boardActor))
+      .delete("/api/companies/company-1/payments/entries/entry-1/records/record-1");
+
+    expect(res.status).toBe(200);
+    expect(mockPayments.deleteRecord).toHaveBeenCalledWith("company-1", "entry-1", "record-1");
+    expect(mockCalendar.complete).not.toHaveBeenCalled();
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "payment_record.deleted", entityType: "payment_entry", entityId: "entry-1" }),
+    );
+  });
+
+  it("rejects agent record edits and deletes", async () => {
+    const patchRes = await request(appForActor(agentActor))
+      .patch("/api/companies/company-1/payments/entries/entry-1/records/record-1")
+      .send({ amountCents: 100 });
+    const deleteRes = await request(appForActor(agentActor))
+      .delete("/api/companies/company-1/payments/entries/entry-1/records/record-1");
+
+    expect(patchRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    expect(mockPayments.updateRecord).not.toHaveBeenCalled();
+    expect(mockPayments.deleteRecord).not.toHaveBeenCalled();
   });
 
   it("rejects agent payment mutations", async () => {

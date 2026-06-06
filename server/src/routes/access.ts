@@ -14,10 +14,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import type { Request } from "express";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   assets,
+  agents as agentsTable,
   agentApiKeys,
   authUsers,
   companies,
@@ -1273,7 +1274,16 @@ async function loadCompanyInviteRecords(
 
   return {
     invites: visibleRows.map((invite) => ({
-      ...invite,
+      id: invite.id,
+      companyId: invite.companyId,
+      inviteType: invite.inviteType,
+      allowedJoinTypes: invite.allowedJoinTypes,
+      invitedByUserId: invite.invitedByUserId,
+      acceptedAt: invite.acceptedAt,
+      revokedAt: invite.revokedAt,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+      updatedAt: invite.updatedAt,
       companyName,
       humanRole: extractInviteHumanRole(invite),
       inviteMessage: extractInviteMessage(invite),
@@ -1857,6 +1867,10 @@ function inviteExpired(invite: typeof invites.$inferSelect) {
   return invite.expiresAt.getTime() <= Date.now();
 }
 
+function inviteAllowsAgentOnboarding(invite: typeof invites.$inferSelect) {
+  return invite.allowedJoinTypes === "agent" || invite.allowedJoinTypes === "both";
+}
+
 function inviteState(invite: typeof invites.$inferSelect) {
   if (invite.revokedAt) return "revoked" as const;
   if (invite.acceptedAt) return "accepted" as const;
@@ -2316,6 +2330,34 @@ async function resolveInviteResolutionTarget(
       ? hostname
       : undefined
   };
+}
+
+function assertInviteResolutionTargetAllowed(input: {
+  target: URL;
+  token: string;
+  req: Request;
+  bindHost: string;
+  allowedHostnames: string[];
+}) {
+  const allowedOrigins = new Set(
+    buildOnboardingConnectionCandidates({
+      apiBaseUrl: requestBaseUrl(input.req),
+      bindHost: input.bindHost,
+      allowedHostnames: input.allowedHostnames,
+    }).map((candidate) => new URL(candidate).origin),
+  );
+  if (!allowedOrigins.has(input.target.origin)) {
+    throw badRequest("url must target this Paperclip invite host");
+  }
+
+  const encodedToken = encodeURIComponent(input.token);
+  const allowedPathPrefixes = [
+    `/invite/${encodedToken}`,
+    `/api/invites/${encodedToken}`,
+  ];
+  if (!allowedPathPrefixes.some((prefix) => input.target.pathname === prefix || input.target.pathname.startsWith(`${prefix}/`))) {
+    throw badRequest("url must target this Paperclip invite");
+  }
 }
 
 async function probeInviteResolutionTarget(
@@ -2928,6 +2970,10 @@ export function accessRoutes(
           path: "/api/skills/paperclip-create-agent"
         },
         {
+          name: "paperclip-create-plugin",
+          path: "/api/skills/paperclip-create-plugin"
+        },
+        {
           name: "paperclip-converting-plans-to-tasks",
           path: "/api/skills/paperclip-converting-plans-to-tasks"
         }
@@ -2986,7 +3032,17 @@ export function accessRoutes(
         companyBranding
       );
       res.status(201).json({
-        ...created,
+        id: created.id,
+        companyId: created.companyId,
+        inviteType: created.inviteType,
+        allowedJoinTypes: created.allowedJoinTypes,
+        invitedByUserId: created.invitedByUserId,
+        acceptedAt: created.acceptedAt,
+        revokedAt: created.revokedAt,
+        expiresAt: created.expiresAt,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+        humanRole: extractInviteHumanRole(created),
         token,
         invitePath: inviteSummary.invitePath,
         inviteUrl: inviteSummary.inviteUrl,
@@ -3040,7 +3096,17 @@ export function accessRoutes(
         companyBranding
       );
       res.status(201).json({
-        ...created,
+        id: created.id,
+        companyId: created.companyId,
+        inviteType: created.inviteType,
+        allowedJoinTypes: created.allowedJoinTypes,
+        invitedByUserId: created.invitedByUserId,
+        acceptedAt: created.acceptedAt,
+        revokedAt: created.revokedAt,
+        expiresAt: created.expiresAt,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+        humanRole: extractInviteHumanRole(created),
         token,
         invitePath: inviteSummary.invitePath,
         inviteUrl: inviteSummary.inviteUrl,
@@ -3146,7 +3212,14 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (
+      !invite ||
+      invite.revokedAt ||
+      inviteExpired(invite) ||
+      !inviteAllowsAgentOnboarding(invite) ||
+      (invite.acceptedAt && !inviteJoinRequest)
+    ) {
       throw notFound("Invite not found");
     }
 
@@ -3165,7 +3238,14 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (
+      !invite ||
+      invite.revokedAt ||
+      inviteExpired(invite) ||
+      !inviteAllowsAgentOnboarding(invite) ||
+      (invite.acceptedAt && !inviteJoinRequest)
+    ) {
       throw notFound("Invite not found");
     }
 
@@ -3188,7 +3268,8 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (!invite || invite.revokedAt || inviteExpired(invite) || (invite.acceptedAt && !inviteJoinRequest)) {
       throw notFound("Invite not found");
     }
 
@@ -3210,7 +3291,8 @@ export function accessRoutes(
       .from(invites)
       .where(eq(invites.tokenHash, hashToken(token)))
       .then((rows) => rows[0] ?? null);
-    if (!invite || invite.revokedAt || inviteExpired(invite)) {
+    const inviteJoinRequest = await resolveAcceptedInviteJoinRequest(db, req, invite);
+    if (!invite || invite.revokedAt || inviteExpired(invite) || (invite.acceptedAt && !inviteJoinRequest)) {
       throw notFound("Invite not found");
     }
 
@@ -3245,6 +3327,13 @@ export function accessRoutes(
     if (target.protocol !== "http:" && target.protocol !== "https:") {
       throw badRequest("url must use http or https");
     }
+    assertInviteResolutionTargetAllowed({
+      target,
+      token,
+      req,
+      bindHost: opts.bindHost,
+      allowedHostnames: opts.allowedHostnames,
+    });
 
     const parsedTimeoutMs =
       typeof req.query.timeoutMs === "string"
@@ -3493,7 +3582,7 @@ export function accessRoutes(
       let created = !inviteAlreadyAccepted
         ? existingHumanJoinRequest
           ? await db.transaction(async (tx) => {
-              await tx
+              const accepted = await tx
                 .update(invites)
                 .set({ acceptedAt: new Date(), updatedAt: new Date() })
                 .where(
@@ -3502,11 +3591,16 @@ export function accessRoutes(
                     isNull(invites.acceptedAt),
                     isNull(invites.revokedAt)
                   )
-                );
+                )
+                .returning({ id: invites.id })
+                .then((rows) => rows[0] ?? null);
+              if (!accepted) {
+                throw conflict("Invite is no longer available");
+              }
               return existingHumanJoinRequest;
             })
           : await db.transaction(async (tx) => {
-              await tx
+              const accepted = await tx
                 .update(invites)
                 .set({ acceptedAt: new Date(), updatedAt: new Date() })
                 .where(
@@ -3515,7 +3609,12 @@ export function accessRoutes(
                     isNull(invites.acceptedAt),
                     isNull(invites.revokedAt)
                   )
-                );
+                )
+                .returning({ id: invites.id })
+                .then((rows) => rows[0] ?? null);
+              if (!accepted) {
+                throw conflict("Invite is no longer available");
+              }
 
               const row = await tx
                 .insert(joinRequests)
@@ -3758,9 +3857,27 @@ export function accessRoutes(
     const revoked = await db
       .update(invites)
       .set({ revokedAt: new Date(), updatedAt: new Date() })
-      .where(eq(invites.id, id))
+      .where(
+        and(
+          eq(invites.id, id),
+          isNull(invites.acceptedAt),
+          isNull(invites.revokedAt)
+        )
+      )
       .returning()
-      .then((rows) => rows[0]);
+      .then((rows) => rows[0] ?? null);
+
+    if (!revoked) {
+      const latest = await db
+        .select()
+        .from(invites)
+        .where(eq(invites.id, id))
+        .then((rows) => rows[0] ?? null);
+      if (!latest) throw notFound("Invite not found");
+      if (latest.revokedAt) return res.json(latest);
+      if (latest.acceptedAt) throw conflict("Invite already consumed");
+      throw conflict("Invite could not be revoked");
+    }
 
     if (invite.companyId) {
       await logActivity(db, {
@@ -3808,132 +3925,167 @@ export function accessRoutes(
       const requestId = req.params.requestId as string;
       await assertCompanyPermission(req, companyId, "joins:approve");
 
-      const existing = await db
-        .select()
-        .from(joinRequests)
-        .where(
-          and(
-            eq(joinRequests.companyId, companyId),
-            eq(joinRequests.id, requestId)
+      const { approved, createdAgentId, requestType } = await db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const txAccess = accessService(txDb);
+        const txAgents = agentService(txDb);
+        const existing = await tx
+          .select()
+          .from(joinRequests)
+          .where(
+            and(
+              eq(joinRequests.companyId, companyId),
+              eq(joinRequests.id, requestId)
+            )
           )
-        )
-        .then((rows) => rows[0] ?? null);
-      if (!existing) throw notFound("Join request not found");
-      if (existing.status !== "pending_approval")
-        throw conflict("Join request is not pending");
+          .then((rows) => rows[0] ?? null);
+        if (!existing) throw notFound("Join request not found");
+        if (existing.status !== "pending_approval") {
+          throw conflict("Join request is not pending");
+        }
 
-      const invite = await db
-        .select()
-        .from(invites)
-        .where(eq(invites.id, existing.inviteId))
-        .then((rows) => rows[0] ?? null);
-      if (!invite) throw notFound("Invite not found");
+        const invite = await tx
+          .select()
+          .from(invites)
+          .where(eq(invites.id, existing.inviteId))
+          .then((rows) => rows[0] ?? null);
+        if (!invite) throw notFound("Invite not found");
 
-      let createdAgentId: string | null = existing.createdAgentId ?? null;
-      if (existing.requestType === "human") {
-        if (!existing.requestingUserId)
-          throw conflict("Join request missing user identity");
-        const membershipRole = resolveHumanInviteRole(
-          invite.defaultsPayload as Record<string, unknown> | null,
-        );
-        await access.ensureMembership(
-          companyId,
-          "user",
-          existing.requestingUserId,
-          membershipRole,
-          "active"
-        );
-        const grants = humanJoinGrantsFromDefaults(
-          invite.defaultsPayload as Record<string, unknown> | null,
-          membershipRole
-        );
-        await access.setPrincipalGrants(
-          companyId,
-          "user",
-          existing.requestingUserId,
-          grants,
-          req.actor.userId ?? null
-        );
-      } else {
-        const existingAgents = await agents.list(companyId);
-        const managerId = resolveJoinRequestAgentManagerId(existingAgents);
-        if (!managerId) {
-          throw conflict(
-            "Join request cannot be approved because this company has no active CEO"
+        const approvedAt = new Date();
+        const approvedByUserId =
+          req.actor.userId ?? (isLocalImplicit(req) ? "local-board" : null);
+        const claimed = await tx
+          .update(joinRequests)
+          .set({
+            status: "approved",
+            approvedByUserId,
+            approvedAt,
+            createdAgentId: existing.createdAgentId ?? null,
+            updatedAt: approvedAt
+          })
+          .where(
+            and(
+              eq(joinRequests.companyId, companyId),
+              eq(joinRequests.id, requestId),
+              eq(joinRequests.status, "pending_approval")
+            )
+          )
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) {
+          throw conflict("Join request is not pending");
+        }
+
+        let createdAgentId: string | null = existing.createdAgentId ?? null;
+        if (existing.requestType === "human") {
+          if (!existing.requestingUserId) {
+            throw conflict("Join request missing user identity");
+          }
+          const membershipRole = resolveHumanInviteRole(
+            invite.defaultsPayload as Record<string, unknown> | null,
+          );
+          await txAccess.ensureMembership(
+            companyId,
+            "user",
+            existing.requestingUserId,
+            membershipRole,
+            "active"
+          );
+          const grants = humanJoinGrantsFromDefaults(
+            invite.defaultsPayload as Record<string, unknown> | null,
+            membershipRole
+          );
+          await txAccess.setPrincipalGrants(
+            companyId,
+            "user",
+            existing.requestingUserId,
+            grants,
+            req.actor.userId ?? null
+          );
+        } else {
+          const existingAgents = await txAgents.list(companyId);
+          const managerId = resolveJoinRequestAgentManagerId(existingAgents);
+          if (!managerId) {
+            throw conflict(
+              "Join request cannot be approved because this company has no active CEO"
+            );
+          }
+
+          const agentName = deduplicateAgentName(
+            existing.agentName ?? "New Agent",
+            existingAgents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              status: a.status
+            }))
+          );
+
+          const created = await txAgents.create(companyId, {
+            name: agentName,
+            role: "general",
+            title: null,
+            status: "idle",
+            reportsTo: managerId,
+            capabilities: existing.capabilities ?? null,
+            adapterType: existing.adapterType ?? "process",
+            adapterConfig:
+              existing.agentDefaultsPayload &&
+              typeof existing.agentDefaultsPayload === "object"
+                ? (existing.agentDefaultsPayload as Record<string, unknown>)
+                : {},
+            runtimeConfig: {},
+            budgetMonthlyCents: 0,
+            spentMonthlyCents: 0,
+            permissions: {},
+            lastHeartbeatAt: null,
+            metadata: null
+          });
+          createdAgentId = created.id;
+          await txAccess.ensureMembership(
+            companyId,
+            "agent",
+            created.id,
+            "member",
+            "active"
+          );
+          const grants = agentJoinGrantsFromDefaults(
+            invite.defaultsPayload as Record<string, unknown> | null
+          );
+          await txAccess.setPrincipalGrants(
+            companyId,
+            "agent",
+            created.id,
+            grants,
+            req.actor.userId ?? null
           );
         }
 
-        const agentName = deduplicateAgentName(
-          existing.agentName ?? "New Agent",
-          existingAgents.map((a) => ({
-            id: a.id,
-            name: a.name,
-            status: a.status
-          }))
-        );
+        const approved = createdAgentId === claimed.createdAgentId
+          ? claimed
+          : await tx
+              .update(joinRequests)
+              .set({ createdAgentId, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(joinRequests.companyId, companyId),
+                  eq(joinRequests.id, requestId),
+                  eq(joinRequests.status, "approved")
+                )
+              )
+              .returning()
+              .then((rows) => rows[0] ?? claimed);
 
-        const created = await agents.create(companyId, {
-          name: agentName,
-          role: "general",
-          title: null,
-          status: "idle",
-          reportsTo: managerId,
-          capabilities: existing.capabilities ?? null,
-          adapterType: existing.adapterType ?? "process",
-          adapterConfig:
-            existing.agentDefaultsPayload &&
-            typeof existing.agentDefaultsPayload === "object"
-              ? (existing.agentDefaultsPayload as Record<string, unknown>)
-              : {},
-          runtimeConfig: {},
-          budgetMonthlyCents: 0,
-          spentMonthlyCents: 0,
-          permissions: {},
-          lastHeartbeatAt: null,
-          metadata: null
+        await logActivity(txDb, {
+          companyId,
+          actorType: "user",
+          actorId: req.actor.userId ?? "board",
+          action: "join.approved",
+          entityType: "join_request",
+          entityId: requestId,
+          details: { requestType: existing.requestType, createdAgentId }
         });
-        createdAgentId = created.id;
-        await access.ensureMembership(
-          companyId,
-          "agent",
-          created.id,
-          "member",
-          "active"
-        );
-        const grants = agentJoinGrantsFromDefaults(
-          invite.defaultsPayload as Record<string, unknown> | null
-        );
-        await access.setPrincipalGrants(
-          companyId,
-          "agent",
-          created.id,
-          grants,
-          req.actor.userId ?? null
-        );
-      }
 
-      const approved = await db
-        .update(joinRequests)
-        .set({
-          status: "approved",
-          approvedByUserId:
-            req.actor.userId ?? (isLocalImplicit(req) ? "local-board" : null),
-          approvedAt: new Date(),
-          createdAgentId,
-          updatedAt: new Date()
-        })
-        .where(eq(joinRequests.id, requestId))
-        .returning()
-        .then((rows) => rows[0]);
-
-      await logActivity(db, {
-        companyId,
-        actorType: "user",
-        actorId: req.actor.userId ?? "board",
-        action: "join.approved",
-        entityType: "join_request",
-        entityId: requestId,
-        details: { requestType: existing.requestType, createdAgentId }
+        return { approved, createdAgentId, requestType: existing.requestType };
       });
 
       if (createdAgentId) {
@@ -4016,6 +4168,7 @@ export function accessRoutes(
         throw conflict("Join request must be approved before key claim");
       if (!joinRequest.createdAgentId)
         throw conflict("Join request has no created agent");
+      const createdAgentId = joinRequest.createdAgentId;
       if (!joinRequest.claimSecretHash)
         throw conflict("Join request is missing claim secret metadata");
       if (
@@ -4035,29 +4188,61 @@ export function accessRoutes(
       const existingKey = await db
         .select({ id: agentApiKeys.id })
         .from(agentApiKeys)
-        .where(eq(agentApiKeys.agentId, joinRequest.createdAgentId))
+        .where(eq(agentApiKeys.agentId, createdAgentId))
         .then((rows) => rows[0] ?? null);
       if (existingKey) throw conflict("API key already claimed");
 
-      const consumed = await db
-        .update(joinRequests)
-        .set({ claimSecretConsumedAt: new Date(), updatedAt: new Date() })
-        .where(
-          and(
-            eq(joinRequests.id, requestId),
-            isNull(joinRequests.claimSecretConsumedAt)
+      const token = `pcp_${randomBytes(24).toString("hex")}`;
+      const created = await db.transaction(async (tx) => {
+        const agent = await tx
+          .select({
+            id: agentsTable.id,
+            companyId: agentsTable.companyId,
+            status: agentsTable.status,
+          })
+          .from(agentsTable)
+          .where(eq(agentsTable.id, createdAgentId))
+          .then((rows) => rows[0] ?? null);
+        if (!agent) throw notFound("Agent not found");
+        if (agent.status === "pending_approval") {
+          throw conflict("Cannot create keys for pending approval agents");
+        }
+        if (agent.status === "terminated") {
+          throw conflict("Cannot create keys for terminated agents");
+        }
+        if (!agent.companyId) {
+          throw notFound("Agent not found");
+        }
+
+        const consumed = await tx
+          .update(joinRequests)
+          .set({ claimSecretConsumedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(joinRequests.id, requestId),
+              isNull(joinRequests.claimSecretConsumedAt)
+            )
           )
-        )
-        .returning({ id: joinRequests.id })
-        .then((rows) => rows[0] ?? null);
-      if (!consumed) throw conflict("Claim secret already used");
+          .returning({ id: joinRequests.id })
+          .then((rows) => rows[0] ?? null);
+        if (!consumed) throw conflict("Claim secret already used");
 
-      const created = await agents.createApiKey(
-        joinRequest.createdAgentId,
-        "initial-join-key"
-      );
+        return tx
+          .insert(agentApiKeys)
+          .values({
+            agentId: createdAgentId,
+            companyId: agent.companyId,
+            name: "initial-join-key",
+            keyHash: hashToken(token),
+          })
+          .returning({
+            id: agentApiKeys.id,
+            createdAt: agentApiKeys.createdAt,
+          })
+          .then((rows) => rows[0]);
+      });
 
-      await logActivity(db, {
+      logActivity(db, {
         companyId: joinRequest.companyId,
         actorType: "system",
         actorId: "join-claim",
@@ -4065,15 +4250,17 @@ export function accessRoutes(
         entityType: "agent_api_key",
         entityId: created.id,
         details: {
-          agentId: joinRequest.createdAgentId,
+          agentId: createdAgentId,
           joinRequestId: requestId
         }
+      }).catch((error) => {
+        logger.warn({ err: error, joinRequestId: requestId }, "failed to log agent API key claim");
       });
 
       res.status(201).json({
         keyId: created.id,
-        token: created.token,
-        agentId: joinRequest.createdAgentId,
+        token,
+        agentId: createdAgentId,
         createdAt: created.createdAt
       });
     }
@@ -4414,23 +4601,24 @@ export function accessRoutes(
     await assertInstanceAdmin(req);
     const query = searchAdminUsersQuerySchema.parse(req.query);
     const needle = query.query.trim().toLowerCase();
-    const users = await db
+    const userSearchCondition = needle
+      ? or(
+          ilike(authUsers.email, `%${needle}%`),
+          ilike(authUsers.name, `%${needle}%`),
+        )
+      : undefined;
+    const usersBaseQuery = db
       .select({
         id: authUsers.id,
         email: authUsers.email,
         name: authUsers.name,
         image: authUsers.image,
       })
-      .from(authUsers)
-      .orderBy(desc(authUsers.updatedAt));
-    const filteredUsers = needle
-      ? users.filter((user) =>
-          [user.name, user.email]
-            .filter((value): value is string => Boolean(value))
-            .some((value) => value.toLowerCase().includes(needle)),
-        )
-      : users;
-    const userIds = filteredUsers.slice(0, 50).map((user) => user.id);
+      .from(authUsers);
+    const users = await (userSearchCondition
+      ? usersBaseQuery.where(userSearchCondition).orderBy(desc(authUsers.updatedAt)).limit(50)
+      : usersBaseQuery.orderBy(desc(authUsers.updatedAt)).limit(50));
+    const userIds = users.map((user) => user.id);
     const memberships = userIds.length
       ? await db
           .select({
@@ -4453,15 +4641,23 @@ export function accessRoutes(
       );
     }
     const adminIds = new Set(
-      await Promise.all(
-        userIds.map(async (userId) =>
-          (await access.isInstanceAdmin(userId)) ? userId : null,
-        ),
-      ).then((values) => values.filter((value): value is string => Boolean(value))),
+      userIds.length
+        ? (
+            await db
+              .select({ userId: instanceUserRoles.userId })
+              .from(instanceUserRoles)
+              .where(
+                and(
+                  eq(instanceUserRoles.role, "instance_admin"),
+                  inArray(instanceUserRoles.userId, userIds),
+                ),
+              )
+          ).map((row) => row.userId)
+        : [],
     );
 
     res.json(
-      filteredUsers.slice(0, 50).map((user) => ({
+      users.map((user) => ({
         ...toUserProfile(user),
         isInstanceAdmin: adminIds.has(user.id),
         activeCompanyMembershipCount:

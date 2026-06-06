@@ -101,6 +101,40 @@ describe("sidebar preference routes", () => {
     expect(mockSidebarPreferenceService.upsertCompanyOrder).toHaveBeenCalledWith("user-1", ORDERED_IDS);
   });
 
+  it("rejects malformed company rail order updates before persistence", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+    });
+
+    const res = await request(app)
+      .put("/api/sidebar-preferences/me")
+      .send({ orderedIds: ["not-a-uuid"] });
+
+    expect(res.status).toBe(400);
+    expect(mockSidebarPreferenceService.upsertCompanyOrder).not.toHaveBeenCalled();
+  });
+
+  it("rejects company rail writes without a board user id", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: null,
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: ["company-1"],
+    });
+
+    const res = await request(app)
+      .put("/api/sidebar-preferences/me")
+      .send({ orderedIds: ORDERED_IDS });
+
+    expect(res.status).toBe(403);
+    expect(mockSidebarPreferenceService.upsertCompanyOrder).not.toHaveBeenCalled();
+  });
+
   it("returns project order for companies the board user can access", async () => {
     const app = await createApp({
       type: "board",

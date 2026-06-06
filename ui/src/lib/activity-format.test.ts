@@ -75,6 +75,11 @@ describe("activity formatting", () => {
     expect(formatIssueActivityAction("issue.monitor_recovery_issue_created")).toBe("created a monitor recovery issue");
   });
 
+  it("formats feedback vote activity at row and issue detail level", () => {
+    expect(formatActivityVerb("issue.feedback_vote_saved")).toBe("saved feedback on");
+    expect(formatIssueActivityAction("issue.feedback_vote_saved")).toBe("saved feedback on an AI output");
+  });
+
   it("uses plain next-step copy for successful-run handoff activity", () => {
     expect(formatActivityVerb("issue.successful_run_handoff_required")).toBe("flagged missing next step on");
     expect(formatIssueActivityAction("issue.successful_run_handoff_required")).toBe("Run finished without a clear next step");

@@ -51,7 +51,7 @@ export function findReusableHumanJoinRequest<
       (row) =>
         row.requestType === "human" &&
         (row.status === "pending_approval" || row.status === "approved") &&
-        row.requestingUserId === actorUserId
+        nonEmptyTrimmed(row.requestingUserId) === actorUserId
     );
     if (sameUser) return sameUser;
   }

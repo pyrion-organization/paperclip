@@ -88,7 +88,9 @@ async function inflateZipEntry(compressionMethod: number, bytes: Uint8Array) {
   if (compressionMethod !== 8) {
     throw new Error("Unsupported zip archive: only STORE and DEFLATE entries are supported.");
   }
-  return new Uint8Array(inflateRawSync(bytes));
+  return new Uint8Array(inflateRawSync(bytes, {
+    maxOutputLength: MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES + 1,
+  }));
 }
 
 export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<{
@@ -137,11 +139,14 @@ export async function readZipArchive(source: ArrayBuffer | Uint8Array): Promise<
       if (uncompressedSize > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES) {
         throw new Error(`Invalid zip archive: entry "${archivePath}" exceeds the maximum uncompressed size.`);
       }
-      totalUncompressedSize += uncompressedSize;
+      const entryBytes = await inflateZipEntry(compressionMethod, bytes.slice(bodyOffset, bodyEnd));
+      if (entryBytes.length > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES) {
+        throw new Error(`Invalid zip archive: entry "${archivePath}" exceeds the maximum uncompressed size.`);
+      }
+      totalUncompressedSize += entryBytes.length;
       if (totalUncompressedSize > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
         throw new Error("Invalid zip archive: total uncompressed size exceeds the maximum allowed size.");
       }
-      const entryBytes = await inflateZipEntry(compressionMethod, bytes.slice(bodyOffset, bodyEnd));
       if (entryBytes.length !== uncompressedSize) {
         throw new Error(`Invalid zip archive: entry size mismatch for "${archivePath}".`);
       }

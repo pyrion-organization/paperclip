@@ -166,16 +166,22 @@ export function assetRoutes(db: Db, storage: StorageService) {
       body: fileBody,
     });
 
-    const asset = await svc.create(companyId, {
-      provider: stored.provider,
-      objectKey: stored.objectKey,
-      contentType: stored.contentType,
-      byteSize: stored.byteSize,
-      sha256: stored.sha256,
-      originalFilename: stored.originalFilename,
-      createdByAgentId: actor.agentId,
-      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
-    });
+    let asset: Awaited<ReturnType<typeof svc.create>>;
+    try {
+      asset = await svc.create(companyId, {
+        provider: stored.provider,
+        objectKey: stored.objectKey,
+        contentType: stored.contentType,
+        byteSize: stored.byteSize,
+        sha256: stored.sha256,
+        originalFilename: stored.originalFilename,
+        createdByAgentId: actor.agentId,
+        createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+    } catch (error) {
+      await storage.deleteObject(companyId, stored.objectKey).catch(() => null);
+      throw error;
+    }
 
     await logActivity(db, {
       companyId,

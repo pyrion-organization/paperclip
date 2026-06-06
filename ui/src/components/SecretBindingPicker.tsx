@@ -162,7 +162,7 @@ export function SecretBindingPicker({
                 onChange(null);
                 return;
               }
-              onChange({ secretId: next, version: value?.version ?? VERSION_LATEST });
+              onChange({ secretId: next, version: VERSION_LATEST });
             }}
             disabled={disabled || secretsQuery.isPending}
           >

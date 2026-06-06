@@ -22,5 +22,12 @@ describe("buildLineDiff", () => {
   it("handles empty old text as full insertion", () => {
     const rows = buildLineDiff("", "x\ny");
     expect(rows.filter((row) => row.kind === "added")).toHaveLength(2);
+    expect(rows.some((row) => row.kind === "removed")).toBe(false);
+  });
+
+  it("handles empty new text as full removal", () => {
+    const rows = buildLineDiff("x\ny", "");
+    expect(rows.filter((row) => row.kind === "removed")).toHaveLength(2);
+    expect(rows.some((row) => row.kind === "added")).toBe(false);
   });
 });

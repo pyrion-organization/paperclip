@@ -177,7 +177,7 @@ describe("client employee and email-domain routes", () => {
     );
   });
 
-  it("rejects cross-company access on /clients/:id/employees", async () => {
+  it("hides cross-company clients on /clients/:id/employees", async () => {
     mockClientService.getById.mockResolvedValue({
       id: "client-1",
       companyId: "company-other",
@@ -185,8 +185,20 @@ describe("client employee and email-domain routes", () => {
     });
 
     const res = await request(createApp()).get("/api/clients/client-1/employees");
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(mockClientService.listEmployees).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for cross-company client lookup", async () => {
+    mockClientService.getById.mockResolvedValue({
+      id: "client-1",
+      companyId: "company-other",
+      name: "Acme",
+    });
+
+    const res = await request(createApp()).get("/api/clients/client-1");
+
+    expect(res.status).toBe(404);
   });
 
   it("rejects cross-company access on DELETE /client-email-domains/:id", async () => {
@@ -252,5 +264,40 @@ describe("client employee and email-domain routes", () => {
       .send({ name: "Renamed", clientId: "client-other" });
     expect(res.status).toBe(400);
     expect(mockClientService.updateEmployee).not.toHaveBeenCalled();
+  });
+
+  it("updates client employees", async () => {
+    mockClientService.getEmployeeById.mockResolvedValue({
+      id: "employee-1",
+      companyId: "company-1",
+      clientId: "client-1",
+      name: "Ana",
+      role: "TI",
+      email: "ana@client.com",
+      projectScope: "all_linked_projects",
+      projectLinks: [],
+    });
+    mockClientService.updateEmployee.mockResolvedValue({
+      id: "employee-1",
+      companyId: "company-1",
+      clientId: "client-1",
+      name: "Ana Silva",
+      role: "TI",
+      email: "ana@client.com",
+      projectScope: "all_linked_projects",
+      projectLinks: [],
+    });
+
+    const res = await request(createApp())
+      .patch("/api/client-employees/employee-1")
+      .send({ name: "Ana Silva" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: "employee-1", name: "Ana Silva" });
+    expect(mockClientService.updateEmployee).toHaveBeenCalledWith(
+      "employee-1",
+      "company-1",
+      { name: "Ana Silva" },
+    );
   });
 });

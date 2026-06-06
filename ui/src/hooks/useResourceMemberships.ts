@@ -50,6 +50,31 @@ function applyMembershipState(
   };
 }
 
+export function restoreMembershipState(
+  current: ResourceMemberships | undefined,
+  previous: ResourceMemberships | undefined,
+  resourceType: ResourceMembershipResourceType,
+  resourceId: string,
+): ResourceMemberships {
+  const base = current ?? emptyMemberships();
+  if (resourceType === "project") {
+    const projectMemberships = { ...base.projectMemberships };
+    if (previous?.projectMemberships[resourceId] === undefined) {
+      delete projectMemberships[resourceId];
+    } else {
+      projectMemberships[resourceId] = previous.projectMemberships[resourceId]!;
+    }
+    return { ...base, projectMemberships, updatedAt: new Date() };
+  }
+  const agentMemberships = { ...base.agentMemberships };
+  if (previous?.agentMemberships[resourceId] === undefined) {
+    delete agentMemberships[resourceId];
+  } else {
+    agentMemberships[resourceId] = previous.agentMemberships[resourceId]!;
+  }
+  return { ...base, agentMemberships, updatedAt: new Date() };
+}
+
 export function resourceMembershipState(
   memberships: ResourceMemberships | undefined,
   resourceType: ResourceMembershipResourceType,
@@ -84,15 +109,24 @@ export function useResourceMembershipMutation(companyId: string | null | undefin
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<ResourceMemberships>(queryKey);
+      const optimistic = applyMembershipState(previous, variables.resourceType, variables.resourceId, variables.state);
       queryClient.setQueryData<ResourceMemberships>(
         queryKey,
-        applyMembershipState(previous, variables.resourceType, variables.resourceId, variables.state),
+        optimistic,
       );
-      return { previous };
+      return { previous, optimistic };
     },
     onError: (error, variables, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
+      if (context?.optimistic) {
+        const current = queryClient.getQueryData<ResourceMemberships>(queryKey);
+        const currentState = resourceMembershipState(current, variables.resourceType, variables.resourceId);
+        const optimisticState = resourceMembershipState(context.optimistic, variables.resourceType, variables.resourceId);
+        if (currentState === optimisticState) {
+          queryClient.setQueryData<ResourceMemberships>(
+            queryKey,
+            (latest) => restoreMembershipState(latest, context.previous, variables.resourceType, variables.resourceId),
+          );
+        }
       }
       const verb = variables.state === "left" ? "leave" : "join";
       pushToast({

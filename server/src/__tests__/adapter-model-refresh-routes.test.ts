@@ -14,6 +14,7 @@ vi.mock("acpx/runtime", () => ({
 const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
   hasPermission: vi.fn(),
+  decide: vi.fn(),
   ensureMembership: vi.fn(),
   setPrincipalPermission: vi.fn(),
 }));
@@ -31,6 +32,7 @@ const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));
 const mockListOpenCodeModels = vi.hoisted(() => vi.fn());
+const mockDetectAdapterModel = vi.hoisted(() => vi.fn());
 
 const mockAgentInstructionsService = vi.hoisted(() => ({
   materializeManagedBundle: vi.fn(),
@@ -72,6 +74,14 @@ function registerModuleMocks() {
     return {
       ...actual,
       listOpenCodeModels: mockListOpenCodeModels,
+    };
+  });
+
+  vi.doMock("../adapters/index.js", async () => {
+    const actual = await vi.importActual<typeof import("../adapters/index.js")>("../adapters/index.js");
+    return {
+      ...actual,
+      detectAdapterModel: mockDetectAdapterModel,
     };
   });
 
@@ -162,12 +172,14 @@ describe("adapter model refresh route", () => {
     vi.doUnmock("../routes/agents.js");
     vi.doUnmock("../routes/authz.js");
     vi.doUnmock("../middleware/index.js");
+    vi.doUnmock("../adapters/index.js");
     registerModuleMocks();
     vi.clearAllMocks();
     mockCompanySkillService.listRuntimeSkillEntries.mockResolvedValue([]);
     mockCompanySkillService.resolveRequestedSkillKeys.mockResolvedValue([]);
     mockAccessService.canUser.mockResolvedValue(true);
     mockAccessService.hasPermission.mockResolvedValue(true);
+    mockAccessService.decide.mockResolvedValue({ allowed: true, explanation: "allowed" });
     mockAccessService.ensureMembership.mockResolvedValue(undefined);
     mockAccessService.setPrincipalPermission.mockResolvedValue(undefined);
     mockLogActivity.mockResolvedValue(undefined);
@@ -175,6 +187,8 @@ describe("adapter model refresh route", () => {
     mockEnvironmentService.getById.mockResolvedValue(null);
     mockListOpenCodeModels.mockReset();
     mockListOpenCodeModels.mockResolvedValue([{ id: "dynamic-opencode-model", label: "dynamic-opencode-model" }]);
+    mockDetectAdapterModel.mockReset();
+    mockDetectAdapterModel.mockResolvedValue({ model: "detected-model" });
     await unregisterTestAdapter(refreshableAdapterType);
   });
 
@@ -247,5 +261,19 @@ describe("adapter model refresh route", () => {
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toEqual([{ id: "dynamic-opencode-model", label: "dynamic-opencode-model" }]);
     expect(mockListOpenCodeModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires configuration read permission before detecting adapter models", async () => {
+    mockAccessService.canUser.mockResolvedValue(false);
+    mockAccessService.hasPermission.mockResolvedValue(false);
+    mockAccessService.decide.mockResolvedValue({ allowed: false, explanation: "missing permission" });
+
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl).get("/api/companies/company-1/adapters/codex_local/detect-model"),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockDetectAdapterModel).not.toHaveBeenCalled();
   });
 });

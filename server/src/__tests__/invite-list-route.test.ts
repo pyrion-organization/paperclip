@@ -152,6 +152,9 @@ describeEmbeddedPostgres("GET /companies/:companyId/invites", () => {
     expect(firstPage.body.invites).toHaveLength(2);
     expect(firstPage.body.invites.map((invite: { id: string }) => invite.id)).toEqual([inviteThreeId, inviteTwoId]);
     expect(firstPage.body.invites[0].relatedJoinRequestId).toBeTruthy();
+    expect(firstPage.body.invites[0]).not.toHaveProperty("tokenHash");
+    expect(firstPage.body.invites[0]).not.toHaveProperty("defaultsPayload");
+    expect(firstPage.body.invites[0].humanRole).toBeTruthy();
     expect(firstPage.body.nextOffset).toBe(2);
 
     const secondPage = await request(app).get(`/api/companies/${companyId}/invites?limit=2&offset=2`);

@@ -165,7 +165,6 @@ export type CompanyInviteRecord = {
   inviteType: "company_join" | "bootstrap_ceo";
   allowedJoinTypes: "human" | "agent" | "both";
   humanRole: HumanCompanyRole | null;
-  defaultsPayload: Record<string, unknown> | null;
   expiresAt: string;
   invitedByUserId: string | null;
   revokedAt: string | null;

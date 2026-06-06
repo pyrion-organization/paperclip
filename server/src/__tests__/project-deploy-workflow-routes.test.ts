@@ -16,9 +16,12 @@ const mockProjectService = vi.hoisted(() => ({
   listInfraTargets: vi.fn(),
   getInfraTarget: vi.fn(),
   createInfraTarget: vi.fn(),
+  removeInfraTarget: vi.fn(),
   listInfraHealthChecks: vi.fn(),
   getInfraHealthCheck: vi.fn(),
   createInfraHealthCheck: vi.fn(),
+  updateInfraHealthCheck: vi.fn(),
+  removeInfraHealthCheck: vi.fn(),
   rotateInfraHealthExternalMonitorToken: vi.fn(),
   revokeInfraHealthExternalMonitorToken: vi.fn(),
   recordExternalInfraHealthResult: vi.fn(),
@@ -391,11 +394,16 @@ describe("project deploy workflow routes", () => {
     mockProjectService.createInfraTarget.mockImplementation(async (_projectId, data) =>
       buildInfraTarget(data),
     );
+    mockProjectService.removeInfraTarget.mockResolvedValue(buildInfraTarget());
     mockProjectService.listInfraHealthChecks.mockResolvedValue([buildInfraHealthCheck()]);
     mockProjectService.getInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.createInfraHealthCheck.mockImplementation(async (_projectId, data) =>
       buildInfraHealthCheck(data),
     );
+    mockProjectService.updateInfraHealthCheck.mockImplementation(async (_projectId, _healthCheckId, data) =>
+      buildInfraHealthCheck(data),
+    );
+    mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck());
     mockProjectService.rotateInfraHealthExternalMonitorToken.mockResolvedValue({
       healthCheck: buildInfraHealthCheck({ externalMonitorEnabled: true, externalMonitorTokenHint: "abcd1234" }),
       token: "pcmon_test_abcd1234",
@@ -642,6 +650,34 @@ describe("project deploy workflow routes", () => {
     );
   });
 
+  it("lists deploy command records for deploy events in the project company", async () => {
+    mockProjectService.listDeployCommandRecords.mockResolvedValue([
+      buildDeployCommandRecord({ command: "pnpm deploy:prod" }),
+    ]);
+
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(mockProjectService.listDeployCommandRecords).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "55555555-5555-4555-8555-555555555555",
+    );
+  });
+
+  it("rejects deploy command record listings for events outside the project company", async () => {
+    mockProjectService.getDeployEvent.mockResolvedValue(buildDeployEvent({ companyId: "other-company" }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .get("/api/projects/11111111-1111-4111-8111-111111111111/deploy-events/55555555-5555-4555-8555-555555555555/command-records");
+
+    expect(res.status).toBe(404);
+    expect(mockProjectService.listDeployCommandRecords).not.toHaveBeenCalled();
+  });
+
   it("moves a deploy event to deploying when running command evidence is recorded", async () => {
     const app = await createApp();
     const res = await request(app)
@@ -875,6 +911,49 @@ describe("project deploy workflow routes", () => {
     expect(mockProjectService.createInfraTarget).not.toHaveBeenCalled();
   }, 20_000);
 
+  it("deletes infra targets through the board-only route", async () => {
+    mockProjectService.removeInfraTarget.mockResolvedValue(buildInfraTarget({
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Production",
+    }));
+
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets/33333333-3333-4333-8333-333333333333");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.removeInfraTarget).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.infra_target_deleted",
+        details: expect.objectContaining({
+          infraTargetId: "33333333-3333-4333-8333-333333333333",
+          name: "Production",
+        }),
+      }),
+    );
+  });
+
+  it("rejects malformed infra target ids before deleting", async () => {
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-targets/not-a-uuid");
+
+    expect(res.status).toBe(400);
+    expect(mockProjectService.removeInfraTarget).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed infra health check ids before updating", async () => {
+    const res = await request(await createApp("board"))
+      .patch("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/not-a-uuid")
+      .send({ name: "Updated health check" });
+
+    expect(res.status).toBe(400);
+    expect(mockProjectService.updateInfraHealthCheck).not.toHaveBeenCalled();
+  });
+
   it("records an unhealthy health result and creates an infra incident issue", async () => {
     const app = await createApp();
     const res = await request(app)
@@ -1061,6 +1140,45 @@ describe("project deploy workflow routes", () => {
     expect(mockProjectService.revokeInfraHealthExternalMonitorToken).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
       "88888888-8888-4888-8888-888888888888",
+    );
+  });
+
+  it("rejects malformed external monitor token health check ids before persistence access", async () => {
+    const app = await createApp("board");
+
+    const res = await request(app)
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/not-a-uuid/external-monitor-token");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error).toBe("Invalid infrastructure health check id");
+    expect(mockProjectService.revokeInfraHealthExternalMonitorToken).not.toHaveBeenCalled();
+  });
+
+  it("deletes infra health checks through the board-only route", async () => {
+    mockProjectService.removeInfraHealthCheck.mockResolvedValue(buildInfraHealthCheck({
+      id: "88888888-8888-4888-8888-888888888888",
+      name: "Production HTTP",
+    }));
+
+    const res = await request(await createApp("board"))
+      .delete("/api/projects/11111111-1111-4111-8111-111111111111/infra-health-checks/88888888-8888-4888-8888-888888888888");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectService.removeInfraHealthCheck).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "88888888-8888-4888-8888-888888888888",
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.infra_health_check_deleted",
+        companyId: "company-1",
+        entityId: "11111111-1111-4111-8111-111111111111",
+        details: expect.objectContaining({
+          healthCheckId: "88888888-8888-4888-8888-888888888888",
+          name: "Production HTTP",
+        }),
+      }),
     );
   });
 

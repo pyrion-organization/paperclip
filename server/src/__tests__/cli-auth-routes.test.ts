@@ -140,6 +140,24 @@ describe.sequential("cli auth routes", () => {
     expect(skillRes.status, skillRes.text || JSON.stringify(skillRes.body)).toBe(401);
   });
 
+  it.sequential("includes every built-in Paperclip skill in the generic index", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/skills/index");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.skills).toContainEqual({
+      name: "paperclip-create-plugin",
+      path: "/api/skills/paperclip-create-plugin",
+    });
+  });
+
   it.sequential("serves the invite-scoped paperclip skill anonymously for active invites", async () => {
     const invite = {
       id: "invite-1",
@@ -169,6 +187,41 @@ describe.sequential("cli auth routes", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("text/markdown");
     expect(res.text).toContain("# Paperclip Skill");
+  });
+
+  it.sequential("rejects invite-scoped skill index after an invite is spent without a join request", async () => {
+    const invite = {
+      id: "invite-1",
+      companyId: "company-1",
+      inviteType: "company_join",
+      allowedJoinTypes: "agent",
+      tokenHash: "hash",
+      defaultsPayload: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      invitedByUserId: null,
+      revokedAt: null,
+      acceptedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const db = {
+      select: vi.fn()
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue([invite]),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn().mockResolvedValue([]),
+          })),
+        }),
+    };
+
+    const app = await createApp({ type: "none", source: "none" }, db);
+    const res = await request(app).get("/api/invites/token-123/skills/index");
+
+    expect(res.status).toBe(404);
   });
 
   it.sequential("marks challenge status as requiring sign-in for anonymous viewers", async () => {

@@ -15,7 +15,8 @@ export type WorkflowSortIssue = {
 // ordering — the row chip can still surface them visually later.
 //
 // If the input contains a cycle (API rejects this, so it shouldn't happen in
-// practice), the util degrades to a pure tie-break sort instead of hanging.
+// practice), the util preserves any emitted acyclic prefix and appends the
+// remaining cyclic nodes in deterministic tie-break order.
 export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
   if (issues.length <= 1) return [...issues];
 
@@ -105,12 +106,15 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
       const nextIssue = readyById.get(nextId);
       if (!nextIssue) break;
       readyById.delete(nextId);
+      const readyIndex = ready.findIndex((issue) => issue.id === nextId);
+      if (readyIndex >= 0) ready.splice(readyIndex, 1);
       current = nextIssue;
     }
   }
 
   if (emitted.size < issues.length) {
-    return issues.toSorted(tieBreakAsc);
+    const remaining = issues.filter((issue) => !emitted.has(issue.id)).toSorted(tieBreakAsc);
+    return [...output, ...remaining];
   }
 
   return output;

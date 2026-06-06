@@ -195,6 +195,42 @@ describe("POST /api/companies/:companyId/assets/images", () => {
     expect(res.body.contentPath).toBe("/api/assets/asset-1/content");
     expect(res.body.contentType).toBe("text/plain");
   });
+
+  it("removes uploaded image objects when asset persistence fails", async () => {
+    const png = createStorageService("image/png");
+    const app = await createApp(png);
+
+    createAssetMock.mockRejectedValue(new Error("db write failed"));
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post("/api/companies/company-1/assets/images")
+        .field("namespace", "goals")
+        .attach("file", Buffer.from("png"), "logo.png"),
+    );
+
+    expect(res.status).toBe(500);
+    expect(png.deleteObject).toHaveBeenCalledWith("company-1", "assets/goals/logo.png");
+  });
+
+  it("keeps uploaded image objects when activity logging fails after asset persistence", async () => {
+    const png = createStorageService("image/png");
+    const app = await createApp(png);
+
+    createAssetMock.mockResolvedValue(createAsset());
+    logActivityMock.mockRejectedValue(new Error("activity log failed"));
+
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .post("/api/companies/company-1/assets/images")
+        .field("namespace", "goals")
+        .attach("file", Buffer.from("png"), "logo.png"),
+    );
+
+    expect(res.status).toBe(500);
+    expect(createAssetMock).toHaveBeenCalledTimes(1);
+    expect(png.deleteObject).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/companies/:companyId/logo", () => {

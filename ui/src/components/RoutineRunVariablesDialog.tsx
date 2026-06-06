@@ -157,6 +157,19 @@ function isMissingRequiredValue(value: unknown) {
   return value == null || (typeof value === "string" && value.trim().length === 0);
 }
 
+function parseRoutineNumberValue(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isInvalidRoutineVariableValue(variable: RoutineVariable, value: unknown) {
+  return variable.type === "number" && !isMissingRequiredValue(value) && parseRoutineNumberValue(value) === null;
+}
+
 export interface RoutineRunDialogSubmitData {
   variables?: Record<string, string | number | boolean>;
   assigneeAgentId?: string | null;
@@ -356,7 +369,7 @@ function RoutineRunVariablesDialogContent({
       variables.flatMap((variable) =>
         variable.required
           && !isAutoWorkspaceBranchVariable(variable)
-          && isMissingRequiredValue(values[variable.name])
+          && (isMissingRequiredValue(values[variable.name]) || isInvalidRoutineVariableValue(variable, values[variable.name]))
           ? [variable.label || variable.name]
           : [],
       ),
@@ -632,7 +645,9 @@ function RoutineRunVariablesDialogContent({
                 const rawValue = values[variable.name];
                 if (isMissingRequiredValue(rawValue)) continue;
                 if (variable.type === "number") {
-                  nextVariables[variable.name] = Number(rawValue);
+                  const parsed = parseRoutineNumberValue(rawValue);
+                  if (parsed === null) continue;
+                  nextVariables[variable.name] = parsed;
                 } else if (variable.type === "boolean") {
                   nextVariables[variable.name] = rawValue === true;
                 } else {

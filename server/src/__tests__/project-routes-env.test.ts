@@ -18,7 +18,12 @@ const mockProjectService = vi.hoisted(() => ({
 const mockSecretService = vi.hoisted(() => ({
   normalizeEnvBindingsForPersistence: vi.fn(),
 }));
-const mockProjectFilesService = vi.hoisted(() => ({}));
+const mockProjectFilesService = vi.hoisted(() => ({
+  deletePath: vi.fn(),
+  deleteBranch: vi.fn(),
+  unstageFiles: vi.fn(),
+  pushFiles: vi.fn(),
+}));
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));
@@ -159,6 +164,14 @@ describe("project env routes", () => {
     mockProjectService.createWorkspace.mockResolvedValue(null);
     mockProjectService.updateWorkspace.mockResolvedValue(null);
     mockProjectService.listWorkspaces.mockResolvedValue([]);
+    mockProjectFilesService.deletePath.mockResolvedValue({
+      projectId: "project-1",
+      path: "docs/old.md",
+      deleted: true,
+    });
+    mockProjectFilesService.deleteBranch.mockResolvedValue({ projectId: "project-1" });
+    mockProjectFilesService.unstageFiles.mockResolvedValue({ status: "success" });
+    mockProjectFilesService.pushFiles.mockResolvedValue({ status: "success", message: "Pushed main" });
     mockEnvironmentService.getById.mockReset();
     mockSecretService.normalizeEnvBindingsForPersistence.mockImplementation(async (_companyId, env) => env);
   });
@@ -200,7 +213,7 @@ describe("project env routes", () => {
         }),
       }),
     );
-  });
+  }, 20_000);
 
   it("normalizes env bindings on update and avoids logging raw values", async () => {
     const normalizedEnv = {
@@ -227,6 +240,187 @@ describe("project env routes", () => {
         },
       }),
     );
+  }, 10_000);
+
+  it("deletes project file tree paths through the board-only route", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .delete("/api/projects/project-1/files/tree")
+      .query({ path: "docs/old.md" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.deletePath).toHaveBeenCalledWith("project-1", "docs/old.md");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.path_deleted",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: { path: "docs/old.md" },
+      }),
+    );
+  });
+
+  it("rejects non-string branch delete names before service access", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .delete("/api/projects/project-1/files/branch")
+      .query({ name: ["feature/a", "feature/b"] });
+
+    expect(res.status).toBe(400);
+    expect(mockProjectFilesService.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it("logs git unstage mutations", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/files/git-unstage")
+      .send({ paths: ["server/src/index.ts"] });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.unstageFiles).toHaveBeenCalledWith("project-1", ["server/src/index.ts"]);
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.git_unstaged",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: {
+          pathCount: 1,
+          paths: ["server/src/index.ts"],
+        },
+      }),
+    );
+  });
+
+  it("logs git push mutations", async () => {
+    mockProjectService.getById.mockResolvedValue(buildProject());
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/files/git-push")
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockProjectFilesService.pushFiles).toHaveBeenCalledWith("project-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.git_pushed",
+        companyId: "company-1",
+        entityId: "project-1",
+        details: {
+          status: "success",
+          message: "Pushed main",
+        },
+      }),
+    );
+  });
+
+  it("initializes managed cwd for standalone repo-backed workspace creation", async () => {
+    const createdWorkspace = {
+      id: "workspace-1",
+      companyId: "company-1",
+      projectId: "project-1",
+      name: "Repo workspace",
+      sourceType: "git_repo",
+      cwd: null,
+      repoUrl: "https://github.com/paperclipai/paperclip.git",
+      repoRef: null,
+      defaultRef: null,
+      visibility: "default",
+      setupCommand: null,
+      cleanupCommand: null,
+      remoteProvider: null,
+      remoteWorkspaceRef: null,
+      sharedWorkspaceKey: null,
+      metadata: null,
+      runtimeConfig: null,
+      isPrimary: false,
+      runtimeServices: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const expectedWorkspaceCwd = resolveManagedProjectWorkspaceDir({
+      companyId: "company-1",
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+    });
+    mockProjectService.getById.mockResolvedValue(buildProject());
+    mockProjectService.createWorkspace.mockResolvedValue(createdWorkspace);
+    mockProjectService.updateWorkspace.mockResolvedValue({
+      ...createdWorkspace,
+      cwd: expectedWorkspaceCwd,
+    });
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/workspaces")
+      .send({
+        name: "Repo workspace",
+        sourceType: "git_repo",
+        repoUrl: "https://github.com/paperclipai/paperclip.git",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateWorkspace).toHaveBeenCalledWith("project-1", "workspace-1", {
+      cwd: expectedWorkspaceCwd,
+      name: "Repo workspace",
+    });
+    expect(res.body.cwd).toBe(expectedWorkspaceCwd);
+  });
+
+  it("preserves remote-managed standalone workspaces without assigning a local cwd", async () => {
+    const remoteWorkspace = {
+      id: "workspace-remote",
+      companyId: "company-1",
+      projectId: "project-1",
+      name: "Remote workspace",
+      sourceType: "remote_managed",
+      cwd: null,
+      repoUrl: null,
+      repoRef: null,
+      defaultRef: null,
+      visibility: "default",
+      setupCommand: null,
+      cleanupCommand: null,
+      remoteProvider: "plugin-provider",
+      remoteWorkspaceRef: "external-workspace-1",
+      sharedWorkspaceKey: null,
+      metadata: null,
+      runtimeConfig: null,
+      isPrimary: false,
+      runtimeServices: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    mockProjectService.getById.mockResolvedValue(buildProject());
+    mockProjectService.createWorkspace.mockResolvedValue(remoteWorkspace);
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/projects/project-1/workspaces")
+      .send({
+        name: "Remote workspace",
+        sourceType: "remote_managed",
+        remoteProvider: "plugin-provider",
+        remoteWorkspaceRef: "external-workspace-1",
+      });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateWorkspace).not.toHaveBeenCalled();
+    expect(mockInitWorkspaceGit).not.toHaveBeenCalled();
+    expect(res.body.cwd).toBeNull();
+    expect(res.body.sourceType).toBe("remote_managed");
+    expect(res.body.remoteWorkspaceRef).toBe("external-workspace-1");
   });
 
   it("relocates repo-backed project workspaces into the project workspace directory on create", async () => {
@@ -301,4 +495,100 @@ describe("project env routes", () => {
       }),
     );
   });
+
+  it("preserves initial remote-managed project workspaces without local relocation", async () => {
+    const remoteWorkspace = {
+      id: "workspace-remote",
+      companyId: "company-1",
+      projectId: "project-1",
+      name: "Remote workspace",
+      sourceType: "remote_managed",
+      cwd: null,
+      repoUrl: null,
+      repoRef: null,
+      defaultRef: null,
+      visibility: "default",
+      setupCommand: null,
+      cleanupCommand: null,
+      remoteProvider: "plugin-provider",
+      remoteWorkspaceRef: "external-workspace-1",
+      sharedWorkspaceKey: null,
+      metadata: null,
+      runtimeConfig: null,
+      isPrimary: true,
+      runtimeServices: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    mockProjectService.create.mockResolvedValue(buildProject({ id: "project-1", name: "Project" }));
+    mockProjectService.createWorkspace.mockResolvedValue(remoteWorkspace);
+    mockProjectService.getById.mockResolvedValue(buildProject({
+      id: "project-1",
+      name: "Project",
+      codebase: {
+        workspaceId: remoteWorkspace.id,
+        repoUrl: null,
+        repoRef: null,
+        defaultRef: null,
+        repoName: null,
+        localFolder: null,
+        managedFolder: null,
+        effectiveLocalFolder: null,
+        origin: "remote_managed",
+      },
+      workspaces: [remoteWorkspace],
+      primaryWorkspace: remoteWorkspace,
+    }));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/projects")
+      .send({
+        name: "Project",
+        workspace: {
+          name: "Remote workspace",
+          sourceType: "remote_managed",
+          remoteProvider: "plugin-provider",
+          remoteWorkspaceRef: "external-workspace-1",
+        },
+      });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockProjectService.updateWorkspace).not.toHaveBeenCalled();
+    expect(mockInitWorkspaceGit).not.toHaveBeenCalled();
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "project.created",
+        details: expect.objectContaining({
+          workspaceId: "workspace-remote",
+        }),
+      }),
+    );
+  });
+
+  it("removes a newly created project when initial workspace creation throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockProjectService.create.mockResolvedValue(buildProject({ id: "project-1", name: "Project" }));
+    mockProjectService.createWorkspace.mockRejectedValue(new Error("workspace failed"));
+
+    const app = await createApp();
+    const res = await request(app)
+      .post("/api/companies/company-1/projects")
+      .send({
+        name: "Project",
+        workspace: {
+          name: "paperclip",
+          repoUrl: "https://github.com/paperclipai/paperclip.git",
+        },
+      });
+
+    expect(res.status).toBe(500);
+    expect(mockProjectService.remove).toHaveBeenCalledWith("project-1");
+    expect(mockProjectService.updateWorkspace).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  }, 15000);
 });

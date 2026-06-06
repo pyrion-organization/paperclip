@@ -1,18 +1,30 @@
 # Release Automation Setup
 
-This document covers the GitHub and npm setup required for the current Paperclip release model:
+This document covers the GitHub and npm setup required for the upstream/public Paperclip release model:
 
 - automatic canaries from `master`
 - manual stable promotion from a chosen source ref
 - npm trusted publishing via GitHub OIDC
 - protected release infrastructure in a public repository
 
-Repo-side files that depend on this setup:
+## Private Fork Status
+
+This fork does not currently use the upstream publishing automation.
+
+- [`.github/workflows/release.yml`](../.github/workflows/release.yml) is named **Release Verification** and only verifies a selected `source_ref`.
+- The workflow does not publish npm packages, push release/canary tags, create GitHub Releases, or require npm trusted publishing setup.
+- [`.github/workflows/docker.yml`](../.github/workflows/docker.yml) is named **Docker Image Verification** and is manual-only. It pushes to GHCR only when manually dispatched with `push_image=true`.
+
+Use the setup steps below only if public publishing is intentionally re-enabled.
+
+## Upstream Automation Reference
+
+Repo-side files that depend on the upstream publishing setup:
 
 - `.github/workflows/release.yml`
 - `.github/CODEOWNERS`
 
-Note:
+Upstream note:
 
 - the release workflows intentionally use `pnpm install --no-frozen-lockfile`
 - this matches the repo's current policy where `pnpm-lock.yaml` is refreshed by GitHub automation after manifest changes land on `master`

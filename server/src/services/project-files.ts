@@ -772,6 +772,7 @@ export function projectFilesService(db: Db) {
           }
           try {
             await runGit(["branch", "-d", local.name], repoRoot);
+            localBranchNames.delete(local.name);
             details.push({ branchName: local.name, action: "local_auto_deleted", errorMessage: null });
           } catch (error) {
             // -d refuses to delete branches with unmerged commits; surface as actionable message
@@ -785,7 +786,21 @@ export function projectFilesService(db: Db) {
         }
 
         if (!local.upstream) {
-          // No upstream — branch only exists locally, not on origin. Delete it.
+          if (remoteBranchNames.has(local.name)) {
+            try {
+              await runGit(["branch", "--set-upstream-to", `origin/${local.name}`, local.name], repoRoot);
+              details.push({ branchName: local.name, action: "created_local_tracking", errorMessage: null });
+            } catch (error) {
+              details.push({
+                branchName: local.name,
+                action: "error",
+                errorMessage: sanitizeGitError(error, `Failed to attach ${local.name} to origin/${local.name}`),
+              });
+            }
+            continue;
+          }
+
+          // No upstream and no matching remote — branch only exists locally. Delete it.
           if (local.name === summary.currentBranch) {
             details.push({
               branchName: local.name,
@@ -796,6 +811,7 @@ export function projectFilesService(db: Db) {
           }
           try {
             await runGit(["branch", "-d", local.name], repoRoot);
+            localBranchNames.delete(local.name);
             details.push({ branchName: local.name, action: "local_auto_deleted", errorMessage: null });
           } catch (error) {
             details.push({

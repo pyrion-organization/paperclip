@@ -27,15 +27,19 @@ export {
 export {
   createPaymentEntrySchema,
   paymentEntryFilterSchema,
+  paymentEntrySortFieldSchema,
   paymentEntryStatusSchema,
   paymentMethodSchema,
   paymentProfileInputSchema,
   recordPaymentSchema,
   updatePaymentEntrySchema,
   updatePaymentProfileSchema,
+  updatePaymentRecordSchema,
+  PAYMENT_ENTRY_SORT_FIELDS,
   type CreatePaymentEntry,
   type CreatePaymentEntryInput,
   type PaymentEntryFilter,
+  type PaymentEntrySortField,
   type PaymentProfileInput,
   type PaymentProfileInputRaw,
   type RecordPayment,
@@ -44,6 +48,8 @@ export {
   type UpdatePaymentEntryInput,
   type UpdatePaymentProfile,
   type UpdatePaymentProfileInput,
+  type UpdatePaymentRecord,
+  type UpdatePaymentRecordInput,
 } from "./payments.js";
 
 export {

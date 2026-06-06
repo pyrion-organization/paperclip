@@ -7,6 +7,28 @@ const SECRET_PAYLOAD_KEY_RE = new RegExp(SECRET_FIELD_NAME_PATTERN, "i");
 const COMMAND_PAYLOAD_KEY_RE =
   /(^command$|^cmd$|command[-_]?line|resolved[-_]?command|PAPERCLIP_RESOLVED_COMMAND)/i;
 const COMMAND_ARGS_PAYLOAD_KEY_RE = /^(commandArgs|command_?args|argv)$/i;
+const SAFE_NUMERIC_USAGE_COUNTER_KEYS = new Set([
+  "inputTokens",
+  "input_tokens",
+  "rawInputTokens",
+  "raw_input_tokens",
+  "cachedInputTokens",
+  "cached_input_tokens",
+  "rawCachedInputTokens",
+  "raw_cached_input_tokens",
+  "cacheReadInputTokens",
+  "cache_read_input_tokens",
+  "outputTokens",
+  "output_tokens",
+  "rawOutputTokens",
+  "raw_output_tokens",
+  "totalInputTokens",
+  "total_input_tokens",
+  "totalCachedInputTokens",
+  "total_cached_input_tokens",
+  "totalOutputTokens",
+  "total_output_tokens",
+]);
 const JWT_VALUE_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$/;
 const CLI_SECRET_FLAG_RE = new RegExp(String.raw`^-{1,2}${SECRET_FIELD_NAME_PATTERN}$`, "i");
 const JSON_SECRET_FIELD_TEXT_RE = new RegExp(
@@ -94,6 +116,10 @@ export function sanitizeRecord(record: Record<string, unknown>): Record<string, 
     }
     if (COMMAND_PAYLOAD_KEY_RE.test(key) && typeof value === "string") {
       redacted[key] = redactSensitiveText(value);
+      continue;
+    }
+    if (SAFE_NUMERIC_USAGE_COUNTER_KEYS.has(key) && typeof value === "number" && Number.isFinite(value)) {
+      redacted[key] = value;
       continue;
     }
     if (SECRET_PAYLOAD_KEY_RE.test(key)) {

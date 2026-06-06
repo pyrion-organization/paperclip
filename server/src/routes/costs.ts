@@ -1,5 +1,7 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
+import { companies as companiesTable } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
 import {
   createCostEventSchema,
   createFinanceEventSchema,
@@ -37,8 +39,13 @@ export function parseCostDateRange(query: Record<string, unknown>) {
 export function parseCostLimit(query: Record<string, unknown>) {
   const raw = Array.isArray(query.limit) ? query.limit[0] : query.limit;
   if (raw == null || raw === "") return 100;
-  const limit = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
-  if (!Number.isFinite(limit) || limit <= 0 || limit > 500) {
+  const limit =
+    typeof raw === "number"
+      ? raw
+      : /^\d+$/.test(String(raw).trim())
+        ? Number(String(raw).trim())
+        : NaN;
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 500) {
     throw badRequest("invalid 'limit' value");
   }
   return limit;
@@ -209,6 +216,7 @@ export function costRoutes(
   router.get("/companies/:companyId/costs/finance-events", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    assertBoard(req);
     const range = parseCostDateRange(req.query);
     const limit = parseCostLimit(req.query);
     const rows = await finance.list(companyId, range, limit);
@@ -281,21 +289,16 @@ export function costRoutes(
     assertBoard(req);
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    const company = await companies.update(companyId, { budgetMonthlyCents: req.body.budgetMonthlyCents });
-    if (!company) {
+    const updatedCompanyId = await db
+      .update(companiesTable)
+      .set({ budgetMonthlyCents: req.body.budgetMonthlyCents, updatedAt: new Date() })
+      .where(eq(companiesTable.id, companyId))
+      .returning({ id: companiesTable.id })
+      .then((rows) => rows[0]?.id ?? null);
+    if (!updatedCompanyId) {
       res.status(404).json({ error: "Company not found" });
       return;
     }
-
-    await logActivity(db, {
-      companyId,
-      actorType: "user",
-      actorId: req.actor.userId ?? "board",
-      action: "company.budget_updated",
-      entityType: "company",
-      entityId: companyId,
-      details: { budgetMonthlyCents: req.body.budgetMonthlyCents },
-    });
 
     await budgets.upsertPolicy(
       companyId,
@@ -307,6 +310,18 @@ export function costRoutes(
       },
       req.actor.userId ?? "board",
     );
+
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "company.budget_updated",
+      entityType: "company",
+      entityId: companyId,
+      details: { budgetMonthlyCents: req.body.budgetMonthlyCents },
+    });
+
+    const company = await companies.getById(updatedCompanyId);
 
     res.json(company);
   });
@@ -322,34 +337,42 @@ export function costRoutes(
     assertCompanyAccess(req, agent.companyId);
     assertBoard(req);
 
-    const updated = await agents.update(agentId, { budgetMonthlyCents: req.body.budgetMonthlyCents });
+    const updated = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const txAgents = agentService(txDb);
+      const txBudgets = budgetService(txDb, budgetHooks);
+      const txUpdated = await txAgents.update(agentId, { budgetMonthlyCents: req.body.budgetMonthlyCents });
+      if (!txUpdated) return null;
+
+      await txBudgets.upsertPolicy(
+        txUpdated.companyId,
+        {
+          scopeType: "agent",
+          scopeId: txUpdated.id,
+          amount: txUpdated.budgetMonthlyCents,
+          windowKind: "calendar_month_utc",
+        },
+        req.actor.type === "board" ? req.actor.userId ?? "board" : null,
+      );
+
+      const actor = getActorInfo(req);
+      await logActivity(txDb, {
+        companyId: txUpdated.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "agent.budget_updated",
+        entityType: "agent",
+        entityId: txUpdated.id,
+        details: { budgetMonthlyCents: txUpdated.budgetMonthlyCents },
+      });
+
+      return txUpdated;
+    });
     if (!updated) {
       res.status(404).json({ error: "Agent not found" });
       return;
     }
-
-    const actor = getActorInfo(req);
-    await logActivity(db, {
-      companyId: updated.companyId,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      agentId: actor.agentId,
-      action: "agent.budget_updated",
-      entityType: "agent",
-      entityId: updated.id,
-      details: { budgetMonthlyCents: updated.budgetMonthlyCents },
-    });
-
-    await budgets.upsertPolicy(
-      updated.companyId,
-      {
-        scopeType: "agent",
-        scopeId: updated.id,
-        amount: updated.budgetMonthlyCents,
-        windowKind: "calendar_month_utc",
-      },
-      req.actor.type === "board" ? req.actor.userId ?? "board" : null,
-    );
 
     res.json(updated);
   });

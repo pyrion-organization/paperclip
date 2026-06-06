@@ -79,11 +79,17 @@ export function useInboxDismissals(companyId: string | null | undefined) {
         },
         ...previous.filter((dismissal) => dismissal.itemKey !== itemKey),
       ]);
-      return { previous };
+      const previousForItem = previous.find((dismissal) => dismissal.itemKey === itemKey) ?? null;
+      return { itemKey, previousForItem };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, variables, context) => {
       if (!context) return;
-      queryClient.setQueryData(queryKey, context.previous);
+      queryClient.setQueryData<typeof dismissals>(queryKey, (current = []) => {
+        const currentForItem = current.find((dismissal) => dismissal.itemKey === variables.itemKey);
+        if (currentForItem?.id !== `optimistic:${variables.itemKey}`) return current;
+        const withoutFailed = current.filter((dismissal) => dismissal.itemKey !== variables.itemKey);
+        return context.previousForItem ? [context.previousForItem, ...withoutFailed] : withoutFailed;
+      });
     },
     onSettled: () => {
       if (!companyId) return;

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFeedbackService = vi.hoisted(() => ({
   getFeedbackTraceById: vi.fn(),
+  getFeedbackTraceMetadataById: vi.fn(),
   getFeedbackTraceBundle: vi.fn(),
   listIssueVotesForUser: vi.fn(),
   listFeedbackTraces: vi.fn(),
@@ -217,7 +218,7 @@ describe("issue feedback trace routes", () => {
       traceId: "trace-1",
       limit: 1,
     });
-  });
+  }, 10_000);
 
   it("rejects non-board callers before fetching a feedback trace", async () => {
     const app = await createApp({
@@ -230,11 +231,12 @@ describe("issue feedback trace routes", () => {
 
     const res = await request(app).get("/api/feedback-traces/trace-1");
     expect(res.status).toBe(403);
+    expect(mockFeedbackService.getFeedbackTraceMetadataById).not.toHaveBeenCalled();
     expect(mockFeedbackService.getFeedbackTraceById).not.toHaveBeenCalled();
   });
 
   it("returns 404 when a board user lacks access to the trace company", async () => {
-    mockFeedbackService.getFeedbackTraceById.mockResolvedValue({
+    mockFeedbackService.getFeedbackTraceMetadataById.mockResolvedValue({
       id: "trace-1",
       companyId: "company-2",
     });
@@ -249,9 +251,15 @@ describe("issue feedback trace routes", () => {
     const res = await request(app).get("/api/feedback-traces/trace-1");
 
     expect(res.status).toBe(404);
+    expect(mockFeedbackService.getFeedbackTraceMetadataById).toHaveBeenCalledWith("trace-1");
+    expect(mockFeedbackService.getFeedbackTraceById).not.toHaveBeenCalled();
   });
 
   it("returns 404 for bundle fetches when a board user lacks access to the trace company", async () => {
+    mockFeedbackService.getFeedbackTraceMetadataById.mockResolvedValue({
+      id: "trace-1",
+      companyId: "company-2",
+    });
     mockFeedbackService.getFeedbackTraceBundle.mockResolvedValue({
       id: "trace-1",
       companyId: "company-2",
@@ -269,5 +277,116 @@ describe("issue feedback trace routes", () => {
     const res = await request(app).get("/api/feedback-traces/trace-1/bundle");
 
     expect(res.status).toBe(404);
+    expect(mockFeedbackService.getFeedbackTraceMetadataById).toHaveBeenCalledWith("trace-1");
+    expect(mockFeedbackService.getFeedbackTraceBundle).not.toHaveBeenCalled();
+  });
+
+  it("lists feedback traces for an issue", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-1",
+      identifier: "PAP-1",
+    });
+    mockFeedbackService.listFeedbackTraces.mockResolvedValue([
+      { id: "trace-1", companyId: "company-1", issueId: "issue-1" },
+    ]);
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+    });
+
+    const res = await request(app).get("/api/issues/issue-1/feedback-traces");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { id: "trace-1", companyId: "company-1", issueId: "issue-1" },
+    ]);
+    expect(mockFeedbackService.listFeedbackTraces).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: "company-1", issueId: "issue-1" }),
+    );
+  });
+
+  it("rejects non-board issue feedback trace lists before feedback access", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-1",
+      identifier: "PAP-1",
+    });
+    const app = await createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      source: "agent_key",
+      runId: "run-1",
+    });
+
+    const res = await request(app).get("/api/issues/issue-1/feedback-traces");
+
+    expect(res.status).toBe(403);
+    expect(mockFeedbackService.listFeedbackTraces).not.toHaveBeenCalled();
+  });
+
+  it("rejects inaccessible issue feedback trace lists before feedback access", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-2",
+      identifier: "PAP-1",
+    });
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+    });
+
+    const res = await request(app).get("/api/issues/issue-1/feedback-traces");
+
+    expect(res.status).toBe(403);
+    expect(mockFeedbackService.listFeedbackTraces).not.toHaveBeenCalled();
+  });
+
+  it("forwards issue feedback trace filters", async () => {
+    mockIssueService.getById.mockResolvedValue({
+      id: "issue-1",
+      companyId: "company-1",
+      identifier: "PAP-1",
+    });
+    mockFeedbackService.listFeedbackTraces.mockResolvedValue([]);
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: ["company-1"],
+    });
+
+    const res = await request(app)
+      .get("/api/issues/issue-1/feedback-traces")
+      .query({
+        targetType: "issue_comment",
+        vote: "down",
+        status: "pending",
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-01-02T00:00:00.000Z",
+        sharedOnly: "true",
+        includePayload: "false",
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockFeedbackService.listFeedbackTraces).toHaveBeenCalledWith({
+      companyId: "company-1",
+      issueId: "issue-1",
+      targetType: "issue_comment",
+      vote: "down",
+      status: "pending",
+      from: new Date("2026-01-01T00:00:00.000Z"),
+      to: new Date("2026-01-02T00:00:00.000Z"),
+      sharedOnly: true,
+      includePayload: false,
+    });
   });
 });

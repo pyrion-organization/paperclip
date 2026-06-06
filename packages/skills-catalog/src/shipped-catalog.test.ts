@@ -75,13 +75,27 @@ describe("shipped skills catalog", () => {
 
   it("publishes the generated catalog at the exported package subpath", () => {
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, unknown>;
       files?: string[];
+      main?: string;
       publishConfig?: {
         exports?: Record<string, unknown>;
       };
+      types?: string;
     };
 
     expect(packageJson.files).toContain("generated");
+    expect(packageJson.main).toBe("./dist/src/index.js");
+    expect(packageJson.types).toBe("./dist/src/index.d.ts");
+    expect(packageJson.exports?.["."]).toEqual({
+      types: "./dist/src/index.d.ts",
+      import: "./dist/src/index.js",
+    });
+    expect(packageJson.exports?.["./types"]).toEqual({
+      types: "./dist/src/types.d.ts",
+      import: "./dist/src/types.js",
+    });
+    expect(packageJson.exports?.["./catalog.json"]).toBe("./generated/catalog.json");
     expect(packageJson.publishConfig?.exports?.["./catalog.json"]).toBe("./generated/catalog.json");
   });
 

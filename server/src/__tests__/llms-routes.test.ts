@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AGENT_ICON_NAMES } from "@paperclipai/shared";
 
 const mockAgentService = vi.hoisted(() => ({
   getById: vi.fn(),
@@ -71,5 +72,63 @@ describe("llm routes", () => {
     expect(res.text).toContain("sourceIssueId/sourceIssueIds");
     expect(res.text).toContain("Timer heartbeats are opt-in for new hires.");
     expect(res.text).toContain("Leave runtimeConfig.heartbeat.enabled false");
+  });
+
+  it("returns adapter configuration docs for known adapters", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/llms/agent-configuration/codex_local.txt");
+
+    expect(res.status).toBe(200);
+    expect(res.type).toMatch(/text\/plain/);
+    expect(res.text).toBe("# codex_local agent configuration");
+  });
+
+  it("returns the agent icon catalog for board callers", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/llms/agent-icons.txt");
+
+    expect(res.status).toBe(200);
+    expect(res.type).toMatch(/text\/plain/);
+    expect(res.text).toContain("# Paperclip Agent Icon Names");
+    expect(res.text).toContain(`- ${AGENT_ICON_NAMES[0]}`);
+  });
+
+  it("rejects anonymous callers from the agent icon catalog", async () => {
+    const app = await createApp({ type: "none", source: "none" });
+
+    const res = await request(app).get("/api/llms/agent-icons.txt");
+
+    expect(res.status).toBe(403);
+    expect(mockAgentService.getById).not.toHaveBeenCalled();
+  });
+
+  it("rejects control characters in adapter configuration doc paths", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: true,
+    });
+
+    const res = await request(app).get("/api/llms/agent-configuration/codex_local%0AInjected:%20value.txt");
+
+    expect(res.status).toBe(404);
+    expect(res.text).toBe("Unknown adapter type");
+    expect(res.text).not.toContain("Injected");
   });
 });

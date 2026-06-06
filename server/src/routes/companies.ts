@@ -130,8 +130,16 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   router.get("/:companyId", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    // Allow agents (CEO) to read their own company; board always allowed
-    if (req.actor.type !== "agent") {
+    // Allow CEO agents to read their own company; board always allowed.
+    if (req.actor.type === "agent") {
+      if (!req.actor.agentId) {
+        throw forbidden("Agent authentication required");
+      }
+      const actorAgent = await agents.getById(req.actor.agentId);
+      if (!actorAgent || actorAgent.companyId !== companyId || actorAgent.role !== "ceo") {
+        throw forbidden("Only CEO agents can read company settings");
+      }
+    } else {
       assertBoard(req);
     }
     const company = await svc.getById(companyId);
@@ -245,7 +253,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   router.post("/:companyId/imports/preview", validate(companyPortabilityPreviewSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     await assertCanManagePortability(req, companyId, "imports");
-    if (req.body.target.mode === "existing_company" && req.body.target.companyId !== companyId) {
+    if (req.body.target.mode !== "existing_company" || req.body.target.companyId !== companyId) {
       throw forbidden("Safe import route can only target the route company");
     }
     if (req.body.collisionStrategy === "replace") {
@@ -261,7 +269,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   router.post("/:companyId/imports/apply", validate(companyPortabilityImportSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     await assertCanManagePortability(req, companyId, "imports");
-    if (req.body.target.mode === "existing_company" && req.body.target.companyId !== companyId) {
+    if (req.body.target.mode !== "existing_company" || req.body.target.companyId !== companyId) {
       throw forbidden("Safe import route can only target the route company");
     }
     if (req.body.collisionStrategy === "replace") {
@@ -438,6 +446,7 @@ export function companyRoutes(db: Db, storage?: StorageService) {
   });
 
   router.post("/:companyId/email/test", async (req, res) => {
+    assertBoard(req);
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const to = req.body?.to;

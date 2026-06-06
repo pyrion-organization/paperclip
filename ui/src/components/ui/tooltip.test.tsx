@@ -13,8 +13,8 @@ vi.mock("radix-ui", () => ({
     Root: ({ children, ...props }: React.ComponentProps<"div">) => (
       <div data-radix-root="true" {...props}>{children}</div>
     ),
-    Trigger: ({ children, ...props }: React.ComponentProps<"button">) => (
-      <button {...props}>{children}</button>
+    Trigger: ({ children, type = "button", ...props }: React.ComponentProps<"button">) => (
+      <button type={type} {...props}>{children}</button>
     ),
     Portal: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
     Content: ({ children, ...props }: React.ComponentProps<"div">) => (

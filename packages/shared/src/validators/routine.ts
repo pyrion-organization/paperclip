@@ -229,6 +229,40 @@ export const updateRoutineTriggerSchema = z.object({
   maxTimeOfDayMin: z.number().int().min(0).max(1439).optional().nullable(),
   minDaysAhead: z.number().int().min(0).max(30).optional().nullable(),
   maxDaysAhead: z.number().int().min(1).max(30).optional().nullable(),
+}).superRefine((value, ctx) => {
+  if (
+    value.minIntervalSec != null &&
+    value.maxIntervalSec != null &&
+    value.maxIntervalSec < value.minIntervalSec
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxIntervalSec"],
+      message: "maxIntervalSec must be greater than or equal to minIntervalSec",
+    });
+  }
+  if (
+    value.minTimeOfDayMin != null &&
+    value.maxTimeOfDayMin != null &&
+    value.maxTimeOfDayMin < value.minTimeOfDayMin
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxTimeOfDayMin"],
+      message: "maxTimeOfDayMin must be greater than or equal to minTimeOfDayMin",
+    });
+  }
+  if (
+    value.minDaysAhead != null &&
+    value.maxDaysAhead != null &&
+    value.maxDaysAhead < value.minDaysAhead
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxDaysAhead"],
+      message: "maxDaysAhead must be greater than or equal to minDaysAhead",
+    });
+  }
 });
 
 export type UpdateRoutineTrigger = z.infer<typeof updateRoutineTriggerSchema>;

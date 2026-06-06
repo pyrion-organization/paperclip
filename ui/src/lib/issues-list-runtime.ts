@@ -124,12 +124,15 @@ export function workflowSort<T extends WorkflowSortIssue>(issues: T[]): T[] {
       const nextIssue = readyById.get(nextId);
       if (!nextIssue) break;
       readyById.delete(nextId);
+      const readyIndex = ready.findIndex((issue) => issue.id === nextId);
+      if (readyIndex >= 0) ready.splice(readyIndex, 1);
       current = nextIssue;
     }
   }
 
   if (emitted.size < issues.length) {
-    return issues.toSorted(tieBreakAsc);
+    const remaining = issues.filter((issue) => !emitted.has(issue.id)).toSorted(tieBreakAsc);
+    return [...output, ...remaining];
   }
 
   return output;

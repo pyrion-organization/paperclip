@@ -125,6 +125,16 @@ describe("workflowSort", () => {
     expect(orderedIds(out)).toEqual(["a", "b"]);
   });
 
+  it("preserves acyclic blocker ordering before appending cyclic leftovers", () => {
+    const out = workflowSort([
+      issue("a", "2026-04-01T00:00:00.000Z", ["b"]),
+      issue("b", "2026-04-02T00:00:00.000Z"),
+      issue("d", "2026-04-04T00:00:00.000Z", ["c"]),
+      issue("c", "2026-04-03T00:00:00.000Z", ["d"]),
+    ]);
+    expect(orderedIds(out)).toEqual(["b", "a", "c", "d"]);
+  });
+
   it("guards against malformed self-loops without hanging", () => {
     const out = workflowSort([
       issue("self", "2026-04-01T00:00:00.000Z", ["self"]),

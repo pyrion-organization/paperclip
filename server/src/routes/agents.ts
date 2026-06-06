@@ -685,13 +685,16 @@ export function agentRoutes(
     throw forbidden(decision.explanation);
   }
 
-  async function assertCanReadAgent(req: Request, targetAgent: { companyId: string }) {
+  async function assertCanReadAgent(req: Request, targetAgent: { id: string; companyId: string }) {
     assertCompanyAccess(req, targetAgent.companyId);
     if (req.actor.type === "board") {
       await assertCanReadConfigurations(req, targetAgent.companyId);
       return;
     }
     if (!req.actor.agentId) throw forbidden("Agent authentication required");
+    if (req.actor.agentId !== targetAgent.id) {
+      throw forbidden("Agent key cannot read another agent's instructions");
+    }
 
     const actorAgent = await svc.getById(req.actor.agentId);
     if (!actorAgent || actorAgent.companyId !== targetAgent.companyId) {
@@ -1399,6 +1402,7 @@ export function agentRoutes(
   router.get("/companies/:companyId/adapters/:type/detect-model", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    await assertCanReadConfigurations(req, companyId);
     const type = assertKnownAdapterType(req.params.type as string);
 
     const detected = await detectAdapterModel(type);
@@ -1886,6 +1890,12 @@ export function agentRoutes(
       return;
     }
 
+    await secretsSvc.syncEnvBindingsForTarget?.(
+      updated.companyId,
+      { targetType: "agent", targetId: updated.id },
+      asRecord(updated.adapterConfig)?.env,
+    );
+
     await logActivity(db, {
       companyId: updated.companyId,
       actorType: actor.actorType,
@@ -2350,6 +2360,13 @@ export function agentRoutes(
     } else {
       nextAdapterConfig[adapterConfigKey] = resolveInstructionsFilePath(req.body.path, existingAdapterConfig);
     }
+    if (adapterConfigKey !== "instructionsFilePath") {
+      if (req.body.path === null) {
+        delete nextAdapterConfig.instructionsFilePath;
+      } else {
+        nextAdapterConfig.instructionsFilePath = nextAdapterConfig[adapterConfigKey];
+      }
+    }
 
     const syncedAdapterConfig = syncInstructionsBundleConfigFromFilePath(existing, nextAdapterConfig);
     const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
@@ -2544,6 +2561,22 @@ export function agentRoutes(
 
     const actor = getActorInfo(req);
     const result = await instructions.deleteFile(existing, relativePath);
+    const normalizedAdapterConfig = await secretsSvc.normalizeAdapterConfigForPersistence(
+      existing.companyId,
+      result.adapterConfig,
+      { strictMode: strictSecretsMode },
+    );
+    await svc.update(
+      id,
+      { adapterConfig: normalizedAdapterConfig },
+      {
+        recordRevision: {
+          createdByAgentId: actor.agentId,
+          createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+          source: "instructions_bundle_file_delete",
+        },
+      },
+    );
     await logActivity(db, {
       companyId: existing.companyId,
       actorType: actor.actorType,
@@ -2882,6 +2915,8 @@ export function agentRoutes(
     if (!(await getAccessibleAgent(req, res, id))) {
       return;
     }
+    await heartbeat.cancelActiveForAgent(id);
+
     const agent = await svc.remove(id);
     if (!agent) {
       res.status(404).json({ error: "Agent not found" });

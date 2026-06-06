@@ -239,6 +239,73 @@ describe("adapter routes", () => {
     });
   });
 
+  it("rejects override toggles when no external adapter overrides the builtin type", async () => {
+    const app = createApp();
+
+    const res = await request(app)
+      .patch("/api/adapters/codex_local/override")
+      .send({ paused: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body.error).toContain("No external override");
+  });
+
+  it("rejects adapter enable toggles without a boolean disabled value", async () => {
+    const app = createApp({ isInstanceAdmin: true });
+
+    const res = await request(app)
+      .patch("/api/adapters/claude_local")
+      .send({ disabled: "true" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(mockAdapterPluginStore.setAdapterDisabled).not.toHaveBeenCalled();
+  });
+
+  it("rejects adapter enable toggles for unregistered adapter types", async () => {
+    const app = createApp({ isInstanceAdmin: true });
+
+    const res = await request(app)
+      .patch("/api/adapters/not_registered")
+      .send({ disabled: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(mockAdapterPluginStore.setAdapterDisabled).not.toHaveBeenCalled();
+  });
+
+  it("updates adapter disabled state and returns the store change result", async () => {
+    mockAdapterPluginStore.setAdapterDisabled.mockReturnValueOnce(true);
+    const app = createApp({ isInstanceAdmin: true });
+
+    const res = await request(app)
+      .patch("/api/adapters/claude_local")
+      .send({ disabled: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAdapterPluginStore.setAdapterDisabled).toHaveBeenCalledWith("claude_local", true);
+    expect(res.body).toEqual({
+      type: "claude_local",
+      disabled: true,
+      changed: true,
+    });
+  });
+
+  it("returns changed false when adapter disabled state is already current", async () => {
+    mockAdapterPluginStore.setAdapterDisabled.mockReturnValueOnce(false);
+    const app = createApp({ isInstanceAdmin: true });
+
+    const res = await request(app)
+      .patch("/api/adapters/claude_local")
+      .send({ disabled: false });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAdapterPluginStore.setAdapterDisabled).toHaveBeenCalledWith("claude_local", false);
+    expect(res.body).toEqual({
+      type: "claude_local",
+      disabled: false,
+      changed: false,
+    });
+  });
+
   it("serves the built-in acpx_local config schema", async () => {
     const app = createApp();
 

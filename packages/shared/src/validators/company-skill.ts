@@ -39,6 +39,10 @@ export const companySkillListItemSchema = companySkillSchema.extend({
   originHash: z.string().nullable(),
   packageName: z.string().nullable(),
   packageVersion: z.string().nullable(),
+  sourcePath: z.string().nullable(),
+}).omit({
+  markdown: true,
+  metadata: true,
 });
 
 export const companySkillUsageAgentSchema = z.object({
@@ -59,6 +63,7 @@ export const companySkillDetailSchema = companySkillSchema.extend({
   editableReason: z.string().nullable(),
   sourceLabel: z.string().nullable(),
   sourceBadge: companySkillSourceBadgeSchema,
+  sourcePath: z.string().nullable(),
 });
 
 export const companySkillUpdateStatusSchema = z.object({

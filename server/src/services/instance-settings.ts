@@ -12,11 +12,13 @@ import {
   type InstanceSettings,
   type PatchInstanceExperimentalSettings,
 } from "@paperclipai/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const DEFAULT_SINGLETON_KEY = "default";
 const instanceGeneralSettingsStorageSchema = instanceGeneralSettingsSchema.strip();
 const instanceExperimentalSettingsStorageSchema = instanceExperimentalSettingsSchema.strip();
+const patchInstanceGeneralSettingsStorageSchema = instanceGeneralSettingsStorageSchema.partial();
+const patchInstanceExperimentalSettingsStorageSchema = instanceExperimentalSettingsStorageSchema.partial();
 
 function normalizeGeneralSettings(raw: unknown): InstanceGeneralSettings {
   const parsed = instanceGeneralSettingsStorageSchema.safeParse(raw ?? {});
@@ -74,6 +76,13 @@ function toInstanceSettings(row: typeof instanceSettings.$inferSelect): Instance
   };
 }
 
+function jsonbMergePatch(
+  column: typeof instanceSettings.general | typeof instanceSettings.experimental,
+  patch: Record<string, unknown>,
+) {
+  return sql<Record<string, unknown>>`coalesce(${column}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`;
+}
+
 export function instanceSettingsService(db: Db) {
   async function getOrCreateRow() {
     const existing = await db
@@ -128,15 +137,12 @@ export function instanceSettingsService(db: Db) {
 
     updateGeneral: async (patch: PatchInstanceGeneralSettings): Promise<InstanceSettings> => {
       const current = await getOrCreateRow();
-      const nextGeneral = normalizeGeneralSettings({
-        ...normalizeGeneralSettings(current.general),
-        ...patch,
-      });
+      const patchGeneral = patchInstanceGeneralSettingsStorageSchema.parse(patch);
       const now = new Date();
       const [updated] = await db
         .update(instanceSettings)
         .set({
-          general: { ...nextGeneral },
+          general: jsonbMergePatch(instanceSettings.general, patchGeneral),
           updatedAt: now,
         })
         .where(eq(instanceSettings.id, current.id))
@@ -146,15 +152,12 @@ export function instanceSettingsService(db: Db) {
 
     updateExperimental: async (patch: PatchInstanceExperimentalSettings): Promise<InstanceSettings> => {
       const current = await getOrCreateRow();
-      const nextExperimental = normalizeExperimentalSettings({
-        ...normalizeExperimentalSettings(current.experimental),
-        ...patch,
-      });
+      const patchExperimental = patchInstanceExperimentalSettingsStorageSchema.parse(patch);
       const now = new Date();
       const [updated] = await db
         .update(instanceSettings)
         .set({
-          experimental: { ...nextExperimental },
+          experimental: jsonbMergePatch(instanceSettings.experimental, patchExperimental),
           updatedAt: now,
         })
         .where(eq(instanceSettings.id, current.id))

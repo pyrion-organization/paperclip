@@ -4,8 +4,9 @@ import { createGoalSchema, updateGoalSchema } from "@paperclipai/shared";
 import { trackGoalCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { goalService, logActivity } from "../services/index.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { assertAuthenticated, assertCompanyAccess, getActorInfo } from "./authz.js";
 import { getTelemetryClient } from "../telemetry.js";
+import { HttpError } from "../errors.js";
 
 export function goalRoutes(db: Db) {
   const router = Router();
@@ -81,13 +82,22 @@ export function goalRoutes(db: Db) {
   });
 
   router.delete("/goals/:id", async (req, res) => {
+    assertAuthenticated(req);
     const id = req.params.id as string;
     const existing = await svc.getById(id);
     if (!existing) {
       res.status(404).json({ error: "Goal not found" });
       return;
     }
-    assertCompanyAccess(req, existing.companyId);
+    try {
+      assertCompanyAccess(req, existing.companyId);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 403) {
+        res.status(404).json({ error: "Goal not found" });
+        return;
+      }
+      throw error;
+    }
     const goal = await svc.remove(id);
     if (!goal) {
       res.status(404).json({ error: "Goal not found" });

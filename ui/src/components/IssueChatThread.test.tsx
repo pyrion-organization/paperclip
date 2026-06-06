@@ -1,21 +1,19 @@
 // @vitest-environment jsdom
 
-import { act, createRef, useImperativeHandle, useState } from "react";
-import type { ReactNode, Ref } from "react";
+import { act, createRef, forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "@paperclipai/shared";
 import {
   IssueChatThread,
-} from "./IssueChatThread";
-import {
   VIRTUALIZED_THREAD_ROW_THRESHOLD,
   canStopIssueChatRun,
   findLatestCommentMessageIndex,
   resolveAssistantMessageFoldedState,
   resolveIssueChatHumanAuthor,
-} from "./issue-chat-thread-utils";
+} from "./IssueChatThread";
 import { ToastProvider } from "../context/ToastContext";
 import { ToastViewport } from "./ToastViewport";
 import type {
@@ -42,10 +40,17 @@ function hasSmoothScrollBehavior(arg: unknown) {
     && (arg as ScrollToOptions).behavior === "smooth";
 }
 
-const { markdownBodyRenderMock, markdownEditorFocusMock, markdownEditorRenderMock } = vi.hoisted(() => ({
+const { markdownBodyRenderMock, markdownEditorFocusMock } = vi.hoisted(() => ({
   markdownBodyRenderMock: vi.fn(),
   markdownEditorFocusMock: vi.fn(),
-  markdownEditorRenderMock: vi.fn(),
+}));
+
+const { appendMock } = vi.hoisted(() => ({
+  appendMock: vi.fn(async () => undefined),
+}));
+
+const { assistantRuntimeProviderMountMock } = vi.hoisted(() => ({
+  assistantRuntimeProviderMountMock: vi.fn(),
 }));
 
 const {
@@ -56,6 +61,16 @@ const {
   captureComposerViewportSnapshotMock: vi.fn(),
   restoreComposerViewportSnapshotMock: vi.fn(),
   shouldPreserveComposerViewportMock: vi.fn(),
+}));
+
+vi.mock("@assistant-ui/react", () => ({
+  AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => {
+    useEffect(() => {
+      assistantRuntimeProviderMountMock();
+    }, []);
+    return <div>{children}</div>;
+  },
+  useAui: () => ({ thread: () => ({ append: appendMock }) }),
 }));
 
 vi.mock("./transcript/useLiveRunTranscripts", () => ({
@@ -83,14 +98,13 @@ vi.mock("./MarkdownBody", () => ({
 }));
 
 vi.mock("./MarkdownEditor", () => ({
-  MarkdownEditor: ({
+  MarkdownEditor: forwardRef(({
     value = "",
     onChange,
     placeholder,
     className,
     contentClassName,
     fileDropTarget,
-    ref,
   }: {
     value?: string;
     onChange?: (value: string) => void;
@@ -98,9 +112,7 @@ vi.mock("./MarkdownEditor", () => ({
     className?: string;
     contentClassName?: string;
     fileDropTarget?: "editor" | "parent";
-    ref?: Ref<{ focus: () => void }>;
-  }) => {
-    markdownEditorRenderMock();
+  }, ref) => {
     useImperativeHandle(ref, () => ({
       focus: markdownEditorFocusMock,
     }));
@@ -116,7 +128,7 @@ vi.mock("./MarkdownEditor", () => ({
         onChange={(event) => onChange?.(event.target.value)}
       />
     );
-  },
+  }),
 }));
 
 vi.mock("./InlineEntitySelector", () => ({
@@ -161,6 +173,10 @@ vi.mock("./IssueLinkQuicklook", () => ({
       {children}
     </a>
   ),
+}));
+
+vi.mock("../hooks/usePaperclipIssueRuntime", () => ({
+  usePaperclipIssueRuntime: () => ({}),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -271,10 +287,6 @@ function createExpiredRequestConfirmationInteraction(
   };
 }
 
-type TestIdleCallback = (deadline: IdleDeadline) => void;
-
-let idleCallbacks: TestIdleCallback[] = [];
-
 function createFileDragEvent(type: string, files: File[]) {
   const event = new Event(type, { bubbles: true, cancelable: true }) as Event & {
     dataTransfer: {
@@ -290,48 +302,10 @@ function createFileDragEvent(type: string, files: File[]) {
   return event;
 }
 
-async function flushDeferredMarkdownRender() {
-  await act(async () => {
-    const callbacks = idleCallbacks.splice(0);
-    callbacks.forEach((callback) => callback({
-      didTimeout: false,
-      timeRemaining: () => 50,
-    }));
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
-async function flushDeferredComponents() {
-  for (let i = 0; i < 5; i += 1) {
-    await act(async () => {
-      await vi.dynamicImportSettled();
-      await Promise.resolve();
-      await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
-    });
-  }
-}
-
 describe("IssueChatThread", () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
-    idleCallbacks = [];
-    Object.defineProperty(window, "requestIdleCallback", {
-      configurable: true,
-      writable: true,
-      value: vi.fn((callback: TestIdleCallback) => {
-        idleCallbacks.push(callback);
-        return idleCallbacks.length;
-      }),
-    });
-    Object.defineProperty(window, "cancelIdleCallback", {
-      configurable: true,
-      writable: true,
-      value: vi.fn((id: number) => {
-        idleCallbacks[id - 1] = () => {};
-      }),
-    });
     container = document.createElement("div");
     document.body.appendChild(container);
     window.scrollTo = vi.fn();
@@ -341,15 +315,13 @@ describe("IssueChatThread", () => {
   afterEach(() => {
     container.remove();
     vi.useRealTimers();
+    appendMock.mockReset();
+    assistantRuntimeProviderMountMock.mockClear();
     markdownEditorFocusMock.mockReset();
     captureComposerViewportSnapshotMock.mockClear();
     restoreComposerViewportSnapshotMock.mockClear();
     shouldPreserveComposerViewportMock.mockClear();
     markdownBodyRenderMock.mockClear();
-    markdownEditorRenderMock.mockClear();
-    idleCallbacks = [];
-    Reflect.deleteProperty(window, "requestIdleCallback");
-    Reflect.deleteProperty(window, "cancelIdleCallback");
   });
 
   it("drops the count heading and does not use an internal scrollbox", () => {
@@ -411,6 +383,52 @@ describe("IssueChatThread", () => {
     expect(footer?.textContent).toBe("Sibling footer");
     expect(footer?.parentElement).toBe(viewport);
     expect(footer?.nextElementSibling?.textContent).toBe("");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("remounts the assistant runtime when the issue changes", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            issueId="issue-1"
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(assistantRuntimeProviderMountMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <IssueChatThread
+            issueId="issue-2"
+            comments={[]}
+            linkedRuns={[]}
+            timelineEvents={[]}
+            liveRuns={[]}
+            onAdd={async () => {}}
+            showComposer={false}
+            enableLiveTranscriptPolling={false}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(assistantRuntimeProviderMountMock).toHaveBeenCalledTimes(2);
 
     act(() => {
       root.unmount();
@@ -1160,7 +1178,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("does not re-render long-thread markdown rows for unrelated layout updates", async () => {
+  it("does not re-render long-thread markdown rows for unrelated layout updates", () => {
     const root = createRoot(container);
     const onAdd = async () => {};
     const hasOutputForRun = (runId: string) => issueChatLongThreadTranscriptsByRunId.has(runId);
@@ -1186,8 +1204,6 @@ describe("IssueChatThread", () => {
       );
     });
 
-    expect(markdownBodyRenderMock).not.toHaveBeenCalled();
-    await flushDeferredMarkdownRender();
     expect(markdownBodyRenderMock).toHaveBeenCalled();
     markdownBodyRenderMock.mockClear();
 
@@ -1219,7 +1235,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("does not re-render unchanged markdown when feedback votes change", async () => {
+  it("does not re-render unchanged markdown when feedback votes change", () => {
     const root = createRoot(container);
     const onAdd = async () => {};
     const onVote = async () => {};
@@ -1255,8 +1271,6 @@ describe("IssueChatThread", () => {
       );
     });
 
-    expect(markdownBodyRenderMock).not.toHaveBeenCalled();
-    await flushDeferredMarkdownRender();
     expect(markdownBodyRenderMock).toHaveBeenCalled();
     markdownBodyRenderMock.mockClear();
 
@@ -1347,7 +1361,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("shows unresolved blocker context above the composer", async () => {
+  it("shows unresolved blocker context above the composer", () => {
     const root = createRoot(container);
 
     act(() => {
@@ -1377,8 +1391,6 @@ describe("IssueChatThread", () => {
       );
     });
 
-    await flushDeferredComponents();
-
     expect(container.textContent).toContain("Work on this issue is blocked by the linked issue");
     expect(container.textContent).toContain("Comments still wake the assignee for questions or triage");
     expect(container.textContent).toContain("PAP-1723");
@@ -1390,7 +1402,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("shows terminal blocker context when an immediate blocker is transitively blocked", async () => {
+  it("shows terminal blocker context when an immediate blocker is transitively blocked", () => {
     const root = createRoot(container);
 
     act(() => {
@@ -1430,8 +1442,6 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
-
-    await flushDeferredComponents();
 
     expect(container.textContent).toContain("PAP-2167");
     expect(container.textContent).toContain("Phase 7 review");
@@ -1536,8 +1546,6 @@ describe("IssueChatThread", () => {
       );
     });
 
-    await flushDeferredComponents();
-
     const acceptButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Accept drafts"),
     );
@@ -1597,8 +1605,6 @@ describe("IssueChatThread", () => {
       );
     });
 
-    await flushDeferredComponents();
-
     const childCheckbox = container.querySelector('[aria-label="Include Child task"]');
     expect(childCheckbox).toBeTruthy();
 
@@ -1647,8 +1653,6 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
-
-    await flushDeferredComponents();
 
     const optionButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Phase 1"),
@@ -1700,8 +1704,6 @@ describe("IssueChatThread", () => {
         </MemoryRouter>,
       );
     });
-
-    await flushDeferredComponents();
 
     const cancelButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Cancel question"),
@@ -1759,8 +1761,6 @@ describe("IssueChatThread", () => {
     await act(async () => {
       toggleButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-
-    await flushDeferredComponents();
 
     expect(container.textContent).toContain("Approve the plan");
     expect(container.textContent).toContain("Confirmation expired after comment");
@@ -1983,42 +1983,9 @@ describe("IssueChatThread", () => {
     const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
     expect(editor?.dataset.contentClassName).toContain("max-h-[28dvh]");
     expect(editor?.dataset.contentClassName).toContain("overflow-y-auto");
+    expect(editor?.dataset.contentClassName).toContain("text-foreground");
     expect(editor?.dataset.contentClassName).not.toContain("min-h-[72px]");
     expect(editor?.dataset.fileDropTarget).toBe("parent");
-
-    act(() => {
-      root.unmount();
-    });
-  });
-
-  it("defers the rich composer editor until the reply field is focused", async () => {
-    const root = createRoot(container);
-
-    act(() => {
-      root.render(
-        <MemoryRouter>
-          <IssueChatThread
-            comments={[]}
-            linkedRuns={[]}
-            timelineEvents={[]}
-            liveRuns={[]}
-            onAdd={async () => {}}
-            enableLiveTranscriptPolling={false}
-          />
-        </MemoryRouter>,
-      );
-    });
-
-    const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
-    expect(editor).not.toBeNull();
-    expect(markdownEditorRenderMock).not.toHaveBeenCalled();
-
-    await act(async () => {
-      editor?.focus();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    expect(markdownEditorRenderMock).toHaveBeenCalledTimes(1);
 
     act(() => {
       root.unmount();
@@ -2290,7 +2257,6 @@ describe("IssueChatThread", () => {
 
   it("hides the reopen control and infers reopen for closed agent-assigned issue replies", async () => {
     const root = createRoot(container);
-    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2302,7 +2268,7 @@ describe("IssueChatThread", () => {
             liveRuns={[]}
             issueStatus="done"
             currentAssigneeValue="agent:agent-1"
-            onAdd={onAdd}
+            onAdd={async () => {}}
             enableLiveTranscriptPolling={false}
           />
         </MemoryRouter>,
@@ -2331,7 +2297,16 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(onAdd).toHaveBeenCalledWith("Please pick this back up", true, undefined);
+    expect(appendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ type: "text", text: "Please pick this back up" }],
+        runConfig: {
+          custom: {
+            reopen: true,
+          },
+        },
+      }),
+    );
 
     act(() => {
       root.unmount();
@@ -2340,8 +2315,6 @@ describe("IssueChatThread", () => {
 
   it("warns once before sending a reply with no assignee selected", async () => {
     const root = createRoot(container);
-
-    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2353,7 +2326,7 @@ describe("IssueChatThread", () => {
               linkedRuns={[]}
               timelineEvents={[]}
               liveRuns={[]}
-              onAdd={onAdd}
+              onAdd={async () => {}}
               enableReassign
               reassignOptions={[
                 { id: "", label: "No assignee" },
@@ -2388,15 +2361,19 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(onAdd).not.toHaveBeenCalled();
+    expect(appendMock).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("No assignee selected");
 
     await act(async () => {
       submitButton?.click();
     });
 
-    expect(onAdd).toHaveBeenCalledTimes(1);
-    expect(onAdd).toHaveBeenCalledWith("Reply without assignee", undefined, undefined);
+    expect(appendMock).toHaveBeenCalledTimes(1);
+    expect(appendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: [{ type: "text", text: "Reply without assignee" }],
+      }),
+    );
 
     act(() => {
       root.unmount();
@@ -2405,8 +2382,6 @@ describe("IssueChatThread", () => {
 
   it("does not warn when sending a reply with an assignee selected", async () => {
     const root = createRoot(container);
-
-    const onAdd = vi.fn(async () => {});
 
     act(() => {
       root.render(
@@ -2418,7 +2393,7 @@ describe("IssueChatThread", () => {
               linkedRuns={[]}
               timelineEvents={[]}
               liveRuns={[]}
-              onAdd={onAdd}
+              onAdd={async () => {}}
               enableReassign
               reassignOptions={[
                 { id: "", label: "No assignee" },
@@ -2451,7 +2426,7 @@ describe("IssueChatThread", () => {
       submitButton?.click();
     });
 
-    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(appendMock).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain("No assignee selected");
 
     act(() => {
@@ -2459,7 +2434,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("exposes a composer focus handle that forwards to the editor", async () => {
+  it("exposes a composer focus handle that forwards to the editor", () => {
     const root = createRoot(container);
     const composerRef = createRef<{ focus: () => void; restoreDraft: (submittedBody: string) => void }>();
     const scrollByMock = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
@@ -2493,9 +2468,8 @@ describe("IssueChatThread", () => {
     const scrollIntoViewMock = vi.fn();
     composer!.scrollIntoView = scrollIntoViewMock;
 
-    await act(async () => {
+    act(() => {
       composerRef.current?.focus();
-      await Promise.resolve();
     });
 
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
@@ -2509,7 +2483,7 @@ describe("IssueChatThread", () => {
     });
   });
 
-  it("restores a cancelled queued draft into the composer handle", async () => {
+  it("restores a cancelled queued draft into the composer handle", () => {
     const root = createRoot(container);
     const composerRef = createRef<{ focus: () => void; restoreDraft: (submittedBody: string) => void }>();
     const scrollByMock = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
@@ -2539,13 +2513,11 @@ describe("IssueChatThread", () => {
     const editor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
     expect(editor).not.toBeNull();
 
-    await act(async () => {
+    act(() => {
       composerRef.current?.restoreDraft("Queued message");
-      await Promise.resolve();
     });
 
-    const restoredEditor = container.querySelector('textarea[aria-label="Issue chat editor"]') as HTMLTextAreaElement | null;
-    expect(restoredEditor?.value).toBe("Queued message");
+    expect(editor?.value).toBe("Queued message");
     expect(markdownEditorFocusMock).toHaveBeenCalledTimes(1);
     expect(scrollByMock).toHaveBeenCalledWith({ top: 96, behavior: "smooth" });
 

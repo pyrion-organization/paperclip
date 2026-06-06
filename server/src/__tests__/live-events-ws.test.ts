@@ -78,4 +78,26 @@ describe("setupLiveEventsWebSocketServer", () => {
     expect(socket.destroy).not.toHaveBeenCalled();
     (wss as any).emit("close");
   });
+
+  it("rejects malformed websocket upgrade urls without throwing", () => {
+    const server = new EventEmitter();
+    const socket = {
+      destroy: vi.fn(),
+      write: vi.fn(),
+    } as unknown as Duplex;
+    const req = {
+      url: "http://[",
+      headers: {},
+    } as IncomingMessage;
+
+    const wss = setupLiveEventsWebSocketServer(server as any, {} as any, {
+      deploymentMode: "local_trusted",
+    });
+
+    expect(() => server.emit("upgrade", req, socket, Buffer.alloc(0))).not.toThrow();
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining("400 Bad Request"));
+    expect(socket.destroy).toHaveBeenCalled();
+    (wss as any).emit("close");
+  });
 });

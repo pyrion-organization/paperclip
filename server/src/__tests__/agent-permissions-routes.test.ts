@@ -46,6 +46,9 @@ const mockAgentService = vi.hoisted(() => ({
   update: vi.fn(),
   updatePermissions: vi.fn(),
   getChainOfCommand: vi.fn(),
+  listConfigRevisions: vi.fn(),
+  getConfigRevision: vi.fn(),
+  rollbackConfigRevision: vi.fn(),
   resolveByReference: vi.fn(),
 }));
 
@@ -73,6 +76,11 @@ const mockHeartbeatService = vi.hoisted(() => ({
   resetRuntimeSession: vi.fn(),
   getRun: vi.fn(),
   cancelRun: vi.fn(),
+  wakeup: vi.fn(),
+}));
+
+const mockRecoveryService = vi.hoisted(() => ({
+  recordWatchdogDecision: vi.fn(),
 }));
 
 const mockIssueApprovalService = vi.hoisted(() => ({
@@ -86,6 +94,7 @@ const mockIssueService = vi.hoisted(() => ({
 const mockSecretService = vi.hoisted(() => ({
   normalizeAdapterConfigForPersistence: vi.fn(),
   resolveAdapterConfigForRuntime: vi.fn(),
+  syncEnvBindingsForTarget: vi.fn(),
 }));
 
 const mockAgentInstructionsService = vi.hoisted(() => ({
@@ -151,6 +160,10 @@ function registerModuleMocks() {
     heartbeatService: () => mockHeartbeatService,
   }));
 
+  vi.doMock("../services/recovery/service.js", () => ({
+    recoveryService: () => mockRecoveryService,
+  }));
+
   vi.doMock("../services/issue-approvals.js", () => ({
     issueApprovalService: () => mockIssueApprovalService,
   }));
@@ -203,7 +216,19 @@ function registerModuleMocks() {
   }));
 }
 
-function createDbStub(options: { requireBoardApprovalForNewAgents?: boolean } = {}) {
+function createDbStub(options: {
+  requireBoardApprovalForNewAgents?: boolean;
+  schedulerRows?: Array<Record<string, unknown>>;
+} = {}) {
+  if (options.schedulerRows) {
+    return {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockResolvedValue(options.schedulerRows),
+      }),
+    };
+  }
   return {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -221,7 +246,10 @@ function createDbStub(options: { requireBoardApprovalForNewAgents?: boolean } = 
   };
 }
 
-async function createApp(actor: Record<string, unknown>, dbOptions: { requireBoardApprovalForNewAgents?: boolean } = {}) {
+async function createApp(actor: Record<string, unknown>, dbOptions: {
+  requireBoardApprovalForNewAgents?: boolean;
+  schedulerRows?: Array<Record<string, unknown>>;
+} = {}) {
   const [{ errorHandler }, { agentRoutes }] = await Promise.all([
     import("../middleware/index.js") as Promise<typeof import("../middleware/index.js")>,
     import("../routes/agents.js") as Promise<typeof import("../routes/agents.js")>,
@@ -284,6 +312,7 @@ describe.sequential("agent permission routes", () => {
     vi.doUnmock("../services/instance-settings.js");
     vi.doUnmock("../services/issue-approvals.js");
     vi.doUnmock("../services/issues.js");
+    vi.doUnmock("../services/recovery/service.js");
     vi.doUnmock("../services/secrets.js");
     vi.doUnmock("../services/environments.js");
     vi.doUnmock("../services/workspace-operations.js");
@@ -301,6 +330,9 @@ describe.sequential("agent permission routes", () => {
     mockAgentService.update.mockReset();
     mockAgentService.updatePermissions.mockReset();
     mockAgentService.getChainOfCommand.mockReset();
+    mockAgentService.listConfigRevisions.mockReset();
+    mockAgentService.getConfigRevision.mockReset();
+    mockAgentService.rollbackConfigRevision.mockReset();
     mockAgentService.resolveByReference.mockReset();
     mockAccessService.canUser.mockReset();
     mockAccessService.decide.mockReset();
@@ -316,10 +348,13 @@ describe.sequential("agent permission routes", () => {
     mockHeartbeatService.resetRuntimeSession.mockReset();
     mockHeartbeatService.getRun.mockReset();
     mockHeartbeatService.cancelRun.mockReset();
+    mockHeartbeatService.wakeup.mockReset();
+    mockRecoveryService.recordWatchdogDecision.mockReset();
     mockIssueApprovalService.linkManyForApproval.mockReset();
     mockIssueService.list.mockReset();
     mockSecretService.normalizeAdapterConfigForPersistence.mockReset();
     mockSecretService.resolveAdapterConfigForRuntime.mockReset();
+    mockSecretService.syncEnvBindingsForTarget.mockReset();
     mockAgentInstructionsService.materializeManagedBundle.mockReset();
     mockCompanySkillService.listRuntimeSkillEntries.mockReset();
     mockCompanySkillService.resolveRequestedSkillKeys.mockReset();
@@ -343,6 +378,9 @@ describe.sequential("agent permission routes", () => {
     });
     mockAgentService.update.mockResolvedValue(baseAgent);
     mockAgentService.updatePermissions.mockResolvedValue(baseAgent);
+    mockAgentService.listConfigRevisions.mockResolvedValue([]);
+    mockAgentService.getConfigRevision.mockResolvedValue(null);
+    mockAgentService.rollbackConfigRevision.mockResolvedValue(baseAgent);
     mockAccessService.canUser.mockResolvedValue(true);
     mockAccessService.decide.mockImplementation(async (input: { action?: string }) => {
       const allowed = Boolean(await mockAccessService.canUser());
@@ -386,8 +424,19 @@ describe.sequential("agent permission routes", () => {
     mockCompanySkillService.resolveRequestedSkillKeys.mockImplementation(
       async (_companyId: string, requested: string[]) => requested,
     );
+    mockHeartbeatService.getRun.mockResolvedValue({
+      id: "run-1",
+      companyId,
+      agentId,
+    });
+    mockRecoveryService.recordWatchdogDecision.mockResolvedValue({
+      id: "decision-1",
+      heartbeatRunId: "run-1",
+      decision: "snooze",
+    });
     mockSecretService.normalizeAdapterConfigForPersistence.mockImplementation(async (_companyId, config) => config);
     mockSecretService.resolveAdapterConfigForRuntime.mockImplementation(async (_companyId, config) => ({ config }));
+    mockSecretService.syncEnvBindingsForTarget.mockResolvedValue(undefined);
     mockInstanceSettingsService.getGeneral.mockResolvedValue({
       censorUsernameInLogs: false,
     });
@@ -671,6 +720,52 @@ describe.sequential("agent permission routes", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("syncs agent env secret bindings after rolling back a config revision", async () => {
+    const rolledBackAgent = {
+      ...baseAgent,
+      adapterConfig: {
+        env: {
+          OPENAI_API_KEY: {
+            type: "secret_ref",
+            secretId: "33333333-3333-4333-8333-333333333333",
+            version: "latest",
+          },
+        },
+      },
+    };
+    mockAgentService.rollbackConfigRevision.mockResolvedValue(rolledBackAgent);
+
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/agents/${agentId}/config-revisions/revision-1/rollback`)
+      .send({}));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.rollbackConfigRevision).toHaveBeenCalledWith(
+      agentId,
+      "revision-1",
+      { agentId: null, userId: "board-user" },
+    );
+    expect(mockSecretService.syncEnvBindingsForTarget).toHaveBeenCalledWith(
+      companyId,
+      { targetType: "agent", targetId: agentId },
+      rolledBackAgent.adapterConfig.env,
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: "agent.config_rolled_back",
+      entityType: "agent",
+      entityId: agentId,
+      details: { revisionId: "revision-1" },
+    }));
   });
 
   it("blocks agent-authenticated self-updates that set instructions bundle roots", async () => {
@@ -1460,5 +1555,199 @@ describe.sequential("agent permission routes", () => {
 
     expect(res.status).toBe(403);
     expect(mockHeartbeatService.cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("records authorized board watchdog snooze decisions", async () => {
+    const snoozedUntil = new Date(Date.now() + 60_000).toISOString();
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({
+        decision: "snooze",
+        evaluationIssueId: "issue-1",
+        reason: "Needs more time",
+        snoozedUntil,
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockRecoveryService.recordWatchdogDecision).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      actor: expect.objectContaining({ type: "board", userId: "board-user" }),
+      decision: "snooze",
+      evaluationIssueId: "issue-1",
+      reason: "Needs more time",
+      snoozedUntil: new Date(snoozedUntil),
+      createdByRunId: null,
+    }));
+  });
+
+  it("rejects unsupported watchdog decisions before recording", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "retry" }));
+
+    expect(res.status).toBe(400);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects watchdog snoozes without a future datetime", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "snooze", snoozedUntil: "2020-01-01T00:00:00.000Z" }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("future ISO datetime");
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for watchdog decisions on missing heartbeat runs", async () => {
+    mockHeartbeatService.getRun.mockResolvedValueOnce(null);
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/missing-run/watchdog-decisions")
+      .send({ decision: "continue" }));
+
+    expect(res.status).toBe(404);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects watchdog decisions outside the caller company scope", async () => {
+    mockHeartbeatService.getRun.mockResolvedValueOnce({
+      id: "run-1",
+      companyId: "33333333-3333-4333-8333-333333333333",
+      agentId,
+    });
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post("/api/heartbeat-runs/run-1/watchdog-decisions")
+      .send({ decision: "continue" }));
+
+    expect(res.status).toBe(403);
+    expect(mockRecoveryService.recordWatchdogDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects scheduler heartbeat inventory for non-instance-admin boards", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    }, { schedulerRows: [] });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/instance/scheduler-heartbeats"));
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns sorted active scheduler heartbeat inventory for instance admins", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "admin-user",
+      source: "session",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    }, {
+      schedulerRows: [
+        {
+          id: "agent-disabled",
+          companyId,
+          agentName: "Disabled",
+          role: "engineer",
+          title: null,
+          status: "idle",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: false, intervalSec: 60 } },
+          lastHeartbeatAt: null,
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+        {
+          id: "agent-paused",
+          companyId,
+          agentName: "Paused",
+          role: "engineer",
+          title: null,
+          status: "paused",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60 } },
+          lastHeartbeatAt: null,
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+        {
+          id: "agent-active",
+          companyId,
+          agentName: "Active",
+          role: "engineer",
+          title: "Builder",
+          status: "idle",
+          adapterType: "codex_local",
+          runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60 } },
+          lastHeartbeatAt: new Date("2026-03-20T00:00:00.000Z"),
+          companyName: "Paperclip",
+          companyIssuePrefix: "PAP",
+        },
+      ],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get("/api/instance/scheduler-heartbeats"));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.map((item: { id: string }) => item.id)).toEqual(["agent-active", "agent-disabled"]);
+    expect(res.body[0]).toMatchObject({
+      id: "agent-active",
+      companyId,
+      companyName: "Paperclip",
+      companyIssuePrefix: "PAP",
+      agentName: "Active",
+      agentUrlKey: "active",
+      adapterType: "codex_local",
+      intervalSec: 60,
+      heartbeatEnabled: true,
+      schedulerActive: true,
+    });
+    expect(res.body[1]).toMatchObject({
+      id: "agent-disabled",
+      schedulerActive: false,
+      heartbeatEnabled: false,
+    });
   });
 });

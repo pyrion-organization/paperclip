@@ -40,7 +40,7 @@ import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } fr
 import { trackProjectCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
 import { projectFilesService, projectService, logActivity, workspaceOperationService, initWorkspaceGit } from "../services/index.js";
-import { conflict, notFound, forbidden } from "../errors.js";
+import { badRequest, conflict, notFound, forbidden } from "../errors.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
   buildWorkspaceRuntimeDesiredStatePatch,
@@ -68,6 +68,43 @@ import { secretService } from "../services/secrets.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
 const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
+const LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES = new Set(["local_path", "git_repo", "non_git_path"]);
+
+type WorkspaceGitInitCandidate = {
+  cwd?: string | null;
+  sourceType?: string | null;
+  remoteWorkspaceRef?: string | null;
+};
+
+function shouldAssignManagedProjectWorkspaceCwd(workspace: WorkspaceGitInitCandidate) {
+  if (workspace.cwd) return false;
+  if (workspace.sourceType === "remote_managed" || workspace.remoteWorkspaceRef) return false;
+  return !workspace.sourceType || LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES.has(workspace.sourceType);
+}
+
+function shouldInitializeProjectWorkspaceGit(workspace: WorkspaceGitInitCandidate) {
+  if (!workspace.cwd) return false;
+  if (workspace.sourceType === "remote_managed" || workspace.remoteWorkspaceRef) return false;
+  return !workspace.sourceType || LOCAL_PROJECT_WORKSPACE_SOURCE_TYPES.has(workspace.sourceType);
+}
+
+function readSingleQueryString(value: unknown, fieldName: string) {
+  if (typeof value !== "string") {
+    throw badRequest(`${fieldName} must be a single string`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw badRequest(`${fieldName} is required`);
+  }
+  return trimmed;
+}
+
+function readOptionalQueryBoolean(value: unknown, fieldName: string) {
+  if (value === undefined) return false;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw badRequest(`${fieldName} must be true or false`);
+}
 
 function deployEventStatusForCommandRecord(
   commandType: "deploy" | "rollback",
@@ -324,66 +361,81 @@ export function projectRoutes(db: Db) {
       );
     }
     let createdWorkspaceId: string | null = null;
-    if (workspace) {
-      const createdWorkspace = await svc.createWorkspace(project.id, workspace);
-      if (!createdWorkspace) {
-        await svc.remove(project.id);
-        res.status(422).json({ error: "Invalid project workspace payload" });
-        return;
-      }
-      const managedPath = resolveManagedProjectWorkspaceDir({
-        companyId,
-        projectId: project.id,
-        workspaceId: createdWorkspace.id,
-      });
-      const relocatedWorkspace = await svc.updateWorkspace(project.id, createdWorkspace.id, {
-        cwd: managedPath,
-        name: createdWorkspace.name,
-      });
-      if (!relocatedWorkspace) {
-        await svc.remove(project.id);
-        res.status(422).json({ error: "Failed to initialize project workspace" });
-        return;
-      }
-      createdWorkspaceId = createdWorkspace.id;
-    } else {
-      // Auto-create a default workspace pointing to the managed folder so every
-      // project has a local git repo, even if no workspace was explicitly provided.
-      const managedPath = resolveManagedProjectWorkspaceDir({ companyId, projectId: project.id });
-      const autoWorkspace = await svc.createWorkspace(project.id, {
-        name: project.name,
-        cwd: managedPath,
-        sourceType: "local_path",
-      });
-      if (autoWorkspace) {
-        const finalPath = resolveManagedProjectWorkspaceDir({
-          companyId,
-          projectId: project.id,
-          workspaceId: autoWorkspace.id,
-        });
-        const relocatedWorkspace = await svc.updateWorkspace(project.id, autoWorkspace.id, {
-          cwd: finalPath,
-          name: autoWorkspace.name,
-        });
-        if (!relocatedWorkspace) {
+    let shouldInitializeGit = false;
+    try {
+      if (workspace) {
+        let createdWorkspace = await svc.createWorkspace(project.id, workspace);
+        if (!createdWorkspace) {
           await svc.remove(project.id);
-          res.status(422).json({ error: "Failed to initialize project workspace" });
+          res.status(422).json({ error: "Invalid project workspace payload" });
           return;
         }
-        createdWorkspaceId = autoWorkspace.id;
+        if (shouldAssignManagedProjectWorkspaceCwd(createdWorkspace)) {
+          const managedPath = resolveManagedProjectWorkspaceDir({
+            companyId,
+            projectId: project.id,
+            workspaceId: createdWorkspace.id,
+          });
+          const relocatedWorkspace = await svc.updateWorkspace(project.id, createdWorkspace.id, {
+            cwd: managedPath,
+            name: createdWorkspace.name,
+          });
+          if (!relocatedWorkspace) {
+            await svc.remove(project.id);
+            res.status(422).json({ error: "Failed to initialize project workspace" });
+            return;
+          }
+          createdWorkspace = relocatedWorkspace;
+        }
+        createdWorkspaceId = createdWorkspace.id;
+        shouldInitializeGit = shouldInitializeProjectWorkspaceGit(createdWorkspace);
+      } else {
+        // Auto-create a default workspace pointing to the managed folder so every
+        // project has a local git repo, even if no workspace was explicitly provided.
+        const managedPath = resolveManagedProjectWorkspaceDir({ companyId, projectId: project.id });
+        const autoWorkspace = await svc.createWorkspace(project.id, {
+          name: project.name,
+          cwd: managedPath,
+          sourceType: "local_path",
+        });
+        if (autoWorkspace) {
+          const finalPath = resolveManagedProjectWorkspaceDir({
+            companyId,
+            projectId: project.id,
+            workspaceId: autoWorkspace.id,
+          });
+          const relocatedWorkspace = await svc.updateWorkspace(project.id, autoWorkspace.id, {
+            cwd: finalPath,
+            name: autoWorkspace.name,
+          });
+          if (!relocatedWorkspace) {
+            await svc.remove(project.id);
+            res.status(422).json({ error: "Failed to initialize project workspace" });
+            return;
+          }
+          createdWorkspaceId = autoWorkspace.id;
+          shouldInitializeGit = shouldInitializeProjectWorkspaceGit(relocatedWorkspace);
+        }
       }
+    } catch (err) {
+      await svc.remove(project.id);
+      console.error("[project-create] failed to initialize project workspace", err);
+      res.status(500).json({ error: "Failed to initialize project workspace" });
+      return;
     }
     const hydratedProject = await svc.getById(project.id);
 
     // Fire-and-forget: initialize (or clone) the git workspace without blocking the response.
     const projectId = project.id;
-    setImmediate(() => {
-      svc.getById(projectId).then((fullProject) => {
-        if (fullProject) return initWorkspaceGit(fullProject);
-      }).catch((err) => {
-        console.error("[git-init] workspace init failed for project", projectId, err);
+    if (shouldInitializeGit) {
+      setImmediate(() => {
+        svc.getById(projectId).then((fullProject) => {
+          if (fullProject) return initWorkspaceGit(fullProject);
+        }).catch((err) => {
+          console.error("[git-init] workspace init failed for project", projectId, err);
+        });
       });
-    });
+    }
 
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -682,6 +734,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const infraTargetId = req.params.infraTargetId as string;
+    if (!isUuidLike(infraTargetId)) {
+      throw badRequest("Invalid infrastructure target id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -766,6 +821,9 @@ export function projectRoutes(db: Db) {
       assertBoard(req);
       const id = req.params.id as string;
       const healthCheckId = req.params.healthCheckId as string;
+      if (!isUuidLike(healthCheckId)) {
+        throw badRequest("Invalid infrastructure health check id");
+      }
       const project = await svc.getById(id);
       if (!project) {
         res.status(404).json({ error: "Project not found" });
@@ -918,6 +976,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const healthCheckId = req.params.healthCheckId as string;
+    if (!isUuidLike(healthCheckId)) {
+      throw badRequest("Invalid infrastructure health check id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -950,6 +1011,9 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     const id = req.params.id as string;
     const healthCheckId = req.params.healthCheckId as string;
+    if (!isUuidLike(healthCheckId)) {
+      throw badRequest("Invalid infrastructure health check id");
+    }
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -2037,6 +2101,34 @@ export function projectRoutes(db: Db) {
       res.status(422).json({ error: "Invalid project workspace payload" });
       return;
     }
+    let responseWorkspace = workspace;
+    if (shouldAssignManagedProjectWorkspaceCwd(responseWorkspace)) {
+      const managedPath = resolveManagedProjectWorkspaceDir({
+        companyId: existing.companyId,
+        projectId: id,
+        workspaceId: responseWorkspace.id,
+      });
+      const relocatedWorkspace = await svc.updateWorkspace(id, responseWorkspace.id, {
+        cwd: managedPath,
+        name: responseWorkspace.name,
+      });
+      if (!relocatedWorkspace) {
+        res.status(422).json({ error: "Failed to initialize project workspace" });
+        return;
+      }
+      responseWorkspace = relocatedWorkspace;
+    }
+
+    const projectId = id;
+    if (shouldInitializeProjectWorkspaceGit(responseWorkspace)) {
+      setImmediate(() => {
+        svc.getById(projectId).then((fullProject) => {
+          if (fullProject) return initWorkspaceGit(fullProject);
+        }).catch((err) => {
+          console.error("[git-init] workspace init failed for project workspace", projectId, err);
+        });
+      });
+    }
 
     const actor = getActorInfo(req);
     await logActivity(db, {
@@ -2048,14 +2140,14 @@ export function projectRoutes(db: Db) {
       entityType: "project",
       entityId: id,
       details: {
-        workspaceId: workspace.id,
-        name: workspace.name,
-        cwd: workspace.cwd,
-        isPrimary: workspace.isPrimary,
+        workspaceId: responseWorkspace.id,
+        name: responseWorkspace.name,
+        cwd: responseWorkspace.cwd,
+        isPrimary: responseWorkspace.isPrimary,
       },
     });
 
-    res.status(201).json(workspace);
+    res.status(201).json(responseWorkspace);
   });
 
   router.patch(
@@ -2169,6 +2261,16 @@ export function projectRoutes(db: Db) {
       workspaceCommand?.kind === "service"
         ? workspaceCommand.serviceIndex
         : target.serviceIndex ?? null;
+    const selectedServiceName =
+      selectedRuntimeServiceId
+        ? null
+        : workspaceCommand?.kind === "service"
+          ? workspaceCommand.name
+          : selectedServiceIndex === null || selectedServiceIndex === undefined
+            ? null
+            : typeof configuredServices[selectedServiceIndex]?.name === "string"
+              ? configuredServices[selectedServiceIndex].name
+              : null;
     if (
       selectedServiceIndex !== undefined
       && selectedServiceIndex !== null
@@ -2269,6 +2371,7 @@ export function projectRoutes(db: Db) {
             db,
             projectWorkspaceId: workspace.id,
             runtimeServiceId: selectedRuntimeServiceId,
+            serviceName: selectedServiceName,
           });
         }
 
@@ -2624,12 +2727,8 @@ export function projectRoutes(db: Db) {
 
   router.delete("/projects/:id/files/branch", async (req, res) => {
     const id = req.params.id as string;
-    const name = req.query.name as string | undefined;
-    const force = req.query.force === "true";
-    if (!name) {
-      res.status(400).json({ error: "Branch name is required" });
-      return;
-    }
+    const name = readSingleQueryString(req.query.name, "Branch name");
+    const force = readOptionalQueryBoolean(req.query.force, "force");
     const project = await svc.getById(id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
@@ -2797,7 +2896,22 @@ export function projectRoutes(db: Db) {
     if (!Array.isArray(paths) || paths.length === 0) {
       res.status(400).json({ error: "paths array is required" }); return;
     }
-    const result = await filesSvc.unstageFiles(id, paths.map(String));
+    const pathStrings = paths.map(String);
+    const result = await filesSvc.unstageFiles(id, pathStrings);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.git_unstaged",
+      entityType: "project",
+      entityId: id,
+      details: {
+        pathCount: pathStrings.length,
+        paths: pathStrings.slice(0, 50),
+      },
+    });
     res.json(result);
   });
 
@@ -2849,6 +2963,17 @@ export function projectRoutes(db: Db) {
     assertBoard(req);
     assertCompanyAccess(req, project.companyId);
     const result = await filesSvc.pushFiles(id);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.git_pushed",
+      entityType: "project",
+      entityId: id,
+      details: { status: result.status, message: result.message ?? null },
+    });
     res.json(result);
   });
 

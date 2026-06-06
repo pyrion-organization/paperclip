@@ -306,6 +306,10 @@ export function usageRoutes(_db: Db) {
 
   router.get("/usage", async (req, res) => {
     assertBoard(req);
+    if (req.actor.source !== "local_implicit" && !req.actor.isInstanceAdmin) {
+      res.status(403).json({ error: "Instance admin access required" });
+      return;
+    }
     const [claude, codex] = await Promise.all([fetchClaudeUsage(), fetchCodexUsage()]);
     res.json({ providers: [claude, codex] });
   });

@@ -14,7 +14,11 @@ const mockAccessService = vi.hoisted(() => ({
 const mockCompanySkillService = vi.hoisted(() => ({
   importFromSource: vi.fn(),
   installFromCatalog: vi.fn(),
+  createLocalSkill: vi.fn(),
   deleteSkill: vi.fn(),
+  auditSkill: vi.fn(),
+  getById: vi.fn(),
+  resetSkill: vi.fn(),
 }));
 
 const mockCatalogService = vi.hoisted(() => ({
@@ -76,7 +80,10 @@ async function createApp(actor: Record<string, unknown>) {
     (req as any).actor = actor;
     next();
   });
-  app.use("/api", companySkillRoutes({} as any));
+  const db = {
+    transaction: vi.fn(async (callback) => callback(db)),
+  };
+  app.use("/api", companySkillRoutes(db as any));
   app.use(errorHandler);
   return app;
 }
@@ -147,10 +154,60 @@ describe("company skill mutation permissions", () => {
       },
       warnings: [],
     });
+    mockCompanySkillService.createLocalSkill.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      key: "local/review",
+      slug: "review",
+      name: "Review",
+      description: "Review code",
+      markdown: "# Review",
+      sourceType: "local",
+      sourceLocator: null,
+      sourceRef: null,
+      trustLevel: "trusted",
+      compatibility: "compatible",
+      fileInventory: [],
+      metadata: {},
+      createdAt: new Date("2026-05-26T00:00:00.000Z"),
+      updatedAt: new Date("2026-05-26T00:00:00.000Z"),
+    });
     mockCompanySkillService.deleteSkill.mockResolvedValue({
       id: "skill-1",
       slug: "find-skills",
       name: "Find Skills",
+    });
+    mockCompanySkillService.auditSkill.mockResolvedValue({
+      id: "skill-1",
+      verdict: "pass",
+      codes: ["metadata.ok"],
+      installedHash: "sha256:installed",
+      originHash: "sha256:origin",
+      scanVersion: "2026-06-04",
+    });
+    mockCompanySkillService.getById.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      slug: "review",
+      name: "Review",
+      sourceRef: "sha256:old",
+      metadata: {
+        originHash: "sha256:old",
+        originVersion: "1.0.0",
+        userModifiedAt: "2026-05-26T00:00:00.000Z",
+      },
+    });
+    mockCompanySkillService.resetSkill.mockResolvedValue({
+      id: "skill-1",
+      companyId: "company-1",
+      slug: "review",
+      name: "Review",
+      sourceRef: "sha256:new",
+      metadata: {
+        originHash: "sha256:new",
+        originVersion: "1.0.1",
+        auditVerdict: "pass",
+      },
     });
     mockCatalogService.listCatalogSkills.mockReturnValue([]);
     mockCatalogService.getCatalogSkillOrThrow.mockReturnValue({
@@ -357,6 +414,65 @@ describe("company skill mutation permissions", () => {
     });
   });
 
+  it("creates a local company skill and logs the create activity", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills")
+      .send({
+        name: "Review",
+        slug: "review",
+        description: "Review code",
+        markdown: "# Review",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockCompanySkillService.createLocalSkill).toHaveBeenCalledWith("company-1", {
+      name: "Review",
+      slug: "review",
+      description: "Review code",
+      markdown: "# Review",
+    });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_created",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          slug: "review",
+          name: "Review",
+        },
+      }),
+    );
+    expect(res.body).toMatchObject({
+      id: "skill-1",
+      slug: "review",
+      name: "Review",
+    });
+  });
+
+  it("rejects invalid local company skill create payloads before service access", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills")
+      .send({ name: "" });
+
+    expect(res.status).toBe(400);
+    expect(mockCompanySkillService.createLocalSkill).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
   it("does not expose a skill reference for non-public skill imports", async () => {
     mockCompanySkillService.importFromSource.mockResolvedValue({
       imported: [
@@ -510,6 +626,36 @@ describe("company skill mutation permissions", () => {
     );
   });
 
+  it("resets a company skill and logs the origin change", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/reset")
+      .send({ force: true });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.resetSkill).toHaveBeenCalledWith("company-1", "skill-1", { force: true });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_reset",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: expect.objectContaining({
+          previousOriginHash: "sha256:old",
+          newOriginHash: "sha256:new",
+          driftDetected: true,
+          force: true,
+        }),
+      }),
+    );
+  });
+
   it("returns a blocking error when attempting to delete a skill still used by agents", async () => {
     const { unprocessable } = await import("../errors.js");
     mockCompanySkillService.deleteSkill.mockImplementationOnce(async () => {
@@ -533,5 +679,96 @@ describe("company skill mutation permissions", () => {
     });
     expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
     expect(mockLogActivity).not.toHaveBeenCalled();
+  });
+
+  it("deletes a company skill and logs the delete in the same mutation path", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .delete("/api/companies/company-1/skills/skill-1");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_deleted",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          slug: "find-skills",
+          name: "Find Skills",
+        },
+      }),
+    );
+  });
+
+  it("reports delete failure if skill deletion activity logging fails", async () => {
+    mockLogActivity.mockRejectedValueOnce(new Error("activity log failed"));
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .delete("/api/companies/company-1/skills/skill-1");
+
+    expect(res.status).toBe(500);
+    expect(mockCompanySkillService.deleteSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalled();
+  });
+
+  it("audits a company skill and logs the audit in the same mutation path", async () => {
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/audit");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockCompanySkillService.auditSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId: "company-1",
+        action: "company.skill_audited",
+        entityType: "company_skill",
+        entityId: "skill-1",
+        details: {
+          verdict: "pass",
+          codes: ["metadata.ok"],
+          installedHash: "sha256:installed",
+          originHash: "sha256:origin",
+          scanVersion: "2026-06-04",
+        },
+      }),
+    );
+  });
+
+  it("reports audit failure if skill audit activity logging fails", async () => {
+    mockLogActivity.mockRejectedValueOnce(new Error("activity log failed"));
+
+    const res = await request(await createApp({
+      type: "board",
+      userId: "local-board",
+      companyIds: ["company-1"],
+      source: "local_implicit",
+      isInstanceAdmin: false,
+    }))
+      .post("/api/companies/company-1/skills/skill-1/audit");
+
+    expect(res.status).toBe(500);
+    expect(mockCompanySkillService.auditSkill).toHaveBeenCalledWith("company-1", "skill-1");
+    expect(mockLogActivity).toHaveBeenCalled();
   });
 });

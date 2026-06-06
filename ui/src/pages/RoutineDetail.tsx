@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1248,6 +1248,22 @@ export function RoutineDetail() {
   const currentAssignee = editDraft.assigneeAgentId ? agentById.get(editDraft.assigneeAgentId) ?? null : null;
   const currentProject = editDraft.projectId ? projectById.get(editDraft.projectId) ?? null : null;
 
+  // Stable callbacks so the memoized (heavy) MarkdownEditor doesn't re-render when an unrelated field
+  // (e.g. the title input) changes. Latest values are read through refs to keep identities stable.
+  const editDraftRef = useRef(editDraft);
+  editDraftRef.current = editDraft;
+  const saveRoutineRef = useRef(saveRoutine);
+  saveRoutineRef.current = saveRoutine;
+  const handleDescriptionChange = useCallback(
+    (description: string) => setEditDraft((current) => ({ ...current, description })),
+    [],
+  );
+  const handleDescriptionSubmit = useCallback(() => {
+    if (!saveRoutineRef.current.isPending && editDraftRef.current.title.trim()) {
+      saveRoutineRef.current.mutate();
+    }
+  }, []);
+
   if (!selectedCompanyId) {
     return <EmptyState icon={Repeat} message="Select a company to view routines." />;
   }
@@ -1546,16 +1562,12 @@ export function RoutineDetail() {
           <MarkdownEditor
             ref={descriptionEditorRef}
             value={editDraft.description}
-            onChange={(description) => setEditDraft((current) => ({ ...current, description }))}
+            onChange={handleDescriptionChange}
             placeholder="Add instructions..."
             bordered={false}
             contentClassName="min-h-[120px] text-[15px] leading-7"
             mentions={mentionOptions}
-            onSubmit={() => {
-              if (!saveRoutine.isPending && editDraft.title.trim()) {
-                saveRoutine.mutate();
-              }
-            }}
+            onSubmit={handleDescriptionSubmit}
           />
           <RoutineVariablesHint />
           <RoutineVariablesEditor

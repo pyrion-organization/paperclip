@@ -136,7 +136,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         };
 
         const withoutCurrent = prev.filter((toast) => toast.id !== id);
-        return [nextToast, ...withoutCurrent].slice(0, MAX_TOASTS);
+        const next = [nextToast, ...withoutCurrent];
+        for (const removed of next.slice(MAX_TOASTS)) {
+          clearTimer(removed.id);
+        }
+        return next.slice(0, MAX_TOASTS);
       });
 
       const timeout = window.setTimeout(() => {

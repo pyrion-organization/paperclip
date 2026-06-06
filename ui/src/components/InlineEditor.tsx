@@ -375,7 +375,7 @@ export function InlineEditor({
         }}
         onKeyDown={handleKeyDown}
         className={cn(
-          "w-full bg-transparent rounded outline-none resize-none overflow-hidden",
+          "w-full bg-transparent rounded text-foreground caret-foreground outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50",
           pad,
           className
         )}

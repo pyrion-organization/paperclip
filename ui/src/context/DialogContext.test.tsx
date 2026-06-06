@@ -23,7 +23,7 @@ describe("DialogContext", () => {
     function ActionOnlyConsumer() {
       actionRenderCount += 1;
       const { openNewIssue } = useDialogActions();
-      return <button onClick={() => openNewIssue()}>Open issue</button>;
+      return <button type="button" onClick={() => openNewIssue()}>Open issue</button>;
     }
 
     function StateConsumer() {

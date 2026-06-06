@@ -5648,11 +5648,12 @@ export function issueRoutes(
       return;
     }
     const includePayload = parseBooleanQuery(req.query.includePayload) || req.query.includePayload === undefined;
-    const trace = await feedback.getFeedbackTraceById(traceId, includePayload);
-    if (!trace || !actorCanAccessCompany(req, trace.companyId)) {
+    const traceMeta = await feedback.getFeedbackTraceMetadataById(traceId);
+    if (!traceMeta || !actorCanAccessCompany(req, traceMeta.companyId)) {
       res.status(404).json({ error: "Feedback trace not found" });
       return;
     }
+    const trace = includePayload ? await feedback.getFeedbackTraceById(traceId, true) : traceMeta;
     res.json(trace);
   });
 
@@ -5662,8 +5663,13 @@ export function issueRoutes(
       res.status(403).json({ error: "Only board users can view feedback trace bundles" });
       return;
     }
+    const traceMeta = await feedback.getFeedbackTraceMetadataById(traceId);
+    if (!traceMeta || !actorCanAccessCompany(req, traceMeta.companyId)) {
+      res.status(404).json({ error: "Feedback trace not found" });
+      return;
+    }
     const bundle = await feedback.getFeedbackTraceBundle(traceId);
-    if (!bundle || !actorCanAccessCompany(req, bundle.companyId)) {
+    if (!bundle) {
       res.status(404).json({ error: "Feedback trace not found" });
       return;
     }

@@ -207,6 +207,12 @@ describe.sequential("company portability routes", () => {
       companyId,
       role: id === ceoAgentId ? "ceo" : "engineer",
     }));
+    mockCompanyService.getById.mockResolvedValue({
+      id: companyId,
+      name: "Acme",
+      budgetMonthlyCents: null,
+    });
+    mockFeedbackService.listFeedbackTraces.mockResolvedValue([]);
     mockCompanyPortabilityService.exportBundle.mockResolvedValue(createExportResult());
     mockCompanyPortabilityService.previewExport.mockResolvedValue({
       rootPath: "paperclip",
@@ -223,6 +229,76 @@ describe.sequential("company portability routes", () => {
       agents: [],
       warnings: [],
     });
+  });
+
+  it.sequential("allows board and CEO agents to read company settings but rejects non-CEO agents", async () => {
+    const boardApp = await createApp({
+      type: "board",
+      userId: "user-1",
+      companyIds: [companyId],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+    const boardRes = await request(boardApp).get(`/api/companies/${companyId}`);
+    expect(boardRes.status, JSON.stringify(boardRes.body)).toBe(200);
+
+    const ceoApp = await createApp({
+      type: "agent",
+      agentId: ceoAgentId,
+      companyId,
+      source: "agent_key",
+      runId: "run-1",
+    });
+    const ceoRes = await request(ceoApp).get(`/api/companies/${companyId}`);
+    expect(ceoRes.status, JSON.stringify(ceoRes.body)).toBe(200);
+
+    const engineerApp = await createApp({
+      type: "agent",
+      agentId: engineerAgentId,
+      companyId,
+      source: "agent_key",
+      runId: "run-1",
+    });
+    const engineerRes = await request(engineerApp).get(`/api/companies/${companyId}`);
+    expect(engineerRes.status).toBe(403);
+  });
+
+  it.sequential("forwards parsed company feedback trace filters for board callers", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "user-1",
+      companyIds: [companyId],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await request(app)
+      .get(`/api/companies/${companyId}/feedback-traces`)
+      .query({
+        targetType: "issue_comment",
+        vote: "up",
+        status: "sent",
+        issueId: "issue-1",
+        projectId: "project-1",
+        sharedOnly: "true",
+        includePayload: "false",
+        from: "2026-06-01T00:00:00.000Z",
+        to: "2026-06-03T00:00:00.000Z",
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockFeedbackService.listFeedbackTraces).toHaveBeenCalledWith(expect.objectContaining({
+      companyId,
+      issueId: "issue-1",
+      projectId: "project-1",
+      targetType: "issue_comment",
+      vote: "up",
+      status: "sent",
+      sharedOnly: true,
+      includePayload: false,
+      from: new Date("2026-06-01T00:00:00.000Z"),
+      to: new Date("2026-06-03T00:00:00.000Z"),
+    }));
   });
 
   it.sequential("rejects non-CEO agents from CEO-safe export preview routes", async () => {
@@ -415,6 +491,29 @@ describe.sequential("company portability routes", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error).toContain("does not allow replace");
+    expect(mockCompanyPortabilityService.importBundle).not.toHaveBeenCalled();
+  });
+
+  it.sequential("rejects new-company targets on scoped safe import apply routes", async () => {
+    const app = await createApp({
+      type: "agent",
+      agentId: ceoAgentId,
+      companyId,
+      source: "agent_key",
+      runId: "run-1",
+    });
+
+    const res = await request(app)
+      .post(`/api/companies/${companyId}/imports/apply`)
+      .send({
+        source: { type: "inline", files: { "COMPANY.md": "---\nname: Test\n---\n" } },
+        include: { company: true, agents: true, projects: false, issues: false },
+        target: { mode: "new_company", newCompanyName: "Imported Test" },
+        collisionStrategy: "rename",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("route company");
     expect(mockCompanyPortabilityService.importBundle).not.toHaveBeenCalled();
   });
 

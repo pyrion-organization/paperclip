@@ -222,6 +222,32 @@ describe("environment routes", () => {
     });
   });
 
+  it("redacts environment config for same-company agents without management permission", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      id: "agent-1",
+      companyId: "company-1",
+      permissions: {},
+    });
+    mockAccessService.hasPermission.mockResolvedValue(false);
+    mockEnvironmentService.list.mockResolvedValue([createEnvironment()]);
+    const app = createApp({
+      type: "agent",
+      agentId: "agent-1",
+      companyId: "company-1",
+      runId: "run-1",
+    });
+
+    const res = await request(app).get("/api/companies/company-1/environments?driver=local");
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].config).toEqual({});
+    expect(mockEnvironmentService.list).toHaveBeenCalledWith("company-1", {
+      status: undefined,
+      driver: "local",
+    });
+  });
+
   it("returns provider capabilities for the company", async () => {
     const app = createApp({
       type: "board",

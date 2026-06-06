@@ -119,7 +119,7 @@ export async function claimBoardOwnership(
       for (const company of allCompanies) {
         claimedCompanyIds.push(company.id);
         const existing = await tx
-          .select({ id: companyMemberships.id, status: companyMemberships.status })
+          .select({ id: companyMemberships.id, status: companyMemberships.status, membershipRole: companyMemberships.membershipRole })
           .from(companyMemberships)
           .where(
             and(
@@ -141,7 +141,7 @@ export async function claimBoardOwnership(
           continue;
         }
 
-        if (existing.status !== "active") {
+        if (existing.status !== "active" || existing.membershipRole !== "owner") {
           await tx
             .update(companyMemberships)
             .set({ status: "active", membershipRole: "owner", updatedAt: new Date() })

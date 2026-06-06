@@ -27,6 +27,7 @@ import {
   registerServerAdapter,
   resolveExternalAdapterRegistration,
   unregisterServerAdapter,
+  hasBuiltinOverride,
   isOverridePaused,
   setOverridePaused,
 } from "../adapters/registry.js";
@@ -406,6 +407,11 @@ export function adapterRoutes() {
 
     if (!BUILTIN_ADAPTER_TYPES.has(adapterType)) {
       res.status(400).json({ error: `Type "${adapterType}" is not a builtin adapter.` });
+      return;
+    }
+
+    if (!hasBuiltinOverride(adapterType)) {
+      res.status(404).json({ error: `No external override is registered for "${adapterType}".` });
       return;
     }
 

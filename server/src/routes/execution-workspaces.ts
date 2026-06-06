@@ -10,6 +10,7 @@ import {
 } from "@paperclipai/shared";
 import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
+import { badRequest } from "../errors.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
 import { mergeExecutionWorkspaceConfig, readExecutionWorkspaceConfig } from "../services/execution-workspaces.js";
 import { parseProjectExecutionWorkspacePolicy } from "../services/execution-workspace-policy.js";
@@ -30,22 +31,37 @@ import {
 } from "./workspace-command-authz.js";
 import { assertCanManageExecutionWorkspaceRuntimeServices } from "./workspace-runtime-service-authz.js";
 import { appendWithCap } from "../adapters/utils.js";
+import { redactCurrentUserValue } from "../log-redaction.js";
+import { instanceSettingsService } from "../services/instance-settings.js";
 
 const WORKSPACE_CONTROL_OUTPUT_MAX_CHARS = 256 * 1024;
+
+function readOptionalStringQuery(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  throw badRequest(`Query parameter "${name}" must be a single string value`);
+}
 
 export function executionWorkspaceRoutes(db: Db) {
   const router = Router();
   const svc = executionWorkspaceService(db);
   const workspaceOperationsSvc = workspaceOperationService(db);
+  const instanceSettings = instanceSettingsService(db);
+
+  async function getCurrentUserRedactionOptions() {
+    return {
+      enabled: (await instanceSettings.getGeneral()).censorUsernameInLogs,
+    };
+  }
 
   router.get("/companies/:companyId/execution-workspaces", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const filters = {
-      projectId: req.query.projectId as string | undefined,
-      projectWorkspaceId: req.query.projectWorkspaceId as string | undefined,
-      issueId: req.query.issueId as string | undefined,
-      status: req.query.status as string | undefined,
+      projectId: readOptionalStringQuery(req.query.projectId, "projectId"),
+      projectWorkspaceId: readOptionalStringQuery(req.query.projectWorkspaceId, "projectWorkspaceId"),
+      issueId: readOptionalStringQuery(req.query.issueId, "issueId"),
+      status: readOptionalStringQuery(req.query.status, "status"),
       reuseEligible: req.query.reuseEligible === "true",
     };
     const workspaces = req.query.summary === "true"
@@ -90,7 +106,7 @@ export function executionWorkspaceRoutes(db: Db) {
     }
     assertCompanyAccess(req, workspace.companyId);
     const operations = await workspaceOperationsSvc.listForExecutionWorkspace(id);
-    res.json(operations);
+    res.json(redactCurrentUserValue(operations, await getCurrentUserRedactionOptions()));
   });
 
   async function handleExecutionWorkspaceRuntimeCommand(req: Request, res: Response) {
@@ -181,6 +197,16 @@ export function executionWorkspaceRoutes(db: Db) {
       workspaceCommand?.kind === "service"
         ? workspaceCommand.serviceIndex
         : target.serviceIndex ?? null;
+    const selectedServiceName =
+      selectedRuntimeServiceId
+        ? null
+        : workspaceCommand?.kind === "service"
+          ? workspaceCommand.name
+          : selectedServiceIndex === null || selectedServiceIndex === undefined
+            ? null
+            : typeof configuredServices[selectedServiceIndex]?.name === "string"
+              ? configuredServices[selectedServiceIndex].name
+              : null;
     if (
       selectedServiceIndex !== undefined
       && selectedServiceIndex !== null
@@ -325,6 +351,7 @@ export function executionWorkspaceRoutes(db: Db) {
             executionWorkspaceId: existing.id,
             workspaceCwd,
             runtimeServiceId: selectedRuntimeServiceId,
+            serviceName: selectedServiceName,
           });
         }
 
